@@ -5,8 +5,13 @@
 
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
-pydantic==2.8.0
-pydantic-settings==2.4.0
+# pydantic/pydantic-settings are left unpinned on the patch/minor level
+# (>=, not ==) because pydantic-core is a compiled Rust extension: an old
+# exact pin has no prebuilt wheel for newer Python versions (e.g. 3.14 on
+# Windows) and falls back to a from-source build requiring a Rust+MSVC
+# toolchain. Letting pip resolve the latest 2.x avoids that entirely.
+pydantic>=2.9,<3
+pydantic-settings>=2.5,<3
 python-dotenv==1.0.1
 httpx==0.27.0
 pyyaml==6.0.2
