@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +17,24 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     ollama_host: str = "http://127.0.0.1:11434"
+
+    @field_validator("ollama_host")
+    @classmethod
+    def _ollama_host_must_have_scheme(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError(
+                "OLLAMA_HOST is empty. Check your .env file — this usually "
+                "means the OLLAMA_HOST=http://127.0.0.1:11434 line got lost "
+                "or corrupted while editing (e.g. saved with the wrong "
+                "encoding). Compare against .env.example."
+            )
+        if not (value.startswith("http://") or value.startswith("https://")):
+            raise ValueError(
+                f"OLLAMA_HOST={value!r} is missing 'http://' or 'https://'. "
+                "It should look like OLLAMA_HOST=http://127.0.0.1:11434"
+            )
+        return value
     ollama_keep_alive: str = "10m"
 
     backend_host: str = "0.0.0.0"
