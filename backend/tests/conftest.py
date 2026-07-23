@@ -81,4 +81,5 @@ def client(monkeypatch, fake_ollama_client, models_config) -> TestClient:
     monkeypatch.setattr("backend.api.routes.chat.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.system.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.security.get_agent_registry", lambda: registry)
+    monkeypatch.setattr("backend.api.routes.files.get_agent_registry", lambda: registry)
     return TestClient(main_module.app)

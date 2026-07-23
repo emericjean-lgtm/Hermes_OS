@@ -26,7 +26,7 @@ agents:
     description: Fast intent classification / routing pre-pass.
 
   atlas:
-    enabled: false
+    enabled: true
     role: code
     module: backend.agents.atlas
     class_name: AtlasAgent
