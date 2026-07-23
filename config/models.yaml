@@ -1,0 +1,115 @@
+# Model catalogue and routing configuration for Hermes Ollama.
+#
+# This file is the single source of truth for which Ollama model tag is used
+# for which role. Nothing in backend code should hardcode a model name —
+# always resolve it through this file (see backend/core/router.py).
+#
+# Sizes/VRAM figures are indicative (Q4 quantization, RX 6800 16 GB target).
+# Verify actual tag availability with `ollama show <model>` before pulling.
+
+roles:
+  swift:
+    model: qwen3:1.7b
+    tier: turbo
+    vram_gb: 1.5
+    description: Ultra-fast routing and classification. Kept loaded at all times.
+
+  standard:
+    model: qwen3:8b
+    tier: standard
+    vram_gb: 5.5
+    description: General conversation, writing, extraction.
+
+  orchestrator:
+    model: qwen3:14b
+    tier: quality
+    vram_gb: 9
+    description: Planning, decomposition, orchestration (Hermes Prime).
+
+  code:
+    model: qwen3-coder:30b
+    tier: quality
+    vram_gb: 13
+    description: Code analysis, generation, refactoring (MoE, ~3B active params).
+
+  code_agentic:
+    model: devstral
+    tier: quality
+    vram_gb: 14
+    description: Agentic coding fallback, trained for autonomous file editing.
+
+  reasoning:
+    model: deepseek-r1:14b
+    tier: quality
+    vram_gb: 9
+    description: Chain-of-thought reasoning, verification (Veritas).
+
+  reasoning_escalation:
+    model: deepseek-r1:32b
+    tier: powerful
+    vram_gb: 16
+    ram_offload_gb: 8
+    description: Deep reasoning escalation, offload expected.
+
+  vision:
+    model: gemma3:12b
+    tier: quality
+    vram_gb: 9
+    description: Multimodal image/screenshot analysis (Hermes Eyes).
+
+  security:
+    model: phi4:14b
+    tier: quality
+    vram_gb: 9
+    description: Structured logical analysis, permission audit (Aegis).
+
+  embedding:
+    model: nomic-embed-text
+    tier: turbo
+    vram_gb: 0.3
+    description: Text embeddings for RAG. Kept loaded at all times.
+
+  double_check:
+    model: qwen3:4b
+    tier: turbo
+    vram_gb: 3
+    description: Cheap parallel verification pass.
+
+  advanced_analysis:
+    model: gpt-oss:20b
+    tier: powerful
+    vram_gb: 14
+    description: Rare escalation for strategic/complex analysis.
+
+# Routing matrix: task_type -> ordered candidate roles (first = default).
+# The router walks this list and picks the first role whose model is
+# already loaded or fits in currently available VRAM.
+routing:
+  conversation: [standard, swift, orchestrator]
+  classification: [swift]
+  writing: [standard, orchestrator]
+  summary_short: [swift, standard]
+  summary_long: [standard, orchestrator]
+  code_analysis: [code, standard]
+  code_generation: [code, code_agentic]
+  code_refactor: [code, reasoning]
+  reasoning: [reasoning, orchestrator, reasoning_escalation]
+  extraction: [standard, swift]
+  research: [standard, orchestrator]
+  planning: [orchestrator, standard]
+  verification: [reasoning, security, reasoning_escalation]
+  embedding: [embedding]
+  rephrase: [standard, swift]
+  vision: [vision]
+
+# Generation parameters by context sensitivity (see cahier des charges §22.2).
+generation_defaults:
+  critical:
+    temperature: 0.2
+    top_p: 0.9
+  standard:
+    temperature: 0.6
+    top_p: 0.95
+  creative:
+    temperature: 0.85
+    top_p: 0.95

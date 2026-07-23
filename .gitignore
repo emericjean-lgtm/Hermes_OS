@@ -1,0 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets / local config
+.env
+
+# Node / frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Runtime data (SQLite, ChromaDB, logs, snapshots)
+data/db/*
+data/logs/*
+data/snapshots/*
+!data/db/.gitkeep
+!data/logs/.gitkeep
+!data/snapshots/.gitkeep
+
+# OS
+.DS_Store

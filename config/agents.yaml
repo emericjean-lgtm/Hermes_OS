@@ -1,0 +1,90 @@
+# Agent registry for Hermes Ollama.
+#
+# Every agent Hermes can dispatch to is declared here, even before its
+# implementation exists. `enabled: false` means the agent is defined for
+# forward-compatibility but has no working implementation yet — the agent
+# registry loader will skip it instead of failing.
+#
+# Adding a new agent later should be primarily a config change here plus
+# one new class under backend/agents/, not a refactor of the orchestrator.
+
+agents:
+  hermes_prime:
+    enabled: true
+    role: orchestrator
+    module: backend.agents.hermes_prime
+    class_name: HermesPrimeAgent
+    always_on: false
+    description: Orchestrator. Receives the user request, plans, delegates.
+
+  hermes_swift:
+    enabled: false
+    role: swift
+    module: backend.agents.hermes_swift
+    class_name: HermesSwiftAgent
+    always_on: true
+    description: Fast intent classification / routing pre-pass.
+
+  atlas:
+    enabled: false
+    role: code
+    module: backend.agents.atlas
+    class_name: AtlasAgent
+    always_on: false
+    description: Developer agent — analyzes, generates, refactors code.
+
+  minerva:
+    enabled: false
+    role: standard
+    module: backend.agents.minerva
+    class_name: MinervaAgent
+    always_on: false
+    description: Research & RAG agent over local documents.
+
+  hermes_scribe:
+    enabled: false
+    role: standard
+    module: backend.agents.hermes_scribe
+    class_name: HermesScribeAgent
+    always_on: false
+    description: Writing / documentation agent.
+
+  aegis:
+    enabled: false
+    role: security
+    module: backend.agents.aegis
+    class_name: AegisAgent
+    always_on: true
+    description: Security gate. Validates permissions before risky actions.
+
+  kronos:
+    enabled: false
+    role: orchestrator
+    module: backend.agents.kronos
+    class_name: KronosAgent
+    always_on: false
+    description: Planning and task prioritization.
+
+  hermes_eyes:
+    enabled: false
+    role: vision
+    module: backend.agents.hermes_eyes
+    class_name: HermesEyesAgent
+    always_on: false
+    description: Vision agent — image and screenshot analysis.
+
+  veritas:
+    enabled: false
+    role: reasoning
+    module: backend.agents.veritas
+    class_name: VeritasAgent
+    always_on: false
+    description: QA agent — reviews other agents' output.
+
+  echo:
+    enabled: false
+    role: embedding
+    module: backend.agents.echo
+    class_name: EchoAgent
+    always_on: true
+    description: Memory & skills agent — indexes and retrieves memory.
