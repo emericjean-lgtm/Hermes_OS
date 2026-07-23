@@ -1,21 +1,5 @@
 from __future__ import annotations
 
-import pytest
-from fastapi.testclient import TestClient
-
-import backend.main as main_module
-from backend.core.agent_registry import AgentRegistry
-from backend.core.router import ModelRouter
-
-
-@pytest.fixture
-def client(monkeypatch, fake_ollama_client, models_config) -> TestClient:
-    router = ModelRouter(models_config)
-    registry = AgentRegistry(fake_ollama_client, router, models_config)
-    monkeypatch.setattr("backend.api.routes.chat.get_agent_registry", lambda: registry)
-    monkeypatch.setattr("backend.api.routes.system.get_agent_registry", lambda: registry)
-    return TestClient(main_module.app)
-
 
 def test_chat_streams_response_and_exposes_routing_headers(client):
     response = client.post(

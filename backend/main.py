@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.routes import chat, system
+from backend.api.routes import chat, security, system
 from backend.core.config import get_settings
 
 
@@ -38,6 +38,7 @@ app.add_middleware(
 
 app.include_router(chat.router)
 app.include_router(system.router)
+app.include_router(security.router)
 
 
 @app.get("/health")

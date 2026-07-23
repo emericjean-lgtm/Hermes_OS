@@ -1,0 +1,78 @@
+# Aegis permission matrix — cahier des charges §17.
+#
+# One system-wide autonomy level (§13.2 / §26.3): "low" is the safe
+# default (everything mutating gets proposed for validation). Raising it
+# to "medium"/"high" lets non-mandatory mutating categories auto-allow —
+# but categories marked mandatory_validation are NEVER auto-allowed
+# regardless of autonomy level, matching the §17.3 list verbatim.
+autonomy_level: low
+
+action_categories:
+  # ── Read-only — never blocked by autonomy level, but still confined
+  # to ALLOWED_PATHS (§17.1: "accès limité aux dossiers autorisés"). ──
+  file_read:
+    mutating: false
+    path_based: true
+    mandatory_validation: false
+
+  # ── Mutating, path-based — gated by whitelist (hard) + autonomy (soft) ──
+  file_write:
+    mutating: true
+    path_based: true
+    mandatory_validation: false
+    min_autonomy_for_auto_allow: medium
+
+  file_delete:
+    mutating: true
+    path_based: true
+    mandatory_validation: true # §17.3: "suppression de fichiers"
+
+  secret_modification:
+    mutating: true
+    path_based: true
+    mandatory_validation: true # §17.3: "modification de secrets / .env"
+
+  # ── Git ──
+  git_operation:
+    mutating: true
+    path_based: false
+    mandatory_validation: false
+    min_autonomy_for_auto_allow: medium
+
+  git_critical:
+    mutating: true
+    path_based: false
+    mandatory_validation: true # §17.3: reset, force push, merge branche principale
+
+  # ── Infrastructure / system ──
+  deployment:
+    mutating: true
+    path_based: false
+    mandatory_validation: true
+
+  data_migration:
+    mutating: true
+    path_based: false
+    mandatory_validation: true
+
+  system_config:
+    mutating: true
+    path_based: false
+    mandatory_validation: true
+
+  system_command:
+    mutating: true
+    path_based: false
+    mandatory_validation: true # §17.1: commandes destructrices interdites par défaut
+
+  # ── Network ──
+  network_call:
+    mutating: true
+    path_based: false
+    mandatory_validation: false
+    min_autonomy_for_auto_allow: high
+
+  network_major:
+    mutating: true
+    path_based: false
+    mandatory_validation: true # §17.3: "actions réseau importantes"

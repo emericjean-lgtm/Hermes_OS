@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 
 
 class FakeOllamaClient:
@@ -55,3 +56,29 @@ def models_config() -> dict:
     repo_root = Path(__file__).resolve().parents[2]
     with (repo_root / "config" / "models.yaml").open(encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+@pytest.fixture
+def security_config() -> dict:
+    repo_root = Path(__file__).resolve().parents[2]
+    with (repo_root / "config" / "security.yaml").open(encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+@pytest.fixture
+def client(monkeypatch, fake_ollama_client, models_config) -> TestClient:
+    """TestClient wired to a real AgentRegistry (loading real config/*.yaml)
+    but with the fake Ollama client injected, so agents that do call
+    Ollama (chat agents) never hit the network, while agents that build
+    their own state from real config (e.g. AegisAgent from security.yaml)
+    behave exactly as they would in production."""
+    import backend.main as main_module
+    from backend.core.agent_registry import AgentRegistry
+    from backend.core.router import ModelRouter
+
+    router = ModelRouter(models_config)
+    registry = AgentRegistry(fake_ollama_client, router, models_config)
+    monkeypatch.setattr("backend.api.routes.chat.get_agent_registry", lambda: registry)
+    monkeypatch.setattr("backend.api.routes.system.get_agent_registry", lambda: registry)
+    monkeypatch.setattr("backend.api.routes.security.get_agent_registry", lambda: registry)
+    return TestClient(main_module.app)

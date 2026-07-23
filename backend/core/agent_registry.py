@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import importlib
 from functools import lru_cache
+from typing import Any
 
-from backend.agents.base_agent import BaseAgent
 from backend.connectors.ollama_client import OllamaClient, OllamaClientProtocol
 from backend.core.config import get_settings, load_agents_config, load_models_config
 from backend.core.router import ModelRouter
@@ -22,11 +22,17 @@ class AgentNotFoundError(KeyError):
 
 
 class AgentRegistry:
+    """Holds every enabled agent, uniformly constructed as
+    agent_cls(ollama_client, router, models_config). Not all agents are
+    chat agents (e.g. AegisAgent exposes evaluate(), not respond()) —
+    callers are expected to know which contract the agent they asked for
+    implements; this registry only handles lookup by key."""
+
     def __init__(self, ollama_client: OllamaClientProtocol, router: ModelRouter, models_config: dict) -> None:
         self._ollama = ollama_client
         self._router = router
         self._models_config = models_config
-        self._agents: dict[str, BaseAgent] = {}
+        self._agents: dict[str, Any] = {}
         self._load_enabled_agents()
 
     def _load_enabled_agents(self) -> None:
@@ -38,7 +44,7 @@ class AgentRegistry:
             agent_cls = getattr(module, spec["class_name"])
             self._agents[agent_key] = agent_cls(self._ollama, self._router, self._models_config)
 
-    def get(self, agent_key: str) -> BaseAgent:
+    def get(self, agent_key: str) -> Any:
         try:
             return self._agents[agent_key]
         except KeyError as exc:

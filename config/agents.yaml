@@ -50,7 +50,7 @@ agents:
     description: Writing / documentation agent.
 
   aegis:
-    enabled: false
+    enabled: true
     role: security
     module: backend.agents.aegis
     class_name: AegisAgent

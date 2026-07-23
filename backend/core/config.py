@@ -71,6 +71,7 @@ class Settings(BaseSettings):
 
     models_config_path: str = "./config/models.yaml"
     agents_config_path: str = "./config/agents.yaml"
+    security_config_path: str = "./config/security.yaml"
 
     @property
     def allowed_paths_list(self) -> list[str]:
@@ -101,3 +102,8 @@ def load_models_config() -> dict[str, Any]:
 @lru_cache
 def load_agents_config() -> dict[str, Any]:
     return _load_yaml(get_settings().agents_config_path)
+
+
+@lru_cache
+def load_security_config() -> dict[str, Any]:
+    return _load_yaml(get_settings().security_config_path)
