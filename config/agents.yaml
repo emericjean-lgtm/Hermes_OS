@@ -82,7 +82,7 @@ agents:
     description: QA agent — reviews other agents' output.
 
   echo:
-    enabled: false
+    enabled: true
     role: embedding
     module: backend.agents.echo
     class_name: EchoAgent

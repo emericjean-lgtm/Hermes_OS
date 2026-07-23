@@ -66,15 +66,25 @@ def security_config() -> dict:
 
 
 @pytest.fixture
-def client(monkeypatch, fake_ollama_client, models_config) -> TestClient:
+def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClient:
     """TestClient wired to a real AgentRegistry (loading real config/*.yaml)
     but with the fake Ollama client injected, so agents that do call
     Ollama (chat agents) never hit the network, while agents that build
     their own state from real config (e.g. AegisAgent from security.yaml)
-    behave exactly as they would in production."""
+    behave exactly as they would in production.
+
+    SQLITE_PATH/CHROMA_PATH are pointed at tmp_path and get_settings()'s
+    cache is cleared around the test: EchoAgent persists to real files on
+    construction (see agents/echo.py), and without this override every
+    test run would read/write the developer's actual data/db/ folder."""
     import backend.main as main_module
     from backend.core.agent_registry import AgentRegistry
+    from backend.core.config import get_settings
     from backend.core.router import ModelRouter
+
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
+    get_settings.cache_clear()
 
     router = ModelRouter(models_config)
     registry = AgentRegistry(fake_ollama_client, router, models_config)
@@ -82,4 +92,35 @@ def client(monkeypatch, fake_ollama_client, models_config) -> TestClient:
     monkeypatch.setattr("backend.api.routes.system.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.security.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.files.get_agent_registry", lambda: registry)
-    return TestClient(main_module.app)
+    monkeypatch.setattr("backend.api.routes.memory.get_agent_registry", lambda: registry)
+
+    try:
+        yield TestClient(main_module.app)
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.fixture
+def echo_agent(monkeypatch, fake_ollama_client, models_config, tmp_path):
+    """A real EchoAgent (real SQLite, real ChromaDB) isolated to tmp_path,
+    for tests that want to call it directly rather than through HTTP.
+    Only exercise the SQLite-backed methods (remember/list_memories/
+    forget) against this fixture — index_document/recall go through
+    EchoAgent's real OllamaEmbeddingFunction, which needs a live Ollama
+    server this sandbox doesn't have (see test_semantic.py for
+    ChromaDB-side coverage with a fake embedding function instead)."""
+    from backend.agents.echo import EchoAgent
+    from backend.core.config import get_settings
+    from backend.core.router import ModelRouter
+
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
+    get_settings.cache_clear()
+
+    router = ModelRouter(models_config)
+    agent = EchoAgent(fake_ollama_client, router, models_config)
+
+    try:
+        yield agent
+    finally:
+        get_settings.cache_clear()
