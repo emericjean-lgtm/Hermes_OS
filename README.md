@@ -43,8 +43,11 @@ pip install -r backend/requirements.txt
 cp .env.example .env
 # Edit .env: set ALLOWED_PATHS to your real project directories.
 
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn backend.main:app --reload --reload-dir backend --host 0.0.0.0 --port 8000
 ```
+
+`--reload-dir backend` keeps the auto-reloader from watching `frontend/node_modules`
+(otherwise every `pnpm install` triggers spurious restarts).
 
 Run the test suite (no GPU/Ollama required, uses a fake client):
 
