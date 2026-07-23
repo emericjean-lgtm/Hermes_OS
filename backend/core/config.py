@@ -16,25 +16,34 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    ollama_host: str = "http://127.0.0.1:11434"
+    # Deliberately NOT named OLLAMA_HOST: that name is Ollama's own env var
+    # for the *server's* bind address (format "host:port", no scheme — e.g.
+    # set by the Windows installer or by anyone exposing Ollama on the
+    # LAN). If both this app and Ollama read OLLAMA_HOST, whichever the OS
+    # environment has set for Ollama silently wins over .env (env vars
+    # outrank .env files in pydantic-settings), and the app tries to
+    # connect to a schemeless address. OLLAMA_API_URL avoids the collision.
+    ollama_api_url: str = "http://127.0.0.1:11434"
 
-    @field_validator("ollama_host")
+    @field_validator("ollama_api_url")
     @classmethod
-    def _ollama_host_must_have_scheme(cls, value: str) -> str:
+    def _ollama_api_url_must_have_scheme(cls, value: str) -> str:
         value = value.strip()
         if not value:
             raise ValueError(
-                "OLLAMA_HOST is empty. Check your .env file — this usually "
-                "means the OLLAMA_HOST=http://127.0.0.1:11434 line got lost "
-                "or corrupted while editing (e.g. saved with the wrong "
-                "encoding). Compare against .env.example."
+                "OLLAMA_API_URL is empty. Check your .env file — this "
+                "usually means the OLLAMA_API_URL=http://127.0.0.1:11434 "
+                "line got lost or corrupted while editing (e.g. saved with "
+                "the wrong encoding). Compare against .env.example."
             )
         if not (value.startswith("http://") or value.startswith("https://")):
             raise ValueError(
-                f"OLLAMA_HOST={value!r} is missing 'http://' or 'https://'. "
-                "It should look like OLLAMA_HOST=http://127.0.0.1:11434"
+                f"OLLAMA_API_URL={value!r} is missing 'http://' or "
+                "'https://'. It should look like "
+                "OLLAMA_API_URL=http://127.0.0.1:11434"
             )
         return value
+
     ollama_keep_alive: str = "10m"
 
     backend_host: str = "0.0.0.0"

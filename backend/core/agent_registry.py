@@ -54,6 +54,6 @@ class AgentRegistry:
 @lru_cache
 def get_agent_registry() -> AgentRegistry:
     settings = get_settings()
-    ollama_client = OllamaClient(settings.ollama_host, keep_alive=settings.ollama_keep_alive)
+    ollama_client = OllamaClient(settings.ollama_api_url, keep_alive=settings.ollama_keep_alive)
     router = ModelRouter(load_models_config())
     return AgentRegistry(ollama_client, router, load_models_config())
