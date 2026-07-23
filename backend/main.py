@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.routes import chat, files, memory, security, system
+from backend.api.routes import chat, files, memory, security, system, tasks
 from backend.core.config import get_settings
 
 
@@ -41,6 +41,7 @@ app.include_router(system.router)
 app.include_router(security.router)
 app.include_router(files.router)
 app.include_router(memory.router)
+app.include_router(tasks.router)
 
 
 @app.get("/health")

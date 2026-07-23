@@ -93,6 +93,7 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     monkeypatch.setattr("backend.api.routes.security.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.files.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.memory.get_agent_registry", lambda: registry)
+    monkeypatch.setattr("backend.api.routes.tasks.get_agent_registry", lambda: registry)
 
     try:
         yield TestClient(main_module.app)
@@ -119,6 +120,27 @@ def echo_agent(monkeypatch, fake_ollama_client, models_config, tmp_path):
 
     router = ModelRouter(models_config)
     agent = EchoAgent(fake_ollama_client, router, models_config)
+
+    try:
+        yield agent
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.fixture
+def kronos_agent(monkeypatch, fake_ollama_client, models_config, tmp_path):
+    """A real KronosAgent (real SQLite, same isolation pattern as
+    echo_agent) for tests that call it directly rather than through
+    HTTP. No live Ollama needed: task_manager is fully deterministic."""
+    from backend.agents.kronos import KronosAgent
+    from backend.core.config import get_settings
+    from backend.core.router import ModelRouter
+
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
+    get_settings.cache_clear()
+
+    router = ModelRouter(models_config)
+    agent = KronosAgent(fake_ollama_client, router, models_config)
 
     try:
         yield agent

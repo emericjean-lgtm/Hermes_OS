@@ -58,7 +58,7 @@ agents:
     description: Security gate. Validates permissions before risky actions.
 
   kronos:
-    enabled: false
+    enabled: true
     role: orchestrator
     module: backend.agents.kronos
     class_name: KronosAgent
