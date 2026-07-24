@@ -5,15 +5,19 @@ multi-agent backend. Full specification: **[CAHIER_DES_CHARGES_HERMES_OLLAMA.md]
 — read it first, it is the source of truth for scope, architecture, and
 target hardware (AMD RX 6800 16 GB / i5-13500 / 32 GB DDR5).
 
-## Current state: walking skeleton
+## Current state
 
-This repository currently implements the minimal end-to-end slice needed to
-build on top of: a config-driven model router, a mockable Ollama client, the
-Hermes Prime orchestrator agent, a streaming `/chat` API, and a minimal Chat
-page. Everything else in the cahier des charges (the other 9 agents, memory,
-tasks, workflows, Aegis, monitoring, HSE, Telegram...) is designed for but
-not yet implemented — see `config/agents.yaml` for the full agent roster
-declared with `enabled: false`.
+Built and tested so far: a config-driven model router, a mockable Ollama
+client, the Hermes Prime orchestrator agent, a streaming `/chat` API, a
+minimal Chat page, **Aegis** (deterministic security gate, `/security/evaluate`),
+**Atlas** (Aegis-gated file tools with diff + backup, `/files*`), **Echo**
+(SQLite long-term memory + ChromaDB documentary/RAG memory, `/memory*`),
+**Kronos** (task tracking with status/history, `/tasks*`), and an **MCP server**
+exposing Aegis/Atlas/Echo/Kronos as tools (see "Hermes Agent integration"
+below). 107 tests passing. Still not implemented: Minerva, Veritas, Hermes
+Scribe, Hermes Eyes, Hermes Swift, the message bus, workflows, HSE, GPU
+monitoring, Telegram — see `config/agents.yaml` for the full agent roster
+(`enabled: false` = not built yet).
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
 built and tested here entirely against a fake Ollama client (see
@@ -77,6 +81,38 @@ pnpm dev
 Open http://localhost:3000, type a message — it is routed through Hermes
 Prime and streamed back from whichever model `config/models.yaml` resolves
 for the `conversation` task type.
+
+## Hermes Agent integration
+
+[Hermes Agent](https://hermes-agent.nousresearch.com/) (NousResearch's
+open-source agent runtime — unrelated to this project's own name, which is
+thematic) is meant to replace `core/router.py` + `agents/hermes_prime.py` as
+the primary orchestrator: it decides which model to use and drives the
+conversation, while this backend's Aegis/Atlas/Echo/Kronos stay exactly as
+built and get called as **MCP tools** instead of via `/chat`.
+
+**On your machine** (this integration can't be installed or live-tested from
+a sandboxed session — `hermes-agent.nousresearch.com` is blocked by this
+environment's network policy; everything up to that install step has been
+built and tested here):
+
+```bash
+# 1. Install Hermes Agent
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+
+# 2. Point its model provider at your local Ollama
+hermes model
+# -> choose "Custom endpoint" -> http://127.0.0.1:11434/v1
+
+# 3. Connect it to this backend's MCP server (Aegis/Atlas/Echo/Kronos as tools)
+# Backend must be running: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+# Copy config/hermes_agent_mcp.example.yaml into Hermes Agent's mcp_servers config.
+```
+
+The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
+tools in `backend/mcp_server/server.py`) — verified end-to-end with the
+official `mcp` Python SDK client over the real streamable-HTTP protocol
+(15 tools: `security_evaluate`, `files_*`, `memory_*`, `tasks_*`).
 
 ## Adding a real agent
 

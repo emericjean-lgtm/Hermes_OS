@@ -1,0 +1,19 @@
+# Hermes Agent MCP server config — copy the relevant block into your
+# Hermes Agent config (see `hermes config` / its docs for the exact file
+# location) once Hermes Agent is installed on your machine.
+#
+# This points Hermes Agent at Hermes Ollama's backend so it can call
+# Aegis (security), Atlas (files), Echo (memory), and Kronos (tasks) as
+# tools. Requires the backend to be running (uvicorn backend.main:app).
+
+mcp_servers:
+  hermes-ollama:
+    url: "http://127.0.0.1:8000/mcp"
+    enabled: true
+    timeout: 120
+    connect_timeout: 60
+
+# Separately, point Hermes Agent's model provider at your local Ollama:
+#   hermes model
+#   -> choose "Custom endpoint"
+#   -> http://127.0.0.1:11434/v1

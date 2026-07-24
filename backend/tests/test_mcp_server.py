@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from backend.tests.conftest import open_mcp_session
+
+# These go through the real MCP wire protocol (initialize, list_tools,
+# call_tool) over an in-process ASGI transport — not a mocked shortcut.
+# memory_index/memory_search aren't covered here for the same reason as
+# elsewhere: they need a live Ollama server for embeddings.
+#
+# open_mcp_session is a plain async context manager (not a fixture) —
+# see its docstring in conftest.py for why: fixture teardown runs in a
+# different asyncio Task than setup, which breaks the anyio cancel scope
+# inside FastMCP's session manager. Called directly here, setup and
+# teardown share the test's own Task.
+
+pytestmark = pytest.mark.asyncio
+
+
+def _result(call_tool_result):
+    """Tools that return a bare dict (security_evaluate, files_apply,
+    memory_remember, tasks_create) have no output_schema, so FastMCP
+    puts their JSON straight in content[0].text. Anything else — list,
+    bool, str, dict | None — gets an auto-generated output_schema and
+    wrapped as structuredContent={"result": ...} instead; unwrap that."""
+    structured = call_tool_result.structuredContent
+    if structured is not None:
+        return structured["result"] if set(structured) == {"result"} else structured
+    return json.loads(call_tool_result.content[0].text)
+
+
+async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        tools = await session.list_tools()
+    names = {t.name for t in tools.tools}
+    assert names == {
+        "security_evaluate",
+        "files_list",
+        "files_read",
+        "files_diff",
+        "files_apply",
+        "memory_remember",
+        "memory_list",
+        "memory_forget",
+        "memory_index",
+        "memory_search",
+        "tasks_create",
+        "tasks_get",
+        "tasks_list",
+        "tasks_update",
+        "tasks_delete",
+    }
+
+
+async def test_security_evaluate_mandatory_category(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = await session.call_tool(
+            "security_evaluate",
+            {"action_type": "git_critical", "description": "force push to main"},
+        )
+    body = _result(result)
+    assert body["verdict"] == "require_human_validation"
+
+
+async def test_files_apply_denied_outside_whitelist(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = await session.call_tool(
+            "files_apply", {"path": "/definitely/not/allowed.txt", "new_content": "hi"}
+        )
+    body = _result(result)
+    assert body["applied"] is False
+    assert body["verdict"] == "deny"
+
+
+async def test_tasks_create_list_update_delete_roundtrip(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        created = _result(await session.call_tool("tasks_create", {"title": "MCP task"}))
+        assert created["status"] == "todo"
+
+        listed = _result(await session.call_tool("tasks_list", {}))
+        assert [t["title"] for t in listed] == ["MCP task"]
+
+        updated = _result(
+            await session.call_tool(
+                "tasks_update", {"task_id": created["id"], "status": "in_progress"}
+            )
+        )
+        assert updated["status"] == "in_progress"
+
+        deleted = _result(await session.call_tool("tasks_delete", {"task_id": created["id"]}))
+        assert deleted is True
+
+        listed_after = _result(await session.call_tool("tasks_list", {}))
+        assert listed_after == []
+
+
+async def test_memory_remember_list_forget_roundtrip(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        created = _result(
+            await session.call_tool(
+                "memory_remember", {"type": "preference", "content": "reply in French"}
+            )
+        )
+        assert created["content"] == "reply in French"
+
+        listed = _result(await session.call_tool("memory_list", {"type": "preference"}))
+        assert [m["content"] for m in listed] == ["reply in French"]
+
+        forgotten = _result(
+            await session.call_tool("memory_forget", {"memory_id": created["id"]})
+        )
+        assert forgotten is True

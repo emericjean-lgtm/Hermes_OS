@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -125,6 +126,75 @@ def echo_agent(monkeypatch, fake_ollama_client, models_config, tmp_path):
         yield agent
     finally:
         get_settings.cache_clear()
+
+
+@asynccontextmanager
+async def open_mcp_session(monkeypatch, tmp_path):
+    """A live MCP ClientSession talking to a freshly built app's mounted
+    /mcp server over an in-process ASGI transport (no real socket).
+
+    This is a plain async context manager, not a pytest fixture, on
+    purpose: it wraps an anyio TaskGroup (inside FastMCP's session
+    manager), and anyio cancel scopes must exit in the same asyncio Task
+    they were entered in. A `yield`-ing async fixture's teardown runs via
+    a *separate* run_until_complete() call than its setup — a different
+    Task — which trips "Attempted to exit cancel scope in a different
+    task than it was entered in". Called directly inside a test's own
+    coroutine, setup and teardown share one Task, so this is safe.
+
+    Uses backend.main.create_app() rather than the shared module-level
+    `app` singleton: FastMCP's streamable-HTTP session manager can only
+    run() once per instance (see create_mcp_server()'s docstring), so
+    each test needs its own fresh app/MCP-server pair, not the one
+    process-wide instance uvicorn would serve.
+
+    Unlike the `client` fixture, MCP tools (backend/mcp_server/server.py)
+    call get_agent_registry() directly rather than going through a
+    per-route override, so isolation here clears *that* cache too (not
+    just get_settings) and points SQLITE_PATH/CHROMA_PATH/ALLOWED_PATHS
+    at tmp_path — otherwise this would build agents against the real
+    OllamaClient and the developer's actual data/db/ folder."""
+    import httpx
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+
+    import backend.main as main_module
+    from backend.core.agent_registry import get_agent_registry
+    from backend.core.config import get_settings
+
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
+    monkeypatch.setenv("ALLOWED_PATHS", str(tmp_path / "allowed"))
+    (tmp_path / "allowed").mkdir()
+    get_settings.cache_clear()
+    get_agent_registry.cache_clear()
+
+    app = main_module.create_app()
+
+    def httpx_client_factory(headers=None, timeout=None, auth=None):
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://mcp-test",
+            headers=headers,
+            timeout=timeout or httpx.Timeout(30),
+            auth=auth,
+            # Starlette's Mount 307-redirects "/mcp" -> "/mcp/"; the SDK's
+            # own default httpx client factory sets this too (mcp.shared.
+            # _httpx_utils.create_mcp_http_client), unlike httpx's default.
+            follow_redirects=True,
+        )
+
+    try:
+        async with app.router.lifespan_context(app):
+            async with streamablehttp_client(
+                "http://mcp-test/mcp", httpx_client_factory=httpx_client_factory
+            ) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    yield session
+    finally:
+        get_settings.cache_clear()
+        get_agent_registry.cache_clear()
 
 
 @pytest.fixture
