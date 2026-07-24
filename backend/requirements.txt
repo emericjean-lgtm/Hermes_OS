@@ -3,8 +3,14 @@
 # APScheduler, ...) is listed in CAHIER_DES_CHARGES_HERMES_OLLAMA.md §25.5
 # and gets added phase by phase as the corresponding modules are built.
 
-fastapi==0.115.0
-uvicorn[standard]==0.30.0
+# fastapi/uvicorn/starlette are left unpinned on the minor level, same
+# reasoning as pydantic below: an old exact pin (this one dated to
+# mid-2024) drifts out of sync with the ecosystem — installing the MCP
+# SDK pulled in a much newer starlette that our old fastapi pin flatly
+# didn't support (Router.__init__() no longer takes on_startup). Letting
+# pip resolve current compatible versions avoids fighting that by hand.
+fastapi>=0.115
+uvicorn[standard]>=0.30
 # pydantic/pydantic-settings are left unpinned on the patch/minor level
 # (>=, not ==) because pydantic-core is a compiled Rust extension: an old
 # exact pin has no prebuilt wheel for newer Python versions (e.g. 3.14 on
@@ -23,6 +29,10 @@ pyyaml==6.0.2
 # no-prebuilt-wheel problem on newer Python/OS combinations.
 sqlalchemy>=2.0
 chromadb>=0.5
+
+# MCP server exposing Aegis/Atlas/Echo/Kronos as tools for Hermes Agent
+# (or any other MCP client) to call. Official Anthropic SDK.
+mcp>=1.0
 
 # Testing
 pytest==8.3.2
