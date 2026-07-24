@@ -64,6 +64,11 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "workflows_delete",
         "workflows_simulate",
         "workflows_run",
+        "projects_create",
+        "projects_get",
+        "projects_list",
+        "projects_update",
+        "projects_delete",
     }
 
 
@@ -282,6 +287,31 @@ async def test_workflows_create_simulate_and_run_roundtrip(monkeypatch, tmp_path
 
         missing = _result(await session.call_tool("workflows_get", {"workflow_id": "wf-1"}))
         assert missing is None
+
+
+async def test_projects_create_list_update_delete_roundtrip(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        created = _result(
+            await session.call_tool("projects_create", {"name": "MCP project", "tags": ["pro"]})
+        )
+        assert created["status"] == "active"
+        assert created["tags"] == ["pro"]
+
+        listed = _result(await session.call_tool("projects_list", {}))
+        assert [p["name"] for p in listed] == ["MCP project"]
+
+        updated = _result(
+            await session.call_tool(
+                "projects_update", {"project_id": created["id"], "status": "archived"}
+            )
+        )
+        assert updated["status"] == "archived"
+
+        deleted = _result(await session.call_tool("projects_delete", {"project_id": created["id"]}))
+        assert deleted is True
+
+        listed_after = _result(await session.call_tool("projects_list", {}))
+        assert listed_after == []
 
 
 async def test_memory_remember_list_forget_roundtrip(monkeypatch, tmp_path):

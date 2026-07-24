@@ -16,6 +16,7 @@ from backend.api.routes import (
     files,
     memory,
     messages,
+    projects,
     research,
     security,
     system,
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(classify.router)
     app.include_router(messages.router)
     app.include_router(workflows.router)
+    app.include_router(projects.router)
     app.mount("/mcp", mcp_asgi_app)
 
     @app.get("/health")

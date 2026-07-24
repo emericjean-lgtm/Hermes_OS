@@ -94,12 +94,17 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     WORKFLOWS_DIR is pointed at tmp_path too: backend/workflows/loader.py
     reads it fresh from get_settings() on every call (no lru_cache of its
     own), so without this a workflow test would read/write the real
-    data/workflows/ folder."""
+    data/workflows/ folder.
+
+    get_project_store's cache is cleared for the same reason as
+    get_message_bus: /projects reaches it via that module-level singleton
+    (see backend/projects/store.py) rather than a per-route override."""
     import backend.main as main_module
     from backend.core.agent_registry import AgentRegistry, get_agent_registry
     from backend.core.config import get_settings
     from backend.core.message_bus import get_message_bus
     from backend.core.router import ModelRouter
+    from backend.projects.store import get_project_store
 
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
@@ -107,6 +112,7 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     get_settings.cache_clear()
     get_agent_registry.cache_clear()
     get_message_bus.cache_clear()
+    get_project_store.cache_clear()
 
     router = ModelRouter(models_config)
     registry = AgentRegistry(fake_ollama_client, router, models_config)
@@ -128,6 +134,7 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
         get_settings.cache_clear()
         get_agent_registry.cache_clear()
         get_message_bus.cache_clear()
+        get_project_store.cache_clear()
 
 
 @pytest.fixture
@@ -183,8 +190,8 @@ async def open_mcp_session(monkeypatch, tmp_path):
     at tmp_path — otherwise this would build agents against the real
     OllamaClient and the developer's actual data/db/ folder. get_message_bus
     is cleared for the same reason (see the client fixture's docstring).
-    WORKFLOWS_DIR is set for the same reason too — see the client
-    fixture's docstring."""
+    WORKFLOWS_DIR is set for the same reason too, and get_project_store
+    is cleared too — see the client fixture's docstring."""
     import httpx
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -193,6 +200,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
     from backend.core.agent_registry import get_agent_registry
     from backend.core.config import get_settings
     from backend.core.message_bus import get_message_bus
+    from backend.projects.store import get_project_store
 
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
@@ -202,6 +210,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
     get_settings.cache_clear()
     get_agent_registry.cache_clear()
     get_message_bus.cache_clear()
+    get_project_store.cache_clear()
 
     app = main_module.create_app()
 
@@ -230,6 +239,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
         get_settings.cache_clear()
         get_agent_registry.cache_clear()
         get_message_bus.cache_clear()
+        get_project_store.cache_clear()
 
 
 @pytest.fixture

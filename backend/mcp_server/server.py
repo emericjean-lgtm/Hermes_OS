@@ -1,10 +1,11 @@
 """MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
 Scribe/Hermes Eyes/Hermes Swift as tools, plus the inter-agent message
-bus trace (core/message_bus.py) and the workflow engine
-(workflows/engine.py), for any MCP client to call — built specifically
-so Hermes Agent (NousResearch's agent runtime, see
-hermes-agent.nousresearch.com) can use them when it takes over
-orchestration from core/router.py + agents/hermes_prime.py.
+bus trace (core/message_bus.py), the workflow engine
+(workflows/engine.py), and project management (projects/store.py), for
+any MCP client to call — built specifically so Hermes Agent
+(NousResearch's agent runtime, see hermes-agent.nousresearch.com) can
+use them when it takes over orchestration from core/router.py +
+agents/hermes_prime.py.
 
 Mounted into the main FastAPI app at /mcp (see backend/main.py), so
 there's still one process to run: an MCP client (Hermes Agent's
@@ -43,6 +44,8 @@ from backend.agents.veritas import VeritasAgent
 from backend.core.agent_registry import get_agent_registry
 from backend.core.message_bus import get_message_bus
 from backend.memory.episodic import MemoryEntry
+from backend.projects.project_manager import Project
+from backend.projects.store import get_project_store
 from backend.security.aegis_engine import ActionRequest
 from backend.tasks.task_manager import Task
 from backend.tools import file_tools
@@ -98,6 +101,19 @@ def _task_to_dict(task: Task) -> dict:
         "files": task.files_list,
         "test_results": task.test_results_dict,
         "history": task.history_list,
+    }
+
+
+def _project_to_dict(project: Project) -> dict:
+    return {
+        "id": project.id,
+        "name": project.name,
+        "description": project.description,
+        "root_path": project.root_path,
+        "status": project.status,
+        "tags": project.tags_list,
+        "created_at": project.created_at.isoformat(),
+        "updated_at": project.updated_at.isoformat(),
     }
 
 
@@ -444,6 +460,57 @@ async def workflows_run(workflow_id: str, approved_nodes: list[str] | None = Non
     }
 
 
+# ── Projects: multi-project scoping ─────────────────────────────────────
+
+
+def projects_create(
+    name: str, description: str = "", root_path: str | None = None, tags: list[str] | None = None
+) -> dict:
+    """Create a project. Status starts at 'active'. root_path is a
+    suggested filesystem root for this project (not yet enforced as an
+    Aegis whitelist — see backend/projects/project_manager.py)."""
+    project = get_project_store().create(
+        name=name, description=description, root_path=root_path, tags=tags
+    )
+    return _project_to_dict(project)
+
+
+def projects_get(project_id: str) -> dict | None:
+    """Fetch a project by id, or None if it doesn't exist."""
+    project = get_project_store().get(project_id)
+    return _project_to_dict(project) if project else None
+
+
+def projects_list(status: str | None = None, tag: str | None = None) -> list[dict]:
+    """List projects, optionally filtered by status (active/archived) or tag."""
+    return [_project_to_dict(p) for p in get_project_store().list(status=status, tag=tag)]
+
+
+def projects_update(
+    project_id: str,
+    name: str | None = None,
+    description: str | None = None,
+    root_path: str | None = None,
+    status: str | None = None,
+    tags: list[str] | None = None,
+) -> dict | None:
+    """Update a project's fields. Returns None if it doesn't exist."""
+    project = get_project_store().update(
+        project_id,
+        name=name,
+        description=description,
+        root_path=root_path,
+        status=status,
+        tags=tags,
+    )
+    return _project_to_dict(project) if project else None
+
+
+def projects_delete(project_id: str) -> bool:
+    """Delete a project by id. Returns whether it existed."""
+    return get_project_store().delete(project_id)
+
+
 _ALL_TOOLS = [
     security_evaluate,
     files_list,
@@ -472,6 +539,11 @@ _ALL_TOOLS = [
     workflows_delete,
     workflows_simulate,
     workflows_run,
+    projects_create,
+    projects_get,
+    projects_list,
+    projects_update,
+    projects_delete,
 ]
 
 
@@ -499,9 +571,10 @@ def create_mcp_server() -> FastMCP:
             "research/RAG (Minerva), QA review (Veritas), writing/"
             "documentation (Hermes Scribe), image analysis (Hermes Eyes), fast "
             "request classification (Hermes Swift), the inter-agent message "
-            "bus trace (messages_list), and workflows chaining these actions "
-            "into a graph (workflows_*). Every file/security operation is "
-            "bound by ALLOWED_PATHS and the configured autonomy level "
+            "bus trace (messages_list), workflows chaining these actions "
+            "into a graph (workflows_*), and multi-project scoping "
+            "(projects_*). Every file/security operation is bound by "
+            "ALLOWED_PATHS and the configured autonomy level "
             "(config/security.yaml) — a denied or require_human_validation "
             "verdict means don't proceed."
         ),

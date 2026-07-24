@@ -32,13 +32,21 @@ registry the MCP server uses, resolves `$steps.<node>.<key>` placeholders
 between steps, branches on `on_success`/`on_failure` edges, halts at
 `human_validation` gates, and traces every node through the message bus;
 `simulate()` is a pure dry-run. `/workflows*` REST API, example workflow
-at `data/workflows/full-code-review.yaml`), and an **MCP server**
-exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes
-Eyes/Hermes Swift as tools plus the bus's `messages_list` and the
-workflow engine's `workflows_*` (see "Hermes Agent integration" below).
-202 tests passing. Still not implemented: HSE, GPU monitoring, Telegram,
-and workflow scheduling (`triggers.yaml`) — see `config/agents.yaml` for
-the full agent roster (`enabled: false` = not built yet).
+at `data/workflows/full-code-review.yaml`), **projects** (multi-project
+scoping foundation — not in the original cahier des charges, added so
+tasks/memory/workflows/etc. can eventually be scoped per project instead
+of one global pool; `Project` entity with status active/archived and
+tags, `/projects*` REST API — linking existing tables to a project via
+`project_id` is a deliberate follow-up, not done yet), and an **MCP
+server** exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
+Scribe/Hermes Eyes/Hermes Swift as tools plus the bus's `messages_list`,
+the workflow engine's `workflows_*`, and `projects_*` (see "Hermes Agent
+integration" below). 233 tests passing. Still not implemented: HSE, GPU
+monitoring, and linking projects into the rest of the data model — see
+`config/agents.yaml` for the full agent roster (`enabled: false` = not
+built yet). Telegram and workflow scheduling (`triggers.yaml`) are no
+longer planned as our own builds — Hermes Agent's native gateway and
+`cronjob` cover both, see "Hermes Agent integration" below.
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
 built and tested here entirely against a fake Ollama client (see
@@ -152,9 +160,9 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(27 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+(32 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
 `verify_output`, `write_document`, `analyze_image`, `classify_request`,
-`tasks_*`, `messages_list`, `workflows_*`). The `pre_tool_call` hook script
+`tasks_*`, `messages_list`, `workflows_*`, `projects_*`). The `pre_tool_call` hook script
 (`config/hermes_agent_hooks/aegis_gate.py`) is built strictly from Hermes
 Agent's published hook contract — not exercised end-to-end from this
 sandbox, so verify it against your real installation before relying on it.
