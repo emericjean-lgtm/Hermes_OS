@@ -56,11 +56,11 @@ async def test_analyze_with_no_images_raises(fake_ollama_client, models_config):
 async def test_analyze_reuses_already_loaded_model(models_config):
     from backend.tests.conftest import FakeOllamaClient
 
-    client = FakeOllamaClient(running_models=["gemma3:12b"])
+    client = FakeOllamaClient(running_models=["gemma4:12b"])
     router = ModelRouter(models_config)
     eyes = HermesEyesAgent(client, router, models_config)
 
     decision, _stream = await eyes.analyze([_FAKE_IMAGE])
 
-    assert decision.model == "gemma3:12b"
+    assert decision.model == "gemma4:12b"
     assert "already loaded" in decision.reason

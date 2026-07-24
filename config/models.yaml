@@ -58,10 +58,16 @@ roles:
     description: Deep reasoning escalation, offload expected.
 
   vision:
-    model: gemma3:12b
+    model: gemma4:12b
     tier: quality
-    vram_gb: 9
-    description: Multimodal image/screenshot analysis (Hermes Eyes).
+    vram_gb: 7.6
+    description: >
+      Multimodal image/screenshot analysis (Hermes Eyes). Upgraded from
+      gemma3:12b (2026-07): encoder-free multimodal architecture (image/
+      audio fed straight into the LLM backbone), released 2026-06-03,
+      confirmed available in Ollama's official library. ~7.6GB at
+      Q4_K_M — lighter than gemma3:12b's own footprint, verified via
+      independent VRAM benchmarks, not just vendor marketing.
 
   security:
     model: phi4:14b

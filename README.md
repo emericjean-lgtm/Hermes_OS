@@ -19,7 +19,7 @@ another agent's output and returns a parsed verdict — approved /
 needs_revision / rejected — plus issues and corrections, `/verify`),
 **Hermes Scribe** (writing/documentation agent: brief -> document,
 `/write`), **Hermes Eyes** (vision agent: multimodal image analysis via
-`gemma3:12b`, `/vision/analyze`), **Hermes Swift** (always-on, ultra-fast
+`gemma4:12b`, `/vision/analyze`), **Hermes Swift** (always-on, ultra-fast
 request classifier: labels a raw request with a task type from
 `models.yaml`'s routing matrix, `/classify`), the **message bus** (typed
 inter-agent trace — every `AegisAgent.evaluate()` call publishes a
@@ -132,7 +132,7 @@ unreachable from this sandbox, but the GitHub repo/docs aren't):
   routing of its own. That's fine: Hermes becomes the planning/conversation
   brain on this project's `orchestrator` model (`hermes3:8b`), while every
   specialized per-task model choice (`qwen3:8b` for Minerva, `deepseek-r1:14b`
-  for Veritas, `gemma3:12b` for Eyes...) still happens *inside* the MCP tools
+  for Veritas, `gemma4:12b` for Eyes...) still happens *inside* the MCP tools
   below — Hermes never needs to know about it, this project's "one model per
   role" principle (cahier des charges §7) is unaffected.
 - Hermes ships 40+ **native tools of its own** (terminal, file patch/read,

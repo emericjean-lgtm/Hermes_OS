@@ -12,7 +12,7 @@
 #    Hermes becomes the orchestration/planning brain on the `orchestrator`
 #    role model (hermes3:8b, config/models.yaml), and every specialized,
 #    per-task model choice (qwen3:8b for Minerva, deepseek-r1:14b for
-#    Veritas, gemma3:12b for Eyes...) still happens *inside* the MCP
+#    Veritas, gemma4:12b for Eyes...) still happens *inside* the MCP
 #    tools below, exactly as built — Hermes never needs to know about it.
 #
 # 2. Hermes ships 40+ native tools of its own (terminal, patch/read_file,
