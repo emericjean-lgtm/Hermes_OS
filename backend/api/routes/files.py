@@ -17,6 +17,7 @@ router = APIRouter()
 class DiffRequest(BaseModel):
     path: str
     new_content: str
+    project_id: str | None = None
 
 
 class DiffResponse(BaseModel):
@@ -36,9 +37,9 @@ def _aegis() -> AegisAgent:
 
 
 @router.get("/files")
-async def list_files(path: str) -> list[str]:
+async def list_files(path: str, project_id: str | None = None) -> list[str]:
     try:
-        return file_tools.list_directory(_aegis(), path)
+        return file_tools.list_directory(_aegis(), path, project_id=project_id)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -46,9 +47,9 @@ async def list_files(path: str) -> list[str]:
 
 
 @router.get("/files/content")
-async def get_file_content(path: str) -> dict:
+async def get_file_content(path: str, project_id: str | None = None) -> dict:
     try:
-        return {"path": path, "content": file_tools.read_file(_aegis(), path)}
+        return {"path": path, "content": file_tools.read_file(_aegis(), path, project_id=project_id)}
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -58,7 +59,9 @@ async def get_file_content(path: str) -> dict:
 @router.post("/files/diff")
 async def diff_file(request: DiffRequest) -> DiffResponse:
     try:
-        before = file_tools.read_existing_or_empty(_aegis(), request.path)
+        before = file_tools.read_existing_or_empty(
+            _aegis(), request.path, project_id=request.project_id
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     return DiffResponse(diff=file_tools.compute_diff(before, request.new_content, request.path))
@@ -66,7 +69,9 @@ async def diff_file(request: DiffRequest) -> DiffResponse:
 
 @router.post("/files/apply")
 async def apply_file(request: DiffRequest) -> ApplyResponse:
-    result = file_tools.propose_write(_aegis(), request.path, request.new_content)
+    result = file_tools.propose_write(
+        _aegis(), request.path, request.new_content, project_id=request.project_id
+    )
     return ApplyResponse(
         applied=result.applied,
         verdict=result.verdict,

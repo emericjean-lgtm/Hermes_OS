@@ -38,13 +38,19 @@ status active/archived and tags, `/projects*` REST API — and `project_id`
 is now threaded through everything else: tasks (Kronos), long-term +
 documentary memory (Echo, including a ChromaDB metadata `where` filter
 on recall), the message bus, Aegis's `ActionRequest`, and workflows,
-each filterable by `project_id` on its list/search endpoints; Atlas's
-file tools are the one deliberate exception — `ALLOWED_PATHS` isn't
-project-scoped yet, so file operations aren't tagged), and an **MCP
-server** exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
+each filterable by `project_id` on its list/search endpoints. Atlas's
+file tools are now project-scoped too:
+`AegisEngine.evaluate(action, project_root=...)` narrows the global
+`ALLOWED_PATHS` whitelist to a project's `root_path` when given —
+narrowing only, `ALLOWED_PATHS` remains the hard boundary regardless —
+resolved by `AegisAgent` from `action.project_id` (a `project_id` that
+doesn't resolve to a real project escalates to
+`require_human_validation` rather than silently skipping the extra
+restriction); threaded through `file_tools`, `/files*`, and `files_*`),
+and an **MCP server** exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
 Scribe/Hermes Eyes/Hermes Swift as tools plus the bus's `messages_list`,
 the workflow engine's `workflows_*`, and `projects_*` (see "Hermes Agent
-integration" below). 254 tests passing. Still not implemented: HSE, GPU
+integration" below). 263 tests passing. Still not implemented: HSE, GPU
 monitoring — see `config/agents.yaml` for the full agent roster
 (`enabled: false` = not built yet). Telegram and workflow scheduling
 (`triggers.yaml`) are no longer planned as our own builds — Hermes

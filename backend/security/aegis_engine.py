@@ -46,7 +46,12 @@ class AegisEngine:
         self._matrix = matrix
         self._allowed_paths = [Path(p).resolve() for p in allowed_paths]
 
-    def evaluate(self, action: ActionRequest) -> AegisDecision:
+    def evaluate(self, action: ActionRequest, *, project_root: str | None = None) -> AegisDecision:
+        """project_root, when given, narrows the path_based check further
+        than ALLOWED_PATHS — it can only restrict, never widen access
+        (ALLOWED_PATHS remains the hard boundary regardless). Resolving
+        action.project_id into a project_root is the caller's job (see
+        agents/aegis.py) — this engine stays DB-free and pure."""
         category = self._matrix.get_category(action.action_type)
 
         if category is None:
@@ -72,6 +77,18 @@ class AegisEngine:
                     reason=(
                         f"{action.target_path!r} is outside ALLOWED_PATHS — "
                         "a hard boundary, not negotiable by autonomy level (§17.1)."
+                    ),
+                    action_type=action.action_type,
+                )
+            if project_root is not None and not self._is_within_path(
+                action.target_path, project_root
+            ):
+                return AegisDecision(
+                    verdict=Verdict.DENY,
+                    reason=(
+                        f"{action.target_path!r} is inside ALLOWED_PATHS but outside "
+                        f"the project's root {project_root!r} — project scoping only "
+                        "narrows access, it never widens it."
                     ),
                     action_type=action.action_type,
                 )
@@ -121,3 +138,9 @@ class AegisEngine:
             resolved == allowed or resolved.is_relative_to(allowed)
             for allowed in self._allowed_paths
         )
+
+    @staticmethod
+    def _is_within_path(target_path: str, root: str) -> bool:
+        resolved = Path(target_path).resolve()
+        resolved_root = Path(root).resolve()
+        return resolved == resolved_root or resolved.is_relative_to(resolved_root)

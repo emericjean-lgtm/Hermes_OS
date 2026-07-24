@@ -16,10 +16,13 @@ from backend.security.aegis_engine import ActionRequest, Verdict
 
 @pytest.fixture
 def aegis_agent(monkeypatch, fake_ollama_client, models_config, security_config, tmp_path):
+    from backend.projects.store import get_project_store
+
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("ALLOWED_PATHS", str(tmp_path))
     get_settings.cache_clear()
     get_message_bus.cache_clear()
+    get_project_store.cache_clear()
     monkeypatch.setattr("backend.agents.aegis.load_security_config", lambda: security_config)
 
     router = ModelRouter(models_config)
@@ -30,6 +33,7 @@ def aegis_agent(monkeypatch, fake_ollama_client, models_config, security_config,
     finally:
         get_settings.cache_clear()
         get_message_bus.cache_clear()
+        get_project_store.cache_clear()
 
 
 def _by_type(messages) -> dict:
@@ -124,3 +128,65 @@ def test_evaluate_publishes_with_project_id(aegis_agent):
     messages = get_message_bus().list_messages(project_id="proj-1")
     assert len(messages) == 2
     assert all(m.project_id == "proj-1" for m in messages)
+
+
+def test_evaluate_narrows_to_project_root_when_project_has_one(aegis_agent, tmp_path):
+    from backend.projects.store import get_project_store
+
+    project_dir = tmp_path / "project-a"
+    project_dir.mkdir()
+    other_dir = tmp_path / "project-b"
+    other_dir.mkdir()
+    project = get_project_store().create(name="A", root_path=str(project_dir))
+
+    inside = aegis_agent.evaluate(
+        ActionRequest(
+            action_type="file_read",
+            description="?",
+            target_path=str(project_dir / "f.txt"),
+            project_id=project.id,
+        )
+    )
+    assert inside.verdict is Verdict.ALLOW
+
+    outside = aegis_agent.evaluate(
+        ActionRequest(
+            action_type="file_read",
+            description="?",
+            target_path=str(other_dir / "f.txt"),
+            project_id=project.id,
+        )
+    )
+    assert outside.verdict is Verdict.DENY
+
+
+def test_evaluate_falls_back_to_global_whitelist_when_project_has_no_root_path(
+    aegis_agent, tmp_path
+):
+    from backend.projects.store import get_project_store
+
+    project = get_project_store().create(name="No root")
+
+    decision = aegis_agent.evaluate(
+        ActionRequest(
+            action_type="file_read",
+            description="?",
+            target_path=str(tmp_path / "f.txt"),
+            project_id=project.id,
+        )
+    )
+
+    assert decision.verdict is Verdict.ALLOW
+
+
+def test_evaluate_requires_human_validation_for_unknown_project_id(aegis_agent, tmp_path):
+    decision = aegis_agent.evaluate(
+        ActionRequest(
+            action_type="file_read",
+            description="?",
+            target_path=str(tmp_path / "f.txt"),
+            project_id="does-not-exist",
+        )
+    )
+
+    assert decision.verdict is Verdict.REQUIRE_HUMAN_VALIDATION

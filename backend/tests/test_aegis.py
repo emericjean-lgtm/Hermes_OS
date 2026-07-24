@@ -87,3 +87,56 @@ def test_network_call_gated_by_high_autonomy(security_config):
     high = _engine(security_config, allowed_paths=[], autonomy_level="high")
     assert low.evaluate(ActionRequest(action_type="network_call", description="?")).verdict is Verdict.REQUIRE_HUMAN_VALIDATION
     assert high.evaluate(ActionRequest(action_type="network_call", description="?")).verdict is Verdict.ALLOW
+
+
+def test_project_root_narrows_access_within_global_whitelist(security_config, tmp_path):
+    # Global whitelist covers everything under tmp_path; project_root
+    # further restricts to a single subdirectory of it.
+    project_dir = tmp_path / "project-a"
+    project_dir.mkdir()
+    other_dir = tmp_path / "project-b"
+    other_dir.mkdir()
+
+    engine = _engine(security_config, allowed_paths=[str(tmp_path)], autonomy_level="low")
+
+    inside = engine.evaluate(
+        ActionRequest(action_type="file_read", description="?", target_path=str(project_dir / "f.txt")),
+        project_root=str(project_dir),
+    )
+    assert inside.verdict is Verdict.ALLOW
+
+    outside = engine.evaluate(
+        ActionRequest(action_type="file_read", description="?", target_path=str(other_dir / "f.txt")),
+        project_root=str(project_dir),
+    )
+    assert outside.verdict is Verdict.DENY
+
+
+def test_project_root_cannot_widen_access_beyond_global_whitelist(security_config, tmp_path):
+    # Global whitelist is narrower than the project_root — global still wins.
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    outside_global = tmp_path / "elsewhere"
+    outside_global.mkdir()
+
+    engine = _engine(security_config, allowed_paths=[str(allowed)], autonomy_level="low")
+
+    decision = engine.evaluate(
+        ActionRequest(
+            action_type="file_read", description="?", target_path=str(outside_global / "f.txt")
+        ),
+        project_root=str(tmp_path),  # a project_root that WOULD cover outside_global
+    )
+
+    assert decision.verdict is Verdict.DENY
+
+
+def test_no_project_root_behaves_as_before(security_config, tmp_path):
+    engine = _engine(security_config, allowed_paths=[str(tmp_path)], autonomy_level="low")
+
+    decision = engine.evaluate(
+        ActionRequest(action_type="file_read", description="?", target_path=str(tmp_path / "f.txt")),
+        project_root=None,
+    )
+
+    assert decision.verdict is Verdict.ALLOW

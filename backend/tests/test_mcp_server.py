@@ -92,6 +92,58 @@ async def test_files_apply_denied_outside_whitelist(monkeypatch, tmp_path):
     assert body["verdict"] == "deny"
 
 
+async def test_files_apply_narrowed_to_project_root(monkeypatch, tmp_path, security_config):
+    # open_mcp_session (unlike the `client` fixture) sets ALLOWED_PATHS to
+    # tmp_path/allowed, so this can exercise the ALLOW path too, not just
+    # deny — see test_files_endpoint.py's comment for why the REST-level
+    # tests stick to deny-only. autonomy_level is bumped to "medium" (the
+    # real config/security.yaml default is "low", which would gate every
+    # file_write behind require_human_validation regardless of whitelist,
+    # masking whether project-root narrowing itself worked).
+    monkeypatch.setattr(
+        "backend.agents.aegis.load_security_config",
+        lambda: dict(security_config, autonomy_level="medium"),
+    )
+    allowed_dir = tmp_path / "allowed"
+    project_dir = allowed_dir / "project-a"
+    other_dir = allowed_dir / "project-b"
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        # open_mcp_session already created "allowed" (and set it as
+        # ALLOWED_PATHS) by this point — create the project subdirs now.
+        project_dir.mkdir()
+        other_dir.mkdir()
+
+        project = _result(
+            await session.call_tool("projects_create", {"name": "A", "root_path": str(project_dir)})
+        )
+
+        inside = _result(
+            await session.call_tool(
+                "files_apply",
+                {
+                    "path": str(project_dir / "f.txt"),
+                    "new_content": "hi",
+                    "project_id": project["id"],
+                },
+            )
+        )
+        assert inside["applied"] is True
+
+        outside = _result(
+            await session.call_tool(
+                "files_apply",
+                {
+                    "path": str(other_dir / "f.txt"),
+                    "new_content": "hi",
+                    "project_id": project["id"],
+                },
+            )
+        )
+        assert outside["applied"] is False
+        assert outside["verdict"] == "deny"
+
+
 async def test_tasks_create_list_update_delete_roundtrip(monkeypatch, tmp_path):
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         created = _result(await session.call_tool("tasks_create", {"title": "MCP task"}))

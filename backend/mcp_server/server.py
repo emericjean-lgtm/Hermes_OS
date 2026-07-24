@@ -167,29 +167,32 @@ def security_evaluate(
 # ── Atlas: file tools (Aegis-gated) ───────────────────────────────────
 
 
-def files_list(path: str) -> list[str]:
-    """List a directory's contents. Only works inside ALLOWED_PATHS."""
-    return file_tools.list_directory(_aegis(), path)
+def files_list(path: str, project_id: str | None = None) -> list[str]:
+    """List a directory's contents. Only works inside ALLOWED_PATHS, and
+    inside the project's root too if project_id is given (see
+    projects_* tools)."""
+    return file_tools.list_directory(_aegis(), path, project_id=project_id)
 
 
-def files_read(path: str) -> str:
-    """Read a file's contents. Only works inside ALLOWED_PATHS."""
-    return file_tools.read_file(_aegis(), path)
+def files_read(path: str, project_id: str | None = None) -> str:
+    """Read a file's contents. Only works inside ALLOWED_PATHS, and
+    inside the project's root too if project_id is given."""
+    return file_tools.read_file(_aegis(), path, project_id=project_id)
 
 
-def files_diff(path: str, new_content: str) -> str:
+def files_diff(path: str, new_content: str, project_id: str | None = None) -> str:
     """Preview a unified diff of writing new_content to path, without
     applying it. Use before files_apply to show what would change."""
-    before = file_tools.read_existing_or_empty(_aegis(), path)
+    before = file_tools.read_existing_or_empty(_aegis(), path, project_id=project_id)
     return file_tools.compute_diff(before, new_content, path)
 
 
-def files_apply(path: str, new_content: str) -> dict:
+def files_apply(path: str, new_content: str, project_id: str | None = None) -> dict:
     """Write new_content to path — but only if Aegis allows it. Takes a
     backup of any existing file first. Returns applied (bool), verdict,
     reason, diff, and backup_path. If applied is false, nothing was
     written; check verdict/reason for why."""
-    result = file_tools.propose_write(_aegis(), path, new_content)
+    result = file_tools.propose_write(_aegis(), path, new_content, project_id=project_id)
     return {
         "applied": result.applied,
         "verdict": result.verdict,

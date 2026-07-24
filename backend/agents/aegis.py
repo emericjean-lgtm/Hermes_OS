@@ -23,6 +23,15 @@ singleton rather than constructor injection, the same pattern
 MinervaAgent uses to reach Echo (see agents/minerva.py) — it keeps
 AgentRegistry's uniform (ollama_client, router, models_config)
 construction contract unchanged.
+
+evaluate() also resolves action.project_id into a project root path
+(via get_project_store(), the same singleton pattern) and passes it to
+AegisEngine.evaluate() as project_root — this is where project-scoped
+whitelisting for Atlas's file tools happens (narrows ALLOWED_PATHS
+further, never widens it; see aegis_engine.py). A project_id that
+doesn't resolve to a real project is treated as REQUIRE_HUMAN_VALIDATION
+rather than silently skipping the extra restriction — same "don't fail
+open on the unexpected" principle as an unknown action_type.
 """
 from __future__ import annotations
 
@@ -32,6 +41,7 @@ from backend.connectors.ollama_client import OllamaClientProtocol
 from backend.core.config import get_settings, load_security_config
 from backend.core.message_bus import MessageType, get_message_bus
 from backend.core.router import ModelRouter
+from backend.projects.store import get_project_store
 from backend.security.aegis_engine import ActionRequest, AegisDecision, AegisEngine, Verdict
 from backend.security.permission_matrix import PermissionMatrix
 
@@ -74,7 +84,7 @@ class AegisAgent:
             project_id=action.project_id,
         )
 
-        decision = self._engine.evaluate(action)
+        decision = self._resolve_decision(action)
 
         bus.publish(
             from_agent=self.name,
@@ -90,3 +100,20 @@ class AegisAgent:
         )
 
         return decision
+
+    def _resolve_decision(self, action: ActionRequest) -> AegisDecision:
+        if action.project_id is None:
+            return self._engine.evaluate(action)
+
+        project = get_project_store().get(action.project_id)
+        if project is None:
+            return AegisDecision(
+                verdict=Verdict.REQUIRE_HUMAN_VALIDATION,
+                reason=(
+                    f"project_id {action.project_id!r} does not resolve to a known "
+                    "project — treated as suspicious rather than silently skipping "
+                    "project-level restriction (§17.3)."
+                ),
+                action_type=action.action_type,
+            )
+        return self._engine.evaluate(action, project_root=project.root_path)

@@ -36,3 +36,22 @@ def test_apply_denied_outside_whitelist_returns_200_with_deny_verdict(client, tm
     assert body["applied"] is False
     assert body["verdict"] == "deny"
     assert not target.exists()
+
+
+def test_apply_with_unknown_project_id_is_not_a_silent_allow(client, tmp_path):
+    # A project_id that doesn't resolve to a real project makes Aegis
+    # escalate to require_human_validation (see agents/aegis.py) rather
+    # than silently skipping project-level restriction — applied stays
+    # False either way (require_human_validation != allow), same as the
+    # existing outside-whitelist case, but for a different reason
+    # (verdict, not just outside-whitelist denial).
+    target = tmp_path / "f.txt"
+    response = client.post(
+        "/files/apply",
+        json={"path": str(target), "new_content": "hi", "project_id": "does-not-exist"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["applied"] is False
+    assert body["verdict"] == "require_human_validation"
+    assert not target.exists()

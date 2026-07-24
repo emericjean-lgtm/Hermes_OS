@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.security.aegis_engine import ActionRequest, AegisDecision, AegisEngine
+from backend.security.aegis_engine import ActionRequest, AegisDecision, AegisEngine, Verdict
 from backend.security.permission_matrix import PermissionMatrix
 from backend.tools import file_tools
 
@@ -110,3 +110,38 @@ def test_propose_write_diff_reflects_change(security_config, tmp_path):
     result = file_tools.propose_write(aegis, str(target), "line1\nline2\n")
 
     assert "+line2" in result.diff
+
+
+class _RecordingAegis:
+    """Captures the ActionRequest it was called with instead of deciding
+    anything — used to verify project_id reaches Aegis, since AegisEngine
+    itself doesn't resolve project_id (that's AegisAgent's job, see
+    agents/aegis.py) and so can't demonstrate the wiring on its own."""
+
+    def __init__(self) -> None:
+        self.last_action: ActionRequest | None = None
+
+    def evaluate(self, action: ActionRequest) -> AegisDecision:
+        self.last_action = action
+        return AegisDecision(verdict=Verdict.DENY, reason="recorded", action_type=action.action_type)
+
+
+def test_project_id_reaches_action_request_for_every_file_tool(tmp_path):
+    aegis = _RecordingAegis()
+    target = tmp_path / "f.txt"
+    target.write_text("hi")
+
+    with pytest.raises(PermissionError):
+        file_tools.read_file(aegis, str(target), project_id="proj-1")
+    assert aegis.last_action.project_id == "proj-1"
+
+    with pytest.raises(PermissionError):
+        file_tools.list_directory(aegis, str(tmp_path), project_id="proj-1")
+    assert aegis.last_action.project_id == "proj-1"
+
+    with pytest.raises(PermissionError):
+        file_tools.read_existing_or_empty(aegis, str(target), project_id="proj-1")
+    assert aegis.last_action.project_id == "proj-1"
+
+    file_tools.propose_write(aegis, str(target), "new", project_id="proj-1")
+    assert aegis.last_action.project_id == "proj-1"

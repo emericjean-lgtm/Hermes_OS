@@ -29,29 +29,37 @@ class FileWriteResult:
     backup_path: str | None = None
 
 
-def _check(aegis: AegisAgent, action_type: str, path: str, description: str) -> None:
+def _check(
+    aegis: AegisAgent,
+    action_type: str,
+    path: str,
+    description: str,
+    *,
+    project_id: str | None = None,
+) -> None:
     decision = aegis.evaluate(
         ActionRequest(
             action_type=action_type,
             description=description,
             target_path=path,
             requesting_agent="atlas",
+            project_id=project_id,
         )
     )
     if decision.verdict is not Verdict.ALLOW:
         raise PermissionError(decision.reason)
 
 
-def read_file(aegis: AegisAgent, path: str) -> str:
-    _check(aegis, "file_read", path, f"Read {path}")
+def read_file(aegis: AegisAgent, path: str, *, project_id: str | None = None) -> str:
+    _check(aegis, "file_read", path, f"Read {path}", project_id=project_id)
     target = Path(path)
     if not target.exists():
         raise FileNotFoundError(f"No such file: {path}")
     return target.read_text(encoding="utf-8")
 
 
-def list_directory(aegis: AegisAgent, path: str) -> list[str]:
-    _check(aegis, "file_read", path, f"List {path}")
+def list_directory(aegis: AegisAgent, path: str, *, project_id: str | None = None) -> list[str]:
+    _check(aegis, "file_read", path, f"List {path}", project_id=project_id)
     target = Path(path)
     if not target.exists():
         raise FileNotFoundError(f"No such directory: {path}")
@@ -71,11 +79,13 @@ def compute_diff(before: str, after: str, path: str) -> str:
     )
 
 
-def read_existing_or_empty(aegis: AegisAgent, path: str) -> str:
+def read_existing_or_empty(
+    aegis: AegisAgent, path: str, *, project_id: str | None = None
+) -> str:
     """Like read_file, but returns "" for a not-yet-existing path instead
     of raising — used to preview a diff for a brand-new file. The Aegis
     check (and therefore the whitelist boundary) still applies."""
-    _check(aegis, "file_read", path, f"Read {path} for diff preview")
+    _check(aegis, "file_read", path, f"Read {path} for diff preview", project_id=project_id)
     target = Path(path)
     return target.read_text(encoding="utf-8") if target.exists() else ""
 
@@ -86,6 +96,7 @@ def propose_write(
     new_content: str,
     *,
     backup_dir: str = "./data/snapshots",
+    project_id: str | None = None,
 ) -> FileWriteResult:
     target = Path(path)
     before = target.read_text(encoding="utf-8") if target.exists() else ""
@@ -97,6 +108,7 @@ def propose_write(
             description=f"Write to {path}",
             target_path=path,
             requesting_agent="atlas",
+            project_id=project_id,
         )
     )
 
