@@ -21,10 +21,16 @@ roles:
     description: General conversation, writing, extraction.
 
   orchestrator:
-    model: qwen3:14b
-    tier: quality
-    vram_gb: 9
-    description: Planning, decomposition, orchestration (Hermes Prime).
+    model: hermes3:8b
+    tier: standard
+    vram_gb: 6
+    description: >
+      Planning, decomposition, orchestration (Hermes Prime). NousResearch's
+      Hermes 3 8B, not the "Hermes" in the project's own name (that's just
+      thematic) — chosen here specifically for its reliable tool/function
+      calling, which is what an orchestrator deciding between agents/tools
+      actually needs. Lighter than qwen3:14b (~4.7GB disk / ~6GB VRAM vs
+      ~9GB) with a 128K context window.
 
   code:
     model: qwen3-coder:30b

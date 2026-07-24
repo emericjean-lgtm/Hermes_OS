@@ -3,7 +3,8 @@
 Like Aegis and Echo, Kronos is not a chat agent: its contract is the
 task_manager CRUD surface below, not respond(). The full vision also has
 Kronos turning a plain-language objective into a task breakdown via its
-declared model (qwen3:14b, "planning" task type in config/models.yaml) —
+declared model (the "planning" task type in config/models.yaml, resolved
+via the orchestrator role) —
 that LLM-driven decomposition needs a live Ollama server to exercise
 properly and is a natural follow-up once this deterministic base is
 validated on real hardware, same as the rest of this project's staging.

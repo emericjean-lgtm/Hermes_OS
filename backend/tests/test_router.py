@@ -7,8 +7,11 @@ from backend.core.router import ModelRouter, UnknownTaskTypeError
 
 def test_prefers_already_loaded_model(models_config):
     router = ModelRouter(models_config)
-    decision = router.select_model("conversation", loaded_models=["qwen3:14b"])
-    assert decision.model == "qwen3:14b"
+    # hermes3:8b (orchestrator) is a lower-priority candidate for
+    # "conversation" than standard/swift — proves "already loaded" wins
+    # over priority order, not just that the top candidate got picked.
+    decision = router.select_model("conversation", loaded_models=["hermes3:8b"])
+    assert decision.model == "hermes3:8b"
     assert "already loaded" in decision.reason
 
 
