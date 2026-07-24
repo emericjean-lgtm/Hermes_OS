@@ -47,15 +47,23 @@ resolved by `AegisAgent` from `action.project_id` (a `project_id` that
 doesn't resolve to a real project escalates to
 `require_human_validation` rather than silently skipping the extra
 restriction); threaded through `file_tools`, `/files*`, and `files_*`),
-and an **MCP server** exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
-Scribe/Hermes Eyes/Hermes Swift as tools plus the bus's `messages_list`,
-the workflow engine's `workflows_*`, and `projects_*` (see "Hermes Agent
-integration" below). 263 tests passing. Still not implemented: HSE, GPU
-monitoring — see `config/agents.yaml` for the full agent roster
-(`enabled: false` = not built yet). Telegram and workflow scheduling
-(`triggers.yaml`) are no longer planned as our own builds — Hermes
-Agent's native gateway and `cronjob` cover both, see "Hermes Agent
-integration" below.
+**hardware monitoring** (cahier des charges §21 — `GpuMonitor.snapshot()`
+reads GPU VRAM/temperature/load via `rocm-smi --json`, currently-loaded
+Ollama models via the shared `OllamaClient`'s `/api/ps`, and CPU/RAM/
+swap/disk via `/proc` and stdlib, raising alerts against `.env`'s
+`GPU_ALERT_TEMP_C`/`GPU_CRITICAL_TEMP_C`/`GPU_VRAM_WARNING_PCT`
+thresholds; degrades to `"gpu": null` when `rocm-smi` isn't available —
+including in this sandbox — and to an "Ollama unreachable" alert rather
+than failing outright if Ollama itself is down; `/system/status` REST
+endpoint), and an **MCP server** exposing Aegis/Atlas/Echo/Kronos/Minerva/
+Veritas/Hermes Scribe/Hermes Eyes/Hermes Swift as tools plus the bus's
+`messages_list`, hardware telemetry's `system_status`, the workflow
+engine's `workflows_*`, and `projects_*` (see "Hermes Agent integration"
+below). 272 tests passing. Still not implemented: HSE (auto-évolution) —
+see `config/agents.yaml` for the full agent roster (`enabled: false` =
+not built yet). Telegram and workflow scheduling (`triggers.yaml`) are
+no longer planned as our own builds — Hermes Agent's native gateway and
+`cronjob` cover both, see "Hermes Agent integration" below.
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
 built and tested here entirely against a fake Ollama client (see
@@ -170,9 +178,10 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(32 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+(33 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
 `verify_output`, `write_document`, `analyze_image`, `classify_request`,
-`tasks_*`, `messages_list`, `workflows_*`, `projects_*`). The `pre_tool_call` hook script
+`tasks_*`, `messages_list`, `system_status`, `workflows_*`, `projects_*`).
+The `pre_tool_call` hook script
 (`config/hermes_agent_hooks/aegis_gate.py`) is built strictly from Hermes
 Agent's published hook contract — not exercised end-to-end from this
 sandbox, so verify it against your real installation before relying on it.

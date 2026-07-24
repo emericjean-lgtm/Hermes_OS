@@ -44,6 +44,14 @@ class AgentRegistry:
             agent_cls = getattr(module, spec["class_name"])
             self._agents[agent_key] = agent_cls(self._ollama, self._router, self._models_config)
 
+    @property
+    def ollama_client(self) -> OllamaClientProtocol:
+        """The single OllamaClient every agent here shares — exposed so
+        non-agent infrastructure (e.g. monitoring/gpu_monitor.py's loaded-
+        models check) can reuse the same connection instead of opening a
+        second one to the same Ollama server."""
+        return self._ollama
+
     def get(self, agent_key: str) -> Any:
         try:
             return self._agents[agent_key]

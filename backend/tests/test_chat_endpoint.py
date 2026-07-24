@@ -33,3 +33,17 @@ def test_system_status_lists_enabled_agents(client):
     assert response.status_code == 200
     body = response.json()
     assert "hermes_prime" in body["enabled_agents"]
+
+
+def test_system_status_reports_gpu_and_hardware_telemetry(client):
+    # The `client` fixture fakes run_command to always report "no GPU"
+    # (this sandbox genuinely has none) and points disk_path at tmp_path.
+    response = client.get("/system/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["gpu"] is None
+    assert body["loaded_models"] == []
+    assert body["alerts"] == []
+    assert body["disk_total_gb"] > 0
+    assert "ram_total_gb" in body
+    assert "cpu_load_pct" in body

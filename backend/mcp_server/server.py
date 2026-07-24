@@ -1,8 +1,9 @@
 """MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
 Scribe/Hermes Eyes/Hermes Swift as tools, plus the inter-agent message
-bus trace (core/message_bus.py), the workflow engine
-(workflows/engine.py), and project management (projects/store.py), for
-any MCP client to call — built specifically so Hermes Agent
+bus trace (core/message_bus.py), hardware/process telemetry
+(monitoring/gpu_monitor.py), the workflow engine (workflows/engine.py),
+and project management (projects/store.py), for any MCP client to
+call — built specifically so Hermes Agent
 (NousResearch's agent runtime, see hermes-agent.nousresearch.com) can
 use them when it takes over orchestration from core/router.py +
 agents/hermes_prime.py.
@@ -42,8 +43,10 @@ from backend.agents.hermes_swift import HermesSwiftAgent
 from backend.agents.minerva import MinervaAgent
 from backend.agents.veritas import VeritasAgent
 from backend.core.agent_registry import get_agent_registry
+from backend.core.config import load_models_config
 from backend.core.message_bus import get_message_bus
 from backend.memory.episodic import MemoryEntry
+from backend.monitoring.gpu_monitor import get_gpu_monitor
 from backend.projects.project_manager import Project
 from backend.projects.store import get_project_store
 from backend.security.aegis_engine import ActionRequest
@@ -417,6 +420,25 @@ def messages_list(
     return [m.to_dict() for m in messages]
 
 
+# ── System: hardware/process telemetry ──────────────────────────────────
+
+
+async def system_status() -> dict:
+    """Hardware/process status (§21): enabled agents, configured model
+    roles, GPU VRAM/temperature/load (rocm-smi, null if unavailable —
+    e.g. no AMD GPU on this machine), currently-loaded Ollama models,
+    CPU/RAM/swap/disk, and any threshold alerts (GPU_ALERT_TEMP_C/
+    GPU_CRITICAL_TEMP_C/GPU_VRAM_WARNING_PCT in .env)."""
+    registry = get_agent_registry()
+    models_config = load_models_config()
+    snapshot = await get_gpu_monitor().snapshot()
+    return {
+        "enabled_agents": registry.list_enabled(),
+        "configured_roles": sorted(models_config["roles"]),
+        **snapshot.to_dict(),
+    }
+
+
 # ── Workflows: graph of agent actions ──────────────────────────────────
 
 
@@ -581,6 +603,7 @@ _ALL_TOOLS = [
     tasks_update,
     tasks_delete,
     messages_list,
+    system_status,
     workflows_list,
     workflows_get,
     workflows_create,
@@ -619,9 +642,10 @@ def create_mcp_server() -> FastMCP:
             "research/RAG (Minerva), QA review (Veritas), writing/"
             "documentation (Hermes Scribe), image analysis (Hermes Eyes), fast "
             "request classification (Hermes Swift), the inter-agent message "
-            "bus trace (messages_list), workflows chaining these actions "
-            "into a graph (workflows_*), and multi-project scoping "
-            "(projects_*). Every file/security operation is bound by "
+            "bus trace (messages_list), hardware/process telemetry "
+            "(system_status), workflows chaining these actions into a "
+            "graph (workflows_*), and multi-project scoping (projects_*). "
+            "Every file/security operation is bound by "
             "ALLOWED_PATHS and the configured autonomy level "
             "(config/security.yaml) — a denied or require_human_validation "
             "verdict means don't proceed."

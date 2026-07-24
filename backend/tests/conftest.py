@@ -98,12 +98,21 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
 
     get_project_store's cache is cleared for the same reason as
     get_message_bus: /projects reaches it via that module-level singleton
-    (see backend/projects/store.py) rather than a per-route override."""
+    (see backend/projects/store.py) rather than a per-route override.
+
+    get_gpu_monitor's cache is cleared too, and /system/status's own
+    reference is overridden with a GpuMonitor built directly from
+    fake_ollama_client — otherwise it would resolve the real singleton,
+    which opens a real OllamaClient against get_agent_registry() (not the
+    fake registry built below) and would try a real network call in
+    list_running_models(). run_command is faked to always report "no
+    GPU" (None), matching this sandbox's actual hardware."""
     import backend.main as main_module
     from backend.core.agent_registry import AgentRegistry, get_agent_registry
     from backend.core.config import get_settings
     from backend.core.message_bus import get_message_bus
     from backend.core.router import ModelRouter
+    from backend.monitoring.gpu_monitor import GpuMonitor, get_gpu_monitor
     from backend.projects.store import get_project_store
 
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
@@ -113,6 +122,7 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     get_agent_registry.cache_clear()
     get_message_bus.cache_clear()
     get_project_store.cache_clear()
+    get_gpu_monitor.cache_clear()
 
     router = ModelRouter(models_config)
     registry = AgentRegistry(fake_ollama_client, router, models_config)
@@ -127,6 +137,12 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     monkeypatch.setattr("backend.api.routes.write.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.vision.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.classify.get_agent_registry", lambda: registry)
+    monkeypatch.setattr(
+        "backend.api.routes.system.get_gpu_monitor",
+        lambda: GpuMonitor(
+            fake_ollama_client, get_settings(), run_command=lambda args: None, disk_path=str(tmp_path)
+        ),
+    )
 
     try:
         yield TestClient(main_module.app)
@@ -135,6 +151,7 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
         get_agent_registry.cache_clear()
         get_message_bus.cache_clear()
         get_project_store.cache_clear()
+        get_gpu_monitor.cache_clear()
 
 
 @pytest.fixture
@@ -191,7 +208,18 @@ async def open_mcp_session(monkeypatch, tmp_path):
     OllamaClient and the developer's actual data/db/ folder. get_message_bus
     is cleared for the same reason (see the client fixture's docstring).
     WORKFLOWS_DIR is set for the same reason too, and get_project_store
-    is cleared too — see the client fixture's docstring."""
+    is cleared too — see the client fixture's docstring.
+
+    get_gpu_monitor's cache is cleared for the same reason: the
+    system_status MCP tool reaches it via that module-level singleton
+    too. Unlike the `client` fixture, this doesn't override it with a
+    fake — get_agent_registry() here builds a real (uncached, so freshly
+    built) AgentRegistry backed by a real OllamaClient, and any test that
+    exercises system_status must monkeypatch
+    OllamaClient.list_running_models at the class level (see
+    test_mcp_server.py's other tool tests for the pattern) to avoid a
+    real network call; rocm-smi being genuinely absent from this sandbox
+    already makes GpuMonitor degrade to gpu=None on its own."""
     import httpx
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -200,6 +228,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
     from backend.core.agent_registry import get_agent_registry
     from backend.core.config import get_settings
     from backend.core.message_bus import get_message_bus
+    from backend.monitoring.gpu_monitor import get_gpu_monitor
     from backend.projects.store import get_project_store
 
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
@@ -211,6 +240,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
     get_agent_registry.cache_clear()
     get_message_bus.cache_clear()
     get_project_store.cache_clear()
+    get_gpu_monitor.cache_clear()
 
     app = main_module.create_app()
 
@@ -240,6 +270,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
         get_agent_registry.cache_clear()
         get_message_bus.cache_clear()
         get_project_store.cache_clear()
+        get_gpu_monitor.cache_clear()
 
 
 @pytest.fixture

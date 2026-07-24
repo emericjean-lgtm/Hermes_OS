@@ -58,6 +58,7 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "tasks_update",
         "tasks_delete",
         "messages_list",
+        "system_status",
         "workflows_list",
         "workflows_get",
         "workflows_create",
@@ -409,3 +410,24 @@ async def test_memory_remember_list_forget_roundtrip(monkeypatch, tmp_path):
             await session.call_tool("memory_forget", {"memory_id": created["id"]})
         )
         assert forgotten is True
+
+
+async def test_system_status_reports_agents_and_gpu_null_without_rocm(monkeypatch, tmp_path):
+    from backend.connectors.ollama_client import OllamaClient
+
+    async def fake_list_running_models(self):
+        return [{"name": "qwen3.5:9b"}]
+
+    monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = await session.call_tool("system_status", {})
+
+    body = _result(result)
+    assert "hermes_prime" in body["enabled_agents"]
+    assert "standard" in body["configured_roles"]
+    # rocm-smi genuinely isn't installed in this sandbox, so this exercises
+    # the real "no GPU" degrade path, not an injected fake.
+    assert body["gpu"] is None
+    assert body["loaded_models"] == [{"name": "qwen3.5:9b"}]
+    assert "disk_free_gb" in body
