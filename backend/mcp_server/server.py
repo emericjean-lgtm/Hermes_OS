@@ -1,5 +1,5 @@
-"""MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva as tools for any
-MCP client to call — built specifically so Hermes Agent (NousResearch's
+"""MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas as tools for
+any MCP client to call — built specifically so Hermes Agent (NousResearch's
 agent runtime, see hermes-agent.nousresearch.com) can use them when it
 takes over orchestration from core/router.py + agents/hermes_prime.py.
 
@@ -31,6 +31,7 @@ from backend.agents.aegis import AegisAgent
 from backend.agents.echo import EchoAgent
 from backend.agents.kronos import KronosAgent
 from backend.agents.minerva import MinervaAgent
+from backend.agents.veritas import VeritasAgent
 from backend.core.agent_registry import get_agent_registry
 from backend.memory.episodic import MemoryEntry
 from backend.security.aegis_engine import ActionRequest
@@ -52,6 +53,10 @@ def _kronos() -> KronosAgent:
 
 def _minerva() -> MinervaAgent:
     return get_agent_registry().get("minerva")
+
+
+def _veritas() -> VeritasAgent:
+    return get_agent_registry().get("veritas")
 
 
 def _task_to_dict(task: Task) -> dict:
@@ -185,6 +190,27 @@ async def research_query(query: str, n_results: int = 5) -> dict:
     return {"answer": answer, "passages": passages, "model": decision.model}
 
 
+# ── Veritas: QA review ─────────────────────────────────────────────────
+
+
+async def verify_output(output: str, context: str = "", criteria: list[str] | None = None) -> dict:
+    """Ask Veritas to QA-review another agent's output and report a
+    verdict — approved / needs_revision / rejected — plus specific issues
+    and suggested corrections. Use this on critical tasks (e.g. after
+    Atlas generates code) before treating the work as done. `context`
+    should describe what the output was meant to accomplish; `criteria`
+    are extra specific things to check."""
+    decision, stream = await _veritas().review(output, context=context, criteria=criteria)
+    reply = "".join([chunk async for chunk in stream])
+    parsed = VeritasAgent.parse_verdict(reply)
+    return {
+        "verdict": parsed["verdict"],
+        "issues": parsed["issues"],
+        "corrections": parsed["corrections"],
+        "model": decision.model,
+    }
+
+
 # ── Kronos: tasks ────────────────────────────────────────────────────
 
 
@@ -255,6 +281,7 @@ _ALL_TOOLS = [
     memory_index,
     memory_search,
     research_query,
+    verify_output,
     tasks_create,
     tasks_get,
     tasks_list,
@@ -272,11 +299,11 @@ def create_mcp_server() -> FastMCP:
         name="hermes-ollama",
         instructions=(
             "Tools for Hermes Ollama's security gate (Aegis), file operations "
-            "(Atlas), persistent memory (Echo), task tracking (Kronos), and "
-            "research/RAG (Minerva). Every file/security operation is bound "
-            "by ALLOWED_PATHS and the configured autonomy level "
-            "(config/security.yaml) — a denied or require_human_validation "
-            "verdict means don't proceed."
+            "(Atlas), persistent memory (Echo), task tracking (Kronos), "
+            "research/RAG (Minerva), and QA review (Veritas). Every "
+            "file/security operation is bound by ALLOWED_PATHS and the "
+            "configured autonomy level (config/security.yaml) — a denied or "
+            "require_human_validation verdict means don't proceed."
         ),
         # FastMCP's own default is "/mcp", which would double up with the
         # "/mcp" prefix this app is mounted under in backend/main.py (i.e.

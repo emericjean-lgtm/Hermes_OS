@@ -48,6 +48,7 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "memory_index",
         "memory_search",
         "research_query",
+        "verify_output",
         "tasks_create",
         "tasks_get",
         "tasks_list",
@@ -126,6 +127,31 @@ async def test_research_query_returns_answer_and_passages(monkeypatch, tmp_path)
     body = _result(result)
     assert body["answer"] == "Answer from Minerva"
     assert body["passages"] == fake_passages
+    assert body["model"]
+
+
+async def test_verify_output_returns_parsed_verdict(monkeypatch, tmp_path):
+    from backend.connectors.ollama_client import OllamaClient
+
+    async def fake_list_running_models(self):
+        return []
+
+    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+        for chunk in ["VERDICT: approved\n", "ISSUES:\n- none\n", "CORRECTIONS:\nnone"]:
+            yield chunk
+
+    monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
+    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = await session.call_tool(
+            "verify_output", {"output": "def add(a, b): return a + b", "context": "addition function"}
+        )
+
+    body = _result(result)
+    assert body["verdict"] == "approved"
+    assert body["issues"] == []
+    assert body["corrections"] == ""
     assert body["model"]
 
 

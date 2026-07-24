@@ -74,7 +74,7 @@ agents:
     description: Vision agent — image and screenshot analysis.
 
   veritas:
-    enabled: false
+    enabled: true
     role: reasoning
     module: backend.agents.veritas
     class_name: VeritasAgent
