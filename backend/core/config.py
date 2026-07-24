@@ -52,6 +52,7 @@ class Settings(BaseSettings):
 
     chroma_path: str = "./data/db/chroma"
     sqlite_path: str = "./data/db/hermes.db"
+    workflows_dir: str = "./data/workflows"
 
     allowed_paths: str = ""
     max_file_size_mb: int = 50

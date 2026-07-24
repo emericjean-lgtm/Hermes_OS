@@ -22,6 +22,7 @@ from backend.api.routes import (
     tasks,
     verify,
     vision,
+    workflows,
     write,
 )
 from backend.core.config import get_settings
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(vision.router)
     app.include_router(classify.router)
     app.include_router(messages.router)
+    app.include_router(workflows.router)
     app.mount("/mcp", mcp_asgi_app)
 
     @app.get("/health")

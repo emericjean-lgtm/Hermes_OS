@@ -25,12 +25,20 @@ request classifier: labels a raw request with a task type from
 inter-agent trace — every `AegisAgent.evaluate()` call publishes a
 VALIDATION_REQUEST plus a VALIDATION_GRANTED/VALIDATION_DENIED/ESCALATION,
 persisted to SQLite, queryable via `/messages` and filterable by
-`task_id`/`agent`), and an **MCP server** exposing
-Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
-Swift as tools plus the bus's `messages_list` (see "Hermes Agent
-integration" below). 162 tests passing. Still not implemented: workflows,
-HSE, GPU monitoring, Telegram — see `config/agents.yaml` for the full
-agent roster (`enabled: false` = not built yet).
+`task_id`/`agent`), the **workflow engine** (a graph of agent actions
+defined in YAML under `data/workflows/`, cahier des charges §15 —
+`WorkflowEngine.run()` walks the graph via the same normalized tool
+registry the MCP server uses, resolves `$steps.<node>.<key>` placeholders
+between steps, branches on `on_success`/`on_failure` edges, halts at
+`human_validation` gates, and traces every node through the message bus;
+`simulate()` is a pure dry-run. `/workflows*` REST API, example workflow
+at `data/workflows/full-code-review.yaml`), and an **MCP server**
+exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes
+Eyes/Hermes Swift as tools plus the bus's `messages_list` and the
+workflow engine's `workflows_*` (see "Hermes Agent integration" below).
+202 tests passing. Still not implemented: HSE, GPU monitoring, Telegram,
+and workflow scheduling (`triggers.yaml`) — see `config/agents.yaml` for
+the full agent roster (`enabled: false` = not built yet).
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
 built and tested here entirely against a fake Ollama client (see
@@ -125,9 +133,9 @@ hermes model
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(21 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+(27 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
 `verify_output`, `write_document`, `analyze_image`, `classify_request`,
-`tasks_*`, `messages_list`).
+`tasks_*`, `messages_list`, `workflows_*`).
 
 ## Adding a real agent
 

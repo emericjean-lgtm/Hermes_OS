@@ -1,8 +1,9 @@
 """MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
-Scribe/Hermes Eyes/Hermes Swift as tools, plus read access to the
-inter-agent message bus (core/message_bus.py), for any MCP client to
-call — built specifically so Hermes Agent (NousResearch's agent runtime,
-see hermes-agent.nousresearch.com) can use them when it takes over
+Scribe/Hermes Eyes/Hermes Swift as tools, plus the inter-agent message
+bus trace (core/message_bus.py) and the workflow engine
+(workflows/engine.py), for any MCP client to call — built specifically
+so Hermes Agent (NousResearch's agent runtime, see
+hermes-agent.nousresearch.com) can use them when it takes over
 orchestration from core/router.py + agents/hermes_prime.py.
 
 Mounted into the main FastAPI app at /mcp (see backend/main.py), so
@@ -27,6 +28,8 @@ can only be `.run()` once per instance (see backend/main.py's lifespan),
 so anything that needs a fresh app per call — tests, mainly — needs a
 fresh FastMCP too. A decorator bound at import time can't give you that.
 """
+from collections.abc import Callable
+
 from mcp.server.fastmcp import FastMCP
 
 from backend.agents.aegis import AegisAgent
@@ -43,6 +46,9 @@ from backend.memory.episodic import MemoryEntry
 from backend.security.aegis_engine import ActionRequest
 from backend.tasks.task_manager import Task
 from backend.tools import file_tools
+from backend.workflows import loader as workflow_loader
+from backend.workflows.engine import WorkflowEngine
+from backend.workflows.schema import WorkflowDefinition
 
 
 def _aegis() -> AegisAgent:
@@ -361,6 +367,83 @@ def messages_list(task_id: str | None = None, agent: str | None = None, limit: i
     return [m.to_dict() for m in messages]
 
 
+# ── Workflows: graph of agent actions ──────────────────────────────────
+
+
+def workflows_list() -> list[dict]:
+    """List all saved workflow definitions."""
+    return [w.to_dict() for w in workflow_loader.list_workflows()]
+
+
+def workflows_get(workflow_id: str) -> dict | None:
+    """Fetch a workflow definition by id, or None if it doesn't exist."""
+    try:
+        return workflow_loader.load_workflow(workflow_id).to_dict()
+    except FileNotFoundError:
+        return None
+
+
+def workflows_create(
+    id: str, name: str, nodes: list[dict], edges: list[dict] | None = None, description: str = ""
+) -> dict:
+    """Create/overwrite a workflow definition. Each node is
+    {id, action, params, human_validation} where action is a tool name
+    from this same tool registry (e.g. "research_query", "files_apply").
+    Each edge is {from, to, condition} where condition is
+    always/on_success/on_failure (default "always"). Raises ValueError if
+    the graph is invalid (missing fields, unknown node references, or a
+    cycle)."""
+    workflow = WorkflowDefinition.from_dict(
+        {"id": id, "name": name, "description": description, "nodes": nodes, "edges": edges or []}
+    )
+    workflow_loader.save_workflow(workflow)
+    return workflow.to_dict()
+
+
+def workflows_delete(workflow_id: str) -> bool:
+    """Delete a workflow definition by id. Returns whether it existed."""
+    return workflow_loader.delete_workflow(workflow_id)
+
+
+def workflows_simulate(workflow_id: str) -> dict:
+    """Dry-run a workflow: computes the execution order and which nodes
+    are human-validation gates, without calling any agent action or
+    touching the message bus."""
+    workflow = workflow_loader.load_workflow(workflow_id)
+    result = WorkflowEngine().simulate(workflow)
+    return {
+        "workflow_id": result.workflow_id,
+        "execution_order": result.execution_order,
+        "human_validation_nodes": result.human_validation_nodes,
+    }
+
+
+async def workflows_run(workflow_id: str, approved_nodes: list[str] | None = None) -> dict:
+    """Execute a workflow's graph of agent actions (see workflows_create's
+    docstring for the node/edge shape). Halts at the first
+    human_validation node not listed in approved_nodes — re-run with that
+    node's id included to continue past it (this re-executes the whole
+    graph from the start; there is no persisted resume state yet, see
+    backend/workflows/engine.py)."""
+    workflow = workflow_loader.load_workflow(workflow_id)
+    run = await WorkflowEngine().run(workflow, approved_nodes=set(approved_nodes or []))
+    return {
+        "id": run.id,
+        "workflow_id": run.workflow_id,
+        "status": run.status,
+        "node_results": {
+            node_id: {
+                "node_id": nr.node_id,
+                "status": nr.status,
+                "result": nr.result,
+                "error": nr.error,
+            }
+            for node_id, nr in run.node_results.items()
+        },
+        "pending_nodes": run.pending_nodes,
+    }
+
+
 _ALL_TOOLS = [
     security_evaluate,
     files_list,
@@ -383,7 +466,24 @@ _ALL_TOOLS = [
     tasks_update,
     tasks_delete,
     messages_list,
+    workflows_list,
+    workflows_get,
+    workflows_create,
+    workflows_delete,
+    workflows_simulate,
+    workflows_run,
 ]
+
+
+def get_tool_registry() -> dict[str, Callable]:
+    """Name -> tool function, for anything that needs to dispatch by name
+    rather than import each tool individually. Currently used by the
+    workflow engine (backend/workflows/engine.py): every function above
+    already normalizes whatever tuple/stream-returning agent method it
+    wraps into a plain params-in, dict/list/bool/str-out call — reusing
+    that here means the engine doesn't need a second per-agent adapter
+    layer just to sequence agent actions in a graph."""
+    return {fn.__name__: fn for fn in _ALL_TOOLS}
 
 
 def create_mcp_server() -> FastMCP:
@@ -398,9 +498,10 @@ def create_mcp_server() -> FastMCP:
             "(Atlas), persistent memory (Echo), task tracking (Kronos), "
             "research/RAG (Minerva), QA review (Veritas), writing/"
             "documentation (Hermes Scribe), image analysis (Hermes Eyes), fast "
-            "request classification (Hermes Swift), and the inter-agent "
-            "message bus trace (messages_list). Every file/security operation "
-            "is bound by ALLOWED_PATHS and the configured autonomy level "
+            "request classification (Hermes Swift), the inter-agent message "
+            "bus trace (messages_list), and workflows chaining these actions "
+            "into a graph (workflows_*). Every file/security operation is "
+            "bound by ALLOWED_PATHS and the configured autonomy level "
             "(config/security.yaml) — a denied or require_human_validation "
             "verdict means don't proceed."
         ),

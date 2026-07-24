@@ -58,6 +58,12 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "tasks_update",
         "tasks_delete",
         "messages_list",
+        "workflows_list",
+        "workflows_get",
+        "workflows_create",
+        "workflows_delete",
+        "workflows_simulate",
+        "workflows_run",
     }
 
 
@@ -239,6 +245,43 @@ async def test_messages_list_reflects_security_evaluate(monkeypatch, tmp_path):
     types = {m["type"] for m in body}
     assert "VALIDATION_REQUEST" in types
     assert types & {"VALIDATION_GRANTED", "VALIDATION_DENIED", "ESCALATION"}
+
+
+async def test_workflows_create_simulate_and_run_roundtrip(monkeypatch, tmp_path):
+    # Uses deterministic tools (tasks_*) as node actions -> no live Ollama
+    # needed, same reasoning as test_workflow_engine.py.
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "nodes": [
+            {"id": "create", "action": "tasks_create", "params": {"title": "hi"}},
+            {"id": "list", "action": "tasks_list", "params": {}},
+        ],
+        "edges": [{"from": "create", "to": "list"}],
+    }
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        created = _result(await session.call_tool("workflows_create", workflow))
+        assert created["id"] == "wf-1"
+
+        listed = _result(await session.call_tool("workflows_list", {}))
+        assert [w["id"] for w in listed] == ["wf-1"]
+
+        simulated = _result(await session.call_tool("workflows_simulate", {"workflow_id": "wf-1"}))
+        assert simulated["execution_order"] == ["create", "list"]
+
+        run = _result(await session.call_tool("workflows_run", {"workflow_id": "wf-1"}))
+        assert run["status"] == "completed"
+        assert run["node_results"]["create"]["status"] == "success"
+
+        fetched = _result(await session.call_tool("workflows_get", {"workflow_id": "wf-1"}))
+        assert fetched["id"] == "wf-1"
+
+        deleted = _result(await session.call_tool("workflows_delete", {"workflow_id": "wf-1"}))
+        assert deleted is True
+
+        missing = _result(await session.call_tool("workflows_get", {"workflow_id": "wf-1"}))
+        assert missing is None
 
 
 async def test_memory_remember_list_forget_roundtrip(monkeypatch, tmp_path):

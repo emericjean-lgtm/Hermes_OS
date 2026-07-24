@@ -1,0 +1,46 @@
+id: full-code-review
+name: Full Code Review
+description: >
+  Minerva researches context for the review, Veritas reviews it, a human
+  approves before Atlas applies anything, then Hermes Scribe writes a
+  report. Adapted from the cahier des charges §15 example (Minerva
+  analyse -> Atlas corrige -> Veritas verifie -> Validation humaine ->
+  Atlas applique -> Scribe rapport) to the agent actions that actually
+  exist today: there is no automated "Atlas fixes code" tool yet (see
+  backend/agents/atlas.py, backend/tools/file_tools.py), so this template
+  reviews and reports on the research instead of an automatic patch.
+  Edit params before running against your own project.
+nodes:
+  - id: analyze
+    action: research_query
+    params:
+      query: "Summarize what this codebase's security module (Aegis) does."
+
+  - id: review
+    action: verify_output
+    params:
+      output: "$steps.analyze.answer"
+      context: "Research summary produced by Minerva for a code review."
+
+  - id: apply
+    action: files_apply
+    human_validation: true
+    params:
+      path: "./REVIEW_NOTES.md"
+      new_content: "$steps.review.corrections"
+
+  - id: report
+    action: write_document
+    params:
+      brief: "Summarize this code review workflow run in a short report."
+      context: "$steps.review.raw"
+
+edges:
+  - from: analyze
+    to: review
+  - from: review
+    to: apply
+    condition: on_success
+  - from: apply
+    to: report
+    condition: always

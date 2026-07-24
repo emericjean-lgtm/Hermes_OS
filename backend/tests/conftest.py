@@ -89,7 +89,12 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     get_message_bus's cache is cleared for the same reason: AegisAgent
     reaches the bus via that module-level singleton too (see
     agents/aegis.py), so a stale cached bus would keep writing to a
-    previous test's (possibly already-deleted) tmp_path."""
+    previous test's (possibly already-deleted) tmp_path.
+
+    WORKFLOWS_DIR is pointed at tmp_path too: backend/workflows/loader.py
+    reads it fresh from get_settings() on every call (no lru_cache of its
+    own), so without this a workflow test would read/write the real
+    data/workflows/ folder."""
     import backend.main as main_module
     from backend.core.agent_registry import AgentRegistry, get_agent_registry
     from backend.core.config import get_settings
@@ -98,6 +103,7 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
 
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
+    monkeypatch.setenv("WORKFLOWS_DIR", str(tmp_path / "workflows"))
     get_settings.cache_clear()
     get_agent_registry.cache_clear()
     get_message_bus.cache_clear()
@@ -176,7 +182,9 @@ async def open_mcp_session(monkeypatch, tmp_path):
     just get_settings) and points SQLITE_PATH/CHROMA_PATH/ALLOWED_PATHS
     at tmp_path — otherwise this would build agents against the real
     OllamaClient and the developer's actual data/db/ folder. get_message_bus
-    is cleared for the same reason (see the client fixture's docstring)."""
+    is cleared for the same reason (see the client fixture's docstring).
+    WORKFLOWS_DIR is set for the same reason too — see the client
+    fixture's docstring."""
     import httpx
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -189,6 +197,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
     monkeypatch.setenv("ALLOWED_PATHS", str(tmp_path / "allowed"))
+    monkeypatch.setenv("WORKFLOWS_DIR", str(tmp_path / "workflows"))
     (tmp_path / "allowed").mkdir()
     get_settings.cache_clear()
     get_agent_registry.cache_clear()
