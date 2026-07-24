@@ -93,7 +93,7 @@ def _swift() -> HermesSwiftAgent:
     return get_agent_registry().get("hermes_swift")
 
 
-def _task_to_dict(task: Task) -> dict:
+def _task_to_dict(task: Task, *, hse: dict | None = None) -> dict:
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -109,6 +109,7 @@ def _task_to_dict(task: Task) -> dict:
         "files": task.files_list,
         "test_results": task.test_results_dict,
         "history": task.history_list,
+        "hse": hse,
     }
 
 
@@ -412,12 +413,19 @@ def tasks_update(
     test_results: dict | None = None,
     note: str | None = None,
     project_id: str | None = None,
+    run_hse: bool = False,
 ) -> dict | None:
     """Update a task: change status, attach touched files/models used,
     record test results, reassign it to a different project, or just
     append a free-form history note. Every change is appended to the
     task's history, nothing overwritten silently. Returns None if the
-    task doesn't exist."""
+    task doesn't exist. run_hse=True additionally runs the HSE pipeline
+    (self_evolution/pipeline.py) right after — the natural place to
+    trigger it, since marking a task done/cancelled/partially_successful
+    IS the terminal transition it needs; the result is included under
+    the "hse" key. No-op if the resulting status isn't terminal, and not
+    automatic on every update — same opt-in reasoning as
+    security_evaluate's include_advisory."""
     task = _kronos().update_task(
         task_id,
         status=status,
@@ -427,7 +435,10 @@ def tasks_update(
         note=note,
         project_id=project_id,
     )
-    return _task_to_dict(task) if task else None
+    if task is None:
+        return None
+    hse_result = process_task(task, _echo()) if run_hse else None
+    return _task_to_dict(task, hse=hse_result)
 
 
 def tasks_delete(task_id: str) -> bool:

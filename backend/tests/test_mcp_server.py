@@ -174,6 +174,22 @@ async def test_files_apply_narrowed_to_project_root(monkeypatch, tmp_path, secur
         assert outside["verdict"] == "deny"
 
 
+async def test_tasks_update_run_hse_extracts_skill(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        created = _result(await session.call_tool("tasks_create", {"title": "Ship it"}))
+
+        updated = _result(
+            await session.call_tool(
+                "tasks_update", {"task_id": created["id"], "status": "done", "run_hse": True}
+            )
+        )
+        assert updated["hse"]["outcome"] is True
+        assert updated["hse"]["skill_id"] is not None
+
+        skill = _result(await session.call_tool("skills_get", {"skill_id": updated["hse"]["skill_id"]}))
+        assert skill["name"] == "Ship it"
+
+
 async def test_tasks_create_list_update_delete_roundtrip(monkeypatch, tmp_path):
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         created = _result(await session.call_tool("tasks_create", {"title": "MCP task"}))

@@ -74,13 +74,17 @@ when `REFLECTION_ENABLED`, and `progression_tracker` aggregates success
 rate / skill counts on demand. Deliberately *not* auto-triggered from
 Kronos's `update_task()` — called explicitly via
 `POST /hse/process/{task_id}` + `GET /hse/progression`, and `/skills*`
-for the library itself — matching this project's "explicit call, no
-hidden side effects" pattern elsewhere), and an **MCP server** exposing
+for the library itself, or in the same request as marking a task done:
+`PATCH /tasks/{id}` (and the `tasks_update` MCP tool) take an opt-in
+`run_hse: bool` that runs the pipeline right after the update and
+returns its result under the response's `hse` key — one call instead of
+two, still opt-in, matching this project's "explicit call, no hidden
+side effects" pattern elsewhere), and an **MCP server** exposing
 Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
 Swift as tools plus the bus's `messages_list`, hardware telemetry's
 `system_status`, the workflow engine's `workflows_*`, `projects_*`, and
 HSE's `skills_*`/`hse_process_task`/`hse_progression` (see "Hermes Agent
-integration" below). 333 tests passing — every module in the original
+integration" below). 337 tests passing — every module in the original
 cahier des charges roadmap is now built; see `config/agents.yaml` for
 the full agent registry. Telegram and workflow scheduling
 (`triggers.yaml`) are no longer planned as our own builds — Hermes
