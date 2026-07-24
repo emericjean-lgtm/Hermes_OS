@@ -1,20 +1,47 @@
 # Hermes Agent integration config — copy the relevant blocks into
-# ~/.hermes/config.yaml once Hermes Agent is installed on your machine
-# (this can't be installed or tested from the dev sandbox this backend
-# was built in — hermes-agent.nousresearch.com is unreachable from
-# there; see README.md's "Hermes Agent integration" section).
+# ~/.hermes/config.yaml once Hermes Agent is installed on your machine.
+# Confirmed end-to-end on real hardware (RX 6800, native Windows Ollama,
+# Hermes Agent v0.19.0) — see README.md's "Hermes Agent integration"
+# section for the full account, including three real bugs found and
+# fixed along the way.
 #
 # This config reflects decisions made after reviewing Hermes Agent's own
 # feature set (github.com/NousResearch/hermes-agent docs):
 #
 # 1. Hermes Agent runs on ONE model per session — it does not do
-#    per-task-type model routing the way this backend does. That's fine:
-#    Hermes becomes the orchestration/planning brain on the `orchestrator`
-#    role model (hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M,
-#    config/models.yaml), and every specialized, per-task model choice
-#    (qwen3.5:9b for Minerva, deepseek-r1:14b for Veritas, gemma4:12b for
-#    Eyes...) still happens *inside* the MCP
-#    tools below, exactly as built — Hermes never needs to know about it.
+#    per-task-type model routing the way this backend does. Every
+#    specialized, per-task model choice (qwen3.5:9b for Minerva,
+#    deepseek-r1:14b for Veritas, gemma4:12b for Eyes...) still happens
+#    *inside* the MCP tools below, exactly as built — Hermes never needs
+#    to know about it.
+#
+#    IMPORTANT — Hermes Agent's OWN model is NOT this project's
+#    `orchestrator` role model. Two real constraints ruled that out on
+#    real hardware:
+#      a) Hermes Agent hard-requires >=64K tokens of context for its own
+#         model (it errors out below that at startup). This project's
+#         `orchestrator` (hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF)
+#         has a real, non-extendable 40,960-token window — confirmed via
+#         the base model's own config.json (`max_position_embeddings:
+#         40960, rope_scaling: null`), not a quantization artifact, so no
+#         alternate GGUF conversion of it fixes this.
+#      b) qwen3.5:9b (this project's `standard` role, 262K context,
+#         otherwise a fine candidate) was tried next — it reliably
+#         *narrates* tool use in prose instead of emitting a real
+#         `tool_calls` response when Hermes Agent's request leaves
+#         `tool_choice` unset (`auto`, Hermes's actual default for a
+#         "custom" OpenAI-compatible provider — Hermes never sets
+#         `tool_choice` for this provider type, confirmed by capturing
+#         and inspecting the real HTTP request). Forcing
+#         `tool_choice: "required"` made it work, but that's not
+#         something Hermes Agent's config exposes for a custom provider.
+#      `devstral` (this project's `code_agentic` role, 131K context, 23.6B,
+#      Mistral's agent-first coding model) reliably emits real tool calls
+#      under Hermes's actual default (`tool_choice` unset) — confirmed the
+#      same way, replaying the real captured request. Use it as Hermes
+#      Agent's model even though it isn't this project's `orchestrator`;
+#      config/models.yaml's `orchestrator` role (Hermes-4-14B) is
+#      untouched and still used internally by this backend's own router.
 #
 # 2. Hermes ships 40+ native tools of its own (terminal, patch/read_file,
 #    memory, todo, delegate_task, kanban, cronjob). Several of these
@@ -43,15 +70,39 @@
 #        calls the workflows_run MCP tool on a cron schedule.
 #
 # 3. MCP Tool Search (Hermes's own feature) auto-activates once deferred
-#    tool schemas would eat >10% of context — with 27 tools on this
-#    server that will likely engage automatically; no config needed here.
+#    tool schemas would eat >10% of context — with 42 tools on this
+#    server (verified via `hermes mcp test hermes-ollama`) this may
+#    engage automatically; no config needed here. Note: `terminal` and
+#    `process` are Hermes's own "core" native tools (agent/toolsets.py's
+#    `_HERMES_CORE_TOOLS`) and are never deferred regardless.
+#
+# 4. Dashboard plugin gotcha (real bug, cost real debugging time): simply
+#    copying config/hermes_agent_dashboard/ into ~/.hermes/plugins/ is
+#    NOT enough. A "user"-source dashboard plugin (this one) must also be
+#    explicitly listed under `plugins.enabled` below, or Hermes Agent's
+#    `_is_active()` gate (hermes_cli/web_server.py) silently keeps it
+#    inert — it still shows up in the `/plugins` page's "dashboard-only
+#    extensions" list with a working-looking "Open" link, but every one
+#    of its API routes 404s ("Plugin not found") until this key is set,
+#    and the dashboard process needs a restart afterwards (routes are
+#    mounted once at process start, not re-checked per request).
 
-# ── 1. Model: Hermes Agent's own orchestration model ─────────────────
+# ── 1. Model: Hermes Agent's own model (see note above — NOT this ────
+#       project's `orchestrator` role) ────────────────────────────────
 model:
-  default: "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M"
+  default: "devstral"
   provider: custom
   base_url: "http://127.0.0.1:11434/v1"
   api_key: "ollama"          # Ollama's OpenAI-compatible endpoint ignores the value, but Hermes requires the field non-empty
+
+# Same model, referenced by Hermes's setup-wizard-generated custom_providers
+# entry if you used that instead of hand-editing config.yaml:
+custom_providers:
+  - name: Local (your Ollama host:port)
+    base_url: "http://127.0.0.1:11434/v1"
+    api_key: "ollama"
+    model: "devstral"
+    api_mode: chat_completions
 
 # ── 2. This backend's MCP server (Aegis/Atlas/Echo/Kronos/Minerva/ ───
 #       Veritas/Hermes Scribe/Hermes Eyes/Hermes Swift/message bus/
@@ -65,17 +116,32 @@ mcp_servers:
 
 # ── 3. Disable native toolsets that would bypass Aegis or duplicate ──
 #       Kronos (see decisions above) ─────────────────────────────────
+# Confirmed on Hermes Agent v0.19.0: there is no "hermes-cli" toolset —
+# just leave the list empty so "file" and "terminal" (the two the setup
+# wizard force-enables as part of its "minimal baseline") aren't in it.
 platform_toolsets:
-  cli: [hermes-cli]   # do NOT add "terminal", "file", or "kanban" here
+  cli: []
 
-# The exact key for disabling built-in toolsets depends on your Hermes
-# Agent version — check `hermes tools` for the current list and either
-# omit terminal/file/kanban from platform_toolsets above, or use
-# `hermes tools` interactively to turn them off. memory/todo/cronjob are
-# intentionally left enabled (see decisions above).
+# The setup wizard's "Blank Slate" flow also force-disables memory/
+# session_search/todo/cronjob by default (agent.disabled_toolsets) —
+# remove those four names from that list (elsewhere in config.yaml) to
+# match the "KEEP ENABLED" decisions above; everything else it disables
+# (browser, vision, web, skills, image_gen, ...) can stay disabled, this
+# integration doesn't need it.
+
+# Explicitly opt the dashboard plugin in — see point 4 above. Omitting
+# this is the exact bug that was found and fixed on real hardware.
+plugins:
+  enabled:
+    - hermes-ollama
 
 # ── 4. Defense-in-depth: gate terminal/patch/read_file through Aegis ─
 #       even if they're accidentally re-enabled later ────────────────
+# Confirmed end-to-end on real hardware with devstral: a genuine native
+# `terminal` tool call was attempted, this hook fired, Aegis returned
+# `require_human_validation` (system_command is always mandatory_validation
+# per config/security.yaml), and Hermes Agent surfaced the block to the
+# user instead of running anything.
 hooks:
   pre_tool_call:
     - matcher: "terminal|process|patch|read_file"

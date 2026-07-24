@@ -37,7 +37,7 @@ router = APIRouter()
 BACKEND_URL = os.environ.get("HERMES_OLLAMA_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
 
 
-def _get_json(path: str, *, timeout: float = 5.0) -> object:
+def _get_json(path: str, *, timeout: float = 10.0) -> object:
     """GET {BACKEND_URL}<path> and return the parsed JSON body. Raises
     HTTPException(502) if the backend is unreachable or returns
     something that isn't valid JSON — surfaced to the dashboard as a

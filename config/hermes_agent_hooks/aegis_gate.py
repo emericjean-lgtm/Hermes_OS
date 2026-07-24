@@ -27,14 +27,15 @@ shape ({} to allow, {"decision": "block", "reason": ...} to veto).
 Requires the Hermes Ollama backend running and reachable at
 AEGIS_GATE_URL below.
 
-NOT verified against a live Hermes Agent install: hermes-agent.
-nousresearch.com is unreachable from this development sandbox (network
-policy), so this script is built strictly from Hermes Agent's published
-hook contract, not exercised end-to-end. In particular, the exact
-tool_input field names for patch/read_file/terminal/process (guessed
-below as path/file_path/command/cmd) should be checked against what
-Hermes actually sends — run `hermes tools` or add a debug line dumping
-`payload` to a file on first use, and adjust _TOOL_ACTION_MAP if needed.
+Verified end-to-end on real hardware (RX 6800, Hermes Agent v0.19.0):
+`hermes hooks test pre_tool_call --for-tool terminal` confirms this
+script blocks correctly against Hermes's real synthetic-payload harness,
+and a live run — Hermes Agent driven by `devstral`, native `terminal`
+toolset temporarily re-enabled — attempted a genuine tool call, got
+blocked here (`system_command` is `mandatory_validation` per
+config/security.yaml), and Hermes surfaced the block to the user instead
+of running anything. The `tool_input`/path-key field names below matched
+what Hermes actually sends; no adjustment to _TOOL_ACTION_MAP was needed.
 """
 from __future__ import annotations
 

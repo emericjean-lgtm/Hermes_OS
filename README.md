@@ -134,12 +134,54 @@ inside Hermes Agent's own web UI, so the planned Next.js frontend
 (currently just a minimal Chat page) doesn't need to grow into a full
 second UI; see "Hermes Agent integration" below.
 
-**Important:** this environment has no AMD GPU / ROCm. The backend was
-built and tested here entirely against a fake Ollama client (see
-`backend/tests/`), so the routing/agent/API logic is verified, but real
-model inference has not been. Pull this branch onto your Ubuntu/ROCm
-machine and follow the ROCm + Ollama install steps in the cahier des
-charges (§25) before testing actual generation quality and speed.
+**Real hardware update:** all of the above has now been exercised
+end-to-end on the actual target machine — except it turned out to be
+**native Windows Ollama, not Ubuntu+ROCm** (the RX 6800 / i5-13500 / 32GB
+box the cahier des charges was written for, just running Windows 11
+rather than the assumed Ubuntu 24.04). `/chat`, `/vision/analyze`,
+`/classify`, `/verify`, `/memory/index`+`/research`, the full HSE loop
+(task → skill → index → semantic search), `/projects`, `/workflows`, and
+`/security/evaluate` (including the LLM advisory pass) were all run
+against real models on the real GPU, not the fake Ollama client. `pytest`
+still passes fully with the fake client (371 tests) for anyone without
+this hardware. Four real, hardware-only bugs were found and fixed along
+the way — none reproducible against the fake client:
+
+1. **GPU/CPU/RAM monitoring had no Windows path** — `GpuMonitor` only
+   ever shelled out to `rocm-smi`/read `/proc`, both Linux-only. Fixed
+   with a Windows branch (`platform.system()`-gated) using PowerShell:
+   registry `HardwareInformation.qwMemorySize` for VRAM total (max
+   across adapters, to skip past an iGPU), the `GPU Engine`/`GPU Adapter
+   Memory` performance counters for load/used VRAM, `Win32_Processor`
+   for CPU, `Win32_OperatingSystem`/`Win32_PageFileUsage` for RAM/swap.
+   Temperature has no cross-vendor Windows equivalent without a vendor
+   tool, so it's `null` there (never fed into alert thresholds) rather
+   than a fabricated `0.0`.
+2. **Aegis's advisory pass leaked its model's raw reasoning trace** —
+   `phi4-reasoning:14b-q4_K_M` (the `security` role model) ignores
+   Ollama's `think` API parameter entirely (confirmed via a direct
+   `/api/chat` test: no `message.thinking` field ever appears), so its
+   whole chain-of-thought landed in the advisory text a human reviewer
+   sees. Fixed with a fixed-format-prompt + `ADVISORY:`-marker parse,
+   same pattern as Veritas's `VERDICT:/ISSUES:/CORRECTIONS:` — but this
+   fix is **not fully reliable**: this specific model is extremely
+   verbose (one real run took 117s / 4,363 tokens deliberating about the
+   format instruction itself, quoting `"ADVISORY:"` repeatedly *while*
+   reasoning about it) and occasionally lands the marker in the wrong
+   place, returning an empty string or taking minutes. Worth revisiting
+   with a different `security` model if this proves too flaky in
+   practice.
+3. **Hermes Agent's own model requirements ruled out this project's
+   `orchestrator`** — see "Hermes Agent integration" below.
+4. **The Hermes Agent dashboard plugin needed an undocumented opt-in** —
+   see `config/hermes_agent_dashboard/README.md`.
+
+`config/models.yaml`'s `standard`/`orchestrator`/`vision`/`security`
+roles were also upgraded from the original cahier des charges' tags
+(`qwen3:8b`→`qwen3.5:9b`, `hermes3:8b`→Hermes-4-14B, `gemma3:12b`→`gemma4:12b`,
+`phi4:14b`→`phi4-reasoning:14b-q4_K_M`) after confirming availability and
+real VRAM figures on this hardware — see that file's own comments for
+the full reasoning per role.
 
 ## Project layout
 
@@ -202,17 +244,40 @@ for the `conversation` task type.
 [Hermes Agent](https://github.com/NousResearch/hermes-agent) (NousResearch's
 open-source agent runtime — unrelated to this project's own name, which is
 thematic) replaces `core/router.py` + `agents/hermes_prime.py` as the primary
-orchestrator. Based on reviewing its actual feature set (its docs site is
-unreachable from this sandbox, but the GitHub repo/docs aren't):
+orchestrator. Installed and confirmed working end-to-end on real hardware
+(v0.19.0, RX 6800, native Windows Ollama):
 
 - **Hermes Agent runs on one model per session** — it has no per-task-type
-  routing of its own. That's fine: Hermes becomes the planning/conversation
-  brain on this project's `orchestrator` model
-  (`hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M`), while every
-  specialized per-task model choice (`qwen3.5:9b` for Minerva, `deepseek-r1:14b`
-  for Veritas, `gemma4:12b` for Eyes...) still happens *inside* the MCP tools
-  below — Hermes never needs to know about it, this project's "one model per
-  role" principle (cahier des charges §7) is unaffected.
+  routing of its own. Every specialized per-task model choice
+  (`qwen3.5:9b` for Minerva, `deepseek-r1:14b` for Veritas, `gemma4:12b`
+  for Eyes...) still happens *inside* the MCP tools below — Hermes never
+  needs to know about it, this project's "one model per role" principle
+  (cahier des charges §7) is unaffected.
+  **Hermes Agent's own model is `devstral`, not this project's
+  `orchestrator`** (Hermes-4-14B) — two real constraints, found on real
+  hardware, ruled the latter out:
+  1. Hermes Agent hard-requires ≥64K tokens of context for its own model
+     (errors at startup below that). Hermes-4-14B's real window is
+     40,960 — confirmed via the base model's own `config.json`
+     (`max_position_embeddings: 40960, rope_scaling: null`), not a
+     quantization artifact, so no alternate GGUF conversion fixes it.
+  2. `qwen3.5:9b` (this project's `standard`, 262K context) was tried
+     next and technically satisfies the context floor, but reliably
+     *narrates* tool use in prose instead of emitting a real
+     `tool_calls` response — Hermes never sets `tool_choice` for a
+     "custom" OpenAI-compatible provider (confirmed by capturing the
+     real HTTP request to Ollama), leaving it at the default `auto`,
+     and this model just doesn't call tools reliably under `auto`.
+     Forcing `tool_choice: "required"` fixed it in isolation, but that
+     isn't something Hermes Agent's config exposes for a custom
+     provider.
+  `devstral` (this project's `code_agentic`, 131K context, Mistral's
+  agent-first coding model) reliably emits real tool calls under
+  Hermes's actual default — confirmed the same way, and then
+  end-to-end through a live `hermes -z` run and `hermes chat`.
+  `config/models.yaml`'s `orchestrator` role is untouched and still used
+  internally by this backend's own router; only Hermes Agent's own
+  session model differs from it.
 - Hermes ships 40+ **native tools of its own** (terminal, file patch/read,
   memory, todo, kanban, cronjob). `terminal`/`patch`/`read_file` are disabled
   in the example config below — they'd bypass Aegis entirely — with a
@@ -243,37 +308,44 @@ unreachable from this sandbox, but the GitHub repo/docs aren't):
   `config/hermes_agent_dashboard/README.md` for install steps and what
   isn't verified end-to-end.
 
-**On your machine** (this integration can't be installed or live-tested from
-a sandboxed session — `hermes-agent.nousresearch.com` is blocked by this
-environment's network policy; everything up to that install step has been
-built and tested here):
+**On your machine:**
 
 ```bash
-# 1. Install Hermes Agent
+# 1. Install Hermes Agent (Linux/macOS)
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+# On Windows, the installer above detects it and tells you to use instead:
+#   iex (irm https://hermes-agent.nousresearch.com/install.ps1)
 
 # 2. Copy config/hermes_agent_mcp.example.yaml's blocks into
-# ~/.hermes/config.yaml: model provider (custom endpoint -> Ollama),
-# this backend's MCP server, disabled native toolsets, and the
-# pre_tool_call -> Aegis hook. Edit the hook's absolute path first.
+# ~/.hermes/config.yaml: model provider (custom endpoint -> Ollama, model
+# devstral — see above), this backend's MCP server, disabled native
+# toolsets, plugins.enabled for the dashboard, and the pre_tool_call ->
+# Aegis hook. Edit the hook's absolute path first.
 # Backend must be running: uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 # 3. Install the dashboard plugin (optional, replaces the Next.js frontend)
 mkdir -p ~/.hermes/plugins/hermes-ollama
 cp -r config/hermes_agent_dashboard ~/.hermes/plugins/hermes-ollama/dashboard
+# Then add plugins.enabled: [hermes-ollama] to config.yaml — see that
+# plugin's own README for why this step is easy to miss and what breaks
+# without it.
 ```
 
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(42 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+*and* with a live Hermes Agent install (`hermes mcp test hermes-ollama`,
+42 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
 `verify_output`, `write_document`, `analyze_image`, `classify_request`,
 `tasks_*`, `messages_list`, `system_status`, `workflows_*`, `projects_*`,
 `skills_*`, `hse_process_task`, `hse_progression`).
-The `pre_tool_call` hook script
-(`config/hermes_agent_hooks/aegis_gate.py`) is built strictly from Hermes
-Agent's published hook contract — not exercised end-to-end from this
-sandbox, so verify it against your real installation before relying on it.
+The `pre_tool_call` hook script (`config/hermes_agent_hooks/aegis_gate.py`)
+is confirmed working end-to-end on real hardware: `hermes hooks test
+pre_tool_call --for-tool terminal` blocks correctly against Hermes's own
+synthetic-payload harness, and a live run (Hermes Agent on `devstral`,
+`terminal` toolset temporarily re-enabled for the test) attempted a real
+native tool call, got blocked here, and surfaced the block to the user
+instead of executing anything.
 
 ## Adding a real agent
 
