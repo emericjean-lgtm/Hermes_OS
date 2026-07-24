@@ -50,6 +50,7 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "research_query",
         "verify_output",
         "write_document",
+        "analyze_image",
         "tasks_create",
         "tasks_get",
         "tasks_list",
@@ -174,6 +175,27 @@ async def test_write_document_returns_document(monkeypatch, tmp_path):
 
     body = _result(result)
     assert body["document"] == "# Title\nSome content."
+    assert body["model"]
+
+
+async def test_analyze_image_returns_description(monkeypatch, tmp_path):
+    from backend.connectors.ollama_client import OllamaClient
+
+    async def fake_list_running_models(self):
+        return []
+
+    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+        for chunk in ["An ", "RX 6800 ", "graphics card."]:
+            yield chunk
+
+    monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
+    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = await session.call_tool("analyze_image", {"images": ["aGVsbG8="]})
+
+    body = _result(result)
+    assert body["description"] == "An RX 6800 graphics card."
     assert body["model"]
 
 

@@ -1,8 +1,8 @@
 """MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
-Scribe as tools for any MCP client to call — built specifically so Hermes
-Agent (NousResearch's agent runtime, see hermes-agent.nousresearch.com)
-can use them when it takes over orchestration from core/router.py +
-agents/hermes_prime.py.
+Scribe/Hermes Eyes as tools for any MCP client to call — built
+specifically so Hermes Agent (NousResearch's agent runtime, see
+hermes-agent.nousresearch.com) can use them when it takes over
+orchestration from core/router.py + agents/hermes_prime.py.
 
 Mounted into the main FastAPI app at /mcp (see backend/main.py), so
 there's still one process to run: an MCP client (Hermes Agent's
@@ -31,6 +31,7 @@ from mcp.server.fastmcp import FastMCP
 from backend.agents.aegis import AegisAgent
 from backend.agents.echo import EchoAgent
 from backend.agents.kronos import KronosAgent
+from backend.agents.hermes_eyes import DEFAULT_ANALYSIS_PROMPT, HermesEyesAgent
 from backend.agents.hermes_scribe import HermesScribeAgent
 from backend.agents.minerva import MinervaAgent
 from backend.agents.veritas import VeritasAgent
@@ -63,6 +64,10 @@ def _veritas() -> VeritasAgent:
 
 def _scribe() -> HermesScribeAgent:
     return get_agent_registry().get("hermes_scribe")
+
+
+def _eyes() -> HermesEyesAgent:
+    return get_agent_registry().get("hermes_eyes")
 
 
 def _task_to_dict(task: Task) -> dict:
@@ -232,6 +237,22 @@ async def write_document(
     return {"document": document, "model": decision.model}
 
 
+# ── Hermes Eyes: vision ──────────────────────────────────────────────────
+
+
+async def analyze_image(
+    images: list[str], prompt: str = DEFAULT_ANALYSIS_PROMPT, context: str = ""
+) -> dict:
+    """Analyze one or more images (screenshots, photos, diagrams). `images`
+    are base64-encoded strings (no data URI prefix). `prompt` is what to
+    look for/describe, `context` is background the model should know
+    (e.g. what the screenshot is from). Requires a live Ollama server with
+    a multimodal model (config/models.yaml's "vision" role)."""
+    decision, stream = await _eyes().analyze(images, prompt=prompt, context=context)
+    description = "".join([chunk async for chunk in stream])
+    return {"description": description, "model": decision.model}
+
+
 # ── Kronos: tasks ────────────────────────────────────────────────────
 
 
@@ -304,6 +325,7 @@ _ALL_TOOLS = [
     research_query,
     verify_output,
     write_document,
+    analyze_image,
     tasks_create,
     tasks_get,
     tasks_list,
@@ -322,11 +344,11 @@ def create_mcp_server() -> FastMCP:
         instructions=(
             "Tools for Hermes Ollama's security gate (Aegis), file operations "
             "(Atlas), persistent memory (Echo), task tracking (Kronos), "
-            "research/RAG (Minerva), QA review (Veritas), and writing/"
-            "documentation (Hermes Scribe). Every file/security operation is "
-            "bound by ALLOWED_PATHS and the configured autonomy level "
-            "(config/security.yaml) — a denied or require_human_validation "
-            "verdict means don't proceed."
+            "research/RAG (Minerva), QA review (Veritas), writing/"
+            "documentation (Hermes Scribe), and image analysis (Hermes Eyes). "
+            "Every file/security operation is bound by ALLOWED_PATHS and the "
+            "configured autonomy level (config/security.yaml) — a denied or "
+            "require_human_validation verdict means don't proceed."
         ),
         # FastMCP's own default is "/mcp", which would double up with the
         # "/mcp" prefix this app is mounted under in backend/main.py (i.e.

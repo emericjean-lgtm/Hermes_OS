@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from backend.connectors.ollama_client import OllamaClientProtocol
 from backend.core.router import ModelRouter, RoutingDecision
@@ -46,7 +46,7 @@ class BaseAgent(ABC):
 
     async def respond(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         task_type: str | None = None,
         sensitivity: str = "standard",

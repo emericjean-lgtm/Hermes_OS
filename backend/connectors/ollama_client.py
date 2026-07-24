@@ -19,7 +19,7 @@ class OllamaClientProtocol(Protocol):
     async def chat_stream(
         self,
         model: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         top_p: float | None = None,
@@ -42,7 +42,7 @@ class OllamaClient:
     async def chat_stream(
         self,
         model: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         top_p: float | None = None,

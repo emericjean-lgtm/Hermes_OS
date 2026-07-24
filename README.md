@@ -18,11 +18,12 @@ synthesizes a cited answer, `/research`), **Veritas** (QA agent: reviews
 another agent's output and returns a parsed verdict — approved /
 needs_revision / rejected — plus issues and corrections, `/verify`),
 **Hermes Scribe** (writing/documentation agent: brief -> document,
-`/write`), and an **MCP server** exposing
-Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe as tools (see
-"Hermes Agent integration" below). 128 tests passing. Still not
-implemented: Hermes Eyes, Hermes Swift, the message bus, workflows, HSE,
-GPU monitoring, Telegram — see `config/agents.yaml` for the full agent
+`/write`), **Hermes Eyes** (vision agent: multimodal image analysis via
+`gemma3:12b`, `/vision/analyze`), and an **MCP server** exposing
+Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes as
+tools (see "Hermes Agent integration" below). 136 tests passing. Still
+not implemented: Hermes Swift, the message bus, workflows, HSE, GPU
+monitoring, Telegram — see `config/agents.yaml` for the full agent
 roster (`enabled: false` = not built yet).
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
@@ -118,8 +119,8 @@ hermes model
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(18 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
-`verify_output`, `write_document`, `tasks_*`).
+(19 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+`verify_output`, `write_document`, `analyze_image`, `tasks_*`).
 
 ## Adding a real agent
 
