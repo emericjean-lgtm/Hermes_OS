@@ -46,13 +46,14 @@ async def test_write_without_context_omits_background_section(fake_ollama_client
 async def test_write_reuses_already_loaded_model(models_config):
     from backend.tests.conftest import FakeOllamaClient
 
-    # hermes3:8b (orchestrator) is a lower-priority candidate than standard
+    # the orchestrator model is a lower-priority candidate than standard
     # for "writing" — proves "already loaded" beats priority order.
-    client = FakeOllamaClient(running_models=["hermes3:8b"])
+    orchestrator_model = models_config["roles"]["orchestrator"]["model"]
+    client = FakeOllamaClient(running_models=[orchestrator_model])
     router = ModelRouter(models_config)
     scribe = HermesScribeAgent(client, router, models_config)
 
     decision, _stream = await scribe.write("brief")
 
-    assert decision.model == "hermes3:8b"
+    assert decision.model == orchestrator_model
     assert "already loaded" in decision.reason

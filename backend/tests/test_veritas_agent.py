@@ -48,13 +48,14 @@ async def test_review_reuses_already_loaded_model(models_config):
     # reasoning is the priority-1 candidate for "verification" already, so
     # use a lower-priority candidate (security) to prove "already loaded"
     # beats priority order.
-    client = FakeOllamaClient(running_models=["phi4:14b"])
+    security_model = models_config["roles"]["security"]["model"]
+    client = FakeOllamaClient(running_models=[security_model])
     router = ModelRouter(models_config)
     veritas = VeritasAgent(client, router, models_config)
 
     decision, _stream = await veritas.review("output")
 
-    assert decision.model == "phi4:14b"
+    assert decision.model == security_model
     assert "already loaded" in decision.reason
 
 

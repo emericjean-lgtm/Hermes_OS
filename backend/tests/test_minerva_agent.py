@@ -44,13 +44,14 @@ async def test_synthesize_with_no_passages_says_so(fake_ollama_client, models_co
 async def test_synthesize_reuses_already_loaded_model(models_config):
     from backend.tests.conftest import FakeOllamaClient
 
-    # hermes3:8b (orchestrator) is a lower-priority candidate than
+    # the orchestrator model is a lower-priority candidate than
     # standard for "research" — proves "already loaded" beats priority.
-    client = FakeOllamaClient(running_models=["hermes3:8b"])
+    orchestrator_model = models_config["roles"]["orchestrator"]["model"]
+    client = FakeOllamaClient(running_models=[orchestrator_model])
     router = ModelRouter(models_config)
     minerva = MinervaAgent(client, router, models_config)
 
     decision, _stream = await minerva.synthesize("q", [])
 
-    assert decision.model == "hermes3:8b"
+    assert decision.model == orchestrator_model
     assert "already loaded" in decision.reason

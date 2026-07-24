@@ -101,7 +101,7 @@ pytest
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen3:8b   # default "standard" model used by the walking skeleton
+ollama pull qwen3.5:9b   # default "standard" model used by the walking skeleton
 ```
 
 See §25 of the cahier des charges for the full ROCm setup (RX 6800 needs
@@ -130,8 +130,9 @@ unreachable from this sandbox, but the GitHub repo/docs aren't):
 
 - **Hermes Agent runs on one model per session** — it has no per-task-type
   routing of its own. That's fine: Hermes becomes the planning/conversation
-  brain on this project's `orchestrator` model (`hermes3:8b`), while every
-  specialized per-task model choice (`qwen3:8b` for Minerva, `deepseek-r1:14b`
+  brain on this project's `orchestrator` model
+  (`hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M`), while every
+  specialized per-task model choice (`qwen3.5:9b` for Minerva, `deepseek-r1:14b`
   for Veritas, `gemma4:12b` for Eyes...) still happens *inside* the MCP tools
   below — Hermes never needs to know about it, this project's "one model per
   role" principle (cahier des charges §7) is unaffected.

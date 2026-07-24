@@ -15,22 +15,31 @@ roles:
     description: Ultra-fast routing and classification. Kept loaded at all times.
 
   standard:
-    model: qwen3:8b
+    model: qwen3.5:9b
     tier: standard
-    vram_gb: 5.5
-    description: General conversation, writing, extraction.
+    vram_gb: 6.6
+    description: >
+      General conversation, writing, extraction. Upgraded from qwen3:8b
+      (2026-07): confirmed on Ollama's official library (`qwen3.5:9b`),
+      6.6GB, 256K context window (up from qwen3:8b's), reported gains in
+      reasoning/maths/multilingual over qwen3:8b.
 
   orchestrator:
-    model: hermes3:8b
-    tier: standard
-    vram_gb: 6
+    model: hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M
+    tier: quality
+    vram_gb: 9
     description: >
-      Planning, decomposition, orchestration (Hermes Prime). NousResearch's
-      Hermes 3 8B, not the "Hermes" in the project's own name (that's just
-      thematic) — chosen here specifically for its reliable tool/function
-      calling, which is what an orchestrator deciding between agents/tools
-      actually needs. Lighter than qwen3:14b (~4.7GB disk / ~6GB VRAM vs
-      ~9GB) with a 128K context window.
+      Planning, decomposition, orchestration (Hermes Prime). Upgraded from
+      hermes3:8b (2026-07): NousResearch's Hermes 4 14B, built on a
+      Qwen3-14B base, adds hybrid reasoning and explicit structured
+      `<tool_call>` tagging after the reasoning step — directly relevant
+      here since reliable tool/function calling is the exact reason this
+      role exists as a separate model from `standard`. Not yet in Ollama's
+      official library — pull the community GGUF conversion with
+      `ollama pull hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M`.
+      vram_gb is an estimate for a 14B dense model at Q4_K_M (~9GB);
+      confirm the exact figure with `ollama show` after pulling, since
+      there's no official Ollama library page to cross-check against.
 
   # Optional alternative for `code`, not applied as default (2026-07 check):
   # Qwen3.6-35B-A3B beats qwen3-coder:30b on coding benchmarks (SWE-bench
@@ -83,10 +92,16 @@ roles:
       independent VRAM benchmarks, not just vendor marketing.
 
   security:
-    model: phi4:14b
+    model: phi4-reasoning:14b-q4_K_M
     tier: quality
-    vram_gb: 9
-    description: Structured logical analysis, permission audit (Aegis).
+    vram_gb: 11
+    description: >
+      Structured logical analysis, permission audit (Aegis). Upgraded from
+      phi4:14b (2026-07): Microsoft's reasoning-tuned variant, SFT-trained
+      on OpenAI o3-mini reasoning traces for complex structured reasoning
+      — a closer match for Aegis's job than the base chat model. Confirmed
+      on Ollama's official library (`phi4-reasoning:14b-q4_K_M`), 11GB,
+      32K context.
 
   embedding:
     model: nomic-embed-text

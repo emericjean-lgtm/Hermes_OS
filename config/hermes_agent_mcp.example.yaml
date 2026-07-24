@@ -10,9 +10,10 @@
 # 1. Hermes Agent runs on ONE model per session — it does not do
 #    per-task-type model routing the way this backend does. That's fine:
 #    Hermes becomes the orchestration/planning brain on the `orchestrator`
-#    role model (hermes3:8b, config/models.yaml), and every specialized,
-#    per-task model choice (qwen3:8b for Minerva, deepseek-r1:14b for
-#    Veritas, gemma4:12b for Eyes...) still happens *inside* the MCP
+#    role model (hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M,
+#    config/models.yaml), and every specialized, per-task model choice
+#    (qwen3.5:9b for Minerva, deepseek-r1:14b for Veritas, gemma4:12b for
+#    Eyes...) still happens *inside* the MCP
 #    tools below, exactly as built — Hermes never needs to know about it.
 #
 # 2. Hermes ships 40+ native tools of its own (terminal, patch/read_file,
@@ -47,7 +48,7 @@
 
 # ── 1. Model: Hermes Agent's own orchestration model ─────────────────
 model:
-  default: "hermes3:8b"
+  default: "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M"
   provider: custom
   base_url: "http://127.0.0.1:11434/v1"
   api_key: "ollama"          # Ollama's OpenAI-compatible endpoint ignores the value, but Hermes requires the field non-empty

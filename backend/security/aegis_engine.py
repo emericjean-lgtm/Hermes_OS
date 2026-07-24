@@ -1,8 +1,9 @@
 """Aegis's deterministic decision engine (cahier des charges §17).
 
 This is a rules engine on purpose, not an LLM call: security gates need
-to be predictable and auditable. phi4:14b (Aegis's configured model, see
-config/models.yaml) is reserved for a later advisory pass on ambiguous
+to be predictable and auditable. phi4-reasoning:14b-q4_K_M (Aegis's
+configured model, see config/models.yaml) is reserved for a later
+advisory pass on ambiguous
 cases ("doute élevé sur l'intention", §17.3) — the deterministic engine
 below is the non-negotiable first line of defense and never depends on
 model output.
