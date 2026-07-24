@@ -39,6 +39,7 @@ class WorkflowDefinition:
     description: str = ""
     nodes: tuple[WorkflowNode, ...] = ()
     edges: tuple[WorkflowEdge, ...] = ()
+    project_id: str | None = None
 
     def __post_init__(self) -> None:
         _validate(self)
@@ -85,6 +86,7 @@ class WorkflowDefinition:
             description=data.get("description", ""),
             nodes=nodes,
             edges=edges,
+            project_id=data.get("project_id"),
         )
 
     def to_dict(self) -> dict:
@@ -92,6 +94,7 @@ class WorkflowDefinition:
             "id": self.id,
             "name": self.name,
             "description": self.description,
+            "project_id": self.project_id,
             "nodes": [
                 {
                     "id": n.id,

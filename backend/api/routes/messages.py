@@ -20,7 +20,12 @@ router = APIRouter()
 
 @router.get("/messages")
 async def list_messages(
-    task_id: str | None = None, agent: str | None = None, limit: int = 100
+    task_id: str | None = None,
+    agent: str | None = None,
+    project_id: str | None = None,
+    limit: int = 100,
 ) -> list[dict]:
-    messages = get_message_bus().list_messages(task_id=task_id, agent=agent, limit=limit)
+    messages = get_message_bus().list_messages(
+        task_id=task_id, agent=agent, project_id=project_id, limit=limit
+    )
     return [m.to_dict() for m in messages]

@@ -77,6 +77,19 @@ async def test_run_publishes_task_delegation_and_result_on_the_bus(isolated_sett
     assert len(messages) == 4  # 2 nodes x (delegation + result)
 
 
+async def test_run_propagates_workflow_project_id_to_run_and_bus_messages(isolated_settings):
+    from backend.core.message_bus import get_message_bus
+
+    engine = WorkflowEngine()
+    run = await engine.run(_workflow(project_id="proj-1"))
+
+    assert run.project_id == "proj-1"
+
+    messages = get_message_bus().list_messages(task_id=run.id)
+    assert messages
+    assert all(m.project_id == "proj-1" for m in messages)
+
+
 async def test_run_unknown_action_fails_that_node_only(isolated_settings):
     workflow = _workflow(
         nodes=[{"id": "bad", "action": "not_a_real_tool", "params": {}}], edges=[]

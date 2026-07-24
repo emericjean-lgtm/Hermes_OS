@@ -33,20 +33,23 @@ between steps, branches on `on_success`/`on_failure` edges, halts at
 `human_validation` gates, and traces every node through the message bus;
 `simulate()` is a pure dry-run. `/workflows*` REST API, example workflow
 at `data/workflows/full-code-review.yaml`), **projects** (multi-project
-scoping foundation — not in the original cahier des charges, added so
-tasks/memory/workflows/etc. can eventually be scoped per project instead
-of one global pool; `Project` entity with status active/archived and
-tags, `/projects*` REST API — linking existing tables to a project via
-`project_id` is a deliberate follow-up, not done yet), and an **MCP
+scoping — not in the original cahier des charges; `Project` entity with
+status active/archived and tags, `/projects*` REST API — and `project_id`
+is now threaded through everything else: tasks (Kronos), long-term +
+documentary memory (Echo, including a ChromaDB metadata `where` filter
+on recall), the message bus, Aegis's `ActionRequest`, and workflows,
+each filterable by `project_id` on its list/search endpoints; Atlas's
+file tools are the one deliberate exception — `ALLOWED_PATHS` isn't
+project-scoped yet, so file operations aren't tagged), and an **MCP
 server** exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
 Scribe/Hermes Eyes/Hermes Swift as tools plus the bus's `messages_list`,
 the workflow engine's `workflows_*`, and `projects_*` (see "Hermes Agent
-integration" below). 233 tests passing. Still not implemented: HSE, GPU
-monitoring, and linking projects into the rest of the data model — see
-`config/agents.yaml` for the full agent roster (`enabled: false` = not
-built yet). Telegram and workflow scheduling (`triggers.yaml`) are no
-longer planned as our own builds — Hermes Agent's native gateway and
-`cronjob` cover both, see "Hermes Agent integration" below.
+integration" below). 254 tests passing. Still not implemented: HSE, GPU
+monitoring — see `config/agents.yaml` for the full agent roster
+(`enabled: false` = not built yet). Telegram and workflow scheduling
+(`triggers.yaml`) are no longer planned as our own builds — Hermes
+Agent's native gateway and `cronjob` cover both, see "Hermes Agent
+integration" below.
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
 built and tested here entirely against a fake Ollama client (see

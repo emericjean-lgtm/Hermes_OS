@@ -109,3 +109,39 @@ def test_list_tasks_orders_most_recent_first(session):
     tm.create_task(session, title="first")
     tm.create_task(session, title="second")
     assert [t.title for t in tm.list_tasks(session)] == ["second", "first"]
+
+
+def test_create_task_with_project_id(session):
+    task = tm.create_task(session, title="x", project_id="proj-1")
+    assert task.project_id == "proj-1"
+
+
+def test_create_task_without_project_id_defaults_to_none(session):
+    task = tm.create_task(session, title="x")
+    assert task.project_id is None
+
+
+def test_list_tasks_filters_by_project_id(session):
+    tm.create_task(session, title="a", project_id="proj-1")
+    tm.create_task(session, title="b", project_id="proj-2")
+    tm.create_task(session, title="c")
+
+    assert [t.title for t in tm.list_tasks(session, project_id="proj-1")] == ["a"]
+
+
+def test_update_task_reassigns_project_id_and_appends_history(session):
+    task = tm.create_task(session, title="x", project_id="proj-1")
+
+    updated = tm.update_task(session, task.id, project_id="proj-2")
+
+    assert updated.project_id == "proj-2"
+    notes = [h["note"] for h in updated.history_list]
+    assert "Project changed: proj-1 -> proj-2" in notes
+
+
+def test_update_task_without_project_id_leaves_it_unchanged(session):
+    task = tm.create_task(session, title="x", project_id="proj-1")
+
+    updated = tm.update_task(session, task.id, status="in_progress")
+
+    assert updated.project_id == "proj-1"

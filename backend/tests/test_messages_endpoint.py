@@ -45,3 +45,31 @@ def test_messages_filters_by_agent(client):
     body = response.json()
     assert len(body) == 2
     assert all("scout" in (m["from"], m["to"]) for m in body)
+
+
+def test_messages_filters_by_project_id(client):
+    client.post(
+        "/security/evaluate",
+        json={
+            "action_type": "network_call",
+            "description": "ping",
+            "requesting_agent": "atlas",
+            "project_id": "proj-1",
+        },
+    )
+    client.post(
+        "/security/evaluate",
+        json={
+            "action_type": "network_call",
+            "description": "ping",
+            "requesting_agent": "atlas",
+            "project_id": "proj-2",
+        },
+    )
+
+    response = client.get("/messages", params={"project_id": "proj-1"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert all(m["project_id"] == "proj-1" for m in body)

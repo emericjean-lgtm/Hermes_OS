@@ -89,6 +89,7 @@ def _swift() -> HermesSwiftAgent:
 def _task_to_dict(task: Task) -> dict:
     return {
         "id": task.id,
+        "project_id": task.project_id,
         "title": task.title,
         "description": task.description,
         "objective": task.objective,
@@ -120,6 +121,7 @@ def _project_to_dict(project: Project) -> dict:
 def _memory_to_dict(entry: MemoryEntry) -> dict:
     return {
         "id": entry.id,
+        "project_id": entry.project_id,
         "type": entry.type,
         "content": entry.content,
         "tags": [t for t in entry.tags.split(",") if t],
@@ -137,6 +139,7 @@ def security_evaluate(
     target_path: str | None = None,
     requesting_agent: str = "unknown",
     task_id: str | None = None,
+    project_id: str | None = None,
 ) -> dict:
     """Ask Aegis whether an action is allowed. Returns a verdict
     (allow/deny/require_human_validation) and the reason. Always call
@@ -151,6 +154,7 @@ def security_evaluate(
             target_path=target_path,
             requesting_agent=requesting_agent,
             task_id=task_id,
+            project_id=project_id,
         )
     )
     return {
@@ -199,17 +203,25 @@ def files_apply(path: str, new_content: str) -> dict:
 
 
 def memory_remember(
-    type: str, content: str, tags: list[str] | None = None, confidence: float = 1.0
+    type: str,
+    content: str,
+    tags: list[str] | None = None,
+    confidence: float = 1.0,
+    project_id: str | None = None,
 ) -> dict:
     """Store a long-term memory entry (preference, decision, etc.).
-    Deduplicated automatically by exact content within the same type."""
-    entry = _echo().remember(type_=type, content=content, tags=tags, confidence=confidence)
+    Deduplicated automatically by exact content within the same type and
+    project."""
+    entry = _echo().remember(
+        type_=type, content=content, tags=tags, confidence=confidence, project_id=project_id
+    )
     return _memory_to_dict(entry)
 
 
-def memory_list(type: str | None = None) -> list[dict]:
-    """List stored long-term memory entries, optionally filtered by type."""
-    return [_memory_to_dict(e) for e in _echo().list_memories(type_=type)]
+def memory_list(type: str | None = None, project_id: str | None = None) -> list[dict]:
+    """List stored long-term memory entries, optionally filtered by type
+    and/or project."""
+    return [_memory_to_dict(e) for e in _echo().list_memories(type_=type, project_id=project_id)]
 
 
 def memory_forget(memory_id: str) -> bool:
@@ -217,16 +229,18 @@ def memory_forget(memory_id: str) -> bool:
     return _echo().forget(memory_id)
 
 
-def memory_index(doc_id: str, text: str, metadata: dict | None = None) -> int:
+def memory_index(
+    doc_id: str, text: str, metadata: dict | None = None, project_id: str | None = None
+) -> int:
     """Chunk and index a document into the documentary/RAG memory store.
     Requires a live Ollama server for embeddings. Returns chunks indexed."""
-    return _echo().index_document(doc_id, text, metadata or {})
+    return _echo().index_document(doc_id, text, metadata or {}, project_id=project_id)
 
 
-def memory_search(query: str, n_results: int = 5) -> list[dict]:
-    """Semantic search over indexed documents. Requires a live Ollama
-    server for embeddings."""
-    return _echo().recall(query, n_results=n_results)
+def memory_search(query: str, n_results: int = 5, project_id: str | None = None) -> list[dict]:
+    """Semantic search over indexed documents, optionally scoped to a
+    project. Requires a live Ollama server for embeddings."""
+    return _echo().recall(query, n_results=n_results, project_id=project_id)
 
 
 # ── Minerva: research/RAG ─────────────────────────────────────────────
@@ -320,10 +334,17 @@ def tasks_create(
     objective: str = "",
     priority: str = "medium",
     agent: str | None = None,
+    project_id: str | None = None,
 ) -> dict:
-    """Create a new task. Status starts at 'todo'."""
+    """Create a new task. Status starts at 'todo'. project_id optionally
+    scopes it to a project (see projects_* tools)."""
     task = _kronos().create_task(
-        title=title, description=description, objective=objective, priority=priority, agent=agent
+        title=title,
+        description=description,
+        objective=objective,
+        priority=priority,
+        agent=agent,
+        project_id=project_id,
     )
     return _task_to_dict(task)
 
@@ -334,11 +355,11 @@ def tasks_get(task_id: str) -> dict | None:
     return _task_to_dict(task) if task else None
 
 
-def tasks_list(status: str | None = None) -> list[dict]:
+def tasks_list(status: str | None = None, project_id: str | None = None) -> list[dict]:
     """List tasks, optionally filtered by status (todo/in_progress/
     blocked/awaiting_validation/in_test/done/cancelled/reversible/
-    partially_successful/to_resume)."""
-    return [_task_to_dict(t) for t in _kronos().list_tasks(status=status)]
+    partially_successful/to_resume) and/or project_id."""
+    return [_task_to_dict(t) for t in _kronos().list_tasks(status=status, project_id=project_id)]
 
 
 def tasks_update(
@@ -348,11 +369,13 @@ def tasks_update(
     models_used: list[str] | None = None,
     test_results: dict | None = None,
     note: str | None = None,
+    project_id: str | None = None,
 ) -> dict | None:
     """Update a task: change status, attach touched files/models used,
-    record test results, or just append a free-form history note. Every
-    change is appended to the task's history, nothing overwritten
-    silently. Returns None if the task doesn't exist."""
+    record test results, reassign it to a different project, or just
+    append a free-form history note. Every change is appended to the
+    task's history, nothing overwritten silently. Returns None if the
+    task doesn't exist."""
     task = _kronos().update_task(
         task_id,
         status=status,
@@ -360,6 +383,7 @@ def tasks_update(
         models_used=models_used,
         test_results=test_results,
         note=note,
+        project_id=project_id,
     )
     return _task_to_dict(task) if task else None
 
@@ -372,23 +396,30 @@ def tasks_delete(task_id: str) -> bool:
 # ── Message bus: inter-agent trace ───────────────────────────────────────
 
 
-def messages_list(task_id: str | None = None, agent: str | None = None, limit: int = 100) -> list[dict]:
+def messages_list(
+    task_id: str | None = None,
+    agent: str | None = None,
+    project_id: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
     """List traced inter-agent bus messages (§9.2/§24.4), most recent
     first. Every Aegis evaluate() call publishes a VALIDATION_REQUEST plus
     a VALIDATION_GRANTED/VALIDATION_DENIED/ESCALATION here, regardless of
     whether it was triggered via a tool call or the REST API. Filter by
-    task_id to see the trace for one task, or by agent to see everything
-    a given agent sent or received."""
-    messages = get_message_bus().list_messages(task_id=task_id, agent=agent, limit=limit)
+    task_id to see the trace for one task, by agent to see everything a
+    given agent sent or received, and/or by project_id."""
+    messages = get_message_bus().list_messages(
+        task_id=task_id, agent=agent, project_id=project_id, limit=limit
+    )
     return [m.to_dict() for m in messages]
 
 
 # ── Workflows: graph of agent actions ──────────────────────────────────
 
 
-def workflows_list() -> list[dict]:
-    """List all saved workflow definitions."""
-    return [w.to_dict() for w in workflow_loader.list_workflows()]
+def workflows_list(project_id: str | None = None) -> list[dict]:
+    """List all saved workflow definitions, optionally filtered by project_id."""
+    return [w.to_dict() for w in workflow_loader.list_workflows(project_id=project_id)]
 
 
 def workflows_get(workflow_id: str) -> dict | None:
@@ -400,17 +431,30 @@ def workflows_get(workflow_id: str) -> dict | None:
 
 
 def workflows_create(
-    id: str, name: str, nodes: list[dict], edges: list[dict] | None = None, description: str = ""
+    id: str,
+    name: str,
+    nodes: list[dict],
+    edges: list[dict] | None = None,
+    description: str = "",
+    project_id: str | None = None,
 ) -> dict:
     """Create/overwrite a workflow definition. Each node is
     {id, action, params, human_validation} where action is a tool name
     from this same tool registry (e.g. "research_query", "files_apply").
     Each edge is {from, to, condition} where condition is
-    always/on_success/on_failure (default "always"). Raises ValueError if
-    the graph is invalid (missing fields, unknown node references, or a
-    cycle)."""
+    always/on_success/on_failure (default "always"). project_id
+    optionally scopes the workflow to a project (see projects_* tools).
+    Raises ValueError if the graph is invalid (missing fields, unknown
+    node references, or a cycle)."""
     workflow = WorkflowDefinition.from_dict(
-        {"id": id, "name": name, "description": description, "nodes": nodes, "edges": edges or []}
+        {
+            "id": id,
+            "name": name,
+            "description": description,
+            "nodes": nodes,
+            "edges": edges or [],
+            "project_id": project_id,
+        }
     )
     workflow_loader.save_workflow(workflow)
     return workflow.to_dict()
@@ -446,6 +490,7 @@ async def workflows_run(workflow_id: str, approved_nodes: list[str] | None = Non
     return {
         "id": run.id,
         "workflow_id": run.workflow_id,
+        "project_id": run.project_id,
         "status": run.status,
         "node_results": {
             node_id: {

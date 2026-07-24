@@ -71,6 +71,7 @@ class AegisAgent:
                 "target_path": action.target_path,
             },
             task_id=action.task_id,
+            project_id=action.project_id,
         )
 
         decision = self._engine.evaluate(action)
@@ -85,6 +86,7 @@ class AegisAgent:
                 "action_type": decision.action_type,
             },
             task_id=action.task_id,
+            project_id=action.project_id,
         )
 
         return decision

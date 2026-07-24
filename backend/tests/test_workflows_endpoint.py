@@ -98,6 +98,26 @@ def test_run_workflow(client):
     assert body["node_results"]["list"]["status"] == "success"
 
 
+def test_create_workflow_with_project_id_and_filter_list(client):
+    scoped = dict(_WORKFLOW, id="wf-scoped", project_id="proj-1")
+    created = client.post("/workflows", json=scoped)
+    assert created.json()["project_id"] == "proj-1"
+    client.post("/workflows", json=dict(_WORKFLOW, id="wf-other", project_id="proj-2"))
+
+    response = client.get("/workflows", params={"project_id": "proj-1"})
+
+    assert [w["id"] for w in response.json()] == ["wf-scoped"]
+
+
+def test_run_workflow_propagates_project_id(client):
+    scoped = dict(_WORKFLOW, id="wf-scoped", project_id="proj-1")
+    client.post("/workflows", json=scoped)
+
+    response = client.post("/workflows/wf-scoped/run", json={})
+
+    assert response.json()["project_id"] == "proj-1"
+
+
 def test_run_workflow_halts_at_human_validation_gate(client):
     gated = dict(
         _WORKFLOW,

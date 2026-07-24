@@ -23,6 +23,7 @@ class EvaluateRequest(BaseModel):
     target_path: str | None = None
     requesting_agent: str = "user"
     task_id: str | None = None
+    project_id: str | None = None
 
 
 class EvaluateResponse(BaseModel):
@@ -47,6 +48,7 @@ async def evaluate(request: EvaluateRequest) -> EvaluateResponse:
             target_path=request.target_path,
             requesting_agent=request.requesting_agent,
             task_id=request.task_id,
+            project_id=request.project_id,
         )
     )
     return EvaluateResponse(

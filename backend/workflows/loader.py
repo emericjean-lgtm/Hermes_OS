@@ -41,8 +41,11 @@ def list_workflow_ids() -> list[str]:
     return sorted(p.stem for p in _workflows_dir().glob("*.yaml"))
 
 
-def list_workflows() -> list[WorkflowDefinition]:
-    return [load_workflow(workflow_id) for workflow_id in list_workflow_ids()]
+def list_workflows(*, project_id: str | None = None) -> list[WorkflowDefinition]:
+    workflows = [load_workflow(workflow_id) for workflow_id in list_workflow_ids()]
+    if project_id is not None:
+        workflows = [w for w in workflows if w.project_id == project_id]
+    return workflows
 
 
 def delete_workflow(workflow_id: str) -> bool:

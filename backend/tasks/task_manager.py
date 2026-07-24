@@ -51,6 +51,7 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    project_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     title: Mapped[str] = mapped_column(String)
     description: Mapped[str] = mapped_column(Text, default="")
     objective: Mapped[str] = mapped_column(Text, default="")
@@ -103,6 +104,7 @@ def create_task(
     objective: str = "",
     priority: TaskPriority | str = TaskPriority.MEDIUM,
     agent: str | None = None,
+    project_id: str | None = None,
 ) -> Task:
     try:
         priority_value = TaskPriority(priority).value
@@ -114,6 +116,7 @@ def create_task(
     now = datetime.now(UTC)
     task = Task(
         id=str(uuid.uuid4()),
+        project_id=project_id,
         title=title,
         description=description,
         objective=objective,
@@ -137,7 +140,12 @@ def get_task(session: Session, task_id: str) -> Task | None:
     return session.get(Task, task_id)
 
 
-def list_tasks(session: Session, *, status: TaskStatus | str | None = None) -> list[Task]:
+def list_tasks(
+    session: Session,
+    *,
+    status: TaskStatus | str | None = None,
+    project_id: str | None = None,
+) -> list[Task]:
     stmt = select(Task).order_by(Task.created_at.desc())
     if status is not None:
         try:
@@ -148,6 +156,8 @@ def list_tasks(session: Session, *, status: TaskStatus | str | None = None) -> l
                 f"Known statuses: {[s.value for s in TaskStatus]}"
             ) from exc
         stmt = stmt.where(Task.status == status_value)
+    if project_id is not None:
+        stmt = stmt.where(Task.project_id == project_id)
     return list(session.execute(stmt).scalars())
 
 
@@ -160,10 +170,15 @@ def update_task(
     models_used: list[str] | None = None,
     test_results: dict | None = None,
     note: str | None = None,
+    project_id: str | None = None,
 ) -> Task | None:
     task = session.get(Task, task_id)
     if task is None:
         return None
+
+    if project_id is not None and project_id != task.project_id:
+        _append_history(task, f"Project changed: {task.project_id} -> {project_id}")
+        task.project_id = project_id
 
     if status is not None:
         try:

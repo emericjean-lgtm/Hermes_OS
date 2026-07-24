@@ -65,7 +65,16 @@ def test_to_dict_matches_spec_contract(tmp_path):
 
     data = message.to_dict()
 
-    assert set(data) == {"id", "from", "to", "type", "payload", "timestamp", "task_id"}
+    assert set(data) == {
+        "id",
+        "from",
+        "to",
+        "type",
+        "payload",
+        "timestamp",
+        "task_id",
+        "project_id",
+    }
     assert data["from"] == "atlas"
     assert data["to"] == "aegis"
     assert data["type"] == "VALIDATION_REQUEST"
@@ -94,6 +103,21 @@ def test_list_messages_filters_by_agent_matches_either_side(tmp_path):
 
     assert len(messages) == 2
     assert all("atlas" in (m.from_agent, m.to_agent) for m in messages)
+
+
+def test_list_messages_filters_by_project_id(tmp_path):
+    bus = _bus(tmp_path)
+    bus.publish(
+        from_agent="a", to_agent="b", type_=MessageType.TASK_DELEGATION, project_id="proj-1"
+    )
+    bus.publish(
+        from_agent="a", to_agent="b", type_=MessageType.TASK_RESULT, project_id="proj-2"
+    )
+
+    messages = bus.list_messages(project_id="proj-1")
+
+    assert len(messages) == 1
+    assert messages[0].project_id == "proj-1"
 
 
 def test_list_messages_respects_limit(tmp_path):

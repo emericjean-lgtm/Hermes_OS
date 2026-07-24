@@ -54,6 +54,7 @@ class WorkflowRun:
     status: str  # completed | failed | partially_successful | awaiting_validation
     node_results: dict[str, NodeResult] = field(default_factory=dict)
     pending_nodes: list[str] = field(default_factory=list)
+    project_id: str | None = None
 
 
 @dataclass
@@ -121,6 +122,7 @@ class WorkflowEngine:
             status=self._overall_status(results, pending_nodes),
             node_results=results,
             pending_nodes=pending_nodes,
+            project_id=workflow.project_id,
         )
 
     # ── execution ─────────────────────────────────────────────────────
@@ -149,6 +151,7 @@ class WorkflowEngine:
             type_=MessageType.TASK_DELEGATION,
             payload={"node_id": node.id, "params": params},
             task_id=execution_id,
+            project_id=workflow.project_id,
         )
 
         try:
@@ -164,6 +167,7 @@ class WorkflowEngine:
                 type_=MessageType.TASK_RESULT,
                 payload={"node_id": node.id, "result": {"error": str(exc)}},
                 task_id=execution_id,
+                project_id=workflow.project_id,
             )
             return NodeResult(node_id=node.id, status="failed", error=str(exc))
 
@@ -173,6 +177,7 @@ class WorkflowEngine:
             type_=MessageType.TASK_RESULT,
             payload={"node_id": node.id, "result": {"value": value}},
             task_id=execution_id,
+            project_id=workflow.project_id,
         )
         return NodeResult(node_id=node.id, status="success", result=value)
 

@@ -78,3 +78,45 @@ def test_save_overwrites_existing_workflow(isolated_workflows_dir):
     loader.save_workflow(updated)
 
     assert loader.load_workflow("wf-1").name == "Renamed"
+
+
+def test_save_and_load_round_trips_project_id(isolated_workflows_dir):
+    workflow = WorkflowDefinition.from_dict(
+        {
+            "id": "wf-1",
+            "name": "X",
+            "nodes": [{"id": "a", "action": "tasks_list"}],
+            "project_id": "proj-1",
+        }
+    )
+
+    loader.save_workflow(workflow)
+
+    assert loader.load_workflow("wf-1").project_id == "proj-1"
+
+
+def test_list_workflows_filters_by_project_id(isolated_workflows_dir):
+    loader.save_workflow(
+        WorkflowDefinition.from_dict(
+            {
+                "id": "wf-1",
+                "name": "X",
+                "nodes": [{"id": "a", "action": "tasks_list"}],
+                "project_id": "proj-1",
+            }
+        )
+    )
+    loader.save_workflow(
+        WorkflowDefinition.from_dict(
+            {
+                "id": "wf-2",
+                "name": "Y",
+                "nodes": [{"id": "a", "action": "tasks_list"}],
+                "project_id": "proj-2",
+            }
+        )
+    )
+
+    filtered = loader.list_workflows(project_id="proj-1")
+
+    assert [w.id for w in filtered] == ["wf-1"]

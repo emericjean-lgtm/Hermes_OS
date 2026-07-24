@@ -109,3 +109,18 @@ def test_evaluate_defaults_requesting_agent_to_unknown(aegis_agent):
 
     messages = get_message_bus().list_messages(agent="unknown")
     assert len(messages) == 2
+
+
+def test_evaluate_publishes_with_project_id(aegis_agent):
+    aegis_agent.evaluate(
+        ActionRequest(
+            action_type="git_critical",
+            description="?",
+            requesting_agent="test-agent",
+            project_id="proj-1",
+        )
+    )
+
+    messages = get_message_bus().list_messages(project_id="proj-1")
+    assert len(messages) == 2
+    assert all(m.project_id == "proj-1" for m in messages)

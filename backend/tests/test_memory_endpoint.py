@@ -50,3 +50,15 @@ def test_list_memory_without_type_returns_everything(client):
     client.post("/memory", json={"type": "decision", "content": "b"})
     response = client.get("/memory")
     assert {e["content"] for e in response.json()} == {"a", "b"}
+
+
+def test_memory_scoped_to_project(client):
+    created = client.post(
+        "/memory", json={"type": "preference", "content": "a", "project_id": "proj-1"}
+    )
+    assert created.json()["project_id"] == "proj-1"
+    client.post("/memory", json={"type": "preference", "content": "b", "project_id": "proj-2"})
+
+    response = client.get("/memory", params={"project_id": "proj-1"})
+
+    assert [e["content"] for e in response.json()] == ["a"]

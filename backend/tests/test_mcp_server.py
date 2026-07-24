@@ -314,6 +314,33 @@ async def test_projects_create_list_update_delete_roundtrip(monkeypatch, tmp_pat
         assert listed_after == []
 
 
+async def test_project_id_filters_tasks_memory_and_messages(monkeypatch, tmp_path):
+    # One wiring test covering project_id across the deterministic tools
+    # (no live Ollama needed) touched by the project_id rollout.
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        await session.call_tool("tasks_create", {"title": "a", "project_id": "proj-1"})
+        await session.call_tool("tasks_create", {"title": "b", "project_id": "proj-2"})
+        tasks = _result(await session.call_tool("tasks_list", {"project_id": "proj-1"}))
+        assert [t["title"] for t in tasks] == ["a"]
+
+        await session.call_tool(
+            "memory_remember", {"type": "preference", "content": "x", "project_id": "proj-1"}
+        )
+        await session.call_tool(
+            "memory_remember", {"type": "preference", "content": "y", "project_id": "proj-2"}
+        )
+        memories = _result(await session.call_tool("memory_list", {"project_id": "proj-1"}))
+        assert [m["content"] for m in memories] == ["x"]
+
+        await session.call_tool(
+            "security_evaluate",
+            {"action_type": "network_call", "description": "ping", "project_id": "proj-1"},
+        )
+        messages = _result(await session.call_tool("messages_list", {"project_id": "proj-1"}))
+        assert messages
+        assert all(m["project_id"] == "proj-1" for m in messages)
+
+
 async def test_memory_remember_list_forget_roundtrip(monkeypatch, tmp_path):
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         created = _result(

@@ -44,7 +44,9 @@ class MessageType(StrEnum):
 
 class BusMessage(Base):
     """SQLite-backed record of one bus message — the persisted half of
-    §24.4's { id, from, to, type, payload, timestamp, task_id } contract.
+    §24.4's { id, from, to, type, payload, timestamp, task_id } contract,
+    plus project_id (our own addition, not in the original spec — see
+    backend/projects/, added so a message can be scoped to a project).
     `from`/`to` are Python keywords, hence from_agent/to_agent as column
     names; to_dict() below restores the spec's exact field names."""
 
@@ -57,6 +59,7 @@ class BusMessage(Base):
     payload_json: Mapped[str] = mapped_column(Text, default="{}")
     timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
     task_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
 
     @property
     def payload(self) -> dict:
@@ -71,6 +74,7 @@ class BusMessage(Base):
             "payload": self.payload,
             "timestamp": self.timestamp.isoformat(),
             "task_id": self.task_id,
+            "project_id": self.project_id,
         }
 
 
@@ -92,6 +96,7 @@ class MessageBus:
         type_: MessageType | str,
         payload: dict | None = None,
         task_id: str | None = None,
+        project_id: str | None = None,
     ) -> BusMessage:
         """Persist a message and notify subscribers, in that order — a
         subscriber only ever sees a message that's already durably
@@ -105,6 +110,7 @@ class MessageBus:
             payload_json=json.dumps(payload or {}),
             timestamp=datetime.now(UTC),
             task_id=task_id,
+            project_id=project_id,
         )
         with self._session_factory() as session:
             session.add(message)
@@ -127,10 +133,16 @@ class MessageBus:
         return unsubscribe
 
     def list_messages(
-        self, *, task_id: str | None = None, agent: str | None = None, limit: int = 100
+        self,
+        *,
+        task_id: str | None = None,
+        agent: str | None = None,
+        project_id: str | None = None,
+        limit: int = 100,
     ) -> list[BusMessage]:
-        """Most recent messages first, optionally filtered by task_id or
-        by agent (matches either side of the exchange — from or to)."""
+        """Most recent messages first, optionally filtered by task_id,
+        by agent (matches either side of the exchange — from or to),
+        and/or by project_id."""
         with self._session_factory() as session:
             stmt = select(BusMessage).order_by(BusMessage.timestamp.desc()).limit(limit)
             if task_id is not None:
@@ -139,6 +151,8 @@ class MessageBus:
                 stmt = stmt.where(
                     (BusMessage.from_agent == agent) | (BusMessage.to_agent == agent)
                 )
+            if project_id is not None:
+                stmt = stmt.where(BusMessage.project_id == project_id)
             return list(session.execute(stmt).scalars())
 
 

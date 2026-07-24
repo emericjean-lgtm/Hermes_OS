@@ -47,6 +47,7 @@ class KronosAgent:
         objective: str = "",
         priority: TaskPriority | str = TaskPriority.MEDIUM,
         agent: str | None = None,
+        project_id: str | None = None,
     ) -> Task:
         with self._session_factory() as session:
             return task_manager.create_task(
@@ -56,15 +57,18 @@ class KronosAgent:
                 objective=objective,
                 priority=priority,
                 agent=agent,
+                project_id=project_id,
             )
 
     def get_task(self, task_id: str) -> Task | None:
         with self._session_factory() as session:
             return task_manager.get_task(session, task_id)
 
-    def list_tasks(self, *, status: TaskStatus | str | None = None) -> list[Task]:
+    def list_tasks(
+        self, *, status: TaskStatus | str | None = None, project_id: str | None = None
+    ) -> list[Task]:
         with self._session_factory() as session:
-            return task_manager.list_tasks(session, status=status)
+            return task_manager.list_tasks(session, status=status, project_id=project_id)
 
     def update_task(
         self,
@@ -75,6 +79,7 @@ class KronosAgent:
         models_used: list[str] | None = None,
         test_results: dict | None = None,
         note: str | None = None,
+        project_id: str | None = None,
     ) -> Task | None:
         with self._session_factory() as session:
             return task_manager.update_task(
@@ -85,6 +90,7 @@ class KronosAgent:
                 models_used=models_used,
                 test_results=test_results,
                 note=note,
+                project_id=project_id,
             )
 
     def delete_task(self, task_id: str) -> bool:

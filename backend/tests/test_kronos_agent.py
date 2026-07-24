@@ -31,6 +31,13 @@ def test_list_tasks_filters_by_status(kronos_agent):
     assert [t.title for t in kronos_agent.list_tasks(status="blocked")] == ["b"]
 
 
+def test_list_tasks_filters_by_project_id(kronos_agent):
+    kronos_agent.create_task(title="a", project_id="proj-1")
+    kronos_agent.create_task(title="b", project_id="proj-2")
+
+    assert [t.title for t in kronos_agent.list_tasks(project_id="proj-1")] == ["a"]
+
+
 def test_tasks_persist_across_agent_instances(kronos_agent, models_config, fake_ollama_client):
     from backend.agents.kronos import KronosAgent
     from backend.core.router import ModelRouter

@@ -29,6 +29,7 @@ class WorkflowCreateRequest(BaseModel):
     description: str = ""
     nodes: list[dict]
     edges: list[dict] = []
+    project_id: str | None = None
 
 
 class RunRequest(BaseModel):
@@ -48,6 +49,7 @@ def _run_to_dict(run: WorkflowRun) -> dict:
     return {
         "id": run.id,
         "workflow_id": run.workflow_id,
+        "project_id": run.project_id,
         "status": run.status,
         "node_results": {
             node_id: _node_result_to_dict(nr) for node_id, nr in run.node_results.items()
@@ -57,8 +59,8 @@ def _run_to_dict(run: WorkflowRun) -> dict:
 
 
 @router.get("/workflows")
-async def list_workflows() -> list[dict]:
-    return [w.to_dict() for w in loader.list_workflows()]
+async def list_workflows(project_id: str | None = None) -> list[dict]:
+    return [w.to_dict() for w in loader.list_workflows(project_id=project_id)]
 
 
 @router.post("/workflows")

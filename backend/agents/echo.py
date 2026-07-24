@@ -49,26 +49,38 @@ class EchoAgent:
         content: str,
         tags: list[str] | None = None,
         confidence: float = 1.0,
+        project_id: str | None = None,
     ) -> MemoryEntry:
         with self._session_factory() as session:
             return episodic.add_memory(
-                session, type_=type_, content=content, tags=tags, confidence=confidence
+                session,
+                type_=type_,
+                content=content,
+                tags=tags,
+                confidence=confidence,
+                project_id=project_id,
             )
 
-    def list_memories(self, *, type_: str | None = None) -> list[MemoryEntry]:
+    def list_memories(
+        self, *, type_: str | None = None, project_id: str | None = None
+    ) -> list[MemoryEntry]:
         with self._session_factory() as session:
-            return episodic.list_memories(session, type_=type_)
+            return episodic.list_memories(session, type_=type_, project_id=project_id)
 
     def forget(self, memory_id: str) -> bool:
         with self._session_factory() as session:
             return episodic.delete_memory(session, memory_id)
 
     # ── Documentary memory (ChromaDB) ──────────────────────────────
-    def index_document(self, doc_id_prefix: str, text: str, metadata: dict) -> int:
+    def index_document(
+        self, doc_id_prefix: str, text: str, metadata: dict, *, project_id: str | None = None
+    ) -> int:
         chunks = chunk_text(text)
+        full_metadata = {**metadata, "project_id": project_id} if project_id else metadata
         for i, chunk in enumerate(chunks):
-            self._documents.add_document(f"{doc_id_prefix}-{i}", chunk, {**metadata, "chunk": i})
+            self._documents.add_document(f"{doc_id_prefix}-{i}", chunk, {**full_metadata, "chunk": i})
         return len(chunks)
 
-    def recall(self, query: str, n_results: int = 5) -> list[dict]:
-        return self._documents.search(query, n_results=n_results)
+    def recall(self, query: str, n_results: int = 5, *, project_id: str | None = None) -> list[dict]:
+        where = {"project_id": project_id} if project_id else None
+        return self._documents.search(query, n_results=n_results, where=where)

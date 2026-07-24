@@ -69,3 +69,16 @@ def test_document_store_search_respects_n_results():
         store.add_document(f"doc-{i}", f"document number {i}", {"i": i})
 
     assert len(store.search("document", n_results=2)) == 2
+
+
+def test_document_store_search_filters_by_where_metadata():
+    # Unique collection_name/doc ids: EphemeralClient() isn't isolated per
+    # DocumentStore instance within one process, so reusing "documents"/
+    # "doc-0" here would leak state from the other tests in this file.
+    store = DocumentStore(FakeEmbeddingFunction(), collection_name="where-filter-test")
+    store.add_document("where-0", "Hermes Ollama is a local AI copilot", {"project_id": "proj-1"})
+    store.add_document("where-1", "The RX 6800 has 16GB of VRAM", {"project_id": "proj-2"})
+
+    results = store.search("document", n_results=5, where={"project_id": "proj-1"})
+
+    assert [r["id"] for r in results] == ["where-0"]

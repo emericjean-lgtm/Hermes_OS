@@ -34,6 +34,7 @@ def test_from_dict_round_trips_through_to_dict():
         "id": "wf-1",
         "name": "Test Workflow",
         "description": "",
+        "project_id": None,
         "nodes": [
             {"id": "a", "action": "tasks_create", "params": {"title": "x"}, "human_validation": False},
             {"id": "b", "action": "tasks_list", "params": {}, "human_validation": False},

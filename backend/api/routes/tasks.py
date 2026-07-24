@@ -20,6 +20,7 @@ class TaskCreateRequest(BaseModel):
     objective: str = ""
     priority: str = "medium"
     agent: str | None = None
+    project_id: str | None = None
 
 
 class TaskUpdateRequest(BaseModel):
@@ -28,10 +29,12 @@ class TaskUpdateRequest(BaseModel):
     models_used: list[str] | None = None
     test_results: dict | None = None
     note: str | None = None
+    project_id: str | None = None
 
 
 class TaskResponse(BaseModel):
     id: str
+    project_id: str | None
     title: str
     description: str
     objective: str
@@ -53,6 +56,7 @@ def _kronos() -> KronosAgent:
 def _to_response(task: Task) -> TaskResponse:
     return TaskResponse(
         id=task.id,
+        project_id=task.project_id,
         title=task.title,
         description=task.description,
         objective=task.objective,
@@ -77,6 +81,7 @@ async def create_task(request: TaskCreateRequest) -> TaskResponse:
             objective=request.objective,
             priority=request.priority,
             agent=request.agent,
+            project_id=request.project_id,
         )
     except InvalidTaskPriorityError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -84,9 +89,9 @@ async def create_task(request: TaskCreateRequest) -> TaskResponse:
 
 
 @router.get("/tasks")
-async def list_tasks(status: str | None = None) -> list[TaskResponse]:
+async def list_tasks(status: str | None = None, project_id: str | None = None) -> list[TaskResponse]:
     try:
-        tasks = _kronos().list_tasks(status=status)
+        tasks = _kronos().list_tasks(status=status, project_id=project_id)
     except InvalidTaskStatusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return [_to_response(t) for t in tasks]
@@ -110,6 +115,7 @@ async def update_task(task_id: str, request: TaskUpdateRequest) -> TaskResponse:
             models_used=request.models_used,
             test_results=request.test_results,
             note=request.note,
+            project_id=request.project_id,
         )
     except InvalidTaskStatusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

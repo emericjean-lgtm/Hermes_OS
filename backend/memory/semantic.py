@@ -91,8 +91,8 @@ class DocumentStore:
     def add_document(self, doc_id: str, text: str, metadata: dict) -> None:
         self._collection.add(ids=[doc_id], documents=[text], metadatas=[metadata])
 
-    def search(self, query: str, n_results: int = 5) -> list[dict]:
-        result = self._collection.query(query_texts=[query], n_results=n_results)
+    def search(self, query: str, n_results: int = 5, where: dict | None = None) -> list[dict]:
+        result = self._collection.query(query_texts=[query], n_results=n_results, where=where)
         ids = result.get("ids") or [[]]
         documents = result.get("documents") or [[]]
         metadatas = result.get("metadatas") or [[]]

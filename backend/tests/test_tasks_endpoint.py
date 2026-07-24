@@ -76,3 +76,22 @@ def test_list_tasks_filters_by_status(client):
 def test_list_tasks_rejects_invalid_status_filter(client):
     response = client.get("/tasks", params={"status": "not_real"})
     assert response.status_code == 400
+
+
+def test_create_and_filter_task_by_project_id(client):
+    created = client.post("/tasks", json={"title": "a", "project_id": "proj-1"})
+    assert created.json()["project_id"] == "proj-1"
+    client.post("/tasks", json={"title": "b", "project_id": "proj-2"})
+
+    response = client.get("/tasks", params={"project_id": "proj-1"})
+
+    assert [t["title"] for t in response.json()] == ["a"]
+
+
+def test_update_task_reassigns_project_id(client):
+    created = client.post("/tasks", json={"title": "x", "project_id": "proj-1"})
+    task_id = created.json()["id"]
+
+    updated = client.patch(f"/tasks/{task_id}", json={"project_id": "proj-2"})
+
+    assert updated.json()["project_id"] == "proj-2"

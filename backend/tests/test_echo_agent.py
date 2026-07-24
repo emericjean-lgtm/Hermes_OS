@@ -23,6 +23,24 @@ def test_forget_unknown_id_returns_false(echo_agent):
     assert echo_agent.forget("does-not-exist") is False
 
 
+def test_remember_scopes_dedup_by_project(echo_agent):
+    global_entry = echo_agent.remember(type_="preference", content="reply in French")
+    project_entry = echo_agent.remember(
+        type_="preference", content="reply in French", project_id="proj-1"
+    )
+
+    assert global_entry.id != project_entry.id
+    assert project_entry.project_id == "proj-1"
+
+
+def test_list_memories_filters_by_project_id(echo_agent):
+    echo_agent.remember(type_="preference", content="a", project_id="proj-1")
+    echo_agent.remember(type_="preference", content="b", project_id="proj-2")
+    echo_agent.remember(type_="preference", content="c")
+
+    assert [e.content for e in echo_agent.list_memories(project_id="proj-1")] == ["a"]
+
+
 def test_memory_persists_across_agent_instances_via_same_sqlite_file(echo_agent, models_config, fake_ollama_client):
     from backend.agents.echo import EchoAgent
     from backend.core.router import ModelRouter

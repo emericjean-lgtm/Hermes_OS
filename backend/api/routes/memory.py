@@ -22,10 +22,12 @@ class MemoryCreateRequest(BaseModel):
     content: str
     tags: list[str] = []
     confidence: float = 1.0
+    project_id: str | None = None
 
 
 class MemoryResponse(BaseModel):
     id: str
+    project_id: str | None
     type: str
     content: str
     tags: list[str]
@@ -37,6 +39,7 @@ class IndexDocumentRequest(BaseModel):
     doc_id: str
     text: str
     metadata: dict = {}
+    project_id: str | None = None
 
 
 class IndexDocumentResponse(BaseModel):
@@ -58,6 +61,7 @@ def _echo() -> EchoAgent:
 def _to_response(entry: MemoryEntry) -> MemoryResponse:
     return MemoryResponse(
         id=entry.id,
+        project_id=entry.project_id,
         type=entry.type,
         content=entry.content,
         tags=[t for t in entry.tags.split(",") if t],
@@ -73,13 +77,14 @@ async def create_memory(request: MemoryCreateRequest) -> MemoryResponse:
         content=request.content,
         tags=request.tags,
         confidence=request.confidence,
+        project_id=request.project_id,
     )
     return _to_response(entry)
 
 
 @router.get("/memory")
-async def list_memory(type: str | None = None) -> list[MemoryResponse]:
-    entries = _echo().list_memories(type_=type)
+async def list_memory(type: str | None = None, project_id: str | None = None) -> list[MemoryResponse]:
+    entries = _echo().list_memories(type_=type, project_id=project_id)
     return [_to_response(e) for e in entries]
 
 
@@ -93,11 +98,15 @@ async def delete_memory(memory_id: str) -> dict:
 
 @router.post("/memory/index")
 async def index_document(request: IndexDocumentRequest) -> IndexDocumentResponse:
-    chunks = _echo().index_document(request.doc_id, request.text, request.metadata)
+    chunks = _echo().index_document(
+        request.doc_id, request.text, request.metadata, project_id=request.project_id
+    )
     return IndexDocumentResponse(doc_id=request.doc_id, chunks_indexed=chunks)
 
 
 @router.get("/memory/search")
-async def search_memory(query: str, n_results: int = 5) -> list[SearchResult]:
-    results = _echo().recall(query, n_results=n_results)
+async def search_memory(
+    query: str, n_results: int = 5, project_id: str | None = None
+) -> list[SearchResult]:
+    results = _echo().recall(query, n_results=n_results, project_id=project_id)
     return [SearchResult(**r) for r in results]

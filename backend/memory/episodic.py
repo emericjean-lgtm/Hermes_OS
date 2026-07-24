@@ -21,6 +21,7 @@ class MemoryEntry(Base):
     __tablename__ = "memory_long"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    project_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     type: Mapped[str] = mapped_column(String, index=True)
     content: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String, index=True)
@@ -40,13 +41,18 @@ def add_memory(
     content: str,
     tags: list[str] | None = None,
     confidence: float = 1.0,
+    project_id: str | None = None,
 ) -> MemoryEntry:
     """Adds an entry, or returns the existing one if the same content
-    (exact match) was already stored under the same type (§11.5)."""
+    (exact match) was already stored under the same type *and project*
+    (§11.5) — the same fact remembered for two different projects is two
+    entries, not a dedup hit across them."""
     content_hash = _hash(content)
     existing = session.execute(
         select(MemoryEntry).where(
-            MemoryEntry.type == type_, MemoryEntry.content_hash == content_hash
+            MemoryEntry.type == type_,
+            MemoryEntry.content_hash == content_hash,
+            MemoryEntry.project_id == project_id,
         )
     ).scalar_one_or_none()
     if existing is not None:
@@ -54,6 +60,7 @@ def add_memory(
 
     entry = MemoryEntry(
         id=str(uuid.uuid4()),
+        project_id=project_id,
         type=type_,
         content=content,
         content_hash=content_hash,
@@ -67,10 +74,14 @@ def add_memory(
     return entry
 
 
-def list_memories(session: Session, *, type_: str | None = None) -> list[MemoryEntry]:
+def list_memories(
+    session: Session, *, type_: str | None = None, project_id: str | None = None
+) -> list[MemoryEntry]:
     stmt = select(MemoryEntry).order_by(MemoryEntry.created_at.desc())
     if type_:
         stmt = stmt.where(MemoryEntry.type == type_)
+    if project_id is not None:
+        stmt = stmt.where(MemoryEntry.project_id == project_id)
     return list(session.execute(stmt).scalars())
 
 
