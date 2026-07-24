@@ -51,6 +51,7 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "verify_output",
         "write_document",
         "analyze_image",
+        "classify_request",
         "tasks_create",
         "tasks_get",
         "tasks_list",
@@ -196,6 +197,26 @@ async def test_analyze_image_returns_description(monkeypatch, tmp_path):
 
     body = _result(result)
     assert body["description"] == "An RX 6800 graphics card."
+    assert body["model"]
+
+
+async def test_classify_request_returns_known_task_type(monkeypatch, tmp_path):
+    from backend.connectors.ollama_client import OllamaClient
+
+    async def fake_list_running_models(self):
+        return []
+
+    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+        yield "code_generation"
+
+    monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
+    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = await session.call_tool("classify_request", {"request": "Write a sort function."})
+
+    body = _result(result)
+    assert body["task_type"] == "code_generation"
     assert body["model"]
 
 

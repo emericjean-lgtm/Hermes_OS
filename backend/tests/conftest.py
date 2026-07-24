@@ -107,6 +107,7 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     monkeypatch.setattr("backend.api.routes.verify.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.write.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.vision.get_agent_registry", lambda: registry)
+    monkeypatch.setattr("backend.api.routes.classify.get_agent_registry", lambda: registry)
 
     try:
         yield TestClient(main_module.app)

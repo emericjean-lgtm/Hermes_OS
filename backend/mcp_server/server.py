@@ -1,6 +1,6 @@
 """MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
-Scribe/Hermes Eyes as tools for any MCP client to call — built
-specifically so Hermes Agent (NousResearch's agent runtime, see
+Scribe/Hermes Eyes/Hermes Swift as tools for any MCP client to call —
+built specifically so Hermes Agent (NousResearch's agent runtime, see
 hermes-agent.nousresearch.com) can use them when it takes over
 orchestration from core/router.py + agents/hermes_prime.py.
 
@@ -33,6 +33,7 @@ from backend.agents.echo import EchoAgent
 from backend.agents.kronos import KronosAgent
 from backend.agents.hermes_eyes import DEFAULT_ANALYSIS_PROMPT, HermesEyesAgent
 from backend.agents.hermes_scribe import HermesScribeAgent
+from backend.agents.hermes_swift import HermesSwiftAgent
 from backend.agents.minerva import MinervaAgent
 from backend.agents.veritas import VeritasAgent
 from backend.core.agent_registry import get_agent_registry
@@ -68,6 +69,10 @@ def _scribe() -> HermesScribeAgent:
 
 def _eyes() -> HermesEyesAgent:
     return get_agent_registry().get("hermes_eyes")
+
+
+def _swift() -> HermesSwiftAgent:
+    return get_agent_registry().get("hermes_swift")
 
 
 def _task_to_dict(task: Task) -> dict:
@@ -253,6 +258,21 @@ async def analyze_image(
     return {"description": description, "model": decision.model}
 
 
+# ── Hermes Swift: fast pre-routing classification ───────────────────────
+
+
+async def classify_request(request: str, default: str = "conversation") -> dict:
+    """Ask Swift (the always-on, ultra-fast classifier) to label a raw
+    request with a task type from config/models.yaml's routing matrix
+    (e.g. "code_generation", "research", "writing"). Falls back to
+    `default` if the model's reply doesn't match a known task type. Use
+    this before routing an ambiguous request to a specific agent/model."""
+    decision, stream = await _swift().classify(request)
+    reply = "".join([chunk async for chunk in stream])
+    task_type = _swift().parse_task_type(reply, default=default)
+    return {"task_type": task_type, "model": decision.model}
+
+
 # ── Kronos: tasks ────────────────────────────────────────────────────
 
 
@@ -326,6 +346,7 @@ _ALL_TOOLS = [
     verify_output,
     write_document,
     analyze_image,
+    classify_request,
     tasks_create,
     tasks_get,
     tasks_list,
@@ -345,9 +366,10 @@ def create_mcp_server() -> FastMCP:
             "Tools for Hermes Ollama's security gate (Aegis), file operations "
             "(Atlas), persistent memory (Echo), task tracking (Kronos), "
             "research/RAG (Minerva), QA review (Veritas), writing/"
-            "documentation (Hermes Scribe), and image analysis (Hermes Eyes). "
-            "Every file/security operation is bound by ALLOWED_PATHS and the "
-            "configured autonomy level (config/security.yaml) — a denied or "
+            "documentation (Hermes Scribe), image analysis (Hermes Eyes), and "
+            "fast request classification (Hermes Swift). Every file/security "
+            "operation is bound by ALLOWED_PATHS and the configured autonomy "
+            "level (config/security.yaml) — a denied or "
             "require_human_validation verdict means don't proceed."
         ),
         # FastMCP's own default is "/mcp", which would double up with the

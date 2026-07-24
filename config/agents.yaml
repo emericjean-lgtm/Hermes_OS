@@ -18,7 +18,7 @@ agents:
     description: Orchestrator. Receives the user request, plans, delegates.
 
   hermes_swift:
-    enabled: false
+    enabled: true
     role: swift
     module: backend.agents.hermes_swift
     class_name: HermesSwiftAgent
