@@ -524,11 +524,30 @@ async def test_memory_remember_list_forget_roundtrip(monkeypatch, tmp_path):
 
 async def test_system_status_reports_agents_and_gpu_null_without_rocm(monkeypatch, tmp_path):
     from backend.connectors.ollama_client import OllamaClient
+    from backend.core.config import get_settings
+    from backend.monitoring.gpu_monitor import GpuMonitor
+    from backend.tests.conftest import FakeOllamaClient
 
     async def fake_list_running_models(self):
         return [{"name": "qwen3.5:9b"}]
 
     monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
+
+    # Injected fake rather than relying on the sandbox's own ambient
+    # absence of rocm-smi: a real machine (e.g. the actual RX 6800 dev
+    # box) genuinely finds GPU data via rocm-smi/PowerShell, which would
+    # make `gpu is None` false there even though nothing about this test
+    # is platform-specific — it's testing the degrade path itself.
+    monkeypatch.setattr(
+        "backend.mcp_server.server.get_gpu_monitor",
+        lambda: GpuMonitor(
+            FakeOllamaClient(running_models=["qwen3.5:9b"]),
+            get_settings(),
+            run_command=lambda args: None,
+            disk_path=str(tmp_path),
+            platform_name="Linux",
+        ),
+    )
 
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         result = await session.call_tool("system_status", {})
@@ -536,8 +555,6 @@ async def test_system_status_reports_agents_and_gpu_null_without_rocm(monkeypatc
     body = _result(result)
     assert "hermes_prime" in body["enabled_agents"]
     assert "standard" in body["configured_roles"]
-    # rocm-smi genuinely isn't installed in this sandbox, so this exercises
-    # the real "no GPU" degrade path, not an injected fake.
     assert body["gpu"] is None
     assert body["loaded_models"] == [{"name": "qwen3.5:9b"}]
     assert "disk_free_gb" in body

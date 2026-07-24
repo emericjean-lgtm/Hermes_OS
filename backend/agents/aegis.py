@@ -43,6 +43,20 @@ it: evaluate() is synchronous and every existing caller (file_tools.py,
 advise() needs an LLM call so it has to be async. Callers opt in
 explicitly (see /security/evaluate's include_advisory param) — same
 "explicit call, no hidden side effect" principle as HSE's pipeline.
+
+advise()'s output is cleaned with the same fixed-format-prompt +
+text-parsing pattern as VeritasAgent.parse_verdict() (agents/veritas.py),
+not Ollama's `think` API parameter. `think=True` was tried first and
+confirmed on real hardware (RX 6800, Ollama 0.32.0) NOT to separate
+reasoning from content for phi4-reasoning:14b-q4_K_M — a direct
+/api/chat call with think:true still returns the whole chain-of-thought
+in message.content, no message.thinking field ever appears, despite
+`ollama show` declaring the "thinking" capability. So instead the system
+prompt demands an "ADVISORY:" marker with nothing after it but the
+answer, and _extract_advisory() takes everything after the last such
+marker — a human reviewer never sees the model's raw reasoning even
+when the model ignores `think` entirely. think=True is still passed as
+harmless defense-in-depth for models/Ollama versions where it does work.
 """
 from __future__ import annotations
 
@@ -62,7 +76,11 @@ _ADVISORY_SYSTEM_PROMPT = (
     "already decided this action requires human validation. In 2-3 "
     "sentences, explain what about it is worth double-checking before a "
     "human approves it. You are not deciding whether to allow it — only "
-    "informing the human's review."
+    "informing the human's review.\n\n"
+    "You may think it through first, but your reply MUST end with a line "
+    "reading exactly \"ADVISORY:\" followed by nothing but your 2-3 "
+    "sentence note — no further reasoning, headers, or commentary after "
+    "it."
 )
 
 _VERDICT_MESSAGE_TYPE = {
@@ -70,6 +88,21 @@ _VERDICT_MESSAGE_TYPE = {
     Verdict.DENY: MessageType.VALIDATION_DENIED,
     Verdict.REQUIRE_HUMAN_VALIDATION: MessageType.ESCALATION,
 }
+
+_ADVISORY_MARKER = "ADVISORY:"
+
+
+def _extract_advisory(text: str) -> str:
+    """Strip everything up to and including the last "ADVISORY:" marker,
+    same degrade-gracefully philosophy as VeritasAgent.parse_verdict():
+    a model that ignores the format (or a `think`-less model that never
+    needed separating in the first place) still gets its raw text
+    returned rather than an empty string, so a human reviewer always has
+    something to read even when the format instruction is ignored."""
+    idx = text.rfind(_ADVISORY_MARKER)
+    if idx == -1:
+        return text.strip()
+    return text[idx + len(_ADVISORY_MARKER) :].strip()
 
 
 class AegisAgent:
@@ -163,16 +196,10 @@ class AegisAgent:
                 messages,
                 temperature=params["temperature"],
                 top_p=params["top_p"],
-                # Confirmed on real hardware: without this, reasoning
-                # models (e.g. phi4-reasoning, Aegis's own security-role
-                # model) can inline their whole chain-of-thought into
-                # the visible response instead of just the answer — the
-                # advisory is meant to be a short note for a human, not
-                # a reasoning trace. think=True asks Ollama to keep any
-                # chain-of-thought in message.thinking instead, which
-                # chat_stream() already never yields (see
-                # ollama_client.py) — only message.content reaches here.
+                # Harmless defense-in-depth for models/Ollama versions
+                # where this genuinely works — but not relied upon: see
+                # _extract_advisory() and the module docstring for why.
                 think=True,
             )
         ]
-        return dataclasses.replace(decision, advisory="".join(chunks))
+        return dataclasses.replace(decision, advisory=_extract_advisory("".join(chunks)))

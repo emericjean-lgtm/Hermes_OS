@@ -24,7 +24,7 @@ _ROCM_SMI_OUTPUT = json.dumps(
 async def test_snapshot_parses_rocm_smi_json(fake_ollama_client, tmp_path):
     settings = Settings(gpu_alert_temp_c=85, gpu_critical_temp_c=90, gpu_vram_warning_pct=85)
     monitor = GpuMonitor(
-        fake_ollama_client, settings, run_command=lambda args: _ROCM_SMI_OUTPUT, disk_path=str(tmp_path)
+        fake_ollama_client, settings, run_command=lambda args: _ROCM_SMI_OUTPUT, disk_path=str(tmp_path), platform_name="Linux"
     )
 
     snapshot = await monitor.snapshot()
@@ -39,7 +39,7 @@ async def test_snapshot_parses_rocm_smi_json(fake_ollama_client, tmp_path):
 
 async def test_snapshot_gpu_is_none_when_rocm_smi_missing(fake_ollama_client, tmp_path):
     settings = Settings()
-    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: None, disk_path=str(tmp_path))
+    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: None, disk_path=str(tmp_path), platform_name="Linux")
 
     snapshot = await monitor.snapshot()
 
@@ -59,7 +59,7 @@ async def test_snapshot_raises_critical_temp_alert(fake_ollama_client, tmp_path)
         }
     )
     settings = Settings(gpu_critical_temp_c=90, gpu_alert_temp_c=85)
-    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: hot_output, disk_path=str(tmp_path))
+    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: hot_output, disk_path=str(tmp_path), platform_name="Linux")
 
     snapshot = await monitor.snapshot()
 
@@ -78,7 +78,7 @@ async def test_snapshot_raises_vram_warning_alert(fake_ollama_client, tmp_path):
         }
     )
     settings = Settings(gpu_vram_warning_pct=85, gpu_alert_temp_c=85, gpu_critical_temp_c=90)
-    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: full_output, disk_path=str(tmp_path))
+    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: full_output, disk_path=str(tmp_path), platform_name="Linux")
 
     snapshot = await monitor.snapshot()
 
@@ -88,7 +88,7 @@ async def test_snapshot_raises_vram_warning_alert(fake_ollama_client, tmp_path):
 async def test_snapshot_reports_loaded_models_from_ollama_client(fake_ollama_client, tmp_path):
     fake_ollama_client._running = ["qwen3.5:9b"]
     settings = Settings()
-    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: None, disk_path=str(tmp_path))
+    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: None, disk_path=str(tmp_path), platform_name="Linux")
 
     snapshot = await monitor.snapshot()
 
@@ -101,7 +101,7 @@ async def test_snapshot_degrades_gracefully_when_ollama_unreachable(tmp_path):
             raise ConnectionError("no Ollama here")
 
     settings = Settings()
-    monitor = GpuMonitor(BrokenOllamaClient(), settings, run_command=lambda args: None, disk_path=str(tmp_path))
+    monitor = GpuMonitor(BrokenOllamaClient(), settings, run_command=lambda args: None, disk_path=str(tmp_path), platform_name="Linux")
 
     snapshot = await monitor.snapshot()
 
@@ -111,7 +111,7 @@ async def test_snapshot_degrades_gracefully_when_ollama_unreachable(tmp_path):
 
 async def test_snapshot_reports_disk_usage_for_given_path(fake_ollama_client, tmp_path):
     settings = Settings()
-    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: None, disk_path=str(tmp_path))
+    monitor = GpuMonitor(fake_ollama_client, settings, run_command=lambda args: None, disk_path=str(tmp_path), platform_name="Linux")
 
     snapshot = await monitor.snapshot()
 

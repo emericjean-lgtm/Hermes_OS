@@ -234,6 +234,52 @@ async def test_advise_calls_llm_on_require_human_validation(aegis_agent, fake_ol
     security_model = models_config["roles"]["security"]["model"]
     assert fake_ollama_client.last_chat_call["model"] == security_model
     assert "force push to main" in fake_ollama_client.last_chat_call["messages"][1]["content"]
-    # think=True: asks Ollama to keep a reasoning model's chain-of-thought
-    # out of the advisory text (see agents/aegis.py's advise() comment).
+    # think=True is still sent as harmless defense-in-depth, but the
+    # actual leak protection is _extract_advisory()'s marker parsing —
+    # see the tests below and agents/aegis.py's module docstring for why
+    # think=True alone is confirmed NOT to work for phi4-reasoning on
+    # real Ollama 0.32.0.
     assert fake_ollama_client.last_chat_call["think"] is True
+
+
+@pytest.mark.asyncio
+async def test_advise_strips_reasoning_preamble_before_marker(security_config, models_config, tmp_path, monkeypatch):
+    from backend.tests.conftest import FakeOllamaClient
+
+    reasoning_client = FakeOllamaClient(
+        response_chunks=[
+            "We need to figure out ", "whether this is risky. ",
+            "Let me think step by step...\n",
+            "ADVISORY: ", "Double-check the target branch before approving.",
+        ]
+    )
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("ALLOWED_PATHS", str(tmp_path))
+    get_settings.cache_clear()
+    get_message_bus.cache_clear()
+    monkeypatch.setattr("backend.agents.aegis.load_security_config", lambda: security_config)
+    router = ModelRouter(models_config)
+    agent = AegisAgent(reasoning_client, router, models_config)
+
+    action = ActionRequest(action_type="git_critical", description="force push to main")
+    decision = agent.evaluate(action)
+    assert decision.verdict is Verdict.REQUIRE_HUMAN_VALIDATION
+
+    advised = await agent.advise(action, decision)
+
+    assert advised.advisory == "Double-check the target branch before approving."
+    assert "step by step" not in advised.advisory
+
+
+@pytest.mark.asyncio
+async def test_advise_falls_back_to_raw_text_without_marker(aegis_agent, fake_ollama_client):
+    # aegis_agent's fake_ollama_client fixture defaults to chunks that
+    # never include "ADVISORY:" — degrade-gracefully behavior (same
+    # philosophy as VeritasAgent.parse_verdict()): a human reviewer still
+    # gets the model's raw text rather than an empty advisory.
+    action = ActionRequest(action_type="git_critical", description="force push to main")
+    decision = aegis_agent.evaluate(action)
+
+    advised = await aegis_agent.advise(action, decision)
+
+    assert advised.advisory == "Hello, world!"

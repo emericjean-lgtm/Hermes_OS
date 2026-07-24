@@ -13,10 +13,16 @@ minimal Chat page, **Aegis** (deterministic security gate, `/security/evaluate`,
 plus an opt-in LLM advisory pass — `include_advisory: true` — that
 annotates a `require_human_validation` verdict with the security-role
 model's read on what's worth double-checking, never a second vote on
-the verdict itself; `chat_stream()` is called with `think=True` for
-this — confirmed necessary against a real reasoning model
-(`phi4-reasoning:14b-q4_K_M`), which otherwise inlines its whole
-chain-of-thought into the advisory text instead of just the answer),
+the verdict itself; the advisory prompt requires an explicit
+`ADVISORY:` marker and only the text after the last occurrence of it is
+kept, same fixed-format-prompt + parse pattern as Veritas's
+`VERDICT:/ISSUES:/CORRECTIONS:` — confirmed necessary on real hardware:
+`chat_stream()` also passes `think=True` as defense-in-depth, but
+Ollama 0.32.0 was confirmed (via a direct `/api/chat` test) to ignore
+`think` entirely for `phi4-reasoning:14b-q4_K_M`, inlining its whole
+chain-of-thought into `message.content` regardless — the marker/parse
+step is what actually keeps that reasoning trace out of the advisory
+text a human reviewer sees),
 **Atlas** (Aegis-gated file tools with diff + backup, `/files*`), **Echo**
 (SQLite long-term memory + ChromaDB documentary/RAG memory, `/memory*`),
 **Kronos** (task tracking with status/history, `/tasks*`), **Minerva**
@@ -117,7 +123,7 @@ Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
 Swift as tools plus the bus's `messages_list`, hardware telemetry's
 `system_status`, the workflow engine's `workflows_*`, `projects_*`, and
 HSE's `skills_*`/`hse_process_task`/`hse_progression` (see "Hermes Agent
-integration" below). 369 tests passing — every module in the original
+integration" below). 371 tests passing — every module in the original
 cahier des charges roadmap is now built; see `config/agents.yaml` for
 the full agent registry. Telegram and workflow scheduling
 (`triggers.yaml`) are no longer planned as our own builds — Hermes
