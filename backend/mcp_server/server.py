@@ -2,8 +2,9 @@
 Scribe/Hermes Eyes/Hermes Swift as tools, plus the inter-agent message
 bus trace (core/message_bus.py), hardware/process telemetry
 (monitoring/gpu_monitor.py), the workflow engine (workflows/engine.py),
-and project management (projects/store.py), for any MCP client to
-call — built specifically so Hermes Agent
+project management (projects/store.py), and self-evolution
+(self_evolution/, §20 — skill library + progression tracking), for any
+MCP client to call — built specifically so Hermes Agent
 (NousResearch's agent runtime, see hermes-agent.nousresearch.com) can
 use them when it takes over orchestration from core/router.py +
 agents/hermes_prime.py.
@@ -43,13 +44,16 @@ from backend.agents.hermes_swift import HermesSwiftAgent
 from backend.agents.minerva import MinervaAgent
 from backend.agents.veritas import VeritasAgent
 from backend.core.agent_registry import get_agent_registry
-from backend.core.config import load_models_config
+from backend.core.config import get_settings, load_models_config
 from backend.core.message_bus import get_message_bus
 from backend.memory.episodic import MemoryEntry
+from backend.memory.skill_library import Skill, status_for
 from backend.monitoring.gpu_monitor import get_gpu_monitor
 from backend.projects.project_manager import Project
 from backend.projects.store import get_project_store
 from backend.security.aegis_engine import ActionRequest
+from backend.self_evolution import progression_tracker
+from backend.self_evolution.pipeline import process_task
 from backend.tasks.task_manager import Task
 from backend.tools import file_tools
 from backend.workflows import loader as workflow_loader
@@ -130,6 +134,30 @@ def _memory_to_dict(entry: MemoryEntry) -> dict:
         "tags": [t for t in entry.tags.split(",") if t],
         "confidence": entry.confidence,
         "created_at": entry.created_at.isoformat(),
+    }
+
+
+def _skill_to_dict(skill: Skill) -> dict:
+    settings = get_settings()
+    return {
+        "id": skill.id,
+        "project_id": skill.project_id,
+        "name": skill.name,
+        "description": skill.description,
+        "procedure": skill.procedure,
+        "confidence": skill.confidence,
+        "status": status_for(
+            skill.confidence,
+            min_confidence=settings.skill_min_confidence,
+            auto_validate_threshold=settings.skill_auto_validate_threshold,
+        ),
+        "decay": skill.decay,
+        "uses": skill.uses,
+        "successes": skill.successes,
+        "tags": skill.tags_list,
+        "source_task_id": skill.source_task_id,
+        "created_at": skill.created_at.isoformat(),
+        "updated_at": skill.updated_at.isoformat(),
     }
 
 
@@ -581,6 +609,58 @@ def projects_delete(project_id: str) -> bool:
     return get_project_store().delete(project_id)
 
 
+# ── Skills & HSE (Hermes Self-Evolution, §20) ────────────────────────────
+
+
+def skills_list(project_id: str | None = None, tag: str | None = None) -> list[dict]:
+    """List skills, optionally filtered by project_id or tag. Each
+    skill's `status` (validated/in_review/below_floor) is computed live
+    against the current SKILL_MIN_CONFIDENCE/SKILL_AUTO_VALIDATE_THRESHOLD
+    settings, not stored."""
+    return [_skill_to_dict(s) for s in _echo().list_skills(project_id=project_id, tag=tag)]
+
+
+def skills_get(skill_id: str) -> dict | None:
+    """Fetch a skill by id, or None if it doesn't exist."""
+    skill = _echo().get_skill(skill_id)
+    return _skill_to_dict(skill) if skill else None
+
+
+def skills_use(skill_id: str, success: bool) -> dict | None:
+    """Record a reuse of an existing skill, nudging its confidence up
+    (success) or down (failure) — see memory/skill_library.py's
+    record_use(). Returns None if the skill doesn't exist."""
+    skill = _echo().use_skill(skill_id, success=success)
+    return _skill_to_dict(skill) if skill else None
+
+
+def skills_delete(skill_id: str) -> bool:
+    """Delete a skill by id. Returns whether it existed."""
+    return _echo().forget_skill(skill_id)
+
+
+def hse_process_task(task_id: str) -> dict:
+    """Runs the HSE pipeline for one task (evaluate success/failure ->
+    extract a new skill on clean success -> reflect if
+    REFLECTION_ENABLED) — see self_evolution/pipeline.py. Safe to call on
+    a non-terminal task: returns outcome=None/skill_id=None/
+    reflection=None rather than erroring. Raises if the task doesn't
+    exist."""
+    task = _kronos().get_task(task_id)
+    if task is None:
+        raise ValueError(f"No task {task_id!r}")
+    return process_task(task, _echo())
+
+
+def hse_progression(project_id: str | None = None) -> dict:
+    """Aggregate HSE stats (task success rate, skills created/validated/
+    in_review, average skill confidence), optionally scoped to a
+    project — see self_evolution/progression_tracker.py."""
+    tasks = _kronos().list_tasks(project_id=project_id)
+    skills = _echo().list_skills(project_id=project_id)
+    return progression_tracker.compute_progression(tasks, skills)
+
+
 _ALL_TOOLS = [
     security_evaluate,
     files_list,
@@ -615,6 +695,12 @@ _ALL_TOOLS = [
     projects_list,
     projects_update,
     projects_delete,
+    skills_list,
+    skills_get,
+    skills_use,
+    skills_delete,
+    hse_process_task,
+    hse_progression,
 ]
 
 
@@ -644,7 +730,10 @@ def create_mcp_server() -> FastMCP:
             "request classification (Hermes Swift), the inter-agent message "
             "bus trace (messages_list), hardware/process telemetry "
             "(system_status), workflows chaining these actions into a "
-            "graph (workflows_*), and multi-project scoping (projects_*). "
+            "graph (workflows_*), multi-project scoping (projects_*), and "
+            "self-evolution (skills_*, hse_process_task, hse_progression) "
+            "— skills extracted from successfully completed tasks, with a "
+            "confidence score that reuse reinforces and decays over time. "
             "Every file/security operation is bound by "
             "ALLOWED_PATHS and the configured autonomy level "
             "(config/security.yaml) — a denied or require_human_validation "

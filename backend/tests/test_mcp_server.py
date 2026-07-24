@@ -70,6 +70,12 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "projects_list",
         "projects_update",
         "projects_delete",
+        "skills_list",
+        "skills_get",
+        "skills_use",
+        "skills_delete",
+        "hse_process_task",
+        "hse_progression",
     }
 
 
@@ -431,3 +437,39 @@ async def test_system_status_reports_agents_and_gpu_null_without_rocm(monkeypatc
     assert body["gpu"] is None
     assert body["loaded_models"] == [{"name": "qwen3.5:9b"}]
     assert "disk_free_gb" in body
+
+
+async def test_hse_process_task_and_skills_roundtrip(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        task = _result(await session.call_tool("tasks_create", {"title": "Ship it"}))
+        await session.call_tool("tasks_update", {"task_id": task["id"], "status": "done"})
+
+        processed = _result(await session.call_tool("hse_process_task", {"task_id": task["id"]}))
+        assert processed["outcome"] is True
+        assert processed["skill_id"] is not None
+
+        skill = _result(await session.call_tool("skills_get", {"skill_id": processed["skill_id"]}))
+        assert skill["name"] == "Ship it"
+        assert skill["status"] == "in_review"
+
+        listed = _result(await session.call_tool("skills_list", {}))
+        assert [s["name"] for s in listed] == ["Ship it"]
+
+        used = _result(
+            await session.call_tool("skills_use", {"skill_id": skill["id"], "success": True})
+        )
+        assert used["uses"] == 1
+        assert used["confidence"] > skill["confidence"]
+
+        progression = _result(await session.call_tool("hse_progression", {}))
+        assert progression["tasks_succeeded"] == 1
+        assert progression["skills_total"] == 1
+
+        deleted = _result(await session.call_tool("skills_delete", {"skill_id": skill["id"]}))
+        assert deleted is True
+
+
+async def test_hse_process_task_raises_for_unknown_task(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = await session.call_tool("hse_process_task", {"task_id": "does-not-exist"})
+    assert result.isError is True

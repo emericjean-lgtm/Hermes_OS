@@ -55,15 +55,33 @@ swap/disk via `/proc` and stdlib, raising alerts against `.env`'s
 thresholds; degrades to `"gpu": null` when `rocm-smi` isn't available —
 including in this sandbox — and to an "Ollama unreachable" alert rather
 than failing outright if Ollama itself is down; `/system/status` REST
-endpoint), and an **MCP server** exposing Aegis/Atlas/Echo/Kronos/Minerva/
-Veritas/Hermes Scribe/Hermes Eyes/Hermes Swift as tools plus the bus's
-`messages_list`, hardware telemetry's `system_status`, the workflow
-engine's `workflows_*`, and `projects_*` (see "Hermes Agent integration"
-below). 272 tests passing. Still not implemented: HSE (auto-évolution) —
-see `config/agents.yaml` for the full agent roster (`enabled: false` =
-not built yet). Telegram and workflow scheduling (`triggers.yaml`) are
-no longer planned as our own builds — Hermes Agent's native gateway and
-`cronjob` cover both, see "Hermes Agent integration" below.
+endpoint), **HSE / Hermes Self-Evolution** (cahier des charges §20 — the
+system learns from its own executions: `auto_evaluator` reads a
+completed task's status as a deterministic success/failure signal (no
+LLM call — same reasoning as the other self_evolution/ modules),
+`skill_extractor` turns a clean success into a new `Skill` (SQLite,
+`backend/memory/skill_library.py`) starting between `.env`'s
+`SKILL_MIN_CONFIDENCE` and `SKILL_AUTO_VALIDATE_THRESHOLD` — "en
+révision" until reuse pushes it past the auto-validate threshold via
+`record_use()`'s reinforcement (and Ebbinghaus-style `apply_decay()` for
+unused skills, gated behind `EBBINGHAUS_DECAY_ENABLED`, §11.6),
+`reflection_engine` templates a post-task reflection into Echo's memory
+when `REFLECTION_ENABLED`, and `progression_tracker` aggregates success
+rate / skill counts on demand. Deliberately *not* auto-triggered from
+Kronos's `update_task()` — called explicitly via
+`POST /hse/process/{task_id}` + `GET /hse/progression`, and `/skills*`
+for the library itself — matching this project's "explicit call, no
+hidden side effects" pattern elsewhere), and an **MCP server** exposing
+Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
+Swift as tools plus the bus's `messages_list`, hardware telemetry's
+`system_status`, the workflow engine's `workflows_*`, `projects_*`, and
+HSE's `skills_*`/`hse_process_task`/`hse_progression` (see "Hermes Agent
+integration" below). 319 tests passing — every module in the original
+cahier des charges roadmap is now built; see `config/agents.yaml` for
+the full agent registry. Telegram and workflow scheduling
+(`triggers.yaml`) are no longer planned as our own builds — Hermes
+Agent's native gateway and `cronjob` cover both, see "Hermes Agent
+integration" below.
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
 built and tested here entirely against a fake Ollama client (see
@@ -178,9 +196,10 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(33 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+(39 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
 `verify_output`, `write_document`, `analyze_image`, `classify_request`,
-`tasks_*`, `messages_list`, `system_status`, `workflows_*`, `projects_*`).
+`tasks_*`, `messages_list`, `system_status`, `workflows_*`, `projects_*`,
+`skills_*`, `hse_process_task`, `hse_progression`).
 The `pre_tool_call` hook script
 (`config/hermes_agent_hooks/aegis_gate.py`) is built strictly from Hermes
 Agent's published hook contract — not exercised end-to-end from this
