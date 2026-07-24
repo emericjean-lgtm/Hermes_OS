@@ -1,0 +1,14 @@
+{
+  "name": "hermes-ollama",
+  "label": "Hermes Ollama",
+  "description": "Multi-project dashboard for the Hermes Ollama backend: projects, tasks, hardware status, and self-evolution progression.",
+  "icon": "LayoutDashboard",
+  "version": "0.1.0",
+  "tab": {
+    "path": "/hermes-ollama",
+    "position": "after:memory"
+  },
+  "slots": [],
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

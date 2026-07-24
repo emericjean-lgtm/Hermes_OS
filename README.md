@@ -76,12 +76,16 @@ Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
 Swift as tools plus the bus's `messages_list`, hardware telemetry's
 `system_status`, the workflow engine's `workflows_*`, `projects_*`, and
 HSE's `skills_*`/`hse_process_task`/`hse_progression` (see "Hermes Agent
-integration" below). 319 tests passing — every module in the original
+integration" below). 325 tests passing — every module in the original
 cahier des charges roadmap is now built; see `config/agents.yaml` for
 the full agent registry. Telegram and workflow scheduling
 (`triggers.yaml`) are no longer planned as our own builds — Hermes
 Agent's native gateway and `cronjob` cover both, see "Hermes Agent
-integration" below.
+integration" below. A **Hermes Agent dashboard plugin**
+(`config/hermes_agent_dashboard/`) is built too — a "Hermes Ollama" tab
+inside Hermes Agent's own web UI, so the planned Next.js frontend
+(currently just a minimal Chat page) doesn't need to grow into a full
+second UI; see "Hermes Agent integration" below.
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
 built and tested here entirely against a fake Ollama client (see
@@ -176,6 +180,21 @@ unreachable from this sandbox, but the GitHub repo/docs aren't):
   charges' `triggers.yaml` scheduler outright — no need to build one.
 - Full reasoning for all of the above is in
   `config/hermes_agent_mcp.example.yaml`'s comments.
+- **Dashboard**: Hermes Agent's own web UI supports dashboard plugins
+  (manifest.json + a pre-built JS bundle using
+  `window.__HERMES_PLUGIN_SDK__` + an optional `plugin_api.py` FastAPI
+  router) — used here instead of building a second, separate Next.js
+  frontend. `config/hermes_agent_dashboard/` is a full plugin: a
+  "Hermes Ollama" tab showing projects, tasks, hardware telemetry (from
+  `/system/status`), and HSE progression (from `/hse/progression`).
+  `plugin_api.py` runs inside Hermes Agent's own process and proxies
+  each request to this backend server-side (the browser-side JS can't
+  reach this backend directly — different origin, and this backend's
+  CORS is locked to `http://localhost:3000`). Built from NousResearch's
+  own published example plugin's verbatim source (manifest shape, SDK
+  globals, `plugin_api.py`'s `router = APIRouter()` convention) — see
+  `config/hermes_agent_dashboard/README.md` for install steps and what
+  isn't verified end-to-end.
 
 **On your machine** (this integration can't be installed or live-tested from
 a sandboxed session — `hermes-agent.nousresearch.com` is blocked by this
@@ -191,6 +210,10 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 # this backend's MCP server, disabled native toolsets, and the
 # pre_tool_call -> Aegis hook. Edit the hook's absolute path first.
 # Backend must be running: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+
+# 3. Install the dashboard plugin (optional, replaces the Next.js frontend)
+mkdir -p ~/.hermes/plugins/hermes-ollama
+cp -r config/hermes_agent_dashboard ~/.hermes/plugins/hermes-ollama/dashboard
 ```
 
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
