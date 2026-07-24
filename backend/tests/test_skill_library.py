@@ -106,3 +106,20 @@ def test_status_for_thresholds():
     assert sl.status_for(0.94, **kwargs) == "in_review"
     assert sl.status_for(0.95, **kwargs) == "validated"
     assert sl.status_for(1.0, **kwargs) == "validated"
+
+
+def test_get_skill_by_name_case_insensitive_exact_match(session):
+    skill = sl.create_skill(session, name="Ship It", confidence=0.5)
+    assert sl.get_skill_by_name(session, "ship it").id == skill.id
+    assert sl.get_skill_by_name(session, "SHIP IT").id == skill.id
+
+
+def test_get_skill_by_name_scoped_to_project(session):
+    sl.create_skill(session, name="Deploy", confidence=0.5, project_id="proj-1")
+    assert sl.get_skill_by_name(session, "Deploy", project_id="proj-2") is None
+    assert sl.get_skill_by_name(session, "Deploy", project_id=None) is None
+    assert sl.get_skill_by_name(session, "Deploy", project_id="proj-1") is not None
+
+
+def test_get_skill_by_name_returns_none_when_no_match(session):
+    assert sl.get_skill_by_name(session, "does not exist") is None

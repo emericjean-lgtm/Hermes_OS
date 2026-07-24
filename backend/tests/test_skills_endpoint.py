@@ -59,3 +59,8 @@ def test_list_skills_filters_by_project_id(client):
 
     response = client.get("/skills", params={"project_id": "proj-1"})
     assert [s["name"] for s in response.json()] == ["A"]
+
+
+def test_index_skill_404_for_unknown_id(client):
+    response = client.post("/skills/does-not-exist/index")
+    assert response.status_code == 404

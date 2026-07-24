@@ -658,6 +658,29 @@ def skills_delete(skill_id: str) -> bool:
     return _echo().forget_skill(skill_id)
 
 
+def skills_index(skill_id: str) -> bool:
+    """Index a skill into the semantic search collection (see
+    skills_search) — needs a live Ollama server for embeddings, unlike
+    every other skills_* tool. Not automatic on skill creation. Returns
+    False if the skill doesn't exist."""
+    skill = _echo().get_skill(skill_id)
+    if skill is None:
+        return False
+    _echo().index_skill(skill)
+    return True
+
+
+def skills_search(query: str, n_results: int = 5, project_id: str | None = None) -> list[dict]:
+    """Semantic search over indexed skills (see skills_index) — needs a
+    live Ollama server for embeddings. Returns skills most relevant to
+    `query` first, each with a `distance` field (cosine distance: 0.0 is
+    identical, larger is less similar)."""
+    return [
+        {**_skill_to_dict(skill), "distance": distance}
+        for skill, distance in _echo().search_skills(query, n_results=n_results, project_id=project_id)
+    ]
+
+
 def hse_process_task(task_id: str) -> dict:
     """Runs the HSE pipeline for one task (evaluate success/failure ->
     extract a new skill on clean success -> reflect if
@@ -718,6 +741,8 @@ _ALL_TOOLS = [
     skills_get,
     skills_use,
     skills_delete,
+    skills_index,
+    skills_search,
     hse_process_task,
     hse_progression,
 ]

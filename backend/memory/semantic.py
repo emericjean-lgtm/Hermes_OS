@@ -80,12 +80,13 @@ class DocumentStore:
         *,
         persist_directory: str | None = None,
         collection_name: str = "documents",
+        metadata: dict | None = None,
     ) -> None:
         self._client = (
             PersistentClient(path=persist_directory) if persist_directory else EphemeralClient()
         )
         self._collection = self._client.get_or_create_collection(
-            name=collection_name, embedding_function=embedding_function
+            name=collection_name, embedding_function=embedding_function, metadata=metadata
         )
 
     def add_document(self, doc_id: str, text: str, metadata: dict) -> None:

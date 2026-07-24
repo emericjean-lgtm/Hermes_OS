@@ -82,3 +82,22 @@ def test_document_store_search_filters_by_where_metadata():
     results = store.search("document", n_results=5, where={"project_id": "proj-1"})
 
     assert [r["id"] for r in results] == ["where-0"]
+
+
+def test_document_store_cosine_metadata_ranks_by_similarity():
+    # Mirrors how EchoAgent configures the skill index (see agents/
+    # echo.py's __init__) — cosine distance rather than Chroma's default
+    # L2, verified here with a fake embedding function since a real one
+    # needs a live Ollama server this sandbox doesn't have.
+    store = DocumentStore(
+        FakeEmbeddingFunction(),
+        collection_name="cosine-test",
+        metadata={"hnsw:space": "cosine"},
+    )
+    store.add_document("skill-0", "Ship it", {"indexed": True})
+    store.add_document("skill-1", "The RX 6800 has 16GB of VRAM", {"indexed": True})
+
+    results = store.search("Ship it", n_results=1)
+
+    assert results[0]["id"] == "skill-0"
+    assert results[0]["distance"] == 0.0

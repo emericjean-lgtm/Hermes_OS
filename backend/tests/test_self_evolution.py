@@ -156,6 +156,35 @@ async def test_process_task_extracts_skill_on_success(echo_agent):
     assert skill.name == "Ship it"
     assert skill.source_task_id == "task-1"
     assert result["reflection"] is None  # REFLECTION_ENABLED defaults to False
+    assert result["deduplicated"] is False
+
+
+@pytest.mark.asyncio
+async def test_process_task_reinforces_existing_skill_with_same_name_instead_of_duplicating(echo_agent):
+    first_task = _task(status=TaskStatus.DONE, title="Ship it", project_id="proj-1")
+    first = process_task(first_task, echo_agent)
+    assert first["deduplicated"] is False
+
+    second_task = _task(status=TaskStatus.DONE, title="ship it", project_id="proj-1")  # case differs
+    second = process_task(second_task, echo_agent)
+
+    assert second["deduplicated"] is True
+    assert second["skill_id"] == first["skill_id"]  # same skill, not a new one
+    assert len(echo_agent.list_skills(project_id="proj-1")) == 1
+
+    skill = echo_agent.get_skill(second["skill_id"])
+    assert skill.uses == 1
+    assert skill.successes == 1
+
+
+@pytest.mark.asyncio
+async def test_process_task_same_name_different_project_is_not_deduplicated(echo_agent):
+    first = process_task(_task(status=TaskStatus.DONE, title="Ship it", project_id="proj-1"), echo_agent)
+    second = process_task(_task(status=TaskStatus.DONE, title="Ship it", project_id="proj-2"), echo_agent)
+
+    assert second["deduplicated"] is False
+    assert second["skill_id"] != first["skill_id"]
+    assert len(echo_agent.list_skills()) == 2
 
 
 @pytest.mark.asyncio
@@ -175,7 +204,13 @@ async def test_process_task_is_a_noop_for_non_terminal_task(echo_agent):
 
     result = process_task(task, echo_agent)
 
-    assert result == {"task_id": "task-1", "outcome": None, "skill_id": None, "reflection": None}
+    assert result == {
+        "task_id": "task-1",
+        "outcome": None,
+        "skill_id": None,
+        "deduplicated": False,
+        "reflection": None,
+    }
 
 
 @pytest.mark.asyncio

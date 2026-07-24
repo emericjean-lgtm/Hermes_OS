@@ -95,6 +95,18 @@ def get_skill(session: Session, skill_id: str) -> Skill | None:
     return session.get(Skill, skill_id)
 
 
+def get_skill_by_name(session: Session, name: str, *, project_id: str | None = None) -> Skill | None:
+    """Case-insensitive exact match, scoped to a project (or the global/
+    no-project scope when project_id is None) — the deterministic half
+    of skill dedup (see self_evolution/pipeline.py): a task with the
+    same title recurring shouldn't spawn a fresh near-identical skill
+    every time, it should reinforce the one that already exists."""
+    stmt = select(Skill).where(
+        Skill.project_id == project_id, Skill.name.ilike(name.strip())
+    )
+    return session.execute(stmt).scalars().first()
+
+
 def list_skills(
     session: Session, *, project_id: str | None = None, tag: str | None = None
 ) -> list[Skill]:

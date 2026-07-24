@@ -71,7 +71,17 @@ révision" until reuse pushes it past the auto-validate threshold via
 unused skills, gated behind `EBBINGHAUS_DECAY_ENABLED`, §11.6),
 `reflection_engine` templates a post-task reflection into Echo's memory
 when `REFLECTION_ENABLED`, and `progression_tracker` aggregates success
-rate / skill counts on demand. Deliberately *not* auto-triggered from
+rate / skill counts on demand. Skill dedup: before creating a skill,
+the pipeline checks for an existing one with the same name in the same
+project (`EchoAgent.find_skill_by_name()`, case-insensitive, exact,
+fully deterministic) and reinforces it instead of spawning a near-
+duplicate — a semantic (near-duplicate wording) dedup pass is possible
+too (skills can be indexed into a dedicated cosine-distance ChromaDB
+collection via `index_skill`/searched via `search_skills`/`GET
+/skills/search`) but isn't wired into the automatic dedup path, since
+its distance threshold needs tuning against a real embedding model this
+sandbox doesn't have — same "needs a live Ollama server" caveat as
+Echo's `index_document`/`recall`. Deliberately *not* auto-triggered from
 Kronos's `update_task()` — called explicitly via
 `POST /hse/process/{task_id}` + `GET /hse/progression`, and `/skills*`
 for the library itself, or in the same request as marking a task done:
@@ -84,7 +94,7 @@ Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
 Swift as tools plus the bus's `messages_list`, hardware telemetry's
 `system_status`, the workflow engine's `workflows_*`, `projects_*`, and
 HSE's `skills_*`/`hse_process_task`/`hse_progression` (see "Hermes Agent
-integration" below). 337 tests passing — every module in the original
+integration" below). 348 tests passing — every module in the original
 cahier des charges roadmap is now built; see `config/agents.yaml` for
 the full agent registry. Telegram and workflow scheduling
 (`triggers.yaml`) are no longer planned as our own builds — Hermes
@@ -227,7 +237,7 @@ cp -r config/hermes_agent_dashboard ~/.hermes/plugins/hermes-ollama/dashboard
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(39 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+(41 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
 `verify_output`, `write_document`, `analyze_image`, `classify_request`,
 `tasks_*`, `messages_list`, `system_status`, `workflows_*`, `projects_*`,
 `skills_*`, `hse_process_task`, `hse_progression`).

@@ -27,14 +27,32 @@ def process_task(task: Task, echo: EchoAgent) -> dict:
     evaluate -> extract a skill on clean success -> reflect (if
     REFLECTION_ENABLED). Safe to call on a non-terminal task — it's just
     a no-op (outcome=None, skill=None, reflection=None) rather than an
-    error, so callers don't need to pre-check status themselves."""
+    error, so callers don't need to pre-check status themselves.
+
+    Dedup: before creating a new skill, checks for an existing one with
+    the same name in the same project scope (echo.find_skill_by_name,
+    case-insensitive, exact) — a task title recurring shouldn't spawn a
+    fresh near-identical skill every time it succeeds, it should
+    reinforce the one that already exists (§11.6: "les remontées
+    d'usage le renforcent"). This is name-based only, fully
+    deterministic and needs no embedding model; a semantic (near-
+    duplicate wording) dedup pass is possible via echo.search_skills()
+    but deliberately not wired in here yet — its distance threshold
+    needs tuning against a real embedding model this sandbox doesn't
+    have (see echo.py's search_skills docstring)."""
     outcome = auto_evaluator.evaluate(task)
 
     skill: Skill | None = None
+    deduplicated = False
     if outcome is True:
         candidate = skill_extractor.extract(task)
         if candidate is not None:
-            skill = echo.remember_skill(**candidate)
+            existing = echo.find_skill_by_name(candidate["name"], project_id=candidate["project_id"])
+            if existing is not None:
+                skill = echo.use_skill(existing.id, success=True)
+                deduplicated = True
+            else:
+                skill = echo.remember_skill(**candidate)
 
     reflection: str | None = None
     if get_settings().reflection_enabled:
@@ -47,5 +65,6 @@ def process_task(task: Task, echo: EchoAgent) -> dict:
         "task_id": task.id,
         "outcome": outcome,
         "skill_id": skill.id if skill is not None else None,
+        "deduplicated": deduplicated,
         "reflection": reflection,
     }

@@ -46,6 +46,16 @@ class EchoAgent:
         embedding_model = models_config["roles"]["embedding"]["model"]
         embedding_fn = OllamaEmbeddingFunction(settings.ollama_api_url, embedding_model)
         self._documents = DocumentStore(embedding_fn, persist_directory=settings.chroma_path)
+        # Cosine distance, not Chroma's default (L2): its [0, ~2] range,
+        # normalized by vector direction rather than magnitude, is what
+        # makes a fixed "near-duplicate" threshold meaningful across
+        # different embedding models — see search_skills()'s docstring.
+        self._skill_index = DocumentStore(
+            embedding_fn,
+            persist_directory=settings.chroma_path,
+            collection_name="skills",
+            metadata={"hnsw:space": "cosine"},
+        )
 
     # ── Long-term memory (SQLite) ──────────────────────────────────
     def remember(
@@ -139,3 +149,38 @@ class EchoAgent:
             return 0
         with self._session_factory() as session:
             return skill_library.apply_decay(session)
+
+    def find_skill_by_name(self, name: str, *, project_id: str | None = None) -> Skill | None:
+        """SQLite-only, case-insensitive exact match — the deterministic,
+        no-embedding-model-needed half of skill dedup (see
+        self_evolution/pipeline.py). Unlike index_skill()/search_skills()
+        below, this needs no live Ollama server, so it's safe to call
+        unconditionally."""
+        with self._session_factory() as session:
+            return skill_library.get_skill_by_name(session, name, project_id=project_id)
+
+    # ── Skill semantic index (ChromaDB) — needs a live Ollama server for
+    # embeddings, same caveat as index_document()/recall() above. Not
+    # called automatically by remember_skill() or the HSE pipeline —
+    # opt in explicitly once you have real embeddings to index against.
+    def index_skill(self, skill: Skill) -> None:
+        text = "\n".join(filter(None, [skill.name, skill.description, skill.procedure]))
+        metadata = {"project_id": skill.project_id} if skill.project_id else {"indexed": True}
+        self._skill_index.add_document(skill.id, text, metadata)
+
+    def search_skills(
+        self, query: str, n_results: int = 5, *, project_id: str | None = None
+    ) -> list[tuple[Skill, float]]:
+        """Semantic search over indexed skills (see index_skill()) —
+        returns (Skill, cosine_distance) pairs, most relevant first,
+        hydrated from SQLite by id (a result whose skill has since been
+        deleted from SQLite but lingers in the index is silently
+        dropped). Distances are cosine (see __init__): 0.0 is identical,
+        larger is less similar."""
+        where = {"project_id": project_id} if project_id else None
+        results = self._skill_index.search(query, n_results=n_results, where=where)
+        with self._session_factory() as session:
+            hydrated = [
+                (skill_library.get_skill(session, r["id"]), r["distance"]) for r in results
+            ]
+        return [(skill, distance) for skill, distance in hydrated if skill is not None]

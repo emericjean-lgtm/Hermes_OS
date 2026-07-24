@@ -74,6 +74,8 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "skills_get",
         "skills_use",
         "skills_delete",
+        "skills_index",
+        "skills_search",
         "hse_process_task",
         "hse_progression",
     }
@@ -506,6 +508,15 @@ async def test_hse_process_task_and_skills_roundtrip(monkeypatch, tmp_path):
 
         deleted = _result(await session.call_tool("skills_delete", {"skill_id": skill["id"]}))
         assert deleted is True
+
+
+async def test_skills_index_returns_false_for_unknown_id(monkeypatch, tmp_path):
+    # skills_index/skills_search need a live Ollama server for real
+    # embeddings this sandbox doesn't have — only the unknown-id short
+    # circuit (before any embedding call) is exercised here.
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = _result(await session.call_tool("skills_index", {"skill_id": "does-not-exist"}))
+    assert result is False
 
 
 async def test_hse_process_task_raises_for_unknown_task(monkeypatch, tmp_path):

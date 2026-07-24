@@ -90,3 +90,19 @@ def test_decay_skills_is_noop_when_disabled(echo_agent):
     # EBBINGHAUS_DECAY_ENABLED defaults to False in the walking skeleton.
     assert echo_agent.decay_skills() == 0
     assert echo_agent.get_skill(echo_agent.list_skills()[0].id).confidence == 0.5
+
+
+def test_find_skill_by_name_case_insensitive(echo_agent):
+    echo_agent.remember_skill(name="Deploy", confidence=0.5)
+    assert echo_agent.find_skill_by_name("deploy") is not None
+    assert echo_agent.find_skill_by_name("DEPLOY") is not None
+
+
+def test_find_skill_by_name_scoped_to_project(echo_agent):
+    echo_agent.remember_skill(name="Deploy", confidence=0.5, project_id="proj-1")
+    assert echo_agent.find_skill_by_name("Deploy", project_id="proj-2") is None
+    assert echo_agent.find_skill_by_name("Deploy", project_id="proj-1") is not None
+
+
+def test_find_skill_by_name_returns_none_when_no_match(echo_agent):
+    assert echo_agent.find_skill_by_name("does not exist") is None

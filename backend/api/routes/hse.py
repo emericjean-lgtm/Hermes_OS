@@ -27,6 +27,7 @@ class HSEProcessResponse(BaseModel):
     task_id: str
     outcome: bool | None
     skill_id: str | None
+    deduplicated: bool
     reflection: str | None
 
 
