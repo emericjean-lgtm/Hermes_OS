@@ -550,15 +550,7 @@ def workflows_simulate(workflow_id: str) -> dict:
     }
 
 
-async def workflows_run(workflow_id: str, approved_nodes: list[str] | None = None) -> dict:
-    """Execute a workflow's graph of agent actions (see workflows_create's
-    docstring for the node/edge shape). Halts at the first
-    human_validation node not listed in approved_nodes — re-run with that
-    node's id included to continue past it (this re-executes the whole
-    graph from the start; there is no persisted resume state yet, see
-    backend/workflows/engine.py)."""
-    workflow = workflow_loader.load_workflow(workflow_id)
-    run = await WorkflowEngine().run(workflow, approved_nodes=set(approved_nodes or []))
+def _workflow_run_to_dict(run) -> dict:
     return {
         "id": run.id,
         "workflow_id": run.workflow_id,
@@ -575,6 +567,31 @@ async def workflows_run(workflow_id: str, approved_nodes: list[str] | None = Non
         },
         "pending_nodes": run.pending_nodes,
     }
+
+
+async def workflows_run(
+    workflow_id: str, approved_nodes: list[str] | None = None, run_id: str | None = None
+) -> dict:
+    """Execute a workflow's graph of agent actions (see workflows_create's
+    docstring for the node/edge shape). Halts at the first
+    human_validation node not listed in approved_nodes. Pass back a
+    previous call's "id" as run_id to resume that run past the gate
+    instead of re-executing the whole graph from the start — only nodes
+    not already decided get (re-)evaluated, and approved_nodes
+    accumulates across resumes (see backend/workflows/engine.py). Omit
+    run_id to start a fresh run."""
+    workflow = workflow_loader.load_workflow(workflow_id)
+    run = await WorkflowEngine().run(
+        workflow, run_id=run_id, approved_nodes=set(approved_nodes or [])
+    )
+    return _workflow_run_to_dict(run)
+
+
+def workflows_get_run(run_id: str) -> dict | None:
+    """Fetch a persisted workflow run's current state without executing
+    anything. Returns None if no such run exists."""
+    run = WorkflowEngine().get_run(run_id)
+    return _workflow_run_to_dict(run) if run else None
 
 
 # ── Projects: multi-project scoping ─────────────────────────────────────
@@ -732,6 +749,7 @@ _ALL_TOOLS = [
     workflows_delete,
     workflows_simulate,
     workflows_run,
+    workflows_get_run,
     projects_create,
     projects_get,
     projects_list,

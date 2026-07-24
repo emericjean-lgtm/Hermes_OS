@@ -35,7 +35,13 @@ defined in YAML under `data/workflows/`, cahier des charges §15 —
 registry the MCP server uses, resolves `$steps.<node>.<key>` placeholders
 between steps, branches on `on_success`/`on_failure` edges, halts at
 `human_validation` gates, and traces every node through the message bus;
-`simulate()` is a pure dry-run. `/workflows*` REST API, example workflow
+`simulate()` is a pure dry-run. Every run is persisted (SQLite,
+`backend/workflows/run_store.py`) and genuinely **resumable**: pass a
+previous run's `id` back as `run_id` (plus any newly-approved node ids)
+to continue past a gate — only nodes not already decided
+(success/failed) are (re-)evaluated, approved_nodes accumulates across
+resumes, and `GET /workflows/runs/{run_id}` checks a run's state without
+executing anything. `/workflows*` REST API, example workflow
 at `data/workflows/full-code-review.yaml`), **projects** (multi-project
 scoping — not in the original cahier des charges; `Project` entity with
 status active/archived and tags, `/projects*` REST API — and `project_id`
@@ -94,7 +100,7 @@ Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
 Swift as tools plus the bus's `messages_list`, hardware telemetry's
 `system_status`, the workflow engine's `workflows_*`, `projects_*`, and
 HSE's `skills_*`/`hse_process_task`/`hse_progression` (see "Hermes Agent
-integration" below). 348 tests passing — every module in the original
+integration" below). 364 tests passing — every module in the original
 cahier des charges roadmap is now built; see `config/agents.yaml` for
 the full agent registry. Telegram and workflow scheduling
 (`triggers.yaml`) are no longer planned as our own builds — Hermes
@@ -237,7 +243,7 @@ cp -r config/hermes_agent_dashboard ~/.hermes/plugins/hermes-ollama/dashboard
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(41 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+(42 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
 `verify_output`, `write_document`, `analyze_image`, `classify_request`,
 `tasks_*`, `messages_list`, `system_status`, `workflows_*`, `projects_*`,
 `skills_*`, `hse_process_task`, `hse_progression`).

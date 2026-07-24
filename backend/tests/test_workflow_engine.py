@@ -223,3 +223,81 @@ def test_simulate_does_not_touch_message_bus(isolated_settings):
     WorkflowEngine().simulate(workflow)
 
     assert get_message_bus().list_messages() == []
+
+
+async def test_run_resumes_without_re_executing_already_done_nodes(isolated_settings):
+    from backend.mcp_server.server import get_tool_registry
+
+    workflow = _workflow(
+        nodes=[
+            {"id": "create", "action": "tasks_create", "params": {"title": "x"}},
+            {"id": "gate", "action": "tasks_list", "params": {}, "human_validation": True},
+            {"id": "after", "action": "tasks_list", "params": {}},
+        ],
+        edges=[{"from": "create", "to": "gate"}, {"from": "gate", "to": "after"}],
+    )
+    engine = WorkflowEngine()
+
+    first = await engine.run(workflow)
+    assert first.status == "awaiting_validation"
+    assert first.pending_nodes == ["gate"]
+    assert first.node_results["create"].status == "success"
+    created_id = first.node_results["create"].result["id"]
+
+    second = await engine.run(workflow, run_id=first.id, approved_nodes={"gate"})
+
+    assert second.id == first.id  # same run, not a new one
+    assert second.status == "completed"
+    assert second.node_results["create"].status == "success"
+    assert second.node_results["create"].result["id"] == created_id  # unchanged, not re-run
+    assert second.node_results["gate"].status == "success"
+    assert second.node_results["after"].status == "success"
+
+    # tasks_create is NOT idempotent — if "create" had been re-executed on
+    # resume, this would find two tasks instead of one.
+    tasks = get_tool_registry()["tasks_list"]()
+    assert len(tasks) == 1
+
+
+async def test_run_with_unknown_run_id_raises(isolated_settings):
+    from backend.workflows.engine import WorkflowExecutionError
+
+    with pytest.raises(WorkflowExecutionError):
+        await WorkflowEngine().run(_workflow(), run_id="does-not-exist")
+
+
+async def test_get_run_returns_persisted_state(isolated_settings):
+    engine = WorkflowEngine()
+    run = await engine.run(_workflow())
+
+    fetched = engine.get_run(run.id)
+
+    assert fetched is not None
+    assert fetched.id == run.id
+    assert fetched.status == run.status
+    assert fetched.node_results["create"].status == "success"
+
+
+async def test_get_run_returns_none_for_unknown_id(isolated_settings):
+    assert WorkflowEngine().get_run("does-not-exist") is None
+
+
+async def test_get_run_reflects_latest_state_across_a_different_engine_instance(isolated_settings):
+    # Persistence goes through the shared SQLite file (SQLITE_PATH), not
+    # in-memory state on one WorkflowEngine instance — a fresh instance
+    # (e.g. a later request in a real app) must see the same run.
+    workflow = _workflow(
+        nodes=[
+            {"id": "create", "action": "tasks_create", "params": {"title": "x"}, "human_validation": True},
+        ],
+        edges=[],
+    )
+    first_engine = WorkflowEngine()
+    run = await first_engine.run(workflow)
+    assert run.status == "awaiting_validation"
+
+    second_engine = WorkflowEngine()
+    resumed = await second_engine.run(workflow, run_id=run.id, approved_nodes={"create"})
+
+    assert resumed.status == "completed"
+    assert WorkflowEngine().get_run(run.id).status == "completed"

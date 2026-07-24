@@ -8,17 +8,15 @@ materializes whatever tuple/stream-returning agent method it wraps (see
 e.g. research_query, verify_output) into a plain value, so the engine
 itself stays agent-agnostic and doesn't duplicate a second adapter layer.
 
-run() is genuinely synchronous within one call and does NOT persist
-paused ("awaiting_validation") state across requests — there is no
-background job / execution-state store anywhere in this codebase yet
-(Kronos's tasks aren't auto-executed either; that's tracking, not
-execution). A run halts at every human_validation node not already in
-approved_nodes and returns without executing it or anything downstream
-of it. Re-invoking run() with that node's id included in approved_nodes
-re-executes the whole graph from the start and continues past the gate
-once reached — an honest limitation, not a hidden one: cheap/idempotent
-nodes (reads, Aegis checks) are fine to re-run, but true resume-without-
-repeating needs persisted run state, deliberately left out of this pass.
+run() persists its state after every call (backend/workflows/run_store.py,
+same SQLite file as tasks/skills/memory) so a run halted at a
+human_validation gate can actually be *resumed*, not just re-run from
+scratch: pass the previous call's `run_id` back in, along with the
+newly-approved node ids, and only nodes not already in a terminal state
+(success/failed/skipped) get (re-)evaluated — everything already decided
+is loaded from the persisted record as-is. approved_nodes accumulates
+across resumes (a node approved once stays approved). Omit run_id to
+start a fresh run, unchanged from before.
 
 simulate() is a pure dry-run: computes the structural execution order
 (ignoring runtime success/failure, which doesn't exist yet) without
@@ -31,7 +29,10 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.core.config import get_settings
 from backend.core.message_bus import MessageBus, MessageType, get_message_bus
+from backend.memory.db import init_db, make_engine, make_session_factory
+from backend.workflows import run_store
 from backend.workflows.schema import WorkflowDefinition, WorkflowEdge, WorkflowNode
 
 
@@ -64,6 +65,14 @@ class SimulationResult:
     human_validation_nodes: list[str]
 
 
+@dataclass
+class _PersistedRun:
+    """Internal: a previous run() call's state, loaded back for resume."""
+
+    node_results: dict[str, NodeResult]
+    approved_nodes: set[str]
+
+
 class WorkflowEngine:
     def __init__(self) -> None:
         # Imported lazily, not at module level: mcp_server/server.py (for
@@ -75,6 +84,11 @@ class WorkflowEngine:
 
         self._tools = get_tool_registry()
 
+        settings = get_settings()
+        engine = make_engine(settings.sqlite_path)
+        init_db(engine)
+        self._session_factory = make_session_factory(engine)
+
     def simulate(self, workflow: WorkflowDefinition) -> SimulationResult:
         return SimulationResult(
             workflow_id=workflow.id,
@@ -83,16 +97,44 @@ class WorkflowEngine:
         )
 
     async def run(
-        self, workflow: WorkflowDefinition, *, approved_nodes: set[str] | None = None
+        self,
+        workflow: WorkflowDefinition,
+        *,
+        run_id: str | None = None,
+        approved_nodes: set[str] | None = None,
     ) -> WorkflowRun:
-        approved_nodes = approved_nodes or set()
-        execution_id = str(uuid.uuid4())
+        newly_approved = approved_nodes or set()
         bus = get_message_bus()
 
-        results: dict[str, NodeResult] = {}
-        done: set[str] = set()
+        if run_id is not None:
+            persisted = self._load_run(run_id)
+            if persisted is None:
+                raise WorkflowExecutionError(
+                    f"No persisted run {run_id!r} to resume — check the id, or omit "
+                    "run_id to start a fresh run."
+                )
+            execution_id = run_id
+            results = persisted.node_results
+            approved_nodes_total = persisted.approved_nodes | newly_approved
+        else:
+            execution_id = str(uuid.uuid4())
+            results = {}
+            approved_nodes_total = newly_approved
+
+        # Only success/failed nodes are truly terminal and excluded from
+        # re-evaluation on resume. "skipped" is deliberately NOT treated
+        # as done here even though it's a terminal NodeResult status:
+        # last time around it could mean either "a dead branch" (an
+        # on_success/on_failure edge that didn't fire) or merely
+        # "unreachable because an upstream gate was still pending" —
+        # those are indistinguishable from the stored status alone. Both
+        # "skipped" and "awaiting_validation" nodes go back through
+        # _ready_nodes() below on every call; recomputing is cheap and
+        # side-effect-free (no tool calls), and a genuinely dead branch
+        # re-derives the exact same "skipped" outcome, so this is safe.
+        done = {nid for nid, r in results.items() if r.status in {"success", "failed"}}
         pending_nodes: list[str] = []
-        remaining = {n.id for n in workflow.nodes}
+        remaining = {n.id for n in workflow.nodes} - done
 
         while remaining:
             ready = self._ready_nodes(workflow, done, results, remaining)
@@ -103,7 +145,7 @@ class WorkflowEngine:
                 remaining.discard(node_id)
                 node = workflow.node(node_id)
 
-                if node.human_validation and node_id not in approved_nodes:
+                if node.human_validation and node_id not in approved_nodes_total:
                     results[node_id] = NodeResult(node_id=node_id, status="awaiting_validation")
                     pending_nodes.append(node_id)
                     continue  # NOT added to `done` -> blocks everything downstream
@@ -116,7 +158,7 @@ class WorkflowEngine:
         for node_id in remaining:
             results[node_id] = NodeResult(node_id=node_id, status="skipped")
 
-        return WorkflowRun(
+        run = WorkflowRun(
             id=execution_id,
             workflow_id=workflow.id,
             status=self._overall_status(results, pending_nodes),
@@ -124,6 +166,63 @@ class WorkflowEngine:
             pending_nodes=pending_nodes,
             project_id=workflow.project_id,
         )
+        self._save_run(run, approved_nodes_total)
+        return run
+
+    def get_run(self, run_id: str) -> WorkflowRun | None:
+        """Fetch a persisted run's current state without executing
+        anything — for checking status between resume calls."""
+        record = self._load_run_record(run_id)
+        if record is None:
+            return None
+        return WorkflowRun(
+            id=record.id,
+            workflow_id=record.workflow_id,
+            status=record.status,
+            node_results=self._deserialize_results(record.node_results_dict),
+            pending_nodes=record.pending_nodes_list,
+            project_id=record.project_id,
+        )
+
+    # ── persistence ───────────────────────────────────────────────────
+
+    def _load_run_record(self, run_id: str) -> run_store.WorkflowRunRecord | None:
+        with self._session_factory() as session:
+            return run_store.get_run(session, run_id)
+
+    def _load_run(self, run_id: str) -> _PersistedRun | None:
+        record = self._load_run_record(run_id)
+        if record is None:
+            return None
+        return _PersistedRun(
+            node_results=self._deserialize_results(record.node_results_dict),
+            approved_nodes=record.approved_nodes_set,
+        )
+
+    @staticmethod
+    def _deserialize_results(raw: dict) -> dict[str, NodeResult]:
+        return {
+            node_id: NodeResult(
+                node_id=node_id, status=r["status"], result=r.get("result"), error=r.get("error")
+            )
+            for node_id, r in raw.items()
+        }
+
+    def _save_run(self, run: WorkflowRun, approved_nodes: set[str]) -> None:
+        with self._session_factory() as session:
+            run_store.save_run(
+                session,
+                run_id=run.id,
+                workflow_id=run.workflow_id,
+                project_id=run.project_id,
+                status=run.status,
+                node_results={
+                    node_id: {"status": nr.status, "result": nr.result, "error": nr.error}
+                    for node_id, nr in run.node_results.items()
+                },
+                pending_nodes=run.pending_nodes,
+                approved_nodes=approved_nodes,
+            )
 
     # ── execution ─────────────────────────────────────────────────────
 

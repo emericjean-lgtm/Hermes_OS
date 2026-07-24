@@ -15,12 +15,20 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.workflows import loader
-from backend.workflows.engine import NodeResult, WorkflowEngine, WorkflowRun
+from backend.workflows.engine import NodeResult, WorkflowEngine, WorkflowExecutionError, WorkflowRun
 from backend.workflows.schema import InvalidWorkflowError, WorkflowDefinition
 
 router = APIRouter()
 
-_engine = WorkflowEngine()
+
+def _engine() -> WorkflowEngine:
+    # Constructed fresh per call, not a module-level singleton: it opens
+    # a SQLite connection (for run persistence, see engine.py) resolved
+    # from get_settings() at construction time — a singleton built once
+    # at import time would freeze that path before tests ever get a
+    # chance to override SQLITE_PATH. Cheap enough to build per call
+    # (same pattern mcp_server/server.py's workflows_* tools already use).
+    return WorkflowEngine()
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -34,6 +42,10 @@ class WorkflowCreateRequest(BaseModel):
 
 class RunRequest(BaseModel):
     approved_nodes: list[str] = []
+    # Pass back a previous run's "id" to resume it past a
+    # human_validation gate instead of re-executing the whole graph —
+    # see engine.py's run() docstring. Omit to start a fresh run.
+    run_id: str | None = None
 
 
 def _node_result_to_dict(node_result: NodeResult) -> dict:
@@ -94,7 +106,7 @@ async def simulate_workflow(workflow_id: str) -> dict:
         workflow = loader.load_workflow(workflow_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    result = _engine.simulate(workflow)
+    result = _engine().simulate(workflow)
     return {
         "workflow_id": result.workflow_id,
         "execution_order": result.execution_order,
@@ -108,5 +120,18 @@ async def run_workflow(workflow_id: str, request: RunRequest) -> dict:
         workflow = loader.load_workflow(workflow_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    run = await _engine.run(workflow, approved_nodes=set(request.approved_nodes))
+    try:
+        run = await _engine().run(
+            workflow, run_id=request.run_id, approved_nodes=set(request.approved_nodes)
+        )
+    except WorkflowExecutionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _run_to_dict(run)
+
+
+@router.get("/workflows/runs/{run_id}")
+async def get_workflow_run(run_id: str) -> dict:
+    run = _engine().get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"No workflow run {run_id!r}")
     return _run_to_dict(run)

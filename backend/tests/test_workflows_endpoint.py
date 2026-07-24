@@ -146,3 +146,67 @@ def test_run_missing_workflow_returns_404(client):
     response = client.post("/workflows/does-not-exist/run", json={})
 
     assert response.status_code == 404
+
+
+def test_run_workflow_resumes_via_run_id_without_re_executing(client):
+    # "create" runs on the first call (not itself gated); "gate" blocks
+    # "list" until approved — this way "create" has already produced a
+    # real result by the time we resume, so we can prove it wasn't
+    # re-executed rather than just not-yet-executed.
+    gated = dict(
+        _WORKFLOW,
+        id="wf-gated-resume",
+        nodes=[
+            _WORKFLOW["nodes"][0],
+            {"id": "gate", "action": "tasks_list", "params": {}, "human_validation": True},
+            _WORKFLOW["nodes"][1],
+        ],
+        edges=[{"from": "create", "to": "gate"}, {"from": "gate", "to": "list"}],
+    )
+    client.post("/workflows", json=gated)
+
+    first = client.post("/workflows/wf-gated-resume/run", json={}).json()
+    assert first["status"] == "awaiting_validation"
+    assert first["pending_nodes"] == ["gate"]
+    created_id = first["node_results"]["create"]["result"]["id"]
+
+    resumed = client.post(
+        "/workflows/wf-gated-resume/run",
+        json={"run_id": first["id"], "approved_nodes": ["gate"]},
+    ).json()
+
+    assert resumed["id"] == first["id"]
+    assert resumed["status"] == "completed"
+    assert resumed["node_results"]["create"]["result"]["id"] == created_id
+    assert resumed["node_results"]["list"]["status"] == "success"
+
+    # tasks_create isn't idempotent — a second task existing would mean
+    # "create" got re-executed on resume instead of reused.
+    tasks = client.get("/tasks").json()
+    assert len(tasks) == 1
+
+
+def test_run_workflow_with_unknown_run_id_returns_404(client):
+    client.post("/workflows", json=_WORKFLOW)
+
+    response = client.post(
+        "/workflows/wf-1/run", json={"run_id": "does-not-exist"}
+    )
+
+    assert response.status_code == 404
+
+
+def test_get_workflow_run(client):
+    client.post("/workflows", json=_WORKFLOW)
+    run = client.post("/workflows/wf-1/run", json={}).json()
+
+    response = client.get(f"/workflows/runs/{run['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == run["id"]
+    assert response.json()["status"] == "completed"
+
+
+def test_get_workflow_run_404_for_unknown_id(client):
+    response = client.get("/workflows/runs/does-not-exist")
+    assert response.status_code == 404

@@ -65,6 +65,7 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "workflows_delete",
         "workflows_simulate",
         "workflows_run",
+        "workflows_get_run",
         "projects_create",
         "projects_get",
         "projects_list",
@@ -387,6 +388,68 @@ async def test_workflows_create_simulate_and_run_roundtrip(monkeypatch, tmp_path
 
         missing = _result(await session.call_tool("workflows_get", {"workflow_id": "wf-1"}))
         assert missing is None
+
+
+async def test_workflows_run_resumes_via_run_id(monkeypatch, tmp_path):
+    # "create" runs on the first call (not itself gated); "gate" blocks
+    # "list" until approved — so "create" already has a real result by
+    # the time we resume, proving it wasn't re-executed rather than just
+    # not-yet-executed.
+    workflow = {
+        "id": "wf-gated",
+        "name": "Test",
+        "nodes": [
+            {"id": "create", "action": "tasks_create", "params": {"title": "hi"}},
+            {"id": "gate", "action": "tasks_list", "params": {}, "human_validation": True},
+            {"id": "list", "action": "tasks_list", "params": {}},
+        ],
+        "edges": [{"from": "create", "to": "gate"}, {"from": "gate", "to": "list"}],
+    }
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        await session.call_tool("workflows_create", workflow)
+
+        first = _result(await session.call_tool("workflows_run", {"workflow_id": "wf-gated"}))
+        assert first["status"] == "awaiting_validation"
+        assert first["pending_nodes"] == ["gate"]
+        created_id = first["node_results"]["create"]["result"]["id"]
+
+        resumed = _result(
+            await session.call_tool(
+                "workflows_run",
+                {"workflow_id": "wf-gated", "run_id": first["id"], "approved_nodes": ["gate"]},
+            )
+        )
+        assert resumed["id"] == first["id"]
+        assert resumed["status"] == "completed"
+        assert resumed["node_results"]["create"]["result"]["id"] == created_id
+
+        fetched = _result(await session.call_tool("workflows_get_run", {"run_id": first["id"]}))
+        assert fetched["status"] == "completed"
+
+        tasks = _result(await session.call_tool("tasks_list", {}))
+        assert len(tasks) == 1  # "create" wasn't re-executed on resume
+
+
+async def test_workflows_get_run_returns_none_for_unknown_id(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = await session.call_tool("workflows_get_run", {"run_id": "does-not-exist"})
+    assert _result(result) is None
+
+
+async def test_workflows_run_with_unknown_run_id_errors(monkeypatch, tmp_path):
+    workflow = {
+        "id": "wf-1",
+        "name": "Test",
+        "nodes": [{"id": "create", "action": "tasks_create", "params": {"title": "hi"}}],
+        "edges": [],
+    }
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        await session.call_tool("workflows_create", workflow)
+        result = await session.call_tool(
+            "workflows_run", {"workflow_id": "wf-1", "run_id": "does-not-exist"}
+        )
+    assert result.isError is True
 
 
 async def test_projects_create_list_update_delete_roundtrip(monkeypatch, tmp_path):
