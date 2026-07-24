@@ -105,12 +105,33 @@ for the `conversation` task type.
 
 ## Hermes Agent integration
 
-[Hermes Agent](https://hermes-agent.nousresearch.com/) (NousResearch's
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) (NousResearch's
 open-source agent runtime — unrelated to this project's own name, which is
-thematic) is meant to replace `core/router.py` + `agents/hermes_prime.py` as
-the primary orchestrator: it decides which model to use and drives the
-conversation, while this backend's Aegis/Atlas/Echo/Kronos stay exactly as
-built and get called as **MCP tools** instead of via `/chat`.
+thematic) replaces `core/router.py` + `agents/hermes_prime.py` as the primary
+orchestrator. Based on reviewing its actual feature set (its docs site is
+unreachable from this sandbox, but the GitHub repo/docs aren't):
+
+- **Hermes Agent runs on one model per session** — it has no per-task-type
+  routing of its own. That's fine: Hermes becomes the planning/conversation
+  brain on this project's `orchestrator` model (`hermes3:8b`), while every
+  specialized per-task model choice (`qwen3:8b` for Minerva, `deepseek-r1:14b`
+  for Veritas, `gemma3:12b` for Eyes...) still happens *inside* the MCP tools
+  below — Hermes never needs to know about it, this project's "one model per
+  role" principle (cahier des charges §7) is unaffected.
+- Hermes ships 40+ **native tools of its own** (terminal, file patch/read,
+  memory, todo, kanban, cronjob). `terminal`/`patch`/`read_file` are disabled
+  in the example config below — they'd bypass Aegis entirely — with a
+  `pre_tool_call` hook (`config/hermes_agent_hooks/aegis_gate.py`) as a
+  second layer of defense in case they're re-enabled later. Kanban is
+  disabled too: Kronos stays the single source of truth for this project's
+  tasks (Kanban is built for coordinating Hermes's *own* internal subagents,
+  a different concern with a different status vocabulary). Hermes's native
+  `memory`/session recall stay enabled — that's Hermes's own conversational
+  memory of you across sessions, not a duplicate of Echo's project RAG/
+  decision store. `cronjob` also stays enabled and replaces the cahier des
+  charges' `triggers.yaml` scheduler outright — no need to build one.
+- Full reasoning for all of the above is in
+  `config/hermes_agent_mcp.example.yaml`'s comments.
 
 **On your machine** (this integration can't be installed or live-tested from
 a sandboxed session — `hermes-agent.nousresearch.com` is blocked by this
@@ -121,13 +142,11 @@ built and tested here):
 # 1. Install Hermes Agent
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 
-# 2. Point its model provider at your local Ollama
-hermes model
-# -> choose "Custom endpoint" -> http://127.0.0.1:11434/v1
-
-# 3. Connect it to this backend's MCP server (Aegis/Atlas/Echo/Kronos as tools)
+# 2. Copy config/hermes_agent_mcp.example.yaml's blocks into
+# ~/.hermes/config.yaml: model provider (custom endpoint -> Ollama),
+# this backend's MCP server, disabled native toolsets, and the
+# pre_tool_call -> Aegis hook. Edit the hook's absolute path first.
 # Backend must be running: uvicorn backend.main:app --host 0.0.0.0 --port 8000
-# Copy config/hermes_agent_mcp.example.yaml into Hermes Agent's mcp_servers config.
 ```
 
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
@@ -135,7 +154,10 @@ tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
 (27 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
 `verify_output`, `write_document`, `analyze_image`, `classify_request`,
-`tasks_*`, `messages_list`, `workflows_*`).
+`tasks_*`, `messages_list`, `workflows_*`). The `pre_tool_call` hook script
+(`config/hermes_agent_hooks/aegis_gate.py`) is built strictly from Hermes
+Agent's published hook contract — not exercised end-to-end from this
+sandbox, so verify it against your real installation before relying on it.
 
 ## Adding a real agent
 

@@ -1,11 +1,60 @@
-# Hermes Agent MCP server config — copy the relevant block into your
-# Hermes Agent config (see `hermes config` / its docs for the exact file
-# location) once Hermes Agent is installed on your machine.
+# Hermes Agent integration config — copy the relevant blocks into
+# ~/.hermes/config.yaml once Hermes Agent is installed on your machine
+# (this can't be installed or tested from the dev sandbox this backend
+# was built in — hermes-agent.nousresearch.com is unreachable from
+# there; see README.md's "Hermes Agent integration" section).
 #
-# This points Hermes Agent at Hermes Ollama's backend so it can call
-# Aegis (security), Atlas (files), Echo (memory), and Kronos (tasks) as
-# tools. Requires the backend to be running (uvicorn backend.main:app).
+# This config reflects decisions made after reviewing Hermes Agent's own
+# feature set (github.com/NousResearch/hermes-agent docs):
+#
+# 1. Hermes Agent runs on ONE model per session — it does not do
+#    per-task-type model routing the way this backend does. That's fine:
+#    Hermes becomes the orchestration/planning brain on the `orchestrator`
+#    role model (hermes3:8b, config/models.yaml), and every specialized,
+#    per-task model choice (qwen3:8b for Minerva, deepseek-r1:14b for
+#    Veritas, gemma3:12b for Eyes...) still happens *inside* the MCP
+#    tools below, exactly as built — Hermes never needs to know about it.
+#
+# 2. Hermes ships 40+ native tools of its own (terminal, patch/read_file,
+#    memory, todo, delegate_task, kanban, cronjob). Several of these
+#    would bypass Aegis entirely (terminal/patch don't go through
+#    /security/evaluate) or duplicate a store this backend already owns.
+#    Decisions, per tool:
+#      - terminal / process / patch / read_file: DISABLE. All file/shell
+#        mutation should go through this backend's Aegis-gated tools
+#        (files_apply etc.) instead. The pre_tool_call hook below is a
+#        second layer of defense in case these ever get re-enabled.
+#      - kanban: DISABLE. Kronos (this backend's tasks_* tools) is the
+#        single source of truth for project tasks — it tracks this
+#        project's own status vocabulary (config/agents.yaml's Kronos
+#        entry, backend/tasks/task_manager.py's TaskStatus), which
+#        Hermes's kanban (built for coordinating Hermes's own internal
+#        subagent workers) isn't designed around. Don't try to sync them.
+#      - memory / session_search / Honcho: KEEP ENABLED. This is Hermes's
+#        own conversational memory of *you* across sessions — a different
+#        concern from Echo (this backend's project RAG/decision store,
+#        exposed as memory_* tools), not a duplicate of it. No conflict.
+#      - todo: KEEP ENABLED. Ephemeral per-session planning scratchpad,
+#        not a persistent store — doesn't compete with Kronos.
+#      - cronjob: KEEP ENABLED, and use it instead of building this
+#        project's own workflow scheduler (the cahier des charges'
+#        triggers.yaml was never built) — e.g. schedule a prompt that
+#        calls the workflows_run MCP tool on a cron schedule.
+#
+# 3. MCP Tool Search (Hermes's own feature) auto-activates once deferred
+#    tool schemas would eat >10% of context — with 27 tools on this
+#    server that will likely engage automatically; no config needed here.
 
+# ── 1. Model: Hermes Agent's own orchestration model ─────────────────
+model:
+  default: "hermes3:8b"
+  provider: custom
+  base_url: "http://127.0.0.1:11434/v1"
+  api_key: "ollama"          # Ollama's OpenAI-compatible endpoint ignores the value, but Hermes requires the field non-empty
+
+# ── 2. This backend's MCP server (Aegis/Atlas/Echo/Kronos/Minerva/ ───
+#       Veritas/Hermes Scribe/Hermes Eyes/Hermes Swift/message bus/
+#       workflows) ─────────────────────────────────────────────────────
 mcp_servers:
   hermes-ollama:
     url: "http://127.0.0.1:8000/mcp"
@@ -13,7 +62,21 @@ mcp_servers:
     timeout: 120
     connect_timeout: 60
 
-# Separately, point Hermes Agent's model provider at your local Ollama:
-#   hermes model
-#   -> choose "Custom endpoint"
-#   -> http://127.0.0.1:11434/v1
+# ── 3. Disable native toolsets that would bypass Aegis or duplicate ──
+#       Kronos (see decisions above) ─────────────────────────────────
+platform_toolsets:
+  cli: [hermes-cli]   # do NOT add "terminal", "file", or "kanban" here
+
+# The exact key for disabling built-in toolsets depends on your Hermes
+# Agent version — check `hermes tools` for the current list and either
+# omit terminal/file/kanban from platform_toolsets above, or use
+# `hermes tools` interactively to turn them off. memory/todo/cronjob are
+# intentionally left enabled (see decisions above).
+
+# ── 4. Defense-in-depth: gate terminal/patch/read_file through Aegis ─
+#       even if they're accidentally re-enabled later ────────────────
+hooks:
+  pre_tool_call:
+    - matcher: "terminal|process|patch|read_file"
+      command: "python3 /absolute/path/to/hermes-ollama/config/hermes_agent_hooks/aegis_gate.py"
+      timeout: 15
