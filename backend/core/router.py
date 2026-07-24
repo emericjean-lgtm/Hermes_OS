@@ -106,3 +106,11 @@ class ModelRouter:
     def running_model_tags(self, running_models: list[dict]) -> list[str]:
         """Extract model tags from an /api/ps response for use as `loaded_models`."""
         return [m["name"] for m in running_models if "name" in m]
+
+    def model_for_role(self, role_name: str) -> str:
+        """Resolve a role's configured model directly, bypassing the
+        task_type/candidate-list routing above — for callers that are
+        deterministically bound to one specific role rather than picking
+        among ranked candidates (e.g. Aegis's own advisory pass, always
+        the `security` role, never competing against `reasoning`)."""
+        return self._roles[role_name]["model"]

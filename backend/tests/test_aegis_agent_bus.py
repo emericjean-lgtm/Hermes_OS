@@ -190,3 +190,47 @@ def test_evaluate_requires_human_validation_for_unknown_project_id(aegis_agent, 
     )
 
     assert decision.verdict is Verdict.REQUIRE_HUMAN_VALIDATION
+
+
+@pytest.mark.asyncio
+async def test_advise_is_noop_on_allow(aegis_agent, tmp_path):
+    decision = aegis_agent.evaluate(
+        ActionRequest(action_type="file_read", description="?", target_path=str(tmp_path / "f.txt"))
+    )
+    assert decision.verdict is Verdict.ALLOW
+
+    advised = await aegis_agent.advise(
+        ActionRequest(action_type="file_read", description="?", target_path=str(tmp_path / "f.txt")),
+        decision,
+    )
+    assert advised is decision
+    assert advised.advisory is None
+
+
+@pytest.mark.asyncio
+async def test_advise_is_noop_on_deny(aegis_agent, tmp_path):
+    outside = str(tmp_path.parent / "elsewhere" / "f.txt")
+    action = ActionRequest(action_type="file_read", description="?", target_path=outside)
+    decision = aegis_agent.evaluate(action)
+    assert decision.verdict is Verdict.DENY
+
+    advised = await aegis_agent.advise(action, decision)
+    assert advised is decision
+    assert advised.advisory is None
+
+
+@pytest.mark.asyncio
+async def test_advise_calls_llm_on_require_human_validation(aegis_agent, fake_ollama_client, models_config):
+    action = ActionRequest(action_type="git_critical", description="force push to main")
+    decision = aegis_agent.evaluate(action)
+    assert decision.verdict is Verdict.REQUIRE_HUMAN_VALIDATION
+
+    advised = await aegis_agent.advise(action, decision)
+
+    assert advised.advisory is not None
+    assert advised.verdict is Verdict.REQUIRE_HUMAN_VALIDATION  # unchanged
+    assert advised.reason == decision.reason  # unchanged
+
+    security_model = models_config["roles"]["security"]["model"]
+    assert fake_ollama_client.last_chat_call["model"] == security_model
+    assert "force push to main" in fake_ollama_client.last_chat_call["messages"][1]["content"]

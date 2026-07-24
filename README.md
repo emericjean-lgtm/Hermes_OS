@@ -9,7 +9,11 @@ target hardware (AMD RX 6800 16 GB / i5-13500 / 32 GB DDR5).
 
 Built and tested so far: a config-driven model router, a mockable Ollama
 client, the Hermes Prime orchestrator agent, a streaming `/chat` API, a
-minimal Chat page, **Aegis** (deterministic security gate, `/security/evaluate`),
+minimal Chat page, **Aegis** (deterministic security gate, `/security/evaluate`,
+plus an opt-in LLM advisory pass — `include_advisory: true` — that
+annotates a `require_human_validation` verdict with the security-role
+model's read on what's worth double-checking, never a second vote on
+the verdict itself),
 **Atlas** (Aegis-gated file tools with diff + backup, `/files*`), **Echo**
 (SQLite long-term memory + ChromaDB documentary/RAG memory, `/memory*`),
 **Kronos** (task tracking with status/history, `/tasks*`), **Minerva**
@@ -76,7 +80,7 @@ Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
 Swift as tools plus the bus's `messages_list`, hardware telemetry's
 `system_status`, the workflow engine's `workflows_*`, `projects_*`, and
 HSE's `skills_*`/`hse_process_task`/`hse_progression` (see "Hermes Agent
-integration" below). 325 tests passing — every module in the original
+integration" below). 333 tests passing — every module in the original
 cahier des charges roadmap is now built; see `config/agents.yaml` for
 the full agent registry. Telegram and workflow scheduling
 (`triggers.yaml`) are no longer planned as our own builds — Hermes

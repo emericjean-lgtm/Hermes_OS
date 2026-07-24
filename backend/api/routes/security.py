@@ -24,12 +24,18 @@ class EvaluateRequest(BaseModel):
     requesting_agent: str = "user"
     task_id: str | None = None
     project_id: str | None = None
+    # When true and the verdict is require_human_validation, also runs
+    # the LLM advisory pass (AegisAgent.advise()) and includes its text
+    # in the response. No-op (and no extra LLM call) for allow/deny —
+    # opt-in since it's an extra model call, not a default cost.
+    include_advisory: bool = False
 
 
 class EvaluateResponse(BaseModel):
     verdict: str
     reason: str
     action_type: str
+    advisory: str | None = None
 
 
 @router.post("/security/evaluate")
@@ -41,18 +47,21 @@ async def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     except AgentNotFoundError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    decision = aegis.evaluate(
-        ActionRequest(
-            action_type=request.action_type,
-            description=request.description,
-            target_path=request.target_path,
-            requesting_agent=request.requesting_agent,
-            task_id=request.task_id,
-            project_id=request.project_id,
-        )
+    action = ActionRequest(
+        action_type=request.action_type,
+        description=request.description,
+        target_path=request.target_path,
+        requesting_agent=request.requesting_agent,
+        task_id=request.task_id,
+        project_id=request.project_id,
     )
+    decision = aegis.evaluate(action)
+    if request.include_advisory:
+        decision = await aegis.advise(action, decision)
+
     return EvaluateResponse(
         verdict=decision.verdict.value,
         reason=decision.reason,
         action_type=decision.action_type,
+        advisory=decision.advisory,
     )

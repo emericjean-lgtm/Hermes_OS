@@ -30,3 +30,43 @@ def test_evaluate_endpoint_handles_unknown_action_type(client):
     )
     assert response.status_code == 200
     assert response.json()["verdict"] == "require_human_validation"
+
+
+def test_evaluate_endpoint_advisory_defaults_to_none(client):
+    response = client.post(
+        "/security/evaluate",
+        json={"action_type": "git_critical", "description": "force push to main"},
+    )
+    assert response.json()["advisory"] is None
+
+
+def test_evaluate_endpoint_include_advisory_populates_it_on_require_human_validation(client):
+    response = client.post(
+        "/security/evaluate",
+        json={
+            "action_type": "git_critical",
+            "description": "force push to main",
+            "include_advisory": True,
+        },
+    )
+    body = response.json()
+    assert body["verdict"] == "require_human_validation"
+    assert body["advisory"] is not None
+
+
+def test_evaluate_endpoint_include_advisory_is_noop_on_allow(client, tmp_path):
+    response = client.post(
+        "/security/evaluate",
+        json={
+            "action_type": "file_read",
+            "description": "?",
+            "target_path": str(tmp_path / "f.txt"),
+            "include_advisory": True,
+        },
+    )
+    body = response.json()
+    # ALLOWED_PATHS in the test app's .env won't cover tmp_path, so this
+    # is actually a deny — either way (allow or deny), advisory stays
+    # unset since it's only populated for require_human_validation.
+    assert body["verdict"] in {"allow", "deny"}
+    assert body["advisory"] is None

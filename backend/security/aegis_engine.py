@@ -2,11 +2,12 @@
 
 This is a rules engine on purpose, not an LLM call: security gates need
 to be predictable and auditable. phi4-reasoning:14b-q4_K_M (Aegis's
-configured model, see config/models.yaml) is reserved for a later
-advisory pass on ambiguous
-cases ("doute élevé sur l'intention", §17.3) — the deterministic engine
-below is the non-negotiable first line of defense and never depends on
-model output.
+configured model, see config/models.yaml) is used for an advisory pass
+on require_human_validation cases only ("doute élevé sur l'intention",
+§17.3) — see AegisAgent.advise() in agents/aegis.py. The deterministic
+engine below is the non-negotiable first line of defense: it never
+depends on model output, and the advisory pass can only annotate its
+verdict with context for the human reviewer, never change it.
 """
 from __future__ import annotations
 
@@ -40,6 +41,10 @@ class AegisDecision:
     verdict: Verdict
     reason: str
     action_type: str
+    # Set only by AegisAgent.advise(), never by AegisEngine itself — an
+    # LLM's context for the human reviewer on a require_human_validation
+    # verdict, not a factor in the verdict (see module docstring).
+    advisory: str | None = None
 
 
 class AegisEngine:

@@ -32,9 +32,21 @@ further, never widens it; see aegis_engine.py). A project_id that
 doesn't resolve to a real project is treated as REQUIRE_HUMAN_VALIDATION
 rather than silently skipping the extra restriction — same "don't fail
 open on the unexpected" principle as an unknown action_type.
+
+advise() is the advisory pass mentioned in aegis_engine.py's module
+docstring: an LLM opinion attached to a REQUIRE_HUMAN_VALIDATION
+decision, for a human reviewer's benefit — never a second vote on the
+verdict itself (a no-op on ALLOW/DENY, returns the decision unchanged).
+Deliberately a separate method from evaluate() rather than folded into
+it: evaluate() is synchronous and every existing caller (file_tools.py,
+/security/evaluate, security_evaluate, workflow nodes) depends on that;
+advise() needs an LLM call so it has to be async. Callers opt in
+explicitly (see /security/evaluate's include_advisory param) — same
+"explicit call, no hidden side effect" principle as HSE's pipeline.
 """
 from __future__ import annotations
 
+import dataclasses
 from typing import ClassVar
 
 from backend.connectors.ollama_client import OllamaClientProtocol
@@ -44,6 +56,14 @@ from backend.core.router import ModelRouter
 from backend.projects.store import get_project_store
 from backend.security.aegis_engine import ActionRequest, AegisDecision, AegisEngine, Verdict
 from backend.security.permission_matrix import PermissionMatrix
+
+_ADVISORY_SYSTEM_PROMPT = (
+    "You are Aegis's advisory reviewer. A deterministic rules engine has "
+    "already decided this action requires human validation. In 2-3 "
+    "sentences, explain what about it is worth double-checking before a "
+    "human approves it. You are not deciding whether to allow it — only "
+    "informing the human's review."
+)
 
 _VERDICT_MESSAGE_TYPE = {
     Verdict.ALLOW: MessageType.VALIDATION_GRANTED,
@@ -117,3 +137,29 @@ class AegisAgent:
                 action_type=action.action_type,
             )
         return self._engine.evaluate(action, project_root=project.root_path)
+
+    async def advise(self, action: ActionRequest, decision: AegisDecision) -> AegisDecision:
+        if decision.verdict != Verdict.REQUIRE_HUMAN_VALIDATION:
+            return decision
+
+        model = self._router.model_for_role("security")
+        messages = [
+            {"role": "system", "content": _ADVISORY_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"Action type: {action.action_type}\n"
+                    f"Description: {action.description}\n"
+                    f"Target path: {action.target_path or 'n/a'}\n"
+                    f"Engine's reason: {decision.reason}"
+                ),
+            },
+        ]
+        params = self._models_config["generation_defaults"]["critical"]
+        chunks = [
+            chunk
+            async for chunk in self._ollama.chat_stream(
+                model, messages, temperature=params["temperature"], top_p=params["top_p"]
+            )
+        ]
+        return dataclasses.replace(decision, advisory="".join(chunks))

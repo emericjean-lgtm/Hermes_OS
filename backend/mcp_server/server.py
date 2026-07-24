@@ -164,34 +164,42 @@ def _skill_to_dict(skill: Skill) -> dict:
 # ── Aegis: security ──────────────────────────────────────────────────
 
 
-def security_evaluate(
+async def security_evaluate(
     action_type: str,
     description: str,
     target_path: str | None = None,
     requesting_agent: str = "unknown",
     task_id: str | None = None,
     project_id: str | None = None,
+    include_advisory: bool = False,
 ) -> dict:
     """Ask Aegis whether an action is allowed. Returns a verdict
     (allow/deny/require_human_validation) and the reason. Always call
     this before any file write, git operation, system command, or other
     potentially risky action — never assume something is safe.
     requesting_agent identifies the caller for the message bus trace
-    (core/message_bus.py) — pass your own agent name if you have one."""
-    decision = _aegis().evaluate(
-        ActionRequest(
-            action_type=action_type,
-            description=description,
-            target_path=target_path,
-            requesting_agent=requesting_agent,
-            task_id=task_id,
-            project_id=project_id,
-        )
+    (core/message_bus.py) — pass your own agent name if you have one.
+    include_advisory=True additionally runs an LLM advisory pass when
+    the verdict is require_human_validation (no-op, no extra model call,
+    on allow/deny) — context for a human reviewer, never a second vote
+    on the verdict itself."""
+    aegis = _aegis()
+    action = ActionRequest(
+        action_type=action_type,
+        description=description,
+        target_path=target_path,
+        requesting_agent=requesting_agent,
+        task_id=task_id,
+        project_id=project_id,
     )
+    decision = aegis.evaluate(action)
+    if include_advisory:
+        decision = await aegis.advise(action, decision)
     return {
         "verdict": decision.verdict.value,
         "reason": decision.reason,
         "action_type": decision.action_type,
+        "advisory": decision.advisory,
     }
 
 

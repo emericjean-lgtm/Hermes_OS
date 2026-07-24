@@ -43,3 +43,8 @@ def test_unknown_task_type_raises(models_config):
     router = ModelRouter(models_config)
     with pytest.raises(UnknownTaskTypeError):
         router.select_model("not_a_real_task_type")
+
+
+def test_model_for_role_resolves_directly(models_config):
+    router = ModelRouter(models_config)
+    assert router.model_for_role("security") == models_config["roles"]["security"]["model"]

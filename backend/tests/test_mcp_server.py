@@ -87,6 +87,29 @@ async def test_security_evaluate_mandatory_category(monkeypatch, tmp_path):
         )
     body = _result(result)
     assert body["verdict"] == "require_human_validation"
+    assert body["advisory"] is None
+
+
+async def test_security_evaluate_include_advisory(monkeypatch, tmp_path):
+    from backend.connectors.ollama_client import OllamaClient
+
+    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+        yield "This force-pushes to main, which rewrites shared history."
+
+    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        result = await session.call_tool(
+            "security_evaluate",
+            {
+                "action_type": "git_critical",
+                "description": "force push to main",
+                "include_advisory": True,
+            },
+        )
+    body = _result(result)
+    assert body["verdict"] == "require_human_validation"
+    assert "force-pushes" in body["advisory"]
 
 
 async def test_files_apply_denied_outside_whitelist(monkeypatch, tmp_path):
