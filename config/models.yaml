@@ -32,6 +32,19 @@ roles:
       actually needs. Lighter than qwen3:14b (~4.7GB disk / ~6GB VRAM vs
       ~9GB) with a 128K context window.
 
+  # Optional alternative for `code`, not applied as default (2026-07 check):
+  # Qwen3.6-35B-A3B beats qwen3-coder:30b on coding benchmarks (SWE-bench
+  # Verified 73.4, Terminal-Bench 2.0 51.5) — but only at full precision.
+  # The user's proposed Q2_K quant was rejected: 2-bit quantization hits
+  # code generation disproportionately hard (MoE expert-routing distortion,
+  # keyword/special-token imbalance), independently confirmed to erase or
+  # reverse a full-precision advantage. If testing this model, use a
+  # higher, quality-preserving quant instead (e.g. Unsloth's dynamic
+  # UD-Q3_K_XL, ~16GB) — but note that alone already consumes this
+  # hardware's entire 16GB VRAM budget, leaving no room for the
+  # always-loaded swift (1.5GB) + embedding (0.3GB) models. qwen3-coder:30b
+  # at 13GB leaves ~1.2GB of headroom for both, which is why it stays the
+  # default here.
   code:
     model: qwen3-coder:30b
     tier: quality
