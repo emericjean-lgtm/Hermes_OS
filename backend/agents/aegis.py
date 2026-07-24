@@ -159,7 +159,20 @@ class AegisAgent:
         chunks = [
             chunk
             async for chunk in self._ollama.chat_stream(
-                model, messages, temperature=params["temperature"], top_p=params["top_p"]
+                model,
+                messages,
+                temperature=params["temperature"],
+                top_p=params["top_p"],
+                # Confirmed on real hardware: without this, reasoning
+                # models (e.g. phi4-reasoning, Aegis's own security-role
+                # model) can inline their whole chain-of-thought into
+                # the visible response instead of just the answer — the
+                # advisory is meant to be a short note for a human, not
+                # a reasoning trace. think=True asks Ollama to keep any
+                # chain-of-thought in message.thinking instead, which
+                # chat_stream() already never yields (see
+                # ollama_client.py) — only message.content reaches here.
+                think=True,
             )
         ]
         return dataclasses.replace(decision, advisory="".join(chunks))

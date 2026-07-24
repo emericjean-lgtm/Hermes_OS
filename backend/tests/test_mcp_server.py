@@ -96,7 +96,7 @@ async def test_security_evaluate_mandatory_category(monkeypatch, tmp_path):
 async def test_security_evaluate_include_advisory(monkeypatch, tmp_path):
     from backend.connectors.ollama_client import OllamaClient
 
-    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None, think=None):
         yield "This force-pushes to main, which rewrites shared history."
 
     monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)

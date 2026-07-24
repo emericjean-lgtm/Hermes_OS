@@ -13,7 +13,10 @@ minimal Chat page, **Aegis** (deterministic security gate, `/security/evaluate`,
 plus an opt-in LLM advisory pass — `include_advisory: true` — that
 annotates a `require_human_validation` verdict with the security-role
 model's read on what's worth double-checking, never a second vote on
-the verdict itself),
+the verdict itself; `chat_stream()` is called with `think=True` for
+this — confirmed necessary against a real reasoning model
+(`phi4-reasoning:14b-q4_K_M`), which otherwise inlines its whole
+chain-of-thought into the advisory text instead of just the answer),
 **Atlas** (Aegis-gated file tools with diff + backup, `/files*`), **Echo**
 (SQLite long-term memory + ChromaDB documentary/RAG memory, `/memory*`),
 **Kronos** (task tracking with status/history, `/tasks*`), **Minerva**
@@ -57,14 +60,28 @@ resolved by `AegisAgent` from `action.project_id` (a `project_id` that
 doesn't resolve to a real project escalates to
 `require_human_validation` rather than silently skipping the extra
 restriction); threaded through `file_tools`, `/files*`, and `files_*`),
-**hardware monitoring** (cahier des charges §21 — `GpuMonitor.snapshot()`
-reads GPU VRAM/temperature/load via `rocm-smi --json`, currently-loaded
-Ollama models via the shared `OllamaClient`'s `/api/ps`, and CPU/RAM/
-swap/disk via `/proc` and stdlib, raising alerts against `.env`'s
-`GPU_ALERT_TEMP_C`/`GPU_CRITICAL_TEMP_C`/`GPU_VRAM_WARNING_PCT`
-thresholds; degrades to `"gpu": null` when `rocm-smi` isn't available —
-including in this sandbox — and to an "Ollama unreachable" alert rather
-than failing outright if Ollama itself is down; `/system/status` REST
+**hardware monitoring** (cahier des charges §21 — `GpuMonitor.snapshot()`,
+two platform backends picked via `platform.system()`: **Linux** reads
+GPU VRAM/temperature/load via `rocm-smi --json`, CPU/RAM/swap via
+`/proc`; **Windows** — confirmed necessary against real hardware, the
+actual target machine turned out to run Ollama natively on Windows, not
+Ubuntu+ROCm — reads GPU VRAM from the registry
+(`HardwareInformation.qwMemorySize`, the max across every adapter
+subkey, since a system with both an iGPU and the discrete card needs to
+pick the right one) and GPU load/used VRAM from Windows' own
+cross-vendor `GPU Engine`/`GPU Adapter Memory` performance counters (no
+vendor tool needed), CPU via `Win32_Processor.LoadPercentage`, RAM/swap
+via `Win32_OperatingSystem`/`Win32_PageFileUsage` — all via PowerShell.
+GPU **temperature** has no equivalent on Windows without a vendor tool
+this project doesn't require, so it's `null` there rather than a
+fabricated `0.0` (never fed into the alert thresholds either). Currently-
+loaded Ollama models via the shared `OllamaClient`'s `/api/ps`; disk via
+stdlib. Alerts against `.env`'s `GPU_ALERT_TEMP_C`/`GPU_CRITICAL_TEMP_C`/
+`GPU_VRAM_WARNING_PCT` thresholds; degrades to `"gpu": null` when the
+platform's GPU command isn't available at all — including in this
+sandbox, which has neither an AMD GPU nor Windows — and to an "Ollama
+unreachable" alert rather than failing outright if Ollama itself is
+down; `/system/status` REST
 endpoint), **HSE / Hermes Self-Evolution** (cahier des charges §20 — the
 system learns from its own executions: `auto_evaluator` reads a
 completed task's status as a deterministic success/failure signal (no
@@ -100,7 +117,7 @@ Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
 Swift as tools plus the bus's `messages_list`, hardware telemetry's
 `system_status`, the workflow engine's `workflows_*`, `projects_*`, and
 HSE's `skills_*`/`hse_process_task`/`hse_progression` (see "Hermes Agent
-integration" below). 364 tests passing — every module in the original
+integration" below). 369 tests passing — every module in the original
 cahier des charges roadmap is now built; see `config/agents.yaml` for
 the full agent registry. Telegram and workflow scheduling
 (`triggers.yaml`) are no longer planned as our own builds — Hermes

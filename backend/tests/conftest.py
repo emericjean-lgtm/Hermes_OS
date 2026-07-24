@@ -30,12 +30,14 @@ class FakeOllamaClient:
         temperature: float | None = None,
         top_p: float | None = None,
         num_ctx: int | None = None,
+        think: bool | None = None,
     ) -> AsyncIterator[str]:
         self.last_chat_call = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
             "top_p": top_p,
+            "think": think,
         }
         for chunk in self._chunks:
             yield chunk

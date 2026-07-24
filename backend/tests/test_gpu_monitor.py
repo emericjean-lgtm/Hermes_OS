@@ -117,3 +117,109 @@ async def test_snapshot_reports_disk_usage_for_given_path(fake_ollama_client, tm
 
     assert snapshot.disk_total_gb > 0
     assert snapshot.disk_free_gb >= 0
+
+
+# ── Windows platform backend ─────────────────────────────────────────────
+# Same injectable-run_command approach as the Linux/rocm-smi tests above,
+# but branching by command content since Windows needs several distinct
+# PowerShell invocations (registry for total VRAM, two performance
+# counters for GPU load/used VRAM, one for CPU, two for RAM/pagefile)
+# rather than rocm-smi's single JSON blob.
+
+_WIN_REGISTRY_VRAM = "16106127360\n536870912"  # 15 GiB (discrete) + 0.5 GiB (iGPU) — max wins
+_WIN_GPU_USED = "8589934592"  # 8 GiB, bytes
+_WIN_GPU_LOAD = "45"
+_WIN_CPU_LOAD = "37"
+_WIN_MEMINFO = json.dumps({"TotalVisibleMemorySize": 33554432, "FreePhysicalMemory": 16777216})  # KB, 32/16 GiB
+_WIN_PAGEFILE = json.dumps({"AllocatedBaseSize": 4096, "CurrentUsage": 512})  # MB
+
+
+def _windows_run_command(args: list[str]) -> str | None:
+    script = args[-1]
+    if "HardwareInformation.qwMemorySize" in script:
+        return _WIN_REGISTRY_VRAM
+    if "GPU Adapter Memory" in script:
+        return _WIN_GPU_USED
+    if "GPU Engine" in script:
+        return _WIN_GPU_LOAD
+    if "Win32_Processor" in script:
+        return _WIN_CPU_LOAD
+    if "Win32_OperatingSystem" in script:
+        return _WIN_MEMINFO
+    if "Win32_PageFileUsage" in script:
+        return _WIN_PAGEFILE
+    raise AssertionError(f"unexpected command in test: {script!r}")
+
+
+async def test_snapshot_windows_parses_gpu_stats(fake_ollama_client, tmp_path):
+    settings = Settings(gpu_alert_temp_c=85, gpu_critical_temp_c=90, gpu_vram_warning_pct=85)
+    monitor = GpuMonitor(
+        fake_ollama_client, settings, run_command=_windows_run_command,
+        disk_path=str(tmp_path), platform_name="Windows",
+    )
+
+    snapshot = await monitor.snapshot()
+
+    assert snapshot.gpu is not None
+    assert snapshot.gpu.vram_total_gb == pytest.approx(16.11, abs=0.01)  # max of the two sizes
+    assert snapshot.gpu.vram_used_gb == pytest.approx(8.59, abs=0.01)
+    assert snapshot.gpu.load_pct == 45.0
+    assert snapshot.gpu.temp_c is None  # no cross-vendor thermal reading on Windows
+    assert snapshot.alerts == []  # temp_c=None must never fabricate a threshold breach
+
+
+async def test_snapshot_windows_gpu_is_none_when_registry_lookup_fails(fake_ollama_client, tmp_path):
+    settings = Settings()
+    monitor = GpuMonitor(
+        fake_ollama_client, settings, run_command=lambda args: None,
+        disk_path=str(tmp_path), platform_name="Windows",
+    )
+
+    snapshot = await monitor.snapshot()
+
+    assert snapshot.gpu is None
+
+
+async def test_snapshot_windows_cpu_and_memory(fake_ollama_client, tmp_path):
+    settings = Settings()
+    monitor = GpuMonitor(
+        fake_ollama_client, settings, run_command=_windows_run_command,
+        disk_path=str(tmp_path), platform_name="Windows",
+    )
+
+    snapshot = await monitor.snapshot()
+
+    assert snapshot.cpu_load_pct == 37.0
+    assert snapshot.ram_total_gb == pytest.approx(33.55, abs=0.01)
+    assert snapshot.ram_used_gb == pytest.approx(16.78, abs=0.01)
+    assert snapshot.swap_total_gb == pytest.approx(4.10, abs=0.01)
+    assert snapshot.swap_used_gb == pytest.approx(0.51, abs=0.01)
+
+
+async def test_snapshot_windows_memory_degrades_gracefully_when_commands_fail(fake_ollama_client, tmp_path):
+    settings = Settings()
+    monitor = GpuMonitor(
+        fake_ollama_client, settings, run_command=lambda args: None,
+        disk_path=str(tmp_path), platform_name="Windows",
+    )
+
+    snapshot = await monitor.snapshot()
+
+    assert snapshot.cpu_load_pct == 0.0
+    assert snapshot.ram_total_gb == 0.0
+    assert snapshot.swap_total_gb == 0.0
+
+
+async def test_snapshot_windows_never_raises_temperature_alert(fake_ollama_client, tmp_path):
+    # Even with critical/alert thresholds set very low, temp_c=None must
+    # never be compared against them — a fabricated 0.0 would otherwise
+    # never breach either, masking the real "not measured" case.
+    settings = Settings(gpu_alert_temp_c=1, gpu_critical_temp_c=2, gpu_vram_warning_pct=99)
+    monitor = GpuMonitor(
+        fake_ollama_client, settings, run_command=_windows_run_command,
+        disk_path=str(tmp_path), platform_name="Windows",
+    )
+
+    snapshot = await monitor.snapshot()
+
+    assert not any("temperature" in alert.lower() for alert in snapshot.alerts)

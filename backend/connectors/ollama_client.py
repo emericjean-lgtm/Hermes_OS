@@ -24,6 +24,7 @@ class OllamaClientProtocol(Protocol):
         temperature: float | None = None,
         top_p: float | None = None,
         num_ctx: int | None = None,
+        think: bool | None = None,
     ) -> AsyncIterator[str]: ...
 
     async def list_running_models(self) -> list[dict[str, Any]]: ...
@@ -47,6 +48,7 @@ class OllamaClient:
         temperature: float | None = None,
         top_p: float | None = None,
         num_ctx: int | None = None,
+        think: bool | None = None,
     ) -> AsyncIterator[str]:
         options: dict[str, Any] = {}
         if temperature is not None:
@@ -56,13 +58,24 @@ class OllamaClient:
         if num_ctx is not None:
             options["num_ctx"] = num_ctx
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": True,
             "keep_alive": self._keep_alive,
             "options": options,
         }
+        # think=True asks Ollama to return a reasoning-capable model's
+        # chain-of-thought in message.thinking, separate from
+        # message.content — without it, some reasoning models (confirmed
+        # on real hardware with phi4-reasoning:14b-q4_K_M, Aegis's
+        # security-role model) inline the whole reasoning trace into
+        # content instead, which is what chat_stream yields below. Only
+        # sent when explicitly requested (None omits the field
+        # entirely) — not every model supports it, and callers that
+        # don't need the distinction shouldn't pay for asking.
+        if think is not None:
+            payload["think"] = think
 
         async with self._client.stream("POST", "/api/chat", json=payload) as response:
             response.raise_for_status()

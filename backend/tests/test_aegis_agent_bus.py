@@ -234,3 +234,6 @@ async def test_advise_calls_llm_on_require_human_validation(aegis_agent, fake_ol
     security_model = models_config["roles"]["security"]["model"]
     assert fake_ollama_client.last_chat_call["model"] == security_model
     assert "force push to main" in fake_ollama_client.last_chat_call["messages"][1]["content"]
+    # think=True: asks Ollama to keep a reasoning model's chain-of-thought
+    # out of the advisory text (see agents/aegis.py's advise() comment).
+    assert fake_ollama_client.last_chat_call["think"] is True

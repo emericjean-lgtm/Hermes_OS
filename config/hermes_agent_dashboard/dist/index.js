@@ -73,7 +73,7 @@
         gpu
           ? React.createElement(React.Fragment, null,
               React.createElement(StatusLine, { label: "GPU VRAM", value: gpu.vram_used_gb + " / " + gpu.vram_total_gb + " GB (" + gpu.vram_used_pct + "%)" }),
-              React.createElement(StatusLine, { label: "GPU temp", value: gpu.temp_c + "°C" }),
+              React.createElement(StatusLine, { label: "GPU temp", value: gpu.temp_c === null ? "n/a" : gpu.temp_c + "°C" }),
               React.createElement(StatusLine, { label: "GPU load", value: gpu.load_pct + "%" }),
             )
           : React.createElement(StatusLine, { label: "GPU", value: "not detected (no rocm-smi)" }),
