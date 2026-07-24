@@ -347,6 +347,39 @@ synthetic-payload harness, and a live run (Hermes Agent on `devstral`,
 native tool call, got blocked here, and surfaced the block to the user
 instead of executing anything.
 
+### Telegram gateway
+
+Hermes Agent's own messaging gateway (`hermes gateway setup`, Telegram
+platform) replaces this project's originally-planned Telegram bot outright
+— confirmed working end-to-end: real messages in and out, approval/error
+notifications native to the platform (`agent/tool_guardrails.py`'s
+approval-button flow, `_notify_fatal_error()`), no code of ours involved.
+Bot token setup is interactive (`hermes gateway setup`) and must be done by
+the machine's own operator — the token is a secret and shouldn't pass
+through anything else, including an AI assistant helping configure it.
+
+**Known real limitation, found via this exact setup:** `devstral` calls a
+tool reliably when very few (1-3, tightly relevant) are on offer, but
+silently reverts to prose — describing the action instead of taking it —
+once the full toolset is in play (46 MCP tools + ~10 native ones, the
+normal state for a general-purpose Telegram session). Confirmed with
+`tool_choice` forced to `"required"` and with Hermes Agent's own
+progressive tool-disclosure feature forced on (`tools.tool_search.enabled:
+"on"` in config.yaml, replacing on-demand tools with 3 bridge tools —
+`tool_search`/`tool_describe`/`tool_call` — cuts the directly-visible set
+roughly in half) — neither fixes it; `devstral` doesn't even attempt the
+bridge tools. Isolated by replaying real captured HTTP requests directly
+against Ollama, bypassing Hermes Agent entirely, so this is a `devstral`
+reliability ceiling at this tool count, not a wiring bug. Plain conversation
+and the Aegis-hook path (tested with a deliberately small active toolset)
+both work correctly regardless. `tools.tool_search.enabled: "on"` is kept
+in config.yaml anyway — it roughly halves prompt size per turn even though
+it didn't fix this — but the underlying ceiling is unresolved. Revisit if
+a future Hermes Agent version exposes per-provider `tool_choice`, or if a
+different already-downloaded model (`qwen3-coder:30b`, `gpt-oss:20b`,
+`deepseek-r1:14b`) turns out to hold up better at full tool count — not
+yet tried for this specific role.
+
 ## Adding a real agent
 
 1. Write `backend/agents/<name>.py` implementing `BaseAgent`.

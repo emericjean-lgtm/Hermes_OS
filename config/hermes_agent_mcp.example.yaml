@@ -114,6 +114,19 @@ mcp_servers:
     timeout: 120
     connect_timeout: 60
 
+# Force Hermes's progressive tool-disclosure on (replaces on-demand MCP/
+# non-core tools with 3 bridge tools, roughly halving prompt size per
+# turn) — kept even though, on real hardware, it did NOT fix devstral's
+# real limitation: it calls a tool reliably with only a few on offer, but
+# reverts to describing-instead-of-doing once the full ~50-tool set (46
+# MCP + native) is in play, including the 3 bridge tools themselves. Not
+# a wiring bug — confirmed by replaying real captured requests directly
+# against Ollama, bypassing Hermes Agent entirely. See README.md's
+# "Telegram gateway" section.
+tools:
+  tool_search:
+    enabled: "on"
+
 # ── 3. Disable native toolsets that would bypass Aegis or duplicate ──
 #       Kronos (see decisions above) ─────────────────────────────────
 # Confirmed on Hermes Agent v0.19.0: there is no "hermes-cli" toolset —
