@@ -1,5 +1,5 @@
-"""MCP server exposing Aegis/Atlas/Echo/Kronos as tools for any MCP
-client to call — built specifically so Hermes Agent (NousResearch's
+"""MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva as tools for any
+MCP client to call — built specifically so Hermes Agent (NousResearch's
 agent runtime, see hermes-agent.nousresearch.com) can use them when it
 takes over orchestration from core/router.py + agents/hermes_prime.py.
 
@@ -30,6 +30,7 @@ from mcp.server.fastmcp import FastMCP
 from backend.agents.aegis import AegisAgent
 from backend.agents.echo import EchoAgent
 from backend.agents.kronos import KronosAgent
+from backend.agents.minerva import MinervaAgent
 from backend.core.agent_registry import get_agent_registry
 from backend.memory.episodic import MemoryEntry
 from backend.security.aegis_engine import ActionRequest
@@ -47,6 +48,10 @@ def _echo() -> EchoAgent:
 
 def _kronos() -> KronosAgent:
     return get_agent_registry().get("kronos")
+
+
+def _minerva() -> MinervaAgent:
+    return get_agent_registry().get("minerva")
 
 
 def _task_to_dict(task: Task) -> dict:
@@ -165,6 +170,21 @@ def memory_search(query: str, n_results: int = 5) -> list[dict]:
     return _echo().recall(query, n_results=n_results)
 
 
+# ── Minerva: research/RAG ─────────────────────────────────────────────
+
+
+async def research_query(query: str, n_results: int = 5) -> dict:
+    """Retrieve relevant passages from indexed documents and ask an LLM
+    to synthesize a cited answer from them (Minerva's RAG loop — retrieval
+    + grounded generation, not just a raw model completion). Requires a
+    live Ollama server for both the embeddings and the synthesis model.
+    Returns answer, passages (with source metadata), and which model
+    produced the answer."""
+    decision, stream, passages = await _minerva().research(query, n_results=n_results)
+    answer = "".join([chunk async for chunk in stream])
+    return {"answer": answer, "passages": passages, "model": decision.model}
+
+
 # ── Kronos: tasks ────────────────────────────────────────────────────
 
 
@@ -234,6 +254,7 @@ _ALL_TOOLS = [
     memory_forget,
     memory_index,
     memory_search,
+    research_query,
     tasks_create,
     tasks_get,
     tasks_list,
@@ -251,10 +272,11 @@ def create_mcp_server() -> FastMCP:
         name="hermes-ollama",
         instructions=(
             "Tools for Hermes Ollama's security gate (Aegis), file operations "
-            "(Atlas), persistent memory (Echo), and task tracking (Kronos). "
-            "Every file/security operation is bound by ALLOWED_PATHS and the "
-            "configured autonomy level (config/security.yaml) — a denied or "
-            "require_human_validation verdict means don't proceed."
+            "(Atlas), persistent memory (Echo), task tracking (Kronos), and "
+            "research/RAG (Minerva). Every file/security operation is bound "
+            "by ALLOWED_PATHS and the configured autonomy level "
+            "(config/security.yaml) — a denied or require_human_validation "
+            "verdict means don't proceed."
         ),
         # FastMCP's own default is "/mcp", which would double up with the
         # "/mcp" prefix this app is mounted under in backend/main.py (i.e.

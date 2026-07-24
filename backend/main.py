@@ -10,7 +10,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.routes import chat, files, memory, security, system, tasks
+from backend.api.routes import chat, files, memory, research, security, system, tasks
 from backend.core.config import get_settings
 from backend.mcp_server.server import create_mcp_server
 
@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(files.router)
     app.include_router(memory.router)
     app.include_router(tasks.router)
+    app.include_router(research.router)
     app.mount("/mcp", mcp_asgi_app)
 
     @app.get("/health")

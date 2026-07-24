@@ -12,11 +12,13 @@ client, the Hermes Prime orchestrator agent, a streaming `/chat` API, a
 minimal Chat page, **Aegis** (deterministic security gate, `/security/evaluate`),
 **Atlas** (Aegis-gated file tools with diff + backup, `/files*`), **Echo**
 (SQLite long-term memory + ChromaDB documentary/RAG memory, `/memory*`),
-**Kronos** (task tracking with status/history, `/tasks*`), and an **MCP server**
-exposing Aegis/Atlas/Echo/Kronos as tools (see "Hermes Agent integration"
-below). 107 tests passing. Still not implemented: Minerva, Veritas, Hermes
-Scribe, Hermes Eyes, Hermes Swift, the message bus, workflows, HSE, GPU
-monitoring, Telegram — see `config/agents.yaml` for the full agent roster
+**Kronos** (task tracking with status/history, `/tasks*`), **Minerva**
+(research/RAG agent: retrieves passages from Echo's documentary memory,
+synthesizes a cited answer, `/research`), and an **MCP server** exposing
+Aegis/Atlas/Echo/Kronos/Minerva as tools (see "Hermes Agent integration"
+below). 113 tests passing. Still not implemented: Veritas, Hermes Scribe,
+Hermes Eyes, Hermes Swift, the message bus, workflows, HSE, GPU monitoring,
+Telegram — see `config/agents.yaml` for the full agent roster
 (`enabled: false` = not built yet).
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
@@ -112,7 +114,7 @@ hermes model
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(15 tools: `security_evaluate`, `files_*`, `memory_*`, `tasks_*`).
+(16 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`, `tasks_*`).
 
 ## Adding a real agent
 

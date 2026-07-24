@@ -77,15 +77,23 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     SQLITE_PATH/CHROMA_PATH are pointed at tmp_path and get_settings()'s
     cache is cleared around the test: EchoAgent persists to real files on
     construction (see agents/echo.py), and without this override every
-    test run would read/write the developer's actual data/db/ folder."""
+    test run would read/write the developer's actual data/db/ folder.
+
+    get_agent_registry's own cache is cleared too: unlike the other
+    agents, MinervaAgent calls get_agent_registry() directly (to reach
+    Echo for retrieval — see agents/minerva.py), the same pattern the MCP
+    server uses, rather than going through a per-route override. Without
+    clearing it, that call could resolve to a stale registry built by an
+    earlier test against different (or real) settings."""
     import backend.main as main_module
-    from backend.core.agent_registry import AgentRegistry
+    from backend.core.agent_registry import AgentRegistry, get_agent_registry
     from backend.core.config import get_settings
     from backend.core.router import ModelRouter
 
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
     get_settings.cache_clear()
+    get_agent_registry.cache_clear()
 
     router = ModelRouter(models_config)
     registry = AgentRegistry(fake_ollama_client, router, models_config)
@@ -95,11 +103,13 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     monkeypatch.setattr("backend.api.routes.files.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.memory.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.tasks.get_agent_registry", lambda: registry)
+    monkeypatch.setattr("backend.api.routes.research.get_agent_registry", lambda: registry)
 
     try:
         yield TestClient(main_module.app)
     finally:
         get_settings.cache_clear()
+        get_agent_registry.cache_clear()
 
 
 @pytest.fixture

@@ -34,7 +34,7 @@ agents:
     description: Developer agent — analyzes, generates, refactors code.
 
   minerva:
-    enabled: false
+    enabled: true
     role: standard
     module: backend.agents.minerva
     class_name: MinervaAgent
