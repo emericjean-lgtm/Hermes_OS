@@ -16,12 +16,14 @@ minimal Chat page, **Aegis** (deterministic security gate, `/security/evaluate`)
 (research/RAG agent: retrieves passages from Echo's documentary memory,
 synthesizes a cited answer, `/research`), **Veritas** (QA agent: reviews
 another agent's output and returns a parsed verdict — approved /
-needs_revision / rejected — plus issues and corrections, `/verify`), and
-an **MCP server** exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas as
-tools (see "Hermes Agent integration" below). 122 tests passing. Still
-not implemented: Hermes Scribe, Hermes Eyes, Hermes Swift, the message
-bus, workflows, HSE, GPU monitoring, Telegram — see `config/agents.yaml`
-for the full agent roster (`enabled: false` = not built yet).
+needs_revision / rejected — plus issues and corrections, `/verify`),
+**Hermes Scribe** (writing/documentation agent: brief -> document,
+`/write`), and an **MCP server** exposing
+Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe as tools (see
+"Hermes Agent integration" below). 128 tests passing. Still not
+implemented: Hermes Eyes, Hermes Swift, the message bus, workflows, HSE,
+GPU monitoring, Telegram — see `config/agents.yaml` for the full agent
+roster (`enabled: false` = not built yet).
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
 built and tested here entirely against a fake Ollama client (see
@@ -116,8 +118,8 @@ hermes model
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(17 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
-`verify_output`, `tasks_*`).
+(18 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+`verify_output`, `write_document`, `tasks_*`).
 
 ## Adding a real agent
 

@@ -42,7 +42,7 @@ agents:
     description: Research & RAG agent over local documents.
 
   hermes_scribe:
-    enabled: false
+    enabled: true
     role: standard
     module: backend.agents.hermes_scribe
     class_name: HermesScribeAgent

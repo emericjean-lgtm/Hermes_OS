@@ -1,7 +1,8 @@
-"""MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas as tools for
-any MCP client to call — built specifically so Hermes Agent (NousResearch's
-agent runtime, see hermes-agent.nousresearch.com) can use them when it
-takes over orchestration from core/router.py + agents/hermes_prime.py.
+"""MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
+Scribe as tools for any MCP client to call — built specifically so Hermes
+Agent (NousResearch's agent runtime, see hermes-agent.nousresearch.com)
+can use them when it takes over orchestration from core/router.py +
+agents/hermes_prime.py.
 
 Mounted into the main FastAPI app at /mcp (see backend/main.py), so
 there's still one process to run: an MCP client (Hermes Agent's
@@ -30,6 +31,7 @@ from mcp.server.fastmcp import FastMCP
 from backend.agents.aegis import AegisAgent
 from backend.agents.echo import EchoAgent
 from backend.agents.kronos import KronosAgent
+from backend.agents.hermes_scribe import HermesScribeAgent
 from backend.agents.minerva import MinervaAgent
 from backend.agents.veritas import VeritasAgent
 from backend.core.agent_registry import get_agent_registry
@@ -57,6 +59,10 @@ def _minerva() -> MinervaAgent:
 
 def _veritas() -> VeritasAgent:
     return get_agent_registry().get("veritas")
+
+
+def _scribe() -> HermesScribeAgent:
+    return get_agent_registry().get("hermes_scribe")
 
 
 def _task_to_dict(task: Task) -> dict:
@@ -211,6 +217,21 @@ async def verify_output(output: str, context: str = "", criteria: list[str] | No
     }
 
 
+# ── Hermes Scribe: writing/documentation ────────────────────────────────
+
+
+async def write_document(
+    brief: str, format: str = "markdown", tone: str = "neutral", context: str = ""
+) -> dict:
+    """Turn a brief into a complete document (report, README, summary,
+    etc.). `format` is the output format (markdown, plain text...), `tone`
+    the writing register (neutral, formal, casual...), `context` any
+    background the writer should know but that isn't part of the brief."""
+    decision, stream = await _scribe().write(brief, format=format, tone=tone, context=context)
+    document = "".join([chunk async for chunk in stream])
+    return {"document": document, "model": decision.model}
+
+
 # ── Kronos: tasks ────────────────────────────────────────────────────
 
 
@@ -282,6 +303,7 @@ _ALL_TOOLS = [
     memory_search,
     research_query,
     verify_output,
+    write_document,
     tasks_create,
     tasks_get,
     tasks_list,
@@ -300,10 +322,11 @@ def create_mcp_server() -> FastMCP:
         instructions=(
             "Tools for Hermes Ollama's security gate (Aegis), file operations "
             "(Atlas), persistent memory (Echo), task tracking (Kronos), "
-            "research/RAG (Minerva), and QA review (Veritas). Every "
-            "file/security operation is bound by ALLOWED_PATHS and the "
-            "configured autonomy level (config/security.yaml) — a denied or "
-            "require_human_validation verdict means don't proceed."
+            "research/RAG (Minerva), QA review (Veritas), and writing/"
+            "documentation (Hermes Scribe). Every file/security operation is "
+            "bound by ALLOWED_PATHS and the configured autonomy level "
+            "(config/security.yaml) — a denied or require_human_validation "
+            "verdict means don't proceed."
         ),
         # FastMCP's own default is "/mcp", which would double up with the
         # "/mcp" prefix this app is mounted under in backend/main.py (i.e.
