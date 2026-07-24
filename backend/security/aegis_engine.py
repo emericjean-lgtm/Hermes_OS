@@ -29,6 +29,8 @@ class ActionRequest:
     action_type: str
     description: str
     target_path: str | None = None  # required when the category is path_based
+    requesting_agent: str = "unknown"  # message bus "from" — see agents/aegis.py
+    task_id: str | None = None  # message bus "task_id", when this action is part of a task
 
 
 @dataclass(frozen=True)

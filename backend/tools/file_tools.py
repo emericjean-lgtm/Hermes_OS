@@ -31,7 +31,12 @@ class FileWriteResult:
 
 def _check(aegis: AegisAgent, action_type: str, path: str, description: str) -> None:
     decision = aegis.evaluate(
-        ActionRequest(action_type=action_type, description=description, target_path=path)
+        ActionRequest(
+            action_type=action_type,
+            description=description,
+            target_path=path,
+            requesting_agent="atlas",
+        )
     )
     if decision.verdict is not Verdict.ALLOW:
         raise PermissionError(decision.reason)
@@ -87,7 +92,12 @@ def propose_write(
     diff = compute_diff(before, new_content, path)
 
     decision = aegis.evaluate(
-        ActionRequest(action_type="file_write", description=f"Write to {path}", target_path=path)
+        ActionRequest(
+            action_type="file_write",
+            description=f"Write to {path}",
+            target_path=path,
+            requesting_agent="atlas",
+        )
     )
 
     if decision.verdict is not Verdict.ALLOW:

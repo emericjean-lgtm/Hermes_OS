@@ -1,7 +1,8 @@
 """MCP server exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes
-Scribe/Hermes Eyes/Hermes Swift as tools for any MCP client to call —
-built specifically so Hermes Agent (NousResearch's agent runtime, see
-hermes-agent.nousresearch.com) can use them when it takes over
+Scribe/Hermes Eyes/Hermes Swift as tools, plus read access to the
+inter-agent message bus (core/message_bus.py), for any MCP client to
+call — built specifically so Hermes Agent (NousResearch's agent runtime,
+see hermes-agent.nousresearch.com) can use them when it takes over
 orchestration from core/router.py + agents/hermes_prime.py.
 
 Mounted into the main FastAPI app at /mcp (see backend/main.py), so
@@ -37,6 +38,7 @@ from backend.agents.hermes_swift import HermesSwiftAgent
 from backend.agents.minerva import MinervaAgent
 from backend.agents.veritas import VeritasAgent
 from backend.core.agent_registry import get_agent_registry
+from backend.core.message_bus import get_message_bus
 from backend.memory.episodic import MemoryEntry
 from backend.security.aegis_engine import ActionRequest
 from backend.tasks.task_manager import Task
@@ -107,13 +109,27 @@ def _memory_to_dict(entry: MemoryEntry) -> dict:
 # ── Aegis: security ──────────────────────────────────────────────────
 
 
-def security_evaluate(action_type: str, description: str, target_path: str | None = None) -> dict:
+def security_evaluate(
+    action_type: str,
+    description: str,
+    target_path: str | None = None,
+    requesting_agent: str = "unknown",
+    task_id: str | None = None,
+) -> dict:
     """Ask Aegis whether an action is allowed. Returns a verdict
     (allow/deny/require_human_validation) and the reason. Always call
     this before any file write, git operation, system command, or other
-    potentially risky action — never assume something is safe."""
+    potentially risky action — never assume something is safe.
+    requesting_agent identifies the caller for the message bus trace
+    (core/message_bus.py) — pass your own agent name if you have one."""
     decision = _aegis().evaluate(
-        ActionRequest(action_type=action_type, description=description, target_path=target_path)
+        ActionRequest(
+            action_type=action_type,
+            description=description,
+            target_path=target_path,
+            requesting_agent=requesting_agent,
+            task_id=task_id,
+        )
     )
     return {
         "verdict": decision.verdict.value,
@@ -331,6 +347,20 @@ def tasks_delete(task_id: str) -> bool:
     return _kronos().delete_task(task_id)
 
 
+# ── Message bus: inter-agent trace ───────────────────────────────────────
+
+
+def messages_list(task_id: str | None = None, agent: str | None = None, limit: int = 100) -> list[dict]:
+    """List traced inter-agent bus messages (§9.2/§24.4), most recent
+    first. Every Aegis evaluate() call publishes a VALIDATION_REQUEST plus
+    a VALIDATION_GRANTED/VALIDATION_DENIED/ESCALATION here, regardless of
+    whether it was triggered via a tool call or the REST API. Filter by
+    task_id to see the trace for one task, or by agent to see everything
+    a given agent sent or received."""
+    messages = get_message_bus().list_messages(task_id=task_id, agent=agent, limit=limit)
+    return [m.to_dict() for m in messages]
+
+
 _ALL_TOOLS = [
     security_evaluate,
     files_list,
@@ -352,6 +382,7 @@ _ALL_TOOLS = [
     tasks_list,
     tasks_update,
     tasks_delete,
+    messages_list,
 ]
 
 
@@ -366,11 +397,12 @@ def create_mcp_server() -> FastMCP:
             "Tools for Hermes Ollama's security gate (Aegis), file operations "
             "(Atlas), persistent memory (Echo), task tracking (Kronos), "
             "research/RAG (Minerva), QA review (Veritas), writing/"
-            "documentation (Hermes Scribe), image analysis (Hermes Eyes), and "
-            "fast request classification (Hermes Swift). Every file/security "
-            "operation is bound by ALLOWED_PATHS and the configured autonomy "
-            "level (config/security.yaml) — a denied or "
-            "require_human_validation verdict means don't proceed."
+            "documentation (Hermes Scribe), image analysis (Hermes Eyes), fast "
+            "request classification (Hermes Swift), and the inter-agent "
+            "message bus trace (messages_list). Every file/security operation "
+            "is bound by ALLOWED_PATHS and the configured autonomy level "
+            "(config/security.yaml) — a denied or require_human_validation "
+            "verdict means don't proceed."
         ),
         # FastMCP's own default is "/mcp", which would double up with the
         # "/mcp" prefix this app is mounted under in backend/main.py (i.e.

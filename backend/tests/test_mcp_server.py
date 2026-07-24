@@ -57,6 +57,7 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "tasks_list",
         "tasks_update",
         "tasks_delete",
+        "messages_list",
     }
 
 
@@ -218,6 +219,26 @@ async def test_classify_request_returns_known_task_type(monkeypatch, tmp_path):
     body = _result(result)
     assert body["task_type"] == "code_generation"
     assert body["model"]
+
+
+async def test_messages_list_reflects_security_evaluate(monkeypatch, tmp_path):
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        await session.call_tool(
+            "security_evaluate",
+            {
+                "action_type": "network_call",
+                "description": "ping",
+                "requesting_agent": "atlas",
+                "task_id": "t1",
+            },
+        )
+        result = await session.call_tool("messages_list", {"task_id": "t1"})
+
+    body = _result(result)
+    assert len(body) == 2
+    types = {m["type"] for m in body}
+    assert "VALIDATION_REQUEST" in types
+    assert types & {"VALIDATION_GRANTED", "VALIDATION_DENIED", "ESCALATION"}
 
 
 async def test_memory_remember_list_forget_roundtrip(monkeypatch, tmp_path):

@@ -21,12 +21,16 @@ needs_revision / rejected — plus issues and corrections, `/verify`),
 `/write`), **Hermes Eyes** (vision agent: multimodal image analysis via
 `gemma3:12b`, `/vision/analyze`), **Hermes Swift** (always-on, ultra-fast
 request classifier: labels a raw request with a task type from
-`models.yaml`'s routing matrix, `/classify`), and an **MCP server**
-exposing Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes
-Eyes/Hermes Swift as tools (see "Hermes Agent integration" below). 144
-tests passing. Still not implemented: the message bus, workflows, HSE,
-GPU monitoring, Telegram — see `config/agents.yaml` for the full agent
-roster (`enabled: false` = not built yet).
+`models.yaml`'s routing matrix, `/classify`), the **message bus** (typed
+inter-agent trace — every `AegisAgent.evaluate()` call publishes a
+VALIDATION_REQUEST plus a VALIDATION_GRANTED/VALIDATION_DENIED/ESCALATION,
+persisted to SQLite, queryable via `/messages` and filterable by
+`task_id`/`agent`), and an **MCP server** exposing
+Aegis/Atlas/Echo/Kronos/Minerva/Veritas/Hermes Scribe/Hermes Eyes/Hermes
+Swift as tools plus the bus's `messages_list` (see "Hermes Agent
+integration" below). 162 tests passing. Still not implemented: workflows,
+HSE, GPU monitoring, Telegram — see `config/agents.yaml` for the full
+agent roster (`enabled: false` = not built yet).
 
 **Important:** this environment has no AMD GPU / ROCm. The backend was
 built and tested here entirely against a fake Ollama client (see
@@ -121,9 +125,9 @@ hermes model
 The MCP server is mounted at `/mcp` on the same FastAPI app (`backend/mcp_server/`,
 tools in `backend/mcp_server/server.py`) — verified end-to-end with the
 official `mcp` Python SDK client over the real streamable-HTTP protocol
-(20 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
+(21 tools: `security_evaluate`, `files_*`, `memory_*`, `research_query`,
 `verify_output`, `write_document`, `analyze_image`, `classify_request`,
-`tasks_*`).
+`tasks_*`, `messages_list`).
 
 ## Adding a real agent
 

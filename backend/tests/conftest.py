@@ -84,16 +84,23 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     Echo for retrieval — see agents/minerva.py), the same pattern the MCP
     server uses, rather than going through a per-route override. Without
     clearing it, that call could resolve to a stale registry built by an
-    earlier test against different (or real) settings."""
+    earlier test against different (or real) settings.
+
+    get_message_bus's cache is cleared for the same reason: AegisAgent
+    reaches the bus via that module-level singleton too (see
+    agents/aegis.py), so a stale cached bus would keep writing to a
+    previous test's (possibly already-deleted) tmp_path."""
     import backend.main as main_module
     from backend.core.agent_registry import AgentRegistry, get_agent_registry
     from backend.core.config import get_settings
+    from backend.core.message_bus import get_message_bus
     from backend.core.router import ModelRouter
 
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
     get_settings.cache_clear()
     get_agent_registry.cache_clear()
+    get_message_bus.cache_clear()
 
     router = ModelRouter(models_config)
     registry = AgentRegistry(fake_ollama_client, router, models_config)
@@ -114,6 +121,7 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     finally:
         get_settings.cache_clear()
         get_agent_registry.cache_clear()
+        get_message_bus.cache_clear()
 
 
 @pytest.fixture
@@ -167,7 +175,8 @@ async def open_mcp_session(monkeypatch, tmp_path):
     per-route override, so isolation here clears *that* cache too (not
     just get_settings) and points SQLITE_PATH/CHROMA_PATH/ALLOWED_PATHS
     at tmp_path — otherwise this would build agents against the real
-    OllamaClient and the developer's actual data/db/ folder."""
+    OllamaClient and the developer's actual data/db/ folder. get_message_bus
+    is cleared for the same reason (see the client fixture's docstring)."""
     import httpx
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -175,6 +184,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
     import backend.main as main_module
     from backend.core.agent_registry import get_agent_registry
     from backend.core.config import get_settings
+    from backend.core.message_bus import get_message_bus
 
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
@@ -182,6 +192,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
     (tmp_path / "allowed").mkdir()
     get_settings.cache_clear()
     get_agent_registry.cache_clear()
+    get_message_bus.cache_clear()
 
     app = main_module.create_app()
 
@@ -209,6 +220,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
     finally:
         get_settings.cache_clear()
         get_agent_registry.cache_clear()
+        get_message_bus.cache_clear()
 
 
 @pytest.fixture
