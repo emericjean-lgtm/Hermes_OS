@@ -23,5 +23,9 @@ data/snapshots/*
 # Diagnostic capture logs (scripts/capture_proxy.py output)
 scripts/capture_log.jsonl
 
+# Workflow output (the new-app workflow's default files_apply target —
+# generated app code belongs in its own repo, not this one)
+data/generated/
+
 # OS
 .DS_Store

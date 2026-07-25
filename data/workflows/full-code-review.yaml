@@ -33,7 +33,12 @@ nodes:
     action: write_document
     params:
       brief: "Summarize this code review workflow run in a short report."
-      context: "$steps.review.raw"
+      # `corrections`, not `raw`: verify_output (backend/mcp_server/server.py)
+      # forwards only verdict/issues/corrections/model out of
+      # VeritasAgent.parse_verdict — `raw` is dropped at that boundary, and
+      # engine._resolve_value raises WorkflowExecutionError on a missing key,
+      # so "$steps.review.raw" failed this node on every run.
+      context: "$steps.review.corrections"
 
 edges:
   - from: analyze

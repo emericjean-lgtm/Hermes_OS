@@ -1,0 +1,137 @@
+id: new-app
+name: New App — spec, scaffold, backlog
+description: >
+  Turns a one-line app idea into a written spec, a reviewed code
+  scaffold, and a Kronos backlog item — with a human validation gate
+  before anything touches disk.
+
+  Honest scope: the agent registry has no code-execution action (see
+  backend/mcp_server/server.py's get_tool_registry — there is no
+  terminal/run tool), so this workflow WRITES an app, it does not RUN or
+  TEST one. Every "does this actually work?" check is still yours to
+  make after the files land. Both file writes are doubly gated: a
+  human_validation pause in the engine, then Aegis's own file_write
+  verdict against ALLOWED_PATHS.
+
+  Before running, edit: the app idea in `spec.brief`, and the two output
+  paths. Paths must sit inside ALLOWED_PATHS (currently the hermes-ollama
+  repo itself) — to generate into your own project folder instead, add it
+  to ALLOWED_PATHS in .env first.
+
+nodes:
+  # 1. Scribe turns the idea into a spec. This is the node to edit.
+  - id: spec
+    action: write_document
+    params:
+      brief: >
+        Write a short technical spec for this application: a small web app
+        to track personal reading — add a book, mark it as reading or
+        finished, list what's in progress. Cover, in this order: the
+        feature list, the data model, the chosen stack and why, and the
+        API surface. Be concrete and brief; no marketing copy, no
+        alternatives section.
+      format: markdown
+      tone: neutral
+
+  # 2. Veritas checks the spec before any code is derived from it —
+  #    a contradiction here would otherwise propagate into the scaffold.
+  - id: review_spec
+    action: verify_output
+    params:
+      output: "$steps.spec.document"
+      context: >
+        A technical spec for a small application, about to be used as the
+        sole input for generating a code scaffold.
+      criteria:
+        - "Is the data model complete enough to implement from?"
+        - "Does any feature lack a corresponding API endpoint?"
+        - "Are there internal contradictions between sections?"
+
+  # 3. HUMAN GATE — nothing has touched disk before this point.
+  - id: save_spec
+    action: files_apply
+    human_validation: true
+    params:
+      path: "./data/generated/new-app/SPEC.md"
+      new_content: "$steps.spec.document"
+
+  # 4. Scribe writes the scaffold from the approved spec.
+  - id: scaffold
+    action: write_document
+    params:
+      brief: >
+        Write the starter implementation for the application described in
+        the context. Single runnable file, standard library plus one web
+        framework at most, with the data model and every endpoint from the
+        spec present. Include a short docstring at the top saying how to
+        run it. Output only the code.
+      format: python
+      tone: neutral
+      context: "$steps.spec.document"
+
+  # 5. Veritas reviews the generated code. Its `corrections` feed the
+  #    backlog item below, so a flawed scaffold leaves a written trace
+  #    rather than being silently accepted.
+  - id: review_code
+    action: verify_output
+    params:
+      output: "$steps.scaffold.document"
+      context: >
+        A first code scaffold generated from the approved spec, not yet
+        executed or tested by anyone.
+      criteria:
+        - "Would this run as-is, or are there missing imports/definitions?"
+        - "Does it implement every endpoint the spec lists?"
+        - "Is any error handling or input validation obviously absent?"
+
+  # 6. SECOND HUMAN GATE — review the diff before the code lands.
+  - id: save_code
+    action: files_apply
+    human_validation: true
+    params:
+      path: "./data/generated/new-app/app.py"
+      new_content: "$steps.scaffold.document"
+
+  # 7. Veritas's findings become a real Kronos task, so "run it and fix
+  #    what breaks" is tracked rather than remembered.
+  - id: backlog
+    action: tasks_create
+    params:
+      title: "Run and fix the generated app scaffold"
+      description: "$steps.review_code.corrections"
+      objective: >
+        Execute the scaffold, make it actually run, and close the gaps
+        Veritas listed — this workflow never ran the code.
+      priority: high
+
+  # 8. Run summary.
+  - id: report
+    action: write_document
+    params:
+      brief: >
+        Summarize this app-generation run in under 15 lines: what was
+        specified, what the code review concluded, and what a human still
+        has to do.
+      format: markdown
+      context: "$steps.review_code.corrections"
+
+edges:
+  - from: spec
+    to: review_spec
+  - from: review_spec
+    to: save_spec
+    condition: on_success
+  - from: save_spec
+    to: scaffold
+    condition: on_success
+  - from: scaffold
+    to: review_code
+  - from: review_code
+    to: save_code
+    condition: on_success
+  - from: save_code
+    to: backlog
+    condition: on_success
+  - from: backlog
+    to: report
+    condition: always
