@@ -18,99 +18,84 @@ d'un commentaire.
 |---|---|
 | **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
 | **Conforme après correction (cette passe)** | §22 optimisation VRAM |
-| **Vocabulaire tranché et appliqué** (cette passe) | §17 « HSE » → moteur Aegis + auto-évolution, §6 Atlas/Swift/Sentinel |
+| **Faux constat, corrigé le 2026-07-26** | La « divergence de vocabulaire » (§2) portait sur un document indicatif, pas sur le cahier des charges officiel — lequel était déjà cohérent avec le code |
 | **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation, §12 mémoire projet, §16 vérification, §8 chaîne de développement, §23 interface |
 
 | **Absent** | *(plus aucun manque de code — voir §6 pour ce qui reste)* |
 
-L'écart le plus coûteux n'était pas une fonctionnalité manquante : c'était
-le **glissement de vocabulaire** entre le cahier des charges et le code.
-Il faisait croire à des manques inexistants (le moteur de sécurité du §17
-était là depuis le début, sous le nom d'Aegis) tout en masquant les vrais
-(§14 Git, §16 exécution). Ce point est traité en §2 — les décisions y sont
-actées et appliquées au code, pas seulement documentées.
+**Avertissement de lecture.** La première version de cet audit annonçait
+comme constat principal un « glissement de vocabulaire » entre le cahier
+des charges et le code. C'était faux : l'analyse portait sur une version
+condensée fournie à titre indicatif, alors que le document officiel
+versionné dans ce dépôt était déjà cohérent avec le code. Voir §2 pour la
+correction et ce qu'elle implique. Les manques réels (§14 Git, §16
+exécution, §13 ingestion, §12 mémoire) étaient, eux, exacts — et sont
+traités.
 
 ---
 
-## 2. Vocabulaire — TRANCHÉ le 2026-07-25
+## 2. Vocabulaire — CORRECTION D'AUDIT (2026-07-26)
 
-Les décisions ci-dessous sont actées et appliquées au code. Elles priment
-sur toute formulation antérieure du cahier des charges.
+**Cette section affirmait quelque chose de faux. Elle est réécrite.**
 
-### 2.1 « HSE » est retiré du vocabulaire du projet — RÉSOLU
+### 2.1 Ce que l'audit a prétendu, et pourquoi c'était faux
 
-Le conflit : le cahier des charges §17 disait HSE = *Hermes **Security**
-Engine* (moteur déterministe), le code disait HSE = *Hermes
-**Self-Evolution*** (extraction de compétences). Deux sens opposés pour
-un même sigle.
+L'audit du 2026-07-25 annonçait comme constat principal que le sigle
+« HSE » désignait deux choses opposées — *Hermes Security Engine* côté
+cahier des charges, *Hermes Self-Evolution* côté code — et que les rôles
+d'Atlas et Swift avaient divergé entre les deux.
 
-**Décision :**
+**Rien de tout cela n'était vrai du cahier des charges officiel.**
+`CAHIER_DES_CHARGES_HERMES_OLLAMA.md`, le document de référence versionné
+dans ce dépôt, dit depuis toujours :
 
-| Concept | Nom retenu | Emplacement |
-|---|---|---|
-| Moteur de sécurité déterministe (ex-§17 « HSE ») | **moteur Aegis** | `backend/security/aegis_engine.py`, outil `security_evaluate` |
-| Extraction de compétences (ex-« HSE » du code) | **auto-évolution** (*self-evolution*) | `backend/self_evolution/`, outils `evolution_*` |
+- `## 17. Sécurité (Aegis) & validation humaine` — le moteur de sécurité
+  s'appelle Aegis, jamais « HSE » ;
+- `## 20. Auto-évolution (HSE)` — et les 8 occurrences du sigle dans le
+  document désignent toutes l'auto-évolution ;
+- des fiches agents listant **exactement les dix agents du code**, avec
+  les bons rôles : Atlas développeur, Hermes Swift routage/classification,
+  plus Minerva, Echo, Scribe et Eyes. Aucun Sentinel.
 
-Le sigle « HSE » n'apparaît plus nulle part dans le code. « Aegis » l'a
-emporté pour la sécurité parce qu'il était déjà cohérent partout et qu'il
-est plus distinctif ; l'auto-évolution a cédé le sigle parce qu'elle est
-le concept le plus récent et le moins structurant.
+Le code et le document officiel étaient donc **parfaitement cohérents
+depuis le début**. Le sigle n'a jamais eu qu'un seul sens.
 
-**Renommages appliqués** (surface publique — changement cassant assumé) :
+### 2.2 D'où venait l'erreur
 
-| Avant | Après |
-|---|---|
-| outil MCP `hse_process_task` | `evolution_process_task` |
-| outil MCP `hse_progression` | `evolution_progression` |
-| `POST /hse/process/{task_id}` | `POST /evolution/process/{task_id}` |
-| `GET /hse/progression` | `GET /evolution/progression` |
-| `backend/api/routes/hse.py` | `backend/api/routes/evolution.py` |
-| paramètre `run_hse` | `run_evolution` |
-| clé de réponse `"hse"` | `"evolution"` |
+L'audit a été mené contre une version *condensée* du cahier des charges,
+fournie à titre indicatif dans la conversation. C'est elle — et elle
+seule — qui introduisait un agent Sentinel, échangeait les rôles d'Atlas
+et Swift, omettait quatre agents existants, et redéfinissait HSE en
+« Hermes Security Engine ».
 
-Impact réel limité : aucun outil `hse_*` ne figurait dans la liste
-`tools.include` de l'intégration Telegram. Le plugin du tableau de bord,
-seul consommateur externe de `/hse/progression`, a été mis à jour et
-vérifié en fonctionnement.
+Le document faisant autorité était dans le dépôt, à la racine, et n'a pas
+été ouvert avant de conclure. **C'est une faute de méthode, pas une
+subtilité** : un audit qui compare le code à un document sans vérifier
+lequel fait foi produit des divergences imaginaires — et masque les
+vraies, puisqu'on croit avoir trouvé la cause.
 
-Vérifié : `/hse/progression` répond 404, `/evolution/progression` répond
-200 avec les vraies données, `tools/list` du serveur MCP n'expose plus
-aucun `hse_*`, le panneau *Self-Evolution* du tableau de bord fonctionne.
-378 tests au vert.
+### 2.3 Ce qui a été fait sur cette base, et ce qui en reste
 
-### 2.2 Atlas et Swift — le code fait foi, le CDC s'aligne
+Le renommage `hse_process_task` → `evolution_process_task`,
+`/hse/*` → `/evolution/*`, `run_hse` → `run_evolution` a bien été appliqué
+(commit `bd5103e`), et **est conservé** — décision utilisateur du
+2026-07-26. Il reste défendable sur ses propres mérites : un nom explicite
+vaut mieux qu'un sigle pour qui ne le connaît pas, et « evolution » colle
+au titre du §20. Mais la *raison* invoquée à l'époque — résoudre une
+collision — était fausse, et l'utilisateur a tranché sur cette base.
 
-**Décision : les rôles du code sont conservés tels quels.** Ils sont
-implémentés, testés et en service ; ceux du cahier des charges sont pour
-partie aspirationnels. Renommer un agent qui fonctionne pour libérer un
-nom au profit d'un exécuteur qui n'existe pas encore serait du churn pur.
+Aucun changement de rôle d'agent n'a été appliqué au code : la
+recommandation « le CDC doit s'aligner » était sans objet, le CDC étant
+déjà aligné.
 
-Le cahier des charges §6 doit donc être corrigé ainsi :
+### 2.4 Ce qui reste réellement à corriger dans le cahier des charges
 
-| Agent | Rôle officiel (retenu) |
-|---|---|
-| **Atlas** | Agent de développement — analyse, génère, refactorise du code |
-| **Swift** | Classification d'intention rapide (pré-passe de routage) |
-| **Minerva** | Recherche & RAG sur documents locaux *(à ajouter au CDC)* |
-| **Echo** | Mémoire & compétences — indexation, rappel *(à ajouter au CDC)* |
-| **Hermes Scribe** | Rédaction & documentation *(à ajouter au CDC)* |
-| **Hermes Eyes** | Vision — images et captures d'écran *(à ajouter au CDC)* |
-| **Sentinel** | *N'est pas un agent* — le monitoring est un service (`backend/monitoring/`, `/system/status`) |
-
-Le rôle documentaire que le CDC attribuait à Atlas est en réalité couvert
-par Minerva + Echo. Le rôle d'exécution qu'il attribuait à Swift n'existe
-pas encore (voir §5.2 : pas d'outil d'exécution).
-
-### 2.3 Pourquoi ce glissement s'était produit
-
-Pour mémoire, l'écart constaté avant décision : le CDC attribuait à Atlas
-la gestion documentaire (indexation, RAG, OCR) et à Swift l'exécution
-(fichiers, Git, Docker, terminal). Le code avait fait diverger ces deux
-noms vers, respectivement, l'agent de développement et le classifieur
-d'intention — et avait ajouté quatre agents que le CDC ne mentionnait pas
-(Minerva, Echo, Scribe, Eyes). Sentinel, lui, n'a jamais été implémenté
-comme agent : seule sa fonction existe, sous forme de service de
-monitoring.
+Une seule dérive, réelle et non traitée : le CDC officiel cite des
+modèles qui ne sont plus configurés — `qwen3:14b`, `qwen3:8b`,
+`phi4:14b`, `gemma3:12b` — là où `config/models.yaml` utilise
+aujourd'hui Hermes-4-14B, `qwen3.5:9b`, `phi4-reasoning:14b-q4_K_M` et
+`gemma4:12b`. Ce n'est pas cosmétique : c'est le document qu'on consulte
+pour savoir quel modèle tient quel rôle.
 
 ## 3. Conforme — vérifié
 
@@ -581,10 +566,11 @@ fumée.
 
 ## 6. Ordre de traitement recommandé
 
-1. ~~**Trancher le vocabulaire** (§2)~~ — **fait le 2026-07-25.** Sigle
-   « HSE » retiré, rôles d'agents actés. Reste à répercuter dans le
-   cahier des charges lui-même (§6 et §17), qui est le document de
-   l'utilisateur, pas du dépôt.
+1. ~~**Trancher le vocabulaire** (§2)~~ — **constat erroné, corrigé le
+   2026-07-26.** Le cahier des charges officiel n'a jamais divergé du
+   code. Le renommage `hse_*` → `evolution_*` est conservé pour sa
+   lisibilité, pas pour la raison invoquée à l'époque. Reste seulement la
+   dérive des noms de modèles dans le CDC (voir §2.4).
 2. ~~**Ingestion documentaire** (§13)~~ — **fait le 2026-07-25.** PDF,
    DOCX et famille texte ingérables par chemin, sous Aegis. OCR écarté
    au profit du modèle de vision déjà présent (voir §5.3).
