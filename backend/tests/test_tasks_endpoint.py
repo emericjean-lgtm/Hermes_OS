@@ -97,30 +97,30 @@ def test_update_task_reassigns_project_id(client):
     assert updated.json()["project_id"] == "proj-2"
 
 
-def test_update_task_run_hse_extracts_skill_on_done(client):
+def test_update_task_run_evolution_extracts_skill_on_done(client):
     created = client.post("/tasks", json={"title": "Ship it"}).json()
     task_id = created["id"]
 
-    updated = client.patch(f"/tasks/{task_id}", json={"status": "done", "run_hse": True})
+    updated = client.patch(f"/tasks/{task_id}", json={"status": "done", "run_evolution": True})
     assert updated.status_code == 200
     body = updated.json()
-    assert body["hse"]["outcome"] is True
-    assert body["hse"]["skill_id"] is not None
+    assert body["evolution"]["outcome"] is True
+    assert body["evolution"]["skill_id"] is not None
 
-    skill = client.get(f"/skills/{body['hse']['skill_id']}").json()
+    skill = client.get(f"/skills/{body['evolution']['skill_id']}").json()
     assert skill["name"] == "Ship it"
 
 
-def test_update_task_without_run_hse_leaves_hse_null(client):
+def test_update_task_without_run_evolution_leaves_evolution_null(client):
     created = client.post("/tasks", json={"title": "Ship it"}).json()
     updated = client.patch(f"/tasks/{created['id']}", json={"status": "done"})
-    assert updated.json()["hse"] is None
+    assert updated.json()["evolution"] is None
     assert client.get("/skills").json() == []
 
 
-def test_update_task_run_hse_is_noop_for_non_terminal_status(client):
+def test_update_task_run_evolution_is_noop_for_non_terminal_status(client):
     created = client.post("/tasks", json={"title": "x"}).json()
-    updated = client.patch(f"/tasks/{created['id']}", json={"status": "in_progress", "run_hse": True})
+    updated = client.patch(f"/tasks/{created['id']}", json={"status": "in_progress", "run_evolution": True})
     body = updated.json()
-    assert body["hse"]["outcome"] is None
-    assert body["hse"]["skill_id"] is None
+    assert body["evolution"]["outcome"] is None
+    assert body["evolution"]["skill_id"] is None

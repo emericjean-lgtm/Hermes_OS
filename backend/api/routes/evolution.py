@@ -1,12 +1,12 @@
-"""HSE (Hermes Self-Evolution) endpoints — cahier des charges §20.
+"""Self-evolution endpoints — cahier des charges §20.
 
-POST /hse/process/{task_id} runs the pipeline (evaluate -> extract a
+POST /evolution/process/{task_id} runs the pipeline (evaluate -> extract a
 skill on success -> reflect if enabled) for one task — called explicitly
 (e.g. once an agent marks a task done via PATCH /tasks/{id}), not
 auto-triggered by Kronos itself (see self_evolution/pipeline.py's
 docstring for why).
 
-GET /hse/progression aggregates stats over every task/skill currently
+GET /evolution/progression aggregates stats over every task/skill currently
 stored (optionally scoped to a project) — see progression_tracker.py.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from backend.self_evolution.pipeline import process_task
 router = APIRouter()
 
 
-class HSEProcessResponse(BaseModel):
+class EvolutionProcessResponse(BaseModel):
     task_id: str
     outcome: bool | None
     skill_id: str | None
@@ -39,17 +39,17 @@ def _echo() -> EchoAgent:
     return get_agent_registry().get("echo")
 
 
-@router.post("/hse/process/{task_id}")
-async def hse_process_task(task_id: str) -> HSEProcessResponse:
+@router.post("/evolution/process/{task_id}")
+async def evolution_process_task(task_id: str) -> EvolutionProcessResponse:
     task = _kronos().get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"No task {task_id!r}")
     result = process_task(task, _echo())
-    return HSEProcessResponse(**result)
+    return EvolutionProcessResponse(**result)
 
 
-@router.get("/hse/progression")
-async def hse_progression(project_id: str | None = None) -> dict:
+@router.get("/evolution/progression")
+async def evolution_progression(project_id: str | None = None) -> dict:
     tasks = _kronos().list_tasks(project_id=project_id)
     skills = _echo().list_skills(project_id=project_id)
     return progression_tracker.compute_progression(tasks, skills)

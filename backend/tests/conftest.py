@@ -140,7 +140,7 @@ def client(monkeypatch, fake_ollama_client, models_config, tmp_path) -> TestClie
     monkeypatch.setattr("backend.api.routes.vision.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.classify.get_agent_registry", lambda: registry)
     monkeypatch.setattr("backend.api.routes.skills.get_agent_registry", lambda: registry)
-    monkeypatch.setattr("backend.api.routes.hse.get_agent_registry", lambda: registry)
+    monkeypatch.setattr("backend.api.routes.evolution.get_agent_registry", lambda: registry)
     monkeypatch.setattr(
         "backend.api.routes.system.get_gpu_monitor",
         lambda: GpuMonitor(

@@ -1,4 +1,4 @@
-"""reflection_engine — cahier des charges §20 (HSE): a short post-task
+"""reflection_engine — cahier des charges §20 (self-evolution): a short post-task
 reflection (what worked / what failed).
 
 Deterministic templating over the task's own status/history rather than

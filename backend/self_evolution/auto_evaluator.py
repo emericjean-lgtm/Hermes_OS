@@ -1,9 +1,9 @@
-"""auto_evaluator — cahier des charges §20 (HSE): evaluates a task's
+"""auto_evaluator — cahier des charges §20 (self-evolution): evaluates a task's
 success/failure once it reaches a terminal status.
 
 Deterministic on purpose: Task.status is already the ground truth of an
 execution's outcome (Kronos maintains it, see task_manager.py), so
-nothing here needs an LLM call — matching HSE's own classification in
+nothing here needs an LLM call — matching self-evolution's own classification in
 the cahier des charges' architecture table as a plain Python module,
 unlike the model-backed agents in config/agents.yaml.
 """

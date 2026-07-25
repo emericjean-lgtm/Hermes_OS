@@ -77,8 +77,8 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "skills_delete",
         "skills_index",
         "skills_search",
-        "hse_process_task",
-        "hse_progression",
+        "evolution_process_task",
+        "evolution_progression",
     }
 
 
@@ -177,19 +177,19 @@ async def test_files_apply_narrowed_to_project_root(monkeypatch, tmp_path, secur
         assert outside["verdict"] == "deny"
 
 
-async def test_tasks_update_run_hse_extracts_skill(monkeypatch, tmp_path):
+async def test_tasks_update_run_evolution_extracts_skill(monkeypatch, tmp_path):
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         created = _result(await session.call_tool("tasks_create", {"title": "Ship it"}))
 
         updated = _result(
             await session.call_tool(
-                "tasks_update", {"task_id": created["id"], "status": "done", "run_hse": True}
+                "tasks_update", {"task_id": created["id"], "status": "done", "run_evolution": True}
             )
         )
-        assert updated["hse"]["outcome"] is True
-        assert updated["hse"]["skill_id"] is not None
+        assert updated["evolution"]["outcome"] is True
+        assert updated["evolution"]["skill_id"] is not None
 
-        skill = _result(await session.call_tool("skills_get", {"skill_id": updated["hse"]["skill_id"]}))
+        skill = _result(await session.call_tool("skills_get", {"skill_id": updated["evolution"]["skill_id"]}))
         assert skill["name"] == "Ship it"
 
 
@@ -560,12 +560,12 @@ async def test_system_status_reports_agents_and_gpu_null_without_rocm(monkeypatc
     assert "disk_free_gb" in body
 
 
-async def test_hse_process_task_and_skills_roundtrip(monkeypatch, tmp_path):
+async def test_evolution_process_task_and_skills_roundtrip(monkeypatch, tmp_path):
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         task = _result(await session.call_tool("tasks_create", {"title": "Ship it"}))
         await session.call_tool("tasks_update", {"task_id": task["id"], "status": "done"})
 
-        processed = _result(await session.call_tool("hse_process_task", {"task_id": task["id"]}))
+        processed = _result(await session.call_tool("evolution_process_task", {"task_id": task["id"]}))
         assert processed["outcome"] is True
         assert processed["skill_id"] is not None
 
@@ -582,7 +582,7 @@ async def test_hse_process_task_and_skills_roundtrip(monkeypatch, tmp_path):
         assert used["uses"] == 1
         assert used["confidence"] > skill["confidence"]
 
-        progression = _result(await session.call_tool("hse_progression", {}))
+        progression = _result(await session.call_tool("evolution_progression", {}))
         assert progression["tasks_succeeded"] == 1
         assert progression["skills_total"] == 1
 
@@ -599,7 +599,7 @@ async def test_skills_index_returns_false_for_unknown_id(monkeypatch, tmp_path):
     assert result is False
 
 
-async def test_hse_process_task_raises_for_unknown_task(monkeypatch, tmp_path):
+async def test_evolution_process_task_raises_for_unknown_task(monkeypatch, tmp_path):
     async with open_mcp_session(monkeypatch, tmp_path) as session:
-        result = await session.call_tool("hse_process_task", {"task_id": "does-not-exist"})
+        result = await session.call_tool("evolution_process_task", {"task_id": "does-not-exist"})
     assert result.isError is True

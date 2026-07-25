@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 # No POST /skills exists on purpose (see backend/api/routes/skills.py) —
-# skills are only created by the HSE pipeline, so every test here seeds
-# through POST /tasks -> PATCH status=done -> POST /hse/process/{id},
+# skills are only created by the self-evolution pipeline, so every test here seeds
+# through POST /tasks -> PATCH status=done -> POST /evolution/process/{id},
 # same as test_hse_endpoint.py.
 
 
@@ -12,7 +12,7 @@ def _make_skill(client, *, title="Deploy", project_id=None) -> dict:
         payload["project_id"] = project_id
     task = client.post("/tasks", json=payload).json()
     client.patch(f"/tasks/{task['id']}", json={"status": "done"})
-    processed = client.post(f"/hse/process/{task['id']}").json()
+    processed = client.post(f"/evolution/process/{task['id']}").json()
     return client.get(f"/skills/{processed['skill_id']}").json()
 
 

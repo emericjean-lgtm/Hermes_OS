@@ -1,4 +1,4 @@
-"""skill_extractor — cahier des charges §20 (HSE): turns a successfully
+"""skill_extractor — cahier des charges §20 (self-evolution): turns a successfully
 completed task into a reusable skill candidate.
 
 Deterministic extraction from the task's own fields (title/objective/

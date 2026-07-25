@@ -32,16 +32,16 @@ class TaskUpdateRequest(BaseModel):
     test_results: dict | None = None
     note: str | None = None
     project_id: str | None = None
-    # When true, also runs the HSE pipeline (self_evolution/pipeline.py)
+    # When true, also runs the self-evolution pipeline (self_evolution/pipeline.py)
     # right after this update — the natural place to trigger it, since
     # marking a task done/cancelled/partially_successful IS the terminal
     # transition auto_evaluator needs. No-op (no LLM/DB write beyond the
     # task update itself) if the resulting status isn't terminal. Opt-in
     # rather than automatic on every update: same "explicit call, no
-    # hidden side effect" principle HSE was built with (see
+    # hidden side effect" principle self-evolution was built with (see
     # self_evolution/pipeline.py's docstring) — nothing forces every
     # caller to pay for it.
-    run_hse: bool = False
+    run_evolution: bool = False
 
 
 class TaskResponse(BaseModel):
@@ -59,7 +59,7 @@ class TaskResponse(BaseModel):
     files: list[str]
     test_results: dict | None
     history: list[dict]
-    hse: dict | None = None
+    evolution: dict | None = None
 
 
 def _kronos() -> KronosAgent:
@@ -70,7 +70,7 @@ def _echo() -> EchoAgent:
     return get_agent_registry().get("echo")
 
 
-def _to_response(task: Task, *, hse: dict | None = None) -> TaskResponse:
+def _to_response(task: Task, *, evolution: dict | None = None) -> TaskResponse:
     return TaskResponse(
         id=task.id,
         project_id=task.project_id,
@@ -86,7 +86,7 @@ def _to_response(task: Task, *, hse: dict | None = None) -> TaskResponse:
         files=task.files_list,
         test_results=task.test_results_dict,
         history=task.history_list,
-        hse=hse,
+        evolution=evolution,
     )
 
 
@@ -140,8 +140,8 @@ async def update_task(task_id: str, request: TaskUpdateRequest) -> TaskResponse:
     if task is None:
         raise HTTPException(status_code=404, detail=f"No task {task_id!r}")
 
-    hse_result = process_task(task, _echo()) if request.run_hse else None
-    return _to_response(task, hse=hse_result)
+    evolution_result = process_task(task, _echo()) if request.run_evolution else None
+    return _to_response(task, evolution=evolution_result)
 
 
 @router.delete("/tasks/{task_id}")

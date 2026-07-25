@@ -93,7 +93,7 @@ def _swift() -> HermesSwiftAgent:
     return get_agent_registry().get("hermes_swift")
 
 
-def _task_to_dict(task: Task, *, hse: dict | None = None) -> dict:
+def _task_to_dict(task: Task, *, evolution: dict | None = None) -> dict:
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -109,7 +109,7 @@ def _task_to_dict(task: Task, *, hse: dict | None = None) -> dict:
         "files": task.files_list,
         "test_results": task.test_results_dict,
         "history": task.history_list,
-        "hse": hse,
+        "evolution": evolution,
     }
 
 
@@ -413,17 +413,17 @@ def tasks_update(
     test_results: dict | None = None,
     note: str | None = None,
     project_id: str | None = None,
-    run_hse: bool = False,
+    run_evolution: bool = False,
 ) -> dict | None:
     """Update a task: change status, attach touched files/models used,
     record test results, reassign it to a different project, or just
     append a free-form history note. Every change is appended to the
     task's history, nothing overwritten silently. Returns None if the
-    task doesn't exist. run_hse=True additionally runs the HSE pipeline
+    task doesn't exist. run_evolution=True additionally runs the self-evolution pipeline
     (self_evolution/pipeline.py) right after — the natural place to
     trigger it, since marking a task done/cancelled/partially_successful
     IS the terminal transition it needs; the result is included under
-    the "hse" key. No-op if the resulting status isn't terminal, and not
+    the "evolution" key. No-op if the resulting status isn't terminal, and not
     automatic on every update — same opt-in reasoning as
     security_evaluate's include_advisory."""
     task = _kronos().update_task(
@@ -437,8 +437,8 @@ def tasks_update(
     )
     if task is None:
         return None
-    hse_result = process_task(task, _echo()) if run_hse else None
-    return _task_to_dict(task, hse=hse_result)
+    evolution_result = process_task(task, _echo()) if run_evolution else None
+    return _task_to_dict(task, evolution=evolution_result)
 
 
 def tasks_delete(task_id: str) -> bool:
@@ -645,7 +645,7 @@ def projects_delete(project_id: str) -> bool:
     return get_project_store().delete(project_id)
 
 
-# ── Skills & HSE (Hermes Self-Evolution, §20) ────────────────────────────
+# ── Skills & self-evolution (§20) ────────────────────────────
 
 
 def skills_list(project_id: str | None = None, tag: str | None = None) -> list[dict]:
@@ -698,8 +698,8 @@ def skills_search(query: str, n_results: int = 5, project_id: str | None = None)
     ]
 
 
-def hse_process_task(task_id: str) -> dict:
-    """Runs the HSE pipeline for one task (evaluate success/failure ->
+def evolution_process_task(task_id: str) -> dict:
+    """Runs the self-evolution pipeline for one task (evaluate success/failure ->
     extract a new skill on clean success -> reflect if
     REFLECTION_ENABLED) — see self_evolution/pipeline.py. Safe to call on
     a non-terminal task: returns outcome=None/skill_id=None/
@@ -711,8 +711,8 @@ def hse_process_task(task_id: str) -> dict:
     return process_task(task, _echo())
 
 
-def hse_progression(project_id: str | None = None) -> dict:
-    """Aggregate HSE stats (task success rate, skills created/validated/
+def evolution_progression(project_id: str | None = None) -> dict:
+    """Aggregate self-evolution stats (task success rate, skills created/validated/
     in_review, average skill confidence), optionally scoped to a
     project — see self_evolution/progression_tracker.py."""
     tasks = _kronos().list_tasks(project_id=project_id)
@@ -761,8 +761,8 @@ _ALL_TOOLS = [
     skills_delete,
     skills_index,
     skills_search,
-    hse_process_task,
-    hse_progression,
+    evolution_process_task,
+    evolution_progression,
 ]
 
 
@@ -793,7 +793,7 @@ def create_mcp_server() -> FastMCP:
             "bus trace (messages_list), hardware/process telemetry "
             "(system_status), workflows chaining these actions into a "
             "graph (workflows_*), multi-project scoping (projects_*), and "
-            "self-evolution (skills_*, hse_process_task, hse_progression) "
+            "self-evolution (skills_*, evolution_process_task, evolution_progression) "
             "— skills extracted from successfully completed tasks, with a "
             "confidence score that reuse reinforces and decays over time. "
             "Every file/security operation is bound by "

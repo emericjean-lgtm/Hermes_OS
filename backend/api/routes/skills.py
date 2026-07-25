@@ -1,4 +1,4 @@
-"""Skill library endpoints — cahier des charges §20 (HSE), §24.3
+"""Skill library endpoints — cahier des charges §20 (self-evolution), §24.3
 (GET /skills). Every operation goes through EchoAgent, never
 skill_library.py directly, same discipline as memory.py.
 

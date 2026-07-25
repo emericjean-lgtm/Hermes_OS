@@ -109,7 +109,7 @@ async def tasks():
 
 @router.get("/progression")
 async def progression():
-    return _get_json("/hse/progression")
+    return _get_json("/evolution/progression")
 
 
 @router.get("/messages")

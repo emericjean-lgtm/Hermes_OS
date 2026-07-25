@@ -1,4 +1,4 @@
-"""HSE pipeline — composes auto_evaluator/skill_extractor/
+"""Self-evolution pipeline — composes auto_evaluator/skill_extractor/
 reflection_engine into one call: process_task(task, echo).
 
 Deliberately NOT auto-triggered from KronosAgent.update_task(): every
@@ -6,8 +6,8 @@ other cross-cutting effect in this project (Aegis's bus trace, workflow
 node execution) happens via an explicit call, not a hidden side effect
 grafted onto an existing, already-tested CRUD contract — Kronos's
 update_task() stays exactly what it was. Call this explicitly instead,
-either via the hse_process_task MCP tool / POST /hse/process/{task_id}
-(backend/api/routes/hse.py), or from a workflow node.
+either via the evolution_process_task MCP tool / POST /evolution/process/{task_id}
+(backend/api/routes/evolution.py), or from a workflow node.
 
 Takes an EchoAgent instance explicitly (not via get_agent_registry())
 so this stays a pure, directly-testable function — the caller (the API

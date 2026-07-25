@@ -4,7 +4,7 @@ Always-on. Like Aegis, Echo does not subclass BaseAgent: its contract is
 remember()/list_memories()/forget()/index_document()/recall() plus the
 skill-library methods below, not chat completions. It wraps the SQLite
 long-term store (episodic.py), the ChromaDB documentary store
-(semantic.py), and the SQLite skill library (skill_library.py) — HSE's
+(semantic.py), and the SQLite skill library (skill_library.py) — self-evolution's
 skill_extractor/pipeline (backend/self_evolution/) persist through Echo
 rather than skill_library directly, the same "Echo owns the memory
 tables, other modules go through it" split remember()/list_memories()
@@ -108,7 +108,7 @@ class EchoAgent:
         where = {"project_id": project_id} if project_id else None
         return self._documents.search(query, n_results=n_results, where=where)
 
-    # ── Skill library (SQLite) — HSE, §20 ──────────────────────────
+    # ── Skill library (SQLite) — self-evolution, §20 ──────────────────────────
     def remember_skill(
         self,
         *,
@@ -168,7 +168,7 @@ class EchoAgent:
 
     # ── Skill semantic index (ChromaDB) — needs a live Ollama server for
     # embeddings, same caveat as index_document()/recall() above. Not
-    # called automatically by remember_skill() or the HSE pipeline —
+    # called automatically by remember_skill() or the self-evolution pipeline —
     # opt in explicitly once you have real embeddings to index against.
     def index_skill(self, skill: Skill) -> None:
         text = "\n".join(filter(None, [skill.name, skill.description, skill.procedure]))

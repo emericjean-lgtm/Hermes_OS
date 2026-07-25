@@ -1,4 +1,4 @@
-"""progression_tracker — cahier des charges §20 (HSE): aggregate stats
+"""progression_tracker — cahier des charges §20 (self-evolution): aggregate stats
 (global success rate, skills created, evolution over time) — a read-only
 computation over Kronos's tasks and Echo's skills, not its own persisted
 state (nothing here needs a table of its own; it's cheap to recompute).

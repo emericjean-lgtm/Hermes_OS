@@ -42,7 +42,7 @@ it: evaluate() is synchronous and every existing caller (file_tools.py,
 /security/evaluate, security_evaluate, workflow nodes) depends on that;
 advise() needs an LLM call so it has to be async. Callers opt in
 explicitly (see /security/evaluate's include_advisory param) — same
-"explicit call, no hidden side effect" principle as HSE's pipeline.
+"explicit call, no hidden side effect" principle as the self-evolution pipeline.
 
 advise()'s output is cleaned with the same fixed-format-prompt +
 text-parsing pattern as VeritasAgent.parse_verdict() (agents/veritas.py),

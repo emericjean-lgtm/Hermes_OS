@@ -33,7 +33,7 @@ _FAKE_RESPONSES = {
     "/system/status": {"gpu": None, "cpu_load_pct": 12.3, "loaded_models": []},
     "/projects": [{"id": "p1", "name": "Demo", "status": "active"}],
     "/tasks": [{"id": "t1", "status": "done"}],
-    "/hse/progression": {"success_rate": 1.0, "skills_total": 0},
+    "/evolution/progression": {"success_rate": 1.0, "skills_total": 0},
 }
 
 
@@ -113,7 +113,7 @@ def test_progression_proxies_backend(monkeypatch, fake_backend):
     module = _load_plugin_api(monkeypatch, fake_backend)
     response = _client_for(module).get("/progression")
     assert response.status_code == 200
-    assert response.json() == _FAKE_RESPONSES["/hse/progression"]
+    assert response.json() == _FAKE_RESPONSES["/evolution/progression"]
 
 
 def test_unreachable_backend_returns_502(monkeypatch):

@@ -1,4 +1,4 @@
-"""Skill library — cahier des charges §20 (HSE), §24.3 (skills table).
+"""Skill library — cahier des charges §20 (self-evolution), §24.3 (skills table).
 
 Skills are reusable procedures extracted from successfully completed
 tasks (see backend/self_evolution/skill_extractor.py). This module is
