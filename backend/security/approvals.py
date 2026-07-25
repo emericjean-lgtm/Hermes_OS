@@ -26,6 +26,17 @@ user's behalf: the approval simply means the next identical attempt is
 allowed through once. Replaying arbitrary stored actions would need a
 dispatcher able to re-run anything, which is exactly the kind of
 machinery a security gate should not own.
+
+One deliberate consequence, verified in use: **a refusal is per-attempt,
+not permanent.** Refusing leaves a `refused` row as the record of that
+decision, but a later retry of the same action queues a fresh `pending`
+one — because "no, not now" is not the same statement as "never, and
+stop asking". The dedup above only prevents duplicate *pending* rows, so
+an agent retrying in a loop after a refusal will re-ask. That is the
+intended trade-off (a refusal must not silently become a permanent
+block a user can't undo), but it means the queue is a work list, not an
+audit log: read it as "what is being asked of me now", with the decided
+rows as history beside it.
 """
 from __future__ import annotations
 

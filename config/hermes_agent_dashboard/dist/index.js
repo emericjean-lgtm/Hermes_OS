@@ -404,6 +404,108 @@
     }, body);
   }
 
+  function SecurityPanel(props) {
+    const { data, error, loading, latencyMs } = useBackendResource(
+      "/approvals?status=pending",
+      props.reloadKey,
+    );
+    const [busy, setBusy] = useState(null);
+    const [note, setNote] = useState(null);
+
+    function decide(approval, approved) {
+      setBusy(approval.id);
+      setNote(null);
+      postJSON("/approvals/" + approval.id, { approved: approved })
+        .then(function () {
+          setNote({
+            ok: approved,
+            text: (approved ? "Approved: " : "Refused: ") + approval.action_type,
+          });
+          props.onChanged();
+        })
+        .catch(function (err) {
+          setNote({ ok: false, text: String((err && err.message) || err) });
+        })
+        .finally(function () { setBusy(null); });
+    }
+
+    const buttonStyle = {
+      background: "transparent",
+      border: "1px solid var(--ho-amber-dim)",
+      color: "var(--ho-amber)",
+      font: "inherit",
+      fontSize: "10.5px",
+      letterSpacing: "0.06em",
+      textTransform: "uppercase",
+      padding: "2px 8px",
+      cursor: "pointer",
+      whiteSpace: "nowrap",
+    };
+
+    let body;
+    if (loading) { body = ErrorNote("Reading approval queue…"); }
+    else if (error) { body = ErrorNote("Backend unreachable: " + error); }
+    else if (data.length === 0) {
+      // Not an error state: an empty queue is the normal, healthy case.
+      body = React.createElement("span", { className: "ho-muted" },
+        "Nothing awaiting approval.");
+    } else {
+      body = React.createElement("div", { className: "flex flex-col", style: { gap: "10px" } },
+        data.map(function (approval) {
+          return React.createElement("div", {
+            key: approval.id,
+            className: "flex flex-col",
+            style: {
+              gap: "4px",
+              borderLeft: "2px solid var(--ho-bad)",
+              paddingLeft: "8px",
+            },
+          },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: "8px" } },
+              React.createElement("span", { className: "ho-value", style: { fontSize: "12px" } },
+                approval.description),
+              React.createElement("span", { className: "ho-badge bad" }, approval.action_type),
+            ),
+            // The reason Aegis gave. Showing it is the difference between
+            // an informed decision and rubber-stamping a prompt.
+            React.createElement("span", { className: "ho-muted", style: { fontSize: "11px" } },
+              approval.reason),
+            React.createElement("div", { style: { display: "flex", gap: "6px", marginTop: "2px" } },
+              React.createElement("button", {
+                style: buttonStyle,
+                disabled: busy === approval.id,
+                onClick: function () { decide(approval, true); },
+              }, busy === approval.id ? "…" : "approve once"),
+              React.createElement("button", {
+                style: Object.assign({}, buttonStyle, {
+                  borderColor: "var(--ho-line)",
+                  color: "var(--ho-text-dim)",
+                }),
+                disabled: busy === approval.id,
+                onClick: function () { decide(approval, false); },
+              }, "refuse"),
+              React.createElement("span", {
+                className: "ho-muted",
+                style: { fontSize: "10.5px", alignSelf: "center" },
+              }, "asked by " + approval.requesting_agent),
+            ),
+          );
+        }),
+        note
+          ? React.createElement("span", {
+              className: cn("ho-badge", note.ok ? "good" : "dim"),
+              style: { alignSelf: "flex-start", textTransform: "none" },
+            }, note.text)
+          : null,
+      );
+    }
+
+    return React.createElement(Panel, {
+      title: "Security — awaiting you",
+      right: React.createElement(LinkBadge, { error: error, latencyMs: latencyMs }),
+    }, body);
+  }
+
   function LaunchPanel(props) {
     const { data: projects } = useBackendResource("/projects", props.reloadKey);
     const [projectName, setProjectName] = useState("");
@@ -540,6 +642,7 @@
     return React.createElement("div", { className: "ho-crt" },
       React.createElement(Header, null),
       React.createElement("div", { className: "ho-grid" },
+        React.createElement(SecurityPanel, { reloadKey: reloadKey, onChanged: onChanged }),
         React.createElement(SystemPanel, { reloadKey: reloadKey }),
         React.createElement(LaunchPanel, { reloadKey: reloadKey, onChanged: onChanged }),
         React.createElement(ProjectsPanel, { reloadKey: reloadKey }),

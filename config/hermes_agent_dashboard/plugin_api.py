@@ -143,6 +143,31 @@ class TaskCreate(BaseModel):
     project_id: str | None = None
 
 
+@router.get("/approvals")
+async def approvals(status: str | None = None):
+    """Actions Aegis refused, awaiting a human decision (§23 security
+    view). Read-only; the decision itself is the POST below."""
+    suffix = f"?status={status}" if status else ""
+    return _get_json(f"/security/approvals{suffix}")
+
+
+class ApprovalDecision(BaseModel):
+    approved: bool
+
+
+@router.post("/approvals/{approval_id}")
+async def decide_approval(approval_id: str, body: ApprovalDecision):
+    """Relay a human yes/no on one queued action.
+
+    This is the one write route here that carries real authority — it is
+    how a person's answer reaches Aegis. It stays safe for the same
+    reasons the backend does: the approval is single-use, expires, is
+    bound to one exact action, and can never unlock a hard denial. This
+    route adds no permission of its own; it only relays.
+    """
+    return _post_json(f"/security/approvals/{approval_id}", body.model_dump())
+
+
 @router.post("/projects")
 async def create_project(body: ProjectCreate):
     return _post_json("/projects", body.model_dump())

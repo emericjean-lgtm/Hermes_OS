@@ -343,3 +343,19 @@ def test_full_rest_round_trip(client, tmp_path):
 
     assert decided["status"] == "approved"
     assert decided["expires_at"] is not None  # consent is time-limited
+
+
+def test_a_refusal_is_per_attempt_not_permanent(session):
+    """Documented consequence: refusing records the decision but does not
+    permanently block. A later retry queues a fresh ask, because "no, not
+    now" must not silently become an unrevokable "never"."""
+    entry = _record(session)
+    approvals.decide(session, entry.id, approved=False)
+
+    again = _record(session)
+
+    assert again.id != entry.id
+    assert again.status == ApprovalStatus.PENDING
+    # The earlier decision is still on record beside it.
+    statuses = {a.status for a in approvals.list_approvals(session)}
+    assert statuses == {ApprovalStatus.PENDING, ApprovalStatus.REFUSED}
