@@ -43,7 +43,7 @@ lisibilité et non par la raison invoquée à l'époque.
 | **Absent** | §12 résumé de contexte · §24.2 WebSocket |
 | **Écart assumé, à documenter** | §4.1 stack (LangChain, Watchdog, keyring, Telegram) · §23 interface |
 | **Non vérifié** | §25 installation |
-| **Mesuré en échec** | §22.1 latences — T3 à 3-7× le budget (voir §3.2.1) |
+| **Mesuré** | §22.1 latences — T1 passe ; **T3 en échec**, cause diagnostiquée (§3.2.2), correctif à arbitrer |
 
 Le projet couvre la majeure partie du corps normatif. Le seul manque qui
 cassait un critère d'acceptation explicite (T8, snapshots) a été comblé
@@ -85,8 +85,8 @@ critère du §28.
 | T12 secret ciblé → validation | ⚠️ partiel | `secret_modification` est en validation obligatoire ; `audit_log.redact()` couvre désormais la détection sur ce qui est journalisé, mais il n'y a toujours pas de `secret_scanner` sur les fichiers |
 | **T8 reprise après interruption** | ✅ | `snapshot_manager` — vérifié en réel le 2026-07-26 |
 | **T11 3 tentatives + backoff** | ✅ | `ollama_client.py` — vérifié en réel contre un port fermé |
-| T1 premier token < 1 s | ❌ | Mesurable depuis le §18. Non testé sur Tier 1 ; Tier 2 est déjà 3-7× hors budget |
-| T3 réutilisation du modèle chargé | ❌ | Mesuré : 9,5 à 20,9 s au premier token **modèle déjà en VRAM** (budget 3 s) — §3.2.1 |
+| T1 premier token < 1 s | ✅ | Mesuré via Hermes : `qwen3:1.7b` à 766 et 978 ms, raisonnement activé |
+| T3 réutilisation du modèle chargé | ❌ | La réutilisation *fonctionne* (§10.3 vérifié) ; c'est la latence Tier 2 qui échoue : 4,2 s au premier token de contenu contre 3 s de budget, à cause du raisonnement — §3.2.2 |
 | T5 recherche < 500 ms | ⏳ | Non mesuré |
 
 ---
@@ -165,14 +165,44 @@ budget **< 3 s au premier token**), modèle **déjà chargé** en VRAM :
 
 **T3 est en échec, pas « non vérifié » : 3 à 7× le budget.** Le débit
 (~68 t/s) est bon ; la latence est presque intégralement du
-time-to-first-token. Deux causes plausibles, **non départagées** :
+time-to-first-token.
 
-1. `qwen3.5:9b` est un modèle à raisonnement — il peut consommer tout son
-   temps dans `message.thinking`, que `chat_stream` ne yield pas. Le
-   « premier token » mesuré est donc le premier token *de contenu*,
-   après la phase de raisonnement.
-2. Le routage envoie une question triviale au Tier 2 alors que
-   Hermes Swift (Tier 1) devrait la traiter.
+### 3.2.2 Diagnostic — la cause est la phase de raisonnement, pas le tier
+
+Mesuré **directement contre Ollama**, sans passer par Hermes, pour que le
+routeur ne soit pas une variable. Modèle préchauffé, ordres entrelacés
+(le premier essai plaçait `think=False` en dernier, donc sur le modèle le
+plus chaud — biais corrigé). `qwen3.5:9b`, même prompt :
+
+| configuration | 1er token (tout) | 1er token de **contenu** | raisonnement |
+|---|---|---|---|
+| `think=False` | 675 ms | **675 ms** | 0 car |
+| `think=True` | 657 ms | **4 223 ms** | 943 car |
+| `think=False` (2) | 705 ms | **705 ms** | 0 car |
+| non précisé (défaut Hermes) | 633 ms | **4 405 ms** | 936 car |
+| `think=False` (3) | 697 ms | **697 ms** | 0 car |
+
+**Le premier token arrive en ~660 ms dans tous les cas.** L'écart est
+intégralement la phase de raisonnement qui précède le contenu :
+`chat_stream` ne yield que `message.content`, donc l'utilisateur ne voit
+rien pendant ~3,5 s. Sans raisonnement, ~690 ms — soit **6× mieux et très
+largement dans le budget de 3 s**.
+
+Cause secondaire confirmée : le chargement à froid coûte ~6,4 s, et le
+rôle `standard` n'est pas `always_loaded`. Combiné au raisonnement, c'est
+ce qui produisait les 9,5 à 20,9 s du tableau précédent.
+
+**L'hypothèse « mauvais tier » est écartée.** Mesuré en conditions
+réelles via Hermes, `qwen3:1.7b` (Tier 1, budget 1 s) répond en 766 et
+978 ms au premier token de contenu, raisonnement activé : **T1 passe**.
+Le routeur avait d'ailleurs correctement privilégié le modèle résident
+(§10.3).
+
+Le correctif n'est pas mécanique : désactiver le raisonnement rend le
+modèle plus rapide *et moins bon*, alors que c'est précisément pour ses
+gains en raisonnement que `qwen3.5:9b` a été choisi. Arbitrage à faire
+(par rôle, par `task_type`, ou en streamant le raisonnement à
+l'affichage) — **non tranché.**
 
 Constat associé : une requête a produit **0 token en 59,7 s** tout en
 étant enregistrée `result: "success"`. Corrigé — un flux sans token est
@@ -270,11 +300,14 @@ principe directeur du document.
    et il débloquerait la mesure des latences du §22.1 (T1, T3, T5),
    aujourd'hui invérifiables faute d'instrumentation. *Il l'a fait, et le
    verdict n'est pas celui qu'on espérait : voir §3.2.1.*
-4. **Latence du premier token (§22.1, T1/T3)** — **passe en tête.** Ce
-   n'est plus une case à cocher mais un écart mesuré de 3 à 7×. Première
-   étape : un *diagnostic*, pas un correctif — départager la phase de
-   raisonnement du modèle et le choix de tier fait par le routeur, en
-   comparant `qwen3.5:9b` avec et sans `think`, puis contre le Tier 1.
+4. **Latence du premier token (§22.1, T3)** — **diagnostic fait le
+   2026-07-26** (§3.2.2) : la cause est la phase de raisonnement, pas le
+   tier. Reste un *arbitrage produit*, pas une correction technique —
+   désactiver `think` par rôle ou par `task_type` gagne 6× en latence
+   mais dégrade la qualité de raisonnement, qui est la raison même du
+   choix de `qwen3.5:9b`. Une troisième voie existe : streamer le
+   raisonnement à l'affichage, ce qui supprime le silence perçu sans rien
+   sacrifier. **À trancher avant de coder.**
 5. **WebSocket (§24.2)** — nécessaire à la statusbar temps réel.
 6. **`secret_scanner` (§17.1)** — le socle existe : `audit_log.redact()`
    couvre déjà la détection par motifs sur ce qui est journalisé. Reste à
