@@ -5,7 +5,7 @@
 le document normatif versionné dans ce dépôt, lu intégralement
 (1 195 lignes) avant toute conclusion.
 **Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`,
-631 tests au vert.
+643 tests au vert.
 
 ---
 
@@ -83,7 +83,7 @@ critère du §28.
 | T9 lint + tests après modification | ✅ | Depuis le 2026-07-25 (§16) |
 | T12 secret ciblé → validation | ⚠️ partiel | `secret_modification` est en validation obligatoire, mais **aucun `secret_scanner`** ne détecte un secret ailleurs |
 | **T8 reprise après interruption** | ✅ | `snapshot_manager` — vérifié en réel le 2026-07-26 |
-| **T11 3 tentatives + backoff** | ❌ | **Aucun retry** dans `ollama_client.py` |
+| **T11 3 tentatives + backoff** | ✅ | `ollama_client.py` — vérifié en réel contre un port fermé |
 | T1 premier token < 1 s | ⏳ | Non mesuré |
 | T3 réutilisation du modèle chargé | ⏳ | Logique présente, non mesurée en conditions réelles |
 | T5 recherche < 500 ms | ⏳ | Non mesuré |
@@ -163,11 +163,30 @@ L'arborescence §8.1 le prévoit, le §17.1 exige que les secrets
 n'apparaissent jamais en clair dans les logs. **Absent.** La protection
 repose aujourd'hui sur le fait que peu de choses sont journalisées.
 
-### 3.6 §19.1 — Robustesse Ollama
+### 3.6 §19.1 — Robustesse Ollama — FAIT le 2026-07-26
 
-« Ollama indisponible : attendre, retenter 3 fois (backoff), puis
-notifier » (T11). `ollama_client.py` **ne réessaie pas** : une requête
-échoue directement.
+`ollama_client.py` retente désormais trois fois avec backoff exponentiel
+borné (0,5 s puis 1 s, plafonné à 4 s) et lève un `OllamaUnavailableError`
+nommé — pas une erreur httpx brute — pour qu'un appelant distingue
+« le serveur d'inférence est mort » de « le modèle a refusé la requête ».
+Seule la première mérite d'être retentée.
+
+**Ce qui n'est délibérément pas retenté :**
+
+- **Un flux déjà commencé.** `chat_stream` est un générateur : si la
+  connexion tombe après le premier token, l'appelant l'a déjà. Relancer
+  la requête *dupliquerait* la réponse — pire qu'un échec propre. Un
+  verrou `started` rend cette garantie explicite, et le message
+  correspondant dit pourquoi. Tester ce cas a demandé un flux qui *lève*
+  en cours d'itération : un corps simplement tronqué se termine
+  proprement et n'aurait rien prouvé.
+- **Une erreur HTTP.** Un 404 sur un modèle absent répondra identiquement
+  trois fois ; retenter ne ferait que retarder l'erreur et masquer sa
+  cause derrière « 3 tentatives échouées ».
+
+**T11 vérifié en réel** contre un port fermé : trois tentatives, échec en
+7,7 s, message nommant l'URL, le nombre de tentatives et `ollama ps`.
+Génération réelle contrôlée après coup — aucune régression. 12 tests.
 
 ### 3.7 Manques mineurs
 
@@ -210,10 +229,11 @@ principe directeur du document.
 ## 6. Ordre de traitement recommandé
 
 1. ~~**`snapshot_manager` (§19.3)**~~ — **fait le 2026-07-26**, T8 vérifié.
-2. **Retry Ollama avec backoff (§19.1, T11)** — *prochaine étape.* — quelques lignes, effet
+2. ~~**Retry Ollama avec backoff (§19.1, T11)**~~ — **fait le 2026-07-26.** — quelques lignes, effet
    direct sur la fiabilité quotidienne.
-3. **Log d'audit §18** — le format est déjà spécifié ; il débloquerait
-   aussi la mesure des latences du §22.1, aujourd'hui invérifiables.
+3. **Log d'audit §18** — *prochaine étape.* Le format est déjà spécifié,
+   et il débloquerait la mesure des latences du §22.1 (T1, T3, T5),
+   aujourd'hui invérifiables faute d'instrumentation.
 4. **WebSocket (§24.2)** — nécessaire à la statusbar temps réel.
 5. **`secret_scanner` (§17.1)** — à cadrer : détection par motifs, ou
    redaction à l'écriture des logs.

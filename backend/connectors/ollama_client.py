@@ -6,11 +6,56 @@ touching any of the callers. Nothing here hardcodes a model name.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
 import httpx
+
+# Retried on: Ollama not listening, dropped connection, timeout (§19.1,
+# acceptance criterion T11). Deliberately NOT retried: httpx.HTTPStatusError.
+# A 404 for a missing model or a 400 for a malformed request will return
+# exactly the same answer three times — retrying only delays a clear
+# error and hides its cause behind "3 attempts failed".
+_CONNECTION_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout,
+                      httpx.RemoteProtocolError, httpx.PoolTimeout)
+
+DEFAULT_MAX_ATTEMPTS = 3
+_BACKOFF_BASE_SECONDS = 0.5
+
+
+def _backoff_delay(attempt: int) -> float:
+    """0.5s, then 1s — exponential, capped. Ollama loading a model is the
+    common cause of an early refusal, and that resolves in seconds; a
+    longer wait would just stall a user who would rather see the error."""
+    return min(_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), 4.0)
+
+
+def _unavailable_message(base_url: str, attempts: int, exc: Exception, *,
+                         mid_stream: bool = False) -> str:
+    """§19.1 asks for a clear notification, not a bare traceback."""
+    if mid_stream:
+        return (
+            f"Ollama connection lost mid-response ({type(exc).__name__}: {exc}). "
+            "Not retried on purpose: part of the answer was already delivered, "
+            "and repeating the request would duplicate it. Re-ask to get a "
+            "complete answer."
+        )
+    return (
+        f"Ollama unreachable at {base_url} after {attempts} attempt(s) "
+        f"({type(exc).__name__}: {exc}). Check that it is running — "
+        "`ollama ps` should answer, and the service listens on port 11434."
+    )
+
+
+class OllamaUnavailableError(RuntimeError):
+    """Ollama could not be reached, after the configured retries.
+
+    A named type rather than a bare httpx error so callers can tell "the
+    inference server is down" from "the model refused the request" — the
+    two need different reactions, and only the first is worth retrying.
+    """
 
 
 class OllamaClientProtocol(Protocol):
@@ -42,6 +87,7 @@ class OllamaClient:
         keep_alive: str = "10m",
         timeout: float = 120.0,
         always_loaded_models: set[str] | None = None,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     ) -> None:
         """`always_loaded_models` holds the Ollama tags that should never be
         evicted for idleness — config/models.yaml's `always_loaded: true`
@@ -51,6 +97,7 @@ class OllamaClient:
         self._base_url = base_url.rstrip("/")
         self._keep_alive = keep_alive
         self._always_loaded = always_loaded_models or set()
+        self._max_attempts = max(1, max_attempts)
         self._client = httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
 
     def _keep_alive_for(self, model: str) -> Any:
@@ -95,27 +142,62 @@ class OllamaClient:
         if think is not None:
             payload["think"] = think
 
-        async with self._client.stream("POST", "/api/chat", json=payload) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line.strip():
-                    continue
-                chunk = json.loads(line)
-                if chunk.get("done"):
-                    break
-                content = chunk.get("message", {}).get("content", "")
-                if content:
-                    yield content
+        # The retry wraps only the *connection*, never the stream. Once a
+        # token has been yielded the caller has it, and re-running the
+        # request would emit those tokens a second time — a duplicated
+        # answer is worse than a clean failure. `started` is the latch
+        # that makes that guarantee explicit rather than incidental.
+        started = False
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                async with self._client.stream("POST", "/api/chat", json=payload) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        chunk = json.loads(line)
+                        if chunk.get("done"):
+                            return
+                        content = chunk.get("message", {}).get("content", "")
+                        if content:
+                            started = True
+                            yield content
+                return
+            except _CONNECTION_ERRORS as exc:
+                if started or attempt >= self._max_attempts:
+                    raise OllamaUnavailableError(_unavailable_message(
+                        self._base_url, attempt, exc, mid_stream=started
+                    )) from exc
+                await asyncio.sleep(_backoff_delay(attempt))
+
+    async def _get_json_with_retry(self, path: str) -> dict[str, Any]:
+        """GET a small JSON endpoint, retrying connection failures.
+
+        Safe to retry wholesale, unlike chat_stream: these return one
+        response with no partial output a caller could already have acted
+        on.
+        """
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                response = await self._client.get(path)
+                response.raise_for_status()
+                return response.json()
+            except _CONNECTION_ERRORS as exc:
+                if attempt >= self._max_attempts:
+                    raise OllamaUnavailableError(
+                        _unavailable_message(self._base_url, attempt, exc)
+                    ) from exc
+                await asyncio.sleep(_backoff_delay(attempt))
 
     async def list_running_models(self) -> list[dict[str, Any]]:
-        response = await self._client.get("/api/ps")
-        response.raise_for_status()
-        return response.json().get("models", [])
+        return (await self._get_json_with_retry("/api/ps")).get("models", [])
 
     async def list_local_models(self) -> list[dict[str, Any]]:
-        response = await self._client.get("/api/tags")
-        response.raise_for_status()
-        return response.json().get("models", [])
+        return (await self._get_json_with_retry("/api/tags")).get("models", [])
 
     async def aclose(self) -> None:
         await self._client.aclose()
