@@ -19,9 +19,9 @@ d'un commentaire.
 | **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
 | **Conforme après correction (cette passe)** | §22 optimisation VRAM |
 | **Vocabulaire tranché et appliqué** (cette passe) | §17 « HSE » → moteur Aegis + auto-évolution, §6 Atlas/Swift/Sentinel |
-| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation, §12 mémoire projet, §16 vérification |
+| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation, §12 mémoire projet, §16 vérification, §8 chaîne de développement |
 | **Partiel** | §23 interface |
-| **Absent** | §8 workflow de développement complet (le chaînon §16 existe, reste à le câbler) |
+| **Absent** | *(plus aucun manque de code — voir §6 pour ce qui reste)* |
 
 L'écart le plus coûteux n'était pas une fonctionnalité manquante : c'était
 le **glissement de vocabulaire** entre le cahier des charges et le code.
@@ -328,11 +328,25 @@ relevée **en mémoire seulement**, une suite jetable est réellement
 exécutée et rapporte `1 failed, 1 passed` — `config/security.yaml` reste
 à `low`. 18 tests ajoutés.
 
-**Conséquence pour le §8 et le workflow `new-app`.** Le chaînon manquant
-existe désormais : un nœud `verification_run` peut être ajouté après
-`save_code`. Le workflow livré ne l'utilise pas encore — l'ajouter
-demande de décider quel runner convient au projet généré, ce qui dépend
-de la stack choisie.
+**§8 refermé, et le §6 enfin exploité.** `new-app` a été étendu : il
+génère désormais aussi une suite de tests (`scaffold_tests`), l'écrit
+derrière un troisième portail humain (`save_tests`), puis l'exécute
+réellement (`verify`, runner `pytest`). La chaîne « Compilation → Tests »
+du §8 est donc complète.
+
+Deux effets notables :
+
+- **Le workflow a maintenant de vraies vagues parallèles**, alors
+  qu'aucun n'en avait : `review_code` et `scaffold_tests` ne dépendent
+  tous deux que de `scaffold`, et `save_code`/`save_tests` se présentent
+  ensemble — soit une seule ronde d'approbation pour les deux écritures
+  au lieu de deux successives. Vérifié par `simulate` : vagues 5 et 6.
+- **L'arête `verify → backlog` est `always`, pas `on_success`.** Une
+  vérification refusée ou en échec est précisément ce que la tâche de
+  backlog doit consigner. Au niveau d'autonomie livré, `verify` renvoie
+  `ran: false` ; le rapport doit le dire tel quel plutôt que de laisser
+  croire que le code est vérifié — c'est écrit dans le brief du nœud
+  `report`.
 
 ### 5.3 §13 Base documentaire — RÉSOLU le 2026-07-25 (sauf OCR)
 
