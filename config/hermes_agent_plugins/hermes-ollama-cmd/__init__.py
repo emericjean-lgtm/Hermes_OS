@@ -13,6 +13,18 @@ The approval commands matter most on a phone. With the shipped
 now the only place to answer was the dashboard. `/attente` and `/ok` put
 that within reach of the device you actually have on you.
 
+**Deployment trap, learned the hard way.** These commands reach the
+backend through `ctx.dispatch_tool`, which can only call MCP tools the
+server actually exposes. This install filters that surface down with
+`mcp_servers.hermes-ollama.tools.include` in ~/.hermes/config.yaml (to
+stay under the ~30-tool count above which local models stop calling tools
+at all — see README.md's "Telegram gateway" section). Adding an MCP tool
+is therefore **not enough**: it must also be listed in `include`, or
+`dispatch_tool` finds nothing and the command answers with a perfectly
+honest empty result. `/attente` shipped broken for exactly this reason.
+Every tool named below must appear in that list:
+`tasks_create`, `approvals_list`, `approvals_decide`.
+
 **Index stability is load-bearing here.** `/attente` numbers the queue
 oldest-first, not newest-first, on purpose: a refusal arriving between
 listing and answering then appends at the end instead of shifting every
