@@ -58,6 +58,22 @@ def read_file(aegis: AegisAgent, path: str, *, project_id: str | None = None) ->
     return target.read_text(encoding="utf-8")
 
 
+def read_bytes(aegis: AegisAgent, path: str, *, project_id: str | None = None) -> bytes:
+    """Same `file_read` gate as read_file, but returns raw bytes.
+
+    Needed by document ingestion (§13): PDF and DOCX are binary, so
+    read_file's read_text() would raise UnicodeDecodeError on them. This
+    is a second reader, not a second *gate* — the Aegis check below is the
+    identical call read_file makes, so ALLOWED_PATHS and the autonomy
+    level apply exactly the same way.
+    """
+    _check(aegis, "file_read", path, f"Read {path} (binary)", project_id=project_id)
+    target = Path(path)
+    if not target.exists():
+        raise FileNotFoundError(f"No such file: {path}")
+    return target.read_bytes()
+
+
 def list_directory(aegis: AegisAgent, path: str, *, project_id: str | None = None) -> list[str]:
     _check(aegis, "file_read", path, f"List {path}", project_id=project_id)
     target = Path(path)

@@ -32,6 +32,7 @@ so anything that needs a fresh app per call — tests, mainly — needs a
 fresh FastMCP too. A decorator bound at import time can't give you that.
 """
 from collections.abc import Callable
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
@@ -46,6 +47,7 @@ from backend.agents.veritas import VeritasAgent
 from backend.core.agent_registry import get_agent_registry
 from backend.core.config import get_settings, load_models_config
 from backend.core.message_bus import get_message_bus
+from backend.documents.extractor import extract_text
 from backend.memory.episodic import MemoryEntry
 from backend.memory.skill_library import Skill, status_for
 from backend.monitoring.gpu_monitor import get_gpu_monitor
@@ -284,6 +286,50 @@ def memory_search(query: str, n_results: int = 5, project_id: str | None = None)
     """Semantic search over indexed documents, optionally scoped to a
     project. Requires a live Ollama server for embeddings."""
     return _echo().recall(query, n_results=n_results, project_id=project_id)
+
+
+def documents_index(
+    path: str,
+    doc_id: str | None = None,
+    metadata: dict | None = None,
+    project_id: str | None = None,
+) -> dict:
+    """Index a document *file* into the RAG store: read it (Aegis-gated),
+    extract its text, chunk, embed. Handles .pdf, .docx, and the plain-text
+    family (.md, .txt, .json, .yaml, source code...). Images are refused —
+    use analyze_image for those. Unlike memory_index, which needs text you
+    have already extracted, this takes a path and does the extraction
+    itself. Requires a live Ollama server for embeddings."""
+    data = file_tools.read_bytes(_aegis(), path, project_id=project_id)
+    extracted = extract_text(path, data=data)
+
+    if not extracted.text.strip():
+        # Indexing nothing would create a document that can never match a
+        # query, and hide the reason (usually a scanned PDF) in a chunk
+        # count of zero.
+        return {
+            "indexed": False,
+            "chunks": 0,
+            "format": extracted.format,
+            "units": extracted.units,
+            "warnings": list(extracted.warnings),
+            "reason": "no extractable text",
+        }
+
+    chunks = _echo().index_document(
+        doc_id or Path(path).name,
+        extracted.text,
+        {**(metadata or {}), "source_path": path, "format": extracted.format},
+        project_id=project_id,
+    )
+    return {
+        "indexed": True,
+        "chunks": chunks,
+        "format": extracted.format,
+        "units": extracted.units,
+        "warnings": list(extracted.warnings),
+        "characters": len(extracted.text),
+    }
 
 
 # ── Minerva: research/RAG ─────────────────────────────────────────────
@@ -731,6 +777,7 @@ _ALL_TOOLS = [
     memory_forget,
     memory_index,
     memory_search,
+    documents_index,
     research_query,
     verify_output,
     write_document,

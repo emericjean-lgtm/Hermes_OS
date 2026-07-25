@@ -34,6 +34,18 @@ chromadb>=0.5
 # (or any other MCP client) to call. Official Anthropic SDK.
 mcp>=1.0
 
+# Document ingestion (§13) — the front end of the documentary workflow.
+# Both are pure Python (no system binary, unlike an OCR stack) and both
+# are imported lazily inside their extractor, so an install without them
+# still handles the plain-text family and fails on PDF/DOCX with an
+# actionable message rather than at import time.
+# Deliberately NOT added: pytesseract/Pillow for OCR. This project already
+# has a vision model (gemma4, via analyze_image) that reads diagrams and
+# screenshots, not just glyphs — a better answer here than a tesseract
+# system dependency.
+pypdf>=5.0
+python-docx>=1.1
+
 # Testing
 pytest==8.3.2
 pytest-asyncio==0.24.0

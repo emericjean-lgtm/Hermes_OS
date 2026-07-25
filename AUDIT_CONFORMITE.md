@@ -1,7 +1,7 @@
 # Audit de conformité — Hermes Ollama vs cahier des charges condensé
 
 **Date :** 2026-07-25
-**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 378 tests au vert
+**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 408 tests au vert
 **Référence :** cahier des charges condensé (30 sections), à lire avec
 `CAHIER_DES_CHARGES_HERMES_OLLAMA.md` (version longue historique)
 
@@ -19,7 +19,8 @@ d'un commentaire.
 | **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
 | **Conforme après correction (cette passe)** | §22 optimisation VRAM |
 | **Vocabulaire tranché et appliqué** (cette passe) | §17 « HSE » → moteur Aegis + auto-évolution, §6 Atlas/Swift/Sentinel |
-| **Partiel** | §6 Kronos (pas de parallélisation), §12 mémoire, §13 base documentaire, §23 interface |
+| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR, voir §5.3) |
+| **Partiel** | §6 Kronos (pas de parallélisation), §12 mémoire, §23 interface |
 | **Absent** | §14 Git, §16 vérification (lint/build/tests), §8 workflow de développement complet |
 
 L'écart le plus coûteux n'était pas une fonctionnalité manquante : c'était
@@ -211,13 +212,43 @@ Point de vigilance : ajouter l'exécution de code est le changement le plus
 sensible du lot. Il doit passer par Aegis avec `mandatory_validation`, pas
 être branché directement.
 
-### 5.3 §13 Base documentaire — moitié présente
+### 5.3 §13 Base documentaire — RÉSOLU le 2026-07-25 (sauf OCR)
 
-`memory_index(doc_id, text, ...)` prend du **texte déjà extrait**. Le
-découpage, les embeddings, l'indexation et la recherche sémantique
-fonctionnent. Il manque toute la couche d'entrée : PDF, DOCX, OCR,
-images. Le §9 (« Import → OCR → Découpage → Embeddings ») s'arrête donc à
-mi-parcours.
+**Était :** `memory_index(doc_id, text, ...)` ne prenait que du texte
+**déjà extrait**. Toute la couche d'entrée manquait, donc le §9
+(« Import → Découpage → Embeddings ») s'arrêtait à son premier mot.
+
+**Ajouté :** `backend/documents/extractor.py` + l'outil MCP
+`documents_index` + les routes `POST /documents/index` et
+`GET /documents/formats`. On passe désormais un **chemin de fichier** ;
+lecture (sous Aegis), extraction, découpage, embeddings et indexation
+s'enchaînent.
+
+Formats couverts : `.pdf`, `.docx`, et toute la famille texte (`.md`,
+`.txt`, `.json`, `.yaml`, `.csv`, plus une trentaine d'extensions de
+code). Deux dépendances pures Python ajoutées (`pypdf`, `python-docx`),
+importées **paresseusement** : sans elles, la famille texte fonctionne
+toujours et PDF/DOCX échouent avec un message d'installation, au lieu de
+casser l'import de tout le module.
+
+Codes d'erreur volontairement distincts, parce qu'ils appellent des
+réactions différentes : `403` (Aegis refuse), `404` (fichier absent),
+`415` (format jamais supporté), `501` (format supporté, bibliothèque
+manquante), et un `indexed: false` explicite avec `reason` quand un PDF
+scanné ne contient aucune couche de texte — plutôt que d'indexer un
+document vide qui ne matcherait jamais.
+
+Vérifié en réel : le cahier des charges long (59 305 caractères) indexé en
+19 chunks, retrouvé ensuite par recherche sémantique avec son
+`source_path` ; un chemin hors `ALLOWED_PATHS` refusé en `403`. 30 tests
+ajoutés (408 au total).
+
+**Reste non fait — l'OCR.** Les images sont refusées avec un renvoi
+explicite vers `analyze_image` : ce projet a déjà un modèle de vision
+(gemma4) qui lit des schémas et des captures d'écran, pas seulement des
+glyphes. Ajouter une pile tesseract serait une dépendance système plus
+lourde pour un résultat plus étroit. À reconsidérer seulement si des PDF
+scannés en volume deviennent un vrai besoin.
 
 ### 5.4 §6 Kronos — pas de parallélisation
 
@@ -249,10 +280,11 @@ n'existe que comme entrées mémoire scopées par `project_id`.
    « HSE » retiré, rôles d'agents actés. Reste à répercuter dans le
    cahier des charges lui-même (§6 et §17), qui est le document de
    l'utilisateur, pas du dépôt.
-2. **Ingestion documentaire** (§13) — valeur immédiate, risque faible,
-   aucune interaction avec la sécurité. **Prochaine étape recommandée.**
+2. ~~**Ingestion documentaire** (§13)~~ — **fait le 2026-07-25.** PDF,
+   DOCX et famille texte ingérables par chemin, sous Aegis. OCR écarté
+   au profit du modèle de vision déjà présent (voir §5.3).
 3. **Module Git** (§14) — valeur élevée ; à cadrer (lecture seule d'abord,
-   écriture derrière Aegis ensuite).
+   écriture derrière Aegis ensuite). **Prochaine étape recommandée.**
 4. **Parallélisation des workflows** (§6) — gain de performance, périmètre
    contenu au moteur.
 5. **Exécution de code** (§16) — le plus utile *et* le plus risqué.

@@ -47,6 +47,7 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "memory_forget",
         "memory_index",
         "memory_search",
+        "documents_index",
         "research_query",
         "verify_output",
         "write_document",

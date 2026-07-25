@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.routes import (
     chat,
     classify,
+    documents,
     evolution,
     files,
     memory,
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(workflows.router)
     app.include_router(projects.router)
     app.include_router(skills.router)
+    app.include_router(documents.router)
     app.include_router(evolution.router)
     app.mount("/mcp", mcp_asgi_app)
 
