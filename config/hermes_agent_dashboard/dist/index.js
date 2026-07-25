@@ -166,7 +166,10 @@
   // ---------------------------------------------------------------------
   // Data + real link-latency measurement
   // ---------------------------------------------------------------------
-  function useBackendResource(path) {
+  // `reloadKey` is a plain counter bumped by the Launch panel after a
+  // successful create — re-running the effect is how a freshly created
+  // project/task shows up without a page reload.
+  function useBackendResource(path, reloadKey) {
     const [data, setData] = useState(null);
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -194,9 +197,17 @@
           if (!cancelled) { setLoading(false); }
         });
       return function () { cancelled = true; };
-    }, []);
+    }, [path, reloadKey]);
 
     return { data: data, error: error, loading: loading, latencyMs: latencyMs };
+  }
+
+  function postJSON(path, body) {
+    return SDK.fetchJSON(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
   }
 
   function Corners() {
@@ -257,8 +268,8 @@
   // ---------------------------------------------------------------------
   // Panels — every field below maps 1:1 to a real backend value.
   // ---------------------------------------------------------------------
-  function SystemPanel() {
-    const { data, error, loading, latencyMs } = useBackendResource("/system-status");
+  function SystemPanel(props) {
+    const { data, error, loading, latencyMs } = useBackendResource("/system-status", props.reloadKey);
     let body;
     if (loading) { body = ErrorNote("Reading system status…"); }
     else if (error) { body = ErrorNote("Backend unreachable: " + error); }
@@ -291,8 +302,8 @@
     return React.createElement(Panel, { title: "System", right: React.createElement(LinkBadge, { error: error, latencyMs: latencyMs }) }, body);
   }
 
-  function ProjectsPanel() {
-    const { data, error, loading, latencyMs } = useBackendResource("/projects");
+  function ProjectsPanel(props) {
+    const { data, error, loading, latencyMs } = useBackendResource("/projects", props.reloadKey);
     let body;
     if (loading) { body = ErrorNote("Reading projects…"); }
     else if (error) { body = ErrorNote("Backend unreachable: " + error); }
@@ -310,8 +321,8 @@
     return React.createElement(Panel, { title: "Projects", right: React.createElement(LinkBadge, { error: error, latencyMs: latencyMs }) }, body);
   }
 
-  function TasksPanel() {
-    const { data, error, loading, latencyMs } = useBackendResource("/tasks");
+  function TasksPanel(props) {
+    const { data, error, loading, latencyMs } = useBackendResource("/tasks", props.reloadKey);
     let body;
     if (loading) { body = ErrorNote("Reading tasks…"); }
     else if (error) { body = ErrorNote("Backend unreachable: " + error); }
@@ -319,20 +330,31 @@
       const counts = {};
       data.forEach(function (task) { counts[task.status] = (counts[task.status] || 0) + 1; });
       const statuses = Object.keys(counts);
+      // Newest first, so a task just created (from /tache, the REST API, or
+      // an agent) is visible at a glance without scrolling.
+      const recent = data.slice().sort(function (a, b) {
+        return String(b.created_at).localeCompare(String(a.created_at));
+      });
       body = statuses.length === 0
         ? ErrorNote("No tasks yet.")
         : React.createElement("div", { className: "flex flex-col" },
-            statuses.map(function (status) {
-              return React.createElement(Row, { key: status, label: status, value: counts[status] });
+            recent.map(function (task) {
+              return React.createElement("div", { key: task.id, className: "ho-row" },
+                React.createElement("span", { className: "ho-value", title: task.description || task.title },
+                  task.title),
+                React.createElement("span", {
+                  className: cn("ho-badge", task.status === "done" ? "good" : task.status === "blocked" ? "bad" : "dim"),
+                }, task.status),
+              );
             }),
             React.createElement(Row, { label: "total", value: data.length }),
           );
     }
-    return React.createElement(Panel, { title: "Tasks", right: React.createElement(LinkBadge, { error: error, latencyMs: latencyMs }) }, body);
+    return React.createElement(Panel, { title: "Tasks (Kronos)", right: React.createElement(LinkBadge, { error: error, latencyMs: latencyMs }) }, body);
   }
 
-  function ProgressionPanel() {
-    const { data, error, loading, latencyMs } = useBackendResource("/progression");
+  function ProgressionPanel(props) {
+    const { data, error, loading, latencyMs } = useBackendResource("/progression", props.reloadKey);
     let body;
     if (loading) { body = ErrorNote("Reading HSE progression…"); }
     else if (error) { body = ErrorNote("Backend unreachable: " + error); }
@@ -350,6 +372,153 @@
     return React.createElement(Panel, { title: "Self-Evolution (HSE)", right: React.createElement(LinkBadge, { error: error, latencyMs: latencyMs }) }, body);
   }
 
+  function AgentActivityPanel(props) {
+    const { data, error, loading, latencyMs } = useBackendResource("/messages?limit=25", props.reloadKey);
+    let body;
+    if (loading) { body = ErrorNote("Reading agent bus…"); }
+    else if (error) { body = ErrorNote("Backend unreachable: " + error); }
+    else if (data.length === 0) { body = ErrorNote("No agent traffic yet."); }
+    else {
+      // The bus returns newest-first already; render from/to + message type,
+      // which is the whole point of this panel — the end state of a task
+      // never shows which agent escalated, validated, or refused what.
+      body = React.createElement("div", { className: "flex flex-col" },
+        data.map(function (msg) {
+          const isBad = msg.type === "ESCALATION" || msg.type === "REFUSAL";
+          const time = String(msg.timestamp || "").slice(11, 19);
+          return React.createElement("div", { key: msg.id, className: "ho-row" },
+            React.createElement("span", {
+              className: "ho-label",
+              title: JSON.stringify(msg.payload || {}, null, 2),
+            }, time + "  " + msg.from + " → " + msg.to),
+            React.createElement("span", {
+              className: cn("ho-badge", isBad ? "bad" : "dim"),
+            }, msg.type),
+          );
+        }),
+      );
+    }
+    return React.createElement(Panel, {
+      title: "Agent activity (bus)",
+      right: React.createElement(LinkBadge, { error: error, latencyMs: latencyMs }),
+    }, body);
+  }
+
+  function LaunchPanel(props) {
+    const { data: projects } = useBackendResource("/projects", props.reloadKey);
+    const [projectName, setProjectName] = useState("");
+    const [taskTitle, setTaskTitle] = useState("");
+    const [taskProject, setTaskProject] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [note, setNote] = useState(null);
+
+    function run(promise, okMessage) {
+      setBusy(true);
+      setNote(null);
+      promise
+        .then(function () {
+          setNote({ ok: true, text: okMessage });
+          props.onChanged();
+        })
+        .catch(function (err) {
+          setNote({ ok: false, text: String((err && err.message) || err) });
+        })
+        .finally(function () { setBusy(false); });
+    }
+
+    const inputStyle = {
+      background: "#1c1509",
+      border: "1px solid var(--ho-line)",
+      color: "var(--ho-text)",
+      font: "inherit",
+      fontSize: "12.5px",
+      padding: "4px 7px",
+      width: "100%",
+      outline: "none",
+    };
+    const buttonStyle = {
+      background: "transparent",
+      border: "1px solid var(--ho-amber-dim)",
+      color: "var(--ho-amber)",
+      font: "inherit",
+      fontSize: "11px",
+      letterSpacing: "0.08em",
+      textTransform: "uppercase",
+      padding: "3px 10px",
+      cursor: busy ? "wait" : "pointer",
+      whiteSpace: "nowrap",
+    };
+
+    const body = React.createElement("div", { className: "flex flex-col", style: { gap: "10px" } },
+      // --- create a project -------------------------------------------
+      React.createElement("div", { className: "flex flex-col", style: { gap: "4px" } },
+        React.createElement("span", { className: "ho-muted" }, "New project"),
+        React.createElement("div", { style: { display: "flex", gap: "6px" } },
+          React.createElement("input", {
+            style: inputStyle,
+            placeholder: "ex. Petite app de suivi",
+            value: projectName,
+            disabled: busy,
+            onChange: function (e) { setProjectName(e.target.value); },
+          }),
+          React.createElement("button", {
+            style: buttonStyle,
+            disabled: busy || !projectName.trim(),
+            onClick: function () {
+              const name = projectName.trim();
+              run(postJSON("/projects", { name: name }), "Project created: " + name);
+              setProjectName("");
+            },
+          }, "create"),
+        ),
+      ),
+      // --- create a task, optionally scoped to a project ---------------
+      React.createElement("div", { className: "flex flex-col", style: { gap: "4px" } },
+        React.createElement("span", { className: "ho-muted" }, "New task (Kronos)"),
+        React.createElement("input", {
+          style: inputStyle,
+          placeholder: "ex. Definir le schema de donnees",
+          value: taskTitle,
+          disabled: busy,
+          onChange: function (e) { setTaskTitle(e.target.value); },
+        }),
+        React.createElement("div", { style: { display: "flex", gap: "6px" } },
+          React.createElement("select", {
+            style: inputStyle,
+            value: taskProject,
+            disabled: busy,
+            onChange: function (e) { setTaskProject(e.target.value); },
+          },
+            React.createElement("option", { value: "" }, "(no project)"),
+            (projects || []).map(function (p) {
+              return React.createElement("option", { key: p.id, value: p.id }, p.name);
+            }),
+          ),
+          React.createElement("button", {
+            style: buttonStyle,
+            disabled: busy || !taskTitle.trim(),
+            onClick: function () {
+              const title = taskTitle.trim();
+              run(
+                postJSON("/tasks", { title: title, project_id: taskProject || null }),
+                "Task created: " + title,
+              );
+              setTaskTitle("");
+            },
+          }, "create"),
+        ),
+      ),
+      note
+        ? React.createElement("span", {
+            className: cn("ho-badge", note.ok ? "good" : "bad"),
+            style: { alignSelf: "flex-start", textTransform: "none" },
+          }, note.text)
+        : null,
+    );
+
+    return React.createElement(Panel, { title: "Launch" }, body);
+  }
+
   function Header() {
     const [now, setNow] = useState(new Date());
     useEffect(function () {
@@ -363,13 +532,20 @@
   }
 
   function HermesOllamaDashboard() {
+    // Single reload counter shared by every panel: creating a project or a
+    // task from the Launch panel bumps it, and each panel re-fetches.
+    const [reloadKey, setReloadKey] = useState(0);
+    function onChanged() { setReloadKey(function (k) { return k + 1; }); }
+
     return React.createElement("div", { className: "ho-crt" },
       React.createElement(Header, null),
       React.createElement("div", { className: "ho-grid" },
-        React.createElement(SystemPanel, null),
-        React.createElement(ProjectsPanel, null),
-        React.createElement(TasksPanel, null),
-        React.createElement(ProgressionPanel, null),
+        React.createElement(SystemPanel, { reloadKey: reloadKey }),
+        React.createElement(LaunchPanel, { reloadKey: reloadKey, onChanged: onChanged }),
+        React.createElement(ProjectsPanel, { reloadKey: reloadKey }),
+        React.createElement(TasksPanel, { reloadKey: reloadKey }),
+        React.createElement(ProgressionPanel, { reloadKey: reloadKey }),
+        React.createElement(AgentActivityPanel, { reloadKey: reloadKey }),
       ),
     );
   }
