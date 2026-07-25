@@ -8,134 +8,221 @@ thing the text describes. See README.md's "Telegram gateway" section for
 the full diagnostic trail. A slash command sidesteps the model's judgment
 entirely, one action at a time.
 
-The approval commands matter most on a phone. With the shipped
-`autonomy_level: low`, every mutating action waits for a human, and until
-now the only place to answer was the dashboard. `/attente` and `/ok` put
-that within reach of the device you actually have on you.
+The approval commands matter most on a phone. At the shipped
+`autonomy_level: low`, every mutating action waits for a human, and the
+dashboard is not always the device in your hand.
 
-**Deployment trap, learned the hard way.** These commands reach the
-backend through `ctx.dispatch_tool`, which can only call MCP tools the
-server actually exposes. This install filters that surface down with
-`mcp_servers.hermes-ollama.tools.include` in ~/.hermes/config.yaml (to
-stay under the ~30-tool count above which local models stop calling tools
-at all — see README.md's "Telegram gateway" section). Adding an MCP tool
-is therefore **not enough**: it must also be listed in `include`, or
-`dispatch_tool` finds nothing and the command answers with a perfectly
-honest empty result. `/attente` shipped broken for exactly this reason.
-Every tool named below must appear in that list:
-`tasks_create`, `approvals_list`, `approvals_decide`.
+**These talk HTTP to the backend, not MCP — deliberately.** The first
+version went through `ctx.dispatch_tool`, and that was backwards for two
+reasons:
 
-**Index stability is load-bearing here.** `/attente` numbers the queue
+  - The MCP surface is capped. `mcp_servers.hermes-ollama.tools.include`
+    keeps the tool count under ~30, above which local models stop calling
+    tools at all (measured; see README.md). Slash commands never involve
+    the model, so spending model-facing tool slots on them is exactly the
+    wrong trade — adding /projet and /verif that way would have reached
+    32 and re-broken natural-language tool use.
+  - It made a plain call fragile. dispatch_tool returns a JSON string,
+    and FastMCP serialises the same tool six different ways depending on
+    item count and transport; /attente shipped broken twice on that alone.
+
+Talking to the REST API directly removes both problems: one JSON shape,
+no budget pressure, and a new command needs no config change. Aegis still
+gates everything on the backend side, so this bypasses Hermes Agent's
+tool pipeline, not the security engine — and the authority here is the
+human who typed the command, not a model acting on its own.
+
+**Index stability is load-bearing.** `/attente` numbers the queue
 oldest-first, not newest-first, on purpose: a refusal arriving between
-listing and answering then appends at the end instead of shifting every
-number — approving the wrong action because the list moved would be a
-security bug, not a UI annoyance. `/ok` and `/non` also echo back *what*
-they decided rather than just "done", so a shift caused by something else
-being decided is visible instead of silent. An 8-character id prefix is
-accepted too, for when precision matters more than typing comfort.
+listing and answering appends at the end instead of shifting every number
+— approving the wrong action because the list moved would be a security
+bug, not a UI annoyance. `/ok` and `/non` echo back *what* they decided
+rather than just "done", so a shift is visible instead of silent. An
+8-character id prefix is accepted too, and an ambiguous one resolves to
+nothing rather than being guessed.
 """
 
 import json
+import os
+import urllib.error
+import urllib.request
+
+BACKEND_URL = os.environ.get("HERMES_OLLAMA_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+DEFAULT_REPO = os.environ.get("HERMES_OLLAMA_REPO", "C:/Users/emeri/hermes-ollama")
+_TIMEOUT = 30
 
 
-def _as_data(result):
-    """MCP tool results arrive as either a parsed object or a JSON string
-    depending on the tool's declared output schema — normalise both."""
-    if isinstance(result, str):
+class BackendError(Exception):
+    """The backend could not be reached, or answered something unusable.
+
+    Raised rather than returning an empty result, because the first
+    version of `/attente` reported "rien en attente" whenever it failed to
+    read the answer — a confident, wrong statement about a security queue,
+    which is worse than an error precisely because it looks like it
+    worked.
+    """
+
+
+def _request(method: str, path: str, body=None):
+    url = f"{BACKEND_URL}{path}"
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Content-Type": "application/json"} if data else {}
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=_TIMEOUT) as response:  # noqa: S310 - fixed local base URL
+            return json.loads(response.read())
+    except urllib.error.HTTPError as exc:
         try:
-            return json.loads(result)
-        except ValueError:
-            return None
-    return result
+            detail = json.loads(exc.read()).get("detail", exc.reason)
+        except Exception:  # noqa: BLE001 - an error body can be anything
+            detail = exc.reason
+        raise BackendError(f"{exc.code} — {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise BackendError(
+            f"backend injoignable sur {BACKEND_URL} ({exc.reason}). "
+            "Lance : uvicorn backend.main:app --host 0.0.0.0 --port 8000"
+        ) from exc
+    except (TimeoutError, json.JSONDecodeError) as exc:
+        raise BackendError(str(exc)) from exc
 
 
-class _ToolReadError(Exception):
-    """The tool answered in a shape this plugin can't read.
-
-    Exists so that failure is never mistaken for an empty queue. The
-    first version of `/attente` returned [] on any unrecognised shape and
-    therefore said "rien en attente" while an approval was genuinely
-    waiting — a confident, wrong answer, which is worse than an error
-    because it looks like it worked.
-    """
+def _get(path: str):
+    return _request("GET", path)
 
 
-def _as_list(result, *, item_key: str):
-    """Coerce a tool result into a list of records.
-
-    Observed shapes, all from the same tool depending on item count and
-    transport: a bare list; a {"result": [...]} envelope; a
-    {"result": "<json string>"} envelope (double-encoded — the value is
-    itself JSON text); and, when exactly one item came back, that single
-    object on its own rather than a one-element list.
-
-    Unwrapping is therefore iterative rather than a fixed sequence of
-    `if`s: each pass either peels one layer or stops. Anything left
-    unrecognised raises, so failure can never be mistaken for an empty
-    queue.
-    """
-    data = _as_data(result)
-    if data is None:
-        raise _ToolReadError(f"réponse illisible : {str(result)[:120]}")
-
-    # Bounded: three peels covers every observed nesting, and a cap means
-    # a pathological payload can't spin here.
-    for _ in range(3):
-        if isinstance(data, str):
-            parsed = _as_data(data)
-            if parsed is None:
-                break
-            data = parsed
-            continue
-        if isinstance(data, dict) and item_key not in data and "result" in data:
-            data = data["result"]
-            continue
-        break
-
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        if item_key in data:
-            # Exactly one record, unwrapped by the serialiser.
-            return [data]
-        if data.get("error") or data.get("isError"):
-            raise _ToolReadError(str(data)[:200])
-    raise _ToolReadError(f"forme inattendue : {type(data).__name__} {str(data)[:120]}")
+def _post(path: str, body):
+    return _request("POST", path, body)
 
 
-def handle_tache(ctx, raw_args: str) -> str:
+def _fail(exc: BackendError) -> str:
+    return f"Échec : {exc}"
+
+
+# ── /tache ───────────────────────────────────────────────────────────
+def handle_tache(raw_args: str) -> str:
     title = raw_args.strip()
     if not title:
         return "Usage : /tache <titre de la tâche>"
+    try:
+        task = _post("/tasks", {"title": title})
+    except BackendError as exc:
+        return _fail(exc)
+    return f'Tâche Kronos créée : "{task["title"]}" (id {task["id"][:8]})'
 
-    data = _as_data(ctx.dispatch_tool("mcp__hermes_ollama__tasks_create", {"title": title}))
-    if isinstance(data, dict) and data.get("id"):
-        return f'Tâche Kronos créée : "{title}" (id: {data["id"]})'
-    return f"Tâche créée. Réponse : {data}"
+
+# ── /projet ──────────────────────────────────────────────────────────
+def handle_projet(raw_args: str) -> str:
+    name = raw_args.strip()
+    try:
+        if not name:
+            projects = _get("/projects")
+            if not projects:
+                return "Aucun projet. /projet <nom> pour en créer un."
+            lines = [f"{len(projects)} projet(s) :", ""]
+            for project in projects:
+                lines.append(f"• {project['name']} [{project['status']}] · id {project['id'][:8]}")
+            lines += ["", "/projet <nom> pour en créer un"]
+            return "\n".join(lines)
+        created = _post("/projects", {"name": name})
+    except BackendError as exc:
+        return _fail(exc)
+    return f'Projet créé : "{created["name"]}" (id {created["id"][:8]})'
 
 
-def _pending(ctx):
-    """Pending approvals, oldest first — see the module docstring on why
-    the ordering is load-bearing. Raises _ToolReadError rather than
-    returning [] when the answer can't be read."""
-    entries = _as_list(
-        ctx.dispatch_tool("mcp__hermes_ollama__approvals_list", {"status": "pending"}),
-        item_key="action_type",
+# ── /verif ───────────────────────────────────────────────────────────
+def handle_verif(raw_args: str) -> str:
+    """Run a whitelisted lint/build/test runner.
+
+    With no argument this lists what may be run: the whitelist is the only
+    discovery surface, and there is deliberately no way to pass a command
+    or an argument through it (see config/verification.yaml).
+    """
+    parts = raw_args.split()
+    try:
+        if not parts:
+            runners = _get("/verification/runners")
+            lines = ["Runners disponibles :", ""]
+            lines += [f"• {r['name']} ({r['kind']})" for r in runners]
+            lines += ["", "/verif <runner> [chemin]  ·  défaut : le dépôt hermes-ollama"]
+            return "\n".join(lines)
+
+        runner = parts[0]
+        repo = parts[1] if len(parts) > 1 else DEFAULT_REPO
+        result = _post("/verification/run", {"repo_path": repo, "runner": runner})
+    except BackendError as exc:
+        return _fail(exc)
+
+    if not result["ran"]:
+        if result.get("verdict") == "require_human_validation":
+            # The expected outcome at autonomy low. Say so plainly and
+            # point at the command that unblocks it, rather than letting
+            # it read as a failure.
+            return (
+                f"{runner} : en attente de ta validation.\n"
+                f"→ {result['reason']}\n"
+                "Fais /attente puis /ok <n>, et relance /verif."
+            )
+        return f"{runner} : non exécuté.\n→ {result['reason']}"
+
+    verdict = "réussi" if result["passed"] else "échoué"
+    lines = [f"{runner} : {verdict} (code {result['exit_code']}, {result['duration_seconds']}s)"]
+    tail = (result.get("output") or "").strip().splitlines()[-3:]
+    if tail:
+        lines += [""] + tail
+    return "\n".join(lines)
+
+
+# ── /statut ──────────────────────────────────────────────────────────
+def handle_statut(raw_args: str) -> str:
+    try:
+        status = _get("/system/status")
+        models = _get("/system/models")
+        tasks = _get("/tasks")
+        pending = _get("/security/approvals?status=pending")
+    except BackendError as exc:
+        return _fail(exc)
+
+    gpu = status.get("gpu") or {}
+    by_status: dict = {}
+    for task in tasks:
+        by_status[task["status"]] = by_status.get(task["status"], 0) + 1
+
+    lines = ["État du système", ""]
+    if gpu.get("vram_used_gb") is not None and gpu.get("vram_total_gb"):
+        lines.append(f"VRAM   {gpu['vram_used_gb']} / {gpu['vram_total_gb']} GB")
+    lines.append(f"RAM    {status.get('ram_used_gb')} / {status.get('ram_total_gb')} GB")
+    lines.append(f"CPU    {status.get('cpu_load_pct')}%")
+    lines.append(
+        f"Modèles résidents {models['loaded_count']} "
+        f"(épinglés {models['always_loaded_count']})"
     )
+    summary = ", ".join(f"{k}: {v}" for k, v in sorted(by_status.items())) or "aucune"
+    lines += ["", f"Tâches  {summary}"]
+
+    # Last, because it is the only line that asks something of the reader
+    # rather than informing them.
+    if pending:
+        lines += ["", f"⚠ {len(pending)} action(s) attendent ta validation — /attente"]
+    for alert in status.get("alerts") or []:
+        lines.append(f"⚠ {alert}")
+    return "\n".join(lines)
+
+
+# ── approvals ────────────────────────────────────────────────────────
+def _pending():
+    """Pending approvals, oldest first — see the module docstring on why
+    the ordering is load-bearing."""
+    entries = _get("/security/approvals?status=pending")
+    if not isinstance(entries, list):
+        raise BackendError(f"forme inattendue : {type(entries).__name__}")
     return sorted(entries, key=lambda a: a.get("created_at") or "")
 
 
-def handle_attente(ctx, raw_args: str) -> str:
+def handle_attente(raw_args: str) -> str:
     try:
-        entries = _pending(ctx)
-    except _ToolReadError as exc:
-        # Say what actually happened. Reporting an empty queue here would
-        # be a confident lie about a security-relevant list.
-        return (
-            f"Impossible de lire la file d'attente : {exc}\n"
-            "Vérifie que le backend tourne et que approvals_list figure "
-            "dans mcp_servers.hermes-ollama.tools.include."
-        )
+        entries = _pending()
+    except BackendError as exc:
+        return _fail(exc)
     if not entries:
         return "Rien en attente de validation."
 
@@ -143,7 +230,8 @@ def handle_attente(ctx, raw_args: str) -> str:
     for i, entry in enumerate(entries, start=1):
         lines.append(f"{i}. [{entry['action_type']}] {entry['description']}")
         # The reason Aegis gave is the whole point of showing this at all:
-        # approving without it is rubber-stamping.
+        # approving without it is rubber-stamping, and a phone screen is
+        # where that temptation peaks.
         lines.append(f"   → {entry['reason']}")
         lines.append(f"   demandé par {entry['requesting_agent']} · id {entry['id'][:8]}")
         lines.append("")
@@ -152,7 +240,8 @@ def handle_attente(ctx, raw_args: str) -> str:
 
 
 def _resolve(entries, token: str):
-    """Accept either a 1-based index or an id prefix."""
+    """Accept a 1-based index or an id prefix. Anything ambiguous or out
+    of range resolves to nothing rather than being guessed."""
     token = token.strip()
     if not token:
         return None
@@ -163,12 +252,12 @@ def _resolve(entries, token: str):
     return matches[0] if len(matches) == 1 else None
 
 
-def _decide(ctx, raw_args: str, *, approved: bool) -> str:
+def _decide(raw_args: str, *, approved: bool) -> str:
     verb = "/ok" if approved else "/non"
     try:
-        entries = _pending(ctx)
-    except _ToolReadError as exc:
-        return f"Impossible de lire la file d'attente : {exc}"
+        entries = _pending()
+    except BackendError as exc:
+        return _fail(exc)
     if not entries:
         return "Rien en attente de validation."
 
@@ -179,15 +268,11 @@ def _decide(ctx, raw_args: str, *, approved: bool) -> str:
             f"Il y a {len(entries)} action(s) en attente."
         )
 
-    _as_data(
-        ctx.dispatch_tool(
-            "mcp__hermes_ollama__approvals_decide",
-            {"approval_id": entry["id"], "approved": approved},
-        )
-    )
+    try:
+        _post(f"/security/approvals/{entry['id']}", {"approved": approved})
+    except BackendError as exc:
+        return _fail(exc)
 
-    # Echo the description back: if the queue shifted between listing and
-    # answering, this is what makes it visible instead of silent.
     if approved:
         return (
             f"Approuvé : {entry['description']}\n"
@@ -197,32 +282,22 @@ def _decide(ctx, raw_args: str, *, approved: bool) -> str:
     return f"Refusé : {entry['description']}"
 
 
-def handle_ok(ctx, raw_args: str) -> str:
-    return _decide(ctx, raw_args, approved=True)
+def handle_ok(raw_args: str) -> str:
+    return _decide(raw_args, approved=True)
 
 
-def handle_non(ctx, raw_args: str) -> str:
-    return _decide(ctx, raw_args, approved=False)
+def handle_non(raw_args: str) -> str:
+    return _decide(raw_args, approved=False)
 
 
 def register(ctx):
-    ctx.register_command(
-        "tache",
-        lambda raw: handle_tache(ctx, raw),
-        description="Créer une tâche Kronos directement (sans passer par le LLM)",
-    )
-    ctx.register_command(
-        "attente",
-        lambda raw: handle_attente(ctx, raw),
-        description="Lister les actions en attente de ta validation (Aegis)",
-    )
-    ctx.register_command(
-        "ok",
-        lambda raw: handle_ok(ctx, raw),
-        description="Approuver une action en attente : /ok <n>",
-    )
-    ctx.register_command(
-        "non",
-        lambda raw: handle_non(ctx, raw),
-        description="Refuser une action en attente : /non <n>",
-    )
+    for name, handler, description in (
+        ("tache", handle_tache, "Créer une tâche Kronos"),
+        ("projet", handle_projet, "Lister les projets, ou en créer un : /projet <nom>"),
+        ("verif", handle_verif, "Lancer un runner lint/build/test : /verif <runner>"),
+        ("statut", handle_statut, "État système : VRAM, modèles, tâches, validations"),
+        ("attente", handle_attente, "Lister les actions en attente de ta validation"),
+        ("ok", handle_ok, "Approuver une action en attente : /ok <n>"),
+        ("non", handle_non, "Refuser une action en attente : /non <n>"),
+    ):
+        ctx.register_command(name, handler, description=description)
