@@ -247,22 +247,34 @@ Carte RDNA2, configuration sérieuse pour l'inférence locale.
 
 ## 5. Catalogue de modèles (modèles vérifiés)
 
-> **Tous les modèles ci-dessous existent réellement sur Ollama.** Les modèles spéculatifs des versions antérieures (familles 1-bit « Bonsai », `gemma4`, `qwen3.6`) ont été retirés du corps normatif et déplacés en **[Annexe B](#annexe-b--pistes-prospectives-non-normatif)** (veille, non implémentés).
+> **Tous les modèles ci-dessous existent réellement sur Ollama.** Les modèles spéculatifs des versions antérieures (familles 1-bit « Bonsai », `qwen3.6`) ont été retirés du corps normatif et déplacés en **[Annexe B](#annexe-b--pistes-prospectives-non-normatif)** (veille, non implémentés).
+>
+> **Mise à jour 2026-07-26 — `config/models.yaml` fait foi pour les tags exacts.**
+> Conformément au principe directeur du document (« les modèles d'IA sont
+> de la configuration, pas du code »), le tableau ci-dessous est
+> *indicatif du rôle* ; la valeur exacte vit dans `config/models.yaml`.
+> La colonne « Configuré » reflète ce qui est réellement installé et
+> utilisé sur la machine cible — vérifié par `ollama list` le 2026-07-26,
+> les douze rôles répondant présents. Plusieurs valeurs ont évolué depuis
+> la v4.0 : `gemma4:12b` (sorti depuis, donc sorti de l'Annexe B),
+> `qwen3.5:9b`, `phi4-reasoning` et Hermes-4-14B remplacent leurs
+> prédécesseurs. Le remplacement s'est fait par `models.yaml` seul, sans
+> toucher au cœur — ce qui valide le principe directeur.
 
 ### 5.1 Modèles par rôle et par agent
 
-| Rôle dans Hermes | Agent | Modèle recommandé (vérifié) | VRAM ≈ | Contexte | Pourquoi |
+| Rôle dans Hermes | Agent | Recommandé v4.0 | **Configuré (2026-07-26)** | VRAM ≈ | Pourquoi |
 |---|---|---|---|---|---|
-| Routage rapide | Swift | `qwen3:1.7b` (défaut) / `llama3.2:3b` | ~1,5-2 Go | 32k-128k | Ultra-léger, toujours chargé |
-| Orchestration | Prime | `qwen3:14b` | ~9 Go | 128k | Polyvalent, mode thinking/no_think |
-| Code principal | Atlas | `qwen3-coder:30b` (MoE 30B-A3B) | ~12-14 Go | 256k | Qualité 30B, vitesse ~3B actifs |
-| Code agentique | Atlas (alt.) | `devstral` (24b) | ~14 Go | 128k | Entraîné agent-first (édition de fichiers) |
-| Raisonnement / QA | Veritas | `deepseek-r1:14b` | ~9 Go | 32k-128k | Chain-of-thought natif |
-| Rédaction | Scribe | `qwen3:8b` | ~5,5 Go | 128k | Rapide, multilingue |
-| Recherche / RAG | Minerva | `qwen3:8b` + RAG | ~5,5 Go | 128k | Synthèse, extraction |
-| Embeddings | Echo | `nomic-embed-text` | ~0,3 Go | 8k | Standard, ultra-léger |
-| Vision | Eyes | `gemma3:12b` (multimodal) | ~9 Go | 128k | Analyse images/screenshots |
-| Sécurité / audit | Aegis | `phi4:14b` | ~9 Go | 16k | Raisonnement logique structuré |
+| Routage rapide | Swift | `qwen3:1.7b` | `qwen3:1.7b` | ~1,5 Go | Ultra-léger, **épinglé en VRAM** (§22) |
+| Orchestration | Prime | `qwen3:14b` | `hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M` | ~9 Go | Tool-calling structuré explicite |
+| Code principal | Atlas | `qwen3-coder:30b` | `qwen3-coder:30b` (MoE 30B-A3B) | ~13 Go | Qualité 30B, vitesse ~3B actifs |
+| Code agentique | Atlas (alt.) | `devstral` (24b) | `devstral` | ~14 Go | Entraîné agent-first (édition de fichiers) |
+| Raisonnement / QA | Veritas | `deepseek-r1:14b` | `deepseek-r1:14b` | ~9 Go | Chain-of-thought natif |
+| Rédaction | Scribe | `qwen3:8b` | `qwen3.5:9b` | ~6,6 Go | 256k de contexte, gains raisonnement |
+| Recherche / RAG | Minerva | `qwen3:8b` + RAG | `qwen3.5:9b` + RAG | ~6,6 Go | Synthèse, extraction |
+| Embeddings | Echo | `nomic-embed-text` | `nomic-embed-text` | ~0,3 Go | **Épinglé en VRAM** (§22) |
+| Vision | Eyes | `gemma3:12b` | `gemma4:12b` (multimodal) | ~7,6 Go | Architecture sans encodeur, plus léger |
+| Sécurité / audit | Aegis | `phi4:14b` | `phi4-reasoning:14b-q4_K_M` | ~11 Go | Variante entraînée au raisonnement structuré |
 | Analyse avancée | (escalade) | `gpt-oss:20b` | ~13-15 Go | 128k | Poids ouverts OpenAI, raisonnement ajustable |
 | Double-check léger | (parallèle) | `qwen3:4b` / `gemma3:4b` | ~3 Go | 128k | Vérification rapide peu coûteuse |
 | Escalade critique | (rare) | `deepseek-r1:32b` (offload) | 16+8 Go | 32k | Raisonnement maximal |
@@ -410,18 +422,21 @@ Hermes fonctionne comme une **équipe d'agents spécialisés** coordonnés par u
 
 ### 9.1 Fiches agents
 
+> Colonne modèle mise à jour le 2026-07-26 pour refléter
+> `config/models.yaml`, qui fait foi (§5.1).
+
 | Agent | Rôle | Modèle | Always-on | Déclencheurs | Entrées → Sorties |
 |---|---|---|---|---|---|
-| **Hermes Prime** | Orchestrateur : décompose, délègue, supervise | `qwen3:14b` | Non | Toute demande utilisateur | Demande → plan + délégations |
+| **Hermes Prime** | Orchestrateur : décompose, délègue, supervise | Hermes-4-14B | Non | Toute demande utilisateur | Demande → plan + délégations |
 | **Hermes Swift** | Routage/classification ultra-rapide | `qwen3:1.7b` | **Oui** | Chaque requête (pré-tri) | Demande → type de tâche + tier |
 | **Atlas** | Développeur : analyse/génère/refactore du code | `qwen3-coder:30b` (ou `devstral`) | Non | Tâche de code | Fichiers → patch + tests |
-| **Minerva** | Recherche & RAG documentaire | `qwen3:8b` + `nomic` | Non | Recherche/synthèse | Requête → passages + synthèse |
-| **Hermes Scribe** | Rédaction de contenu/documentation | `qwen3:8b` | Non | Rédaction | Brief → document |
-| **Aegis** | Sécurité : valide permissions, bloque le sensible | `phi4:14b` | **Oui** | Toute action à risque | Action → verdict (autoriser/bloquer/escalader) |
-| **Kronos** | Planification, priorisation, échéances | `qwen3:14b` | Non | Création/tri de tâches | Objectif → plan de tâches |
-| **Hermes Eyes** | Vision : analyse d'images/screenshots | `gemma3:12b` | Non | Image jointe | Image → description/extraction |
+| **Minerva** | Recherche & RAG documentaire | `qwen3.5:9b` + `nomic` | Non | Recherche/synthèse | Requête → passages + synthèse |
+| **Hermes Scribe** | Rédaction de contenu/documentation | `qwen3.5:9b` | Non | Rédaction | Brief → document |
+| **Aegis** | Sécurité : valide permissions, bloque le sensible | `phi4-reasoning:14b` | **Oui** | Toute action à risque | Action → verdict (autoriser/bloquer/escalader) |
+| **Kronos** | Planification, priorisation, échéances | Hermes-4-14B | Non | Création/tri de tâches | Objectif → plan de tâches |
+| **Hermes Eyes** | Vision : analyse d'images/screenshots | `gemma4:12b` | Non | Image jointe | Image → description/extraction |
 | **Veritas** | QA : vérifie le travail des autres agents | `deepseek-r1:14b` | Non | Tâche critique | Sortie → verdict + corrections |
-| **Echo** | Mémoire & skills : indexe, récupère, synchronise | `qwen3:8b` + `nomic` | **Oui** | Fin de tâche, requête mémoire | Événement → mémoire à jour |
+| **Echo** | Mémoire & skills : indexe, récupère, synchronise | `qwen3.5:9b` + `nomic` | **Oui** | Fin de tâche, requête mémoire | Événement → mémoire à jour |
 
 ### 9.2 Protocole de communication (message bus)
 
@@ -1165,7 +1180,27 @@ Le projet est conforme si Hermes peut :
 
 > ⚠️ Cette annexe est de la **veille technologique**. Ces éléments **ne doivent pas être implémentés** dans le corps du système tant que leur disponibilité réelle sur Ollama n'est pas confirmée. Ils remplaceraient, le cas échéant, certains modèles vérifiés — via `models.yaml` uniquement, sans toucher au cœur.
 
-- **Modèles 1-bit natifs (famille « Bonsai » / PrismML)** : promesse d'un 8B tenant dans ~1 Go et d'un 27B dans ~4 Go. **Non vérifiés sur Ollama.** S'ils deviennent réels et disponibles, ils remplaceraient idéalement le rôle « routage rapide » (Swift) et « double-check léger ».
+- **Modèles 1-bit natifs (famille « Bonsai » / PrismML)** : promesse d'un
+  8B tenant dans ~1 Go et d'un 27B dans ~4 Go.
+  **Testé le 2026-07-25 — verdict : réel, mais inutilisable en l'état.**
+  PrismML a publié Bonsai 27B le 14/07/2026 : compression ternaire de
+  Qwen3.6-27B, poids {−1, 0, +1}, 1,71 bit/poids, 7,17 Go pour le build
+  ternaire, multimodal, 262k de contexte, Apache 2.0. ROCm est annoncé
+  supporté. Le modèle a été téléchargé et testé sur la machine cible :
+  **Ollama ne peut pas le charger** — `tensor "output.weight" size
+  overflow`, au chargement comme à la génération. Le format `Q2_0_g128`
+  provient d'un *fork* de llama.cpp avec noyaux personnalisés, non
+  remonté en amont ; l'Ollama de la machine (0.32.3) embarque la version
+  amont. Aucun build du dépôt n'est exploitable : les variantes `Q2_0`,
+  `PQ2_0` et `Q2_g64` partagent ce format, `F16` pèse 53,8 Go (hors
+  budget VRAM), et les fichiers `dspark-*` sont des modèles *drafter*
+  pour décodage spéculatif, pas le modèle principal. Blob supprimé.
+  **À reconsidérer uniquement si le format est remonté dans llama.cpp
+  amont**, donc dans Ollama. L'intérêt reste entier : un 27B multimodal
+  à ~7 Go libérerait la moitié du budget VRAM et couvrirait à la fois les
+  rôles `code` et `vision`.
+- **`gemma4`** : n'est plus prospectif — sorti depuis, installé, et promu
+  au rôle `vision` dans `models.yaml` (voir §5.1).
 - **Moteur d'inférence « Colibrì »** : proof-of-concept streamant des experts depuis le SSD pour faire tourner des modèles massifs (centaines de milliards de paramètres) sur peu de RAM, mais à une vitesse inutilisable (~0,05 t/s). **Hors périmètre** — à surveiller, pas à utiliser.
 - **Nouvelles générations denses** (au-delà de `qwen3`/`gemma3`) : dès qu'un modèle supérieur est disponible sur Ollama et tient dans les contraintes VRAM, l'ajouter dans `models.yaml` et mettre à jour la matrice de routage (§10).
 
@@ -1174,7 +1209,12 @@ Le projet est conforme si Hermes peut :
 - **v2.0** — édition matérielle : sections matériel, stack, catalogue modèles, profils de perf, stockage, règles de routage avec seuils.
 - **Catalogue 07/2026** — recommandations par agent, combos VRAM, sélections par phase (incluait des modèles spéculatifs).
 - **v4.0 (install & interface)** — OS/ROCm/Ollama, env Python/Node, arborescence complète, `.env`, spécification détaillée des 9 vues + design system.
-- **v4.0 consolidée (ce document)** — fusion normative des trois sources ; **substitution des modèles spéculatifs par des modèles vérifiés** ; ajout : fiches agents normalisées, protocole message bus, esquisse API/modèle de données, matrice de tests d'acceptation, séparation normatif/prospectif.
+- **v4.0.1 (2026-07-26)** — mise à jour factuelle après audit de conformité :
+  tableaux de modèles (§5.1, §9.1) alignés sur `config/models.yaml`, qui
+  fait foi pour les tags exacts ; Annexe B enrichie du résultat réel du
+  test Bonsai 27B et de la sortie de `gemma4` du prospectif. Aucun
+  changement normatif : seules des constatations.
+- **v4.0 consolidée** — fusion normative des trois sources ; **substitution des modèles spéculatifs par des modèles vérifiés** ; ajout : fiches agents normalisées, protocole message bus, esquisse API/modèle de données, matrice de tests d'acceptation, séparation normatif/prospectif.
 
 ### Annexe D — Récapitulatif d'installation en 9 étapes
 

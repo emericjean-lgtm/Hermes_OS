@@ -1,14 +1,36 @@
-# Audit de conformité — Hermes Ollama vs cahier des charges condensé
+# Audit de conformité — Hermes Ollama vs cahier des charges v4.0
 
-**Date :** 2026-07-25
-**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 520 tests au vert
-**Référence :** cahier des charges condensé (30 sections), à lire avec
-`CAHIER_DES_CHARGES_HERMES_OLLAMA.md` (version longue historique)
+**Date :** 2026-07-26
+**Référence :** `CAHIER_DES_CHARGES_HERMES_OLLAMA.md` v4.0 consolidée —
+le document normatif versionné dans ce dépôt, lu intégralement
+(1 195 lignes) avant toute conclusion.
+**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`,
+611 tests au vert.
 
-Méthode : lecture du code réel (`backend/`, `config/`), exécution de la
-suite de tests, interrogation des endpoints du backend en fonctionnement.
-Aucune conformité n'est déclarée sur la seule foi d'un nom de fichier ou
-d'un commentaire.
+---
+
+## 0. Avertissement — ce que la version précédente de cet audit affirmait de faux
+
+Un premier audit daté du 2026-07-25 a été mené contre une version
+*condensée* du cahier des charges, fournie à titre indicatif dans une
+conversation. Il annonçait comme constat principal un « glissement de
+vocabulaire » : le sigle HSE désignant deux choses opposées, les rôles
+d'Atlas et Swift échangés, un agent Sentinel manquant.
+
+**Rien de cela n'était vrai du document normatif.** Celui-ci dit
+`## 17. Sécurité (Aegis)` et `## 20. Auto-évolution (HSE)` — un seul sens
+au sigle — et ses fiches agents §9.1 listent exactement les dix agents du
+code, avec les bons rôles. Le code et la spécification étaient cohérents
+depuis le début.
+
+La faute est de méthode : auditer contre un document sans établir lequel
+fait foi fabrique des divergences imaginaires *et* masque les vraies,
+puisqu'on croit tenir la cause. Le présent document repart du bon
+référentiel.
+
+Conséquence conservée : le renommage `hse_*` → `evolution_*`
+(commit `bd5103e`) reste en place — décision utilisateur, justifiée par la
+lisibilité et non par la raison invoquée à l'époque.
 
 ---
 
@@ -16,569 +38,167 @@ d'un commentaire.
 
 | Verdict | Sections |
 |---|---|
-| **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
-| **Conforme après correction (cette passe)** | §22 optimisation VRAM |
-| **Faux constat, corrigé le 2026-07-26** | La « divergence de vocabulaire » (§2) portait sur un document indicatif, pas sur le cahier des charges officiel — lequel était déjà cohérent avec le code |
-| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation, §12 mémoire projet, §16 vérification, §8 chaîne de développement, §23 interface |
+| **Conforme, vérifié** | §9 agents · §9.2 bus · §10 routage · §11 mémoire · §13 tâches · §14.1 fichiers · §15 workflows · §17 sécurité · §20 auto-évolution · §21 monitoring |
+| **Conforme après les travaux du 2026-07-25** | §13 ingestion documentaire · §14 Git · §16 vérification · §22 VRAM |
+| **Absent** | §12 résumé de contexte · §18 log d'audit structuré · §19.3 snapshots/rollback · §24.2 WebSocket · §17.1 `secret_scanner` |
+| **Écart assumé, à documenter** | §4.1 stack (LangChain, Watchdog, keyring, Telegram) · §23 interface |
+| **Non vérifié** | §22.1 latences · §25 installation |
 
-| **Absent** | *(plus aucun manque de code — voir §6 pour ce qui reste)* |
-
-**Avertissement de lecture.** La première version de cet audit annonçait
-comme constat principal un « glissement de vocabulaire » entre le cahier
-des charges et le code. C'était faux : l'analyse portait sur une version
-condensée fournie à titre indicatif, alors que le document officiel
-versionné dans ce dépôt était déjà cohérent avec le code. Voir §2 pour la
-correction et ce qu'elle implique. Les manques réels (§14 Git, §16
-exécution, §13 ingestion, §12 mémoire) étaient, eux, exacts — et sont
-traités.
+Le projet couvre la majeure partie du corps normatif. Les manques réels
+sont peu nombreux, mais l'un d'eux — les snapshots — **casse un critère
+d'acceptation explicite** (§28, T8).
 
 ---
 
-## 2. Vocabulaire — CORRECTION D'AUDIT (2026-07-26)
+## 2. Conforme — vérifié
 
-**Cette section affirmait quelque chose de faux. Elle est réécrite.**
+| § | Exigence | Où c'est satisfait |
+|---|---|---|
+| **9.1** | Dix agents, rôles et always-on | `config/agents.yaml` correspond aux fiches, un pour un |
+| **9.2** | Bus typé, 6 types de messages, horodaté | `core/message_bus.py`, visible dans le tableau de bord |
+| **10.1** | Matrice `task_type → modèle` | `core/router.py` + `config/models.yaml` |
+| **10.3** | Réutiliser un modèle déjà chargé | Le routeur consulte la VRAM et privilégie le résident |
+| **11.1-11.4** | Mémoire courte / longue / documentaire / procédurale | Session agent · `episodic.py` · `semantic.py` · `skill_library.py` |
+| **11.5** | Datation, dédup par hash, suppression explicite | `episodic.add_memory` |
+| **11.6** | Decay Ebbinghaus | `skill_library.apply_decay`, `EBBINGHAUS_DECAY_ENABLED` |
+| **13.1-13.2** | Champs et **les dix statuts** | `TaskStatus` — exhaustif, `reversible` et `to_resume` inclus |
+| **14.1** | Backup avant modification + diff avant application | `file_tools.propose_write` |
+| **15** | Workflows YAML, graphe, portails humains, `simulate` | `workflows/engine.py` + 2 workflows livrés |
+| **17.1-17.2** | Whitelist, matrice de permissions | `aegis_engine.py`, `security.yaml`, `ALLOWED_PATHS` |
+| **17.5** | Quatre niveaux d'autonomie | `security.yaml`, défaut `low` |
+| **20** | Les quatre composants HSE | `self_evolution/` correspond exactement au tableau |
+| **21** | VRAM, température, modèles chargés, seuils 85/90 °C | `gpu_monitor.py`, seuils dans `.env` |
+| **22.2** | Températures de génération par criticité | `models.yaml` → `generation_defaults` |
+| **22.4** | Ajout de modèle par `models.yaml` sans toucher au cœur | **Prouvé** : quatre modèles remplacés depuis la v4.0, zéro changement de code |
 
-### 2.1 Ce que l'audit a prétendu, et pourquoi c'était faux
+### Matrice d'acceptation §28
 
-L'audit du 2026-07-25 annonçait comme constat principal que le sigle
-« HSE » désignait deux choses opposées — *Hermes Security Engine* côté
-cahier des charges, *Hermes Self-Evolution* côté code — et que les rôles
-d'Atlas et Swift avaient divergé entre les deux.
-
-**Rien de tout cela n'était vrai du cahier des charges officiel.**
-`CAHIER_DES_CHARGES_HERMES_OLLAMA.md`, le document de référence versionné
-dans ce dépôt, dit depuis toujours :
-
-- `## 17. Sécurité (Aegis) & validation humaine` — le moteur de sécurité
-  s'appelle Aegis, jamais « HSE » ;
-- `## 20. Auto-évolution (HSE)` — et les 8 occurrences du sigle dans le
-  document désignent toutes l'auto-évolution ;
-- des fiches agents listant **exactement les dix agents du code**, avec
-  les bons rôles : Atlas développeur, Hermes Swift routage/classification,
-  plus Minerva, Echo, Scribe et Eyes. Aucun Sentinel.
-
-Le code et le document officiel étaient donc **parfaitement cohérents
-depuis le début**. Le sigle n'a jamais eu qu'un seul sens.
-
-### 2.2 D'où venait l'erreur
-
-L'audit a été mené contre une version *condensée* du cahier des charges,
-fournie à titre indicatif dans la conversation. C'est elle — et elle
-seule — qui introduisait un agent Sentinel, échangeait les rôles d'Atlas
-et Swift, omettait quatre agents existants, et redéfinissait HSE en
-« Hermes Security Engine ».
-
-Le document faisant autorité était dans le dépôt, à la racine, et n'a pas
-été ouvert avant de conclure. **C'est une faute de méthode, pas une
-subtilité** : un audit qui compare le code à un document sans vérifier
-lequel fait foi produit des divergences imaginaires — et masque les
-vraies, puisqu'on croit avoir trouvé la cause.
-
-### 2.3 Ce qui a été fait sur cette base, et ce qui en reste
-
-Le renommage `hse_process_task` → `evolution_process_task`,
-`/hse/*` → `/evolution/*`, `run_hse` → `run_evolution` a bien été appliqué
-(commit `bd5103e`), et **est conservé** — décision utilisateur du
-2026-07-26. Il reste défendable sur ses propres mérites : un nom explicite
-vaut mieux qu'un sigle pour qui ne le connaît pas, et « evolution » colle
-au titre du §20. Mais la *raison* invoquée à l'époque — résoudre une
-collision — était fausse, et l'utilisateur a tranché sur cette base.
-
-Aucun changement de rôle d'agent n'a été appliqué au code : la
-recommandation « le CDC doit s'aligner » était sans objet, le CDC étant
-déjà aligné.
-
-### 2.4 Ce qui reste réellement à corriger dans le cahier des charges
-
-Une seule dérive, réelle et non traitée : le CDC officiel cite des
-modèles qui ne sont plus configurés — `qwen3:14b`, `qwen3:8b`,
-`phi4:14b`, `gemma3:12b` — là où `config/models.yaml` utilise
-aujourd'hui Hermes-4-14B, `qwen3.5:9b`, `phi4-reasoning:14b-q4_K_M` et
-`gemma4:12b`. Ce n'est pas cosmétique : c'est le document qu'on consulte
-pour savoir quel modèle tient quel rôle.
-
-## 3. Conforme — vérifié
-
-### §5 Architecture IA — correspondance exacte
-
-Les 7 rôles du tableau du CDC sont dans `config/models.yaml`, aux modèles
-prescrits : Hermes 4 14B (orchestrateur), Qwen3.5 9B (conversation),
-Qwen3-Coder 30B (développement), DeepSeek R1 14B (raisonnement/QA),
-Phi4 Reasoning 14B (sécurité), Gemma4 12B (vision), Nomic (embeddings).
-Aucun nom de modèle n'est codé en dur ailleurs.
-
-### §11 États d'une tâche — surensemble
-
-`TaskStatus` (`backend/tasks/task_manager.py`) définit 10 états là où le
-CDC en liste 8, dont `reversible`, `partially_successful` et `to_resume`
-— utiles et absents du CDC.
-
-### §17-18 Sécurité
-
-`aegis_engine.py` + `permission_matrix.py` + `config/security.yaml` :
-matrice de permissions, `mandatory_validation` pour les actions critiques,
-niveaux d'autonomie, `ALLOWED_PATHS`. Le hook `pre_tool_call` d'Hermes
-Agent y est branché — vérifié en conditions réelles : un appel `terminal`
-natif a bien été bloqué en `require_human_validation`.
-
-### §20 Bus inter-agents
-
-`backend/core/message_bus.py` — chaque message porte origine, destination,
-type, payload, horodatage, `task_id`, `project_id`. Désormais visible dans
-le tableau de bord (panneau *Agent activity*).
-
-### §21 Gestion des modèles
-
-`backend/core/router.py` : matrice `task_type → rôles candidats`, sélection
-du premier rôle dont le modèle tient dans la VRAM disponible, repli sur le
-plus petit sinon, avec une `reason` traçable.
-
-### §27 Extensibilité
-
-`config/agents.yaml` est un registre déclaratif avec `enabled: false` pour
-les agents non encore implémentés. Ajouter un agent = une entrée de config
-+ une classe. Conforme à l'intention.
+| Test | État | Preuve |
+|---|---|---|
+| T2 routage code tracé | ✅ | `router.py`, `reason` tracée |
+| T4 downgrade si VRAM insuffisante | ✅ | Repli sur le plus petit candidat |
+| T6 diff avant application | ✅ | `propose_write` |
+| T7 validation humaine sur suppression | ✅ | Vérifié en réel : `file_delete` = `mandatory_validation` |
+| T9 lint + tests après modification | ✅ | Depuis le 2026-07-25 (§16) |
+| T12 secret ciblé → validation | ⚠️ partiel | `secret_modification` est en validation obligatoire, mais **aucun `secret_scanner`** ne détecte un secret ailleurs |
+| **T8 reprise après interruption** | ❌ | **Aucun snapshot d'état** — voir §3.1 |
+| **T11 3 tentatives + backoff** | ❌ | **Aucun retry** dans `ollama_client.py` |
+| T1 premier token < 1 s | ⏳ | Non mesuré |
+| T3 réutilisation du modèle chargé | ⏳ | Logique présente, non mesurée en conditions réelles |
+| T5 recherche < 500 ms | ⏳ | Non mesuré |
 
 ---
 
-## 4. Corrigé pendant cet audit
+## 3. Manques réels
 
-### §22 Optimisation VRAM — les modèles « toujours chargés » ne l'étaient pas
+### 3.1 §19.3 — Snapshots & rollback *(le plus grave)*
 
-**Constat.** `config/models.yaml` décrivait `swift` et `embedding` comme
-« Kept loaded at all times », mais rien ne l'appliquait :
+Le CDC exige un `snapshot_manager` sauvegardant l'état (tâches, contexte,
+fichiers modifiés) toutes les N étapes, permettant reprise et annulation.
 
-- `OllamaClient` envoyait un unique `keep_alive` global (`10m`) pour
-  *tous* les modèles, y compris `swift` ;
-- le chemin embeddings (`OllamaEmbeddingFunction`, qui contourne
-  volontairement `OllamaClient`) n'envoyait **aucun** `keep_alive` — donc
-  `nomic-embed-text` retombait sur le défaut court d'Ollama.
+**Rien de tel n'existe.** Le seul « snapshot » du code est
+`GpuMonitor.snapshot()` — de la télémétrie, sans rapport. Les seules
+sauvegardes sont les backups de fichiers de `propose_write`.
 
-Conséquence : après un creux d'activité, chaque classification et chaque
-requête RAG payait un rechargement à froid — exactement ce que le §22
-(« conserve les modèles rapides en mémoire ») cherche à éviter.
+Pourquoi c'est le plus grave : **T8 est un critère d'acceptation
+explicite**, la réversibilité est le principe de conception n°4 (§7), et
+le §19.2 promet « interruption de session → sauvegarde d'état » puis
+« redémarrage → reprise au dernier point sûr ». Trois endroits du
+document s'appuient dessus.
 
-**Correctif.** Drapeau structuré `always_loaded: true` sur les rôles
-concernés dans `models.yaml` ; `OllamaClient` résout `keep_alive` par
-modèle (`-1` = épinglé) ; `OllamaEmbeddingFunction` transmet désormais son
-`keep_alive`. Drapeau explicite plutôt qu'inféré de `tier: turbo` :
-`double_check` est turbo lui aussi, et épingler un troisième modèle
-mangerait la marge que le budget 16 Go n'a pas.
+*Nuance :* les runs de workflow, eux, **sont** reprenables
+(`run_store.py`, reprise après portail via `run_id`). La reprise existe
+donc pour les workflows, pas pour les sessions ni les tâches.
 
-7 tests de non-régression ajoutés (`test_always_loaded_models.py`), dont
-deux qui vérifient la valeur **sur le fil** et pas seulement dans le
-helper. Suite complète : 378 au vert.
+### 3.2 §18 — Log d'audit structuré
+
+Le §18 spécifie un format JSON précis : `routing_decision`,
+`context_used`, `files_modified`, `tests_run`, `duration_ms`,
+`tokens_used`, `tokens_per_second`, `vram_used_gb`, `result` — stocké en
+table `audit_log` et en fichiers sous `data/logs/`.
+
+**Il n'y a pas de table `audit_log`.** Les traces existent, dispersées :
+bus de messages, historique des tâches, runs de workflow. Aucune ne porte
+le format du §18, et les métriques de performance (`tokens_per_second`,
+`duration_ms`) ne sont mesurées nulle part — ce qui explique aussi
+pourquoi le §22.1 est invérifiable.
+
+### 3.3 §24.2 — WebSocket
+
+Cinq événements sont spécifiés (`system.metrics` toutes les 2 s,
+`chat.token`, `agent.message`, `task.update`, `validation.request`).
+**Aucune implémentation** : une seule mention, en commentaire, dans
+`message_bus.py`. La statusbar temps réel du §23.1 en dépend.
+
+### 3.4 §12 — Résumé automatique de contexte
+
+Exigé : « résumer automatiquement le contexte trop long », « tronquer
+intelligemment sans perte d'information critique ». **Aucun module.**
+
+### 3.5 §17.1 — `secret_scanner`
+
+L'arborescence §8.1 le prévoit, le §17.1 exige que les secrets
+n'apparaissent jamais en clair dans les logs. **Absent.** La protection
+repose aujourd'hui sur le fait que peu de choses sont journalisées.
+
+### 3.6 §19.1 — Robustesse Ollama
+
+« Ollama indisponible : attendre, retenter 3 fois (backoff), puis
+notifier » (T11). `ollama_client.py` **ne réessaie pas** : une requête
+échoue directement.
+
+### 3.7 Manques mineurs
+
+- `config/triggers.yaml` (§15, planification de workflows) — absent
+- `config/projects.yaml` (§8.1) — absent, les projets vivent en base
+- `GET /agents`, `GET /logs`, `GET /system/gpu` (§24.1) — absents
 
 ---
 
-## 5. Manques réels, par ordre de valeur
+## 4. Écarts assumés — décisions, pas oublis
 
-### 5.1 §14 Gestion Git — FAIT le 2026-07-25 (lecture + écriture)
+| § | Spécifié | Réalité | Justification |
+|---|---|---|---|
+| 4.1 | LangChain / LangGraph | Moteur de workflow écrit à la main | Plus simple, sans dépendance lourde, pour un graphe de quelques nœuds |
+| 4.1 | `python-telegram-bot` | Passerelle Hermes Agent | Fonctionne, déjà authentifiée, rien à maintenir |
+| 4.1 | Watchdog (surveillance fichiers) | Absent | Aucun besoin exprimé |
+| 4.1 | keyring | `.env` seul | Mono-utilisateur, machine personnelle |
+| 23 | 11 vues Next.js + design indigo | Plugin tableau de bord Hermes Agent, 9 panneaux | Tranché le 2026-07-25 : le Next.js aurait exigé de reconstruire l'authentification qu'Hermes Agent fournit déjà |
 
-**Était :** aucun module Git. Ni lecture, ni branche, ni commit, ni PR,
-ni rollback — et « jamais directement sur la branche principale » n'était
-appliqué par aucun code.
-
-**Ajouté (lecture seule) :** `backend/tools/git_tools.py`, les outils MCP
-`git_status` / `git_log` / `git_branches` / `git_diff`, et les routes
-`GET /git/*`. Aucune dépendance nouvelle : le binaire `git` est déjà
-requis pour utiliser ce dépôt, ce qui évite d'ajouter GitPython pour
-quatre commandes de lecture.
-
-Trois points de conception qui méritent d'être connus :
-
-1. **Ce n'est pas `system_command`.** Aegis classe `system_command` en
-   `mandatory_validation` parce que l'exécution shell arbitraire est
-   illimitée. Ici, chaque commande est une **liste argv constante écrite
-   dans le fichier**, lancée avec `shell=False` ; la seule valeur fournie
-   par l'appelant est le chemin du dépôt, qui passe par le contrôle
-   `ALLOWED_PATHS` *avant* que git ne soit invoqué. Il n'y a aucune
-   interpolation de chaîne dans une commande, donc rien à injecter.
-   Classer `git status` en `system_command` imposerait une validation
-   humaine à chaque lecture — ce qui entraînerait l'utilisateur à cliquer
-   « oui » machinalement, exactement l'inverse du but de la catégorie.
-   Un test vérifie l'invariant (`shell=False`, argv toujours une liste).
-
-2. **La règle « jamais sur la branche principale » est déjà codée**, alors
-   qu'aucune écriture n'existe encore : `is_protected_branch()` reconnaît
-   `main`, `master`, `production`, `prod`, y compris sous forme qualifiée
-   (`refs/heads/main`, `origin/main`). Une future écriture qui se
-   contenterait de comparer la chaîne `"main"` passerait à côté d'une ref
-   qualifiée — c'est précisément le cas que le §14 veut empêcher. Le
-   champ `protected` est exposé sur `/git/status`, donc un appelant sait
-   *avant* d'agir.
-
-3. **Sortie bornée** : `git diff` est tronqué à 20 000 caractères, parce
-   que cette sortie finit généralement dans une fenêtre de contexte LLM.
-
-Vérifié en réel sur ce dépôt même : `status` détecte exactement les
-fichiers modifiés et non suivis, `log` et `branches` renvoient les vraies
-données, `C:/Windows` est refusé en `403`, un dossier non-dépôt en `400`.
-35 tests, construits sur de **vrais dépôts jetables** avec le vrai binaire
-git — le risque de ce module est le parsing de la sortie de git, et un
-mock n'aurait fait que confirmer mes propres suppositions de format.
-
-**Phase 2 (écriture) — FAITE le 2026-07-25.** `create_branch`,
-`commit`, `push`, `revert_commit`, `create_pull_request`, exposés en MCP
-(`git_*`) et en REST (`POST /git/*`).
-
-Le modèle de sécurité tient en trois niveaux :
-
-1. **Interdictions dures**, refusées par le module *avant* même de
-   consulter Aegis, parce que le CDC les formule comme des interdits et
-   non comme des permissions à arbitrer : commiter sur une branche
-   protégée, pousser sur une branche protégée (§14), et créer une branche
-   portant un nom protégé. Un refus arbitré serait un prompt qu'on finit
-   par valider machinalement ; un interdit n'est pas négociable.
-2. **`git_critical`** pour l'ouverture de pull request — action tournée
-   vers l'extérieur (elle publie et notifie des gens), donc
-   `mandatory_validation` à *tout* niveau d'autonomie (§18).
-3. **`git_operation`** pour le reste. Avec l'`autonomy_level: low` livré
-   par défaut, cela signifie déjà `require_human_validation` : rien de
-   mutant ne se produit sans supervision, sans configuration
-   supplémentaire. Vérifié en réel.
-
-Deux absences volontaires, testées comme telles :
-
-- **Aucun paramètre `force`** sur `push`. Le §18 range la « suppression
-  Git critique » parmi les interdits permanents, et un `force=True`
-  mettrait le cas destructeur à une frappe du cas sûr. Un test vérifie
-  que le paramètre n'existe pas.
-- **Aucun `git reset --hard`.** Le rollback du §14 est assuré par
-  `revert_commit`, qui *ajoute* un commit annulant un autre : réversible,
-  et incapable de perdre du travail déjà commité. Un test vérifie que
-  l'historique grandit au lieu de rétrécir.
-
-Vérifié en conditions réelles à travers la couche MCP : commit sur `main`
-refusé (`deny`), push vers `main` refusé, création d'une branche nommée
-`main` refusée, et création d'une branche ordinaire renvoyant
-`require_human_validation` du fait de l'autonomie basse. 27 tests
-supplémentaires (18 sur les garde-fous, 9 sur la surface REST).
-
-### 5.2 §16 Vérification (lint / build / tests) — FAIT le 2026-07-25
-
-**Était :** le registre d'actions ne contenait aucun outil d'exécution.
-Hermes ne pouvait ni lancer les tests, ni compiler, ni linter — ce qui
-bloquait mécaniquement le §16 entier, le §8 (*Compilation → Tests*) et le
-rôle d'exécution attendu de Swift.
-
-**Fait :** `backend/tools/verification.py`, les outils MCP
-`verification_runners` / `verification_run`, et les routes
-`GET /verification/runners` + `POST /verification/run`.
-
-#### Ce que ce module ne fait pas
-
-**Il n'exécute pas de commandes.** L'appelant *nomme* un runner déclaré
-dans `config/verification.yaml` et ne peut rien transmettre d'autre : ni
-commande, ni argument, ni variable d'environnement, ni shell. Aucun
-chemin de code ne transforme une entrée d'appelant en jeton exécutable.
-Un test vérifie la **signature** de `run()` elle-même et échouerait si
-quelqu'un ajoutait un paramètre `args` « par commodité » — c'est
-exactement ainsi qu'une whitelist redevient un shell.
-
-Deux règles écrites dans le fichier de config et vérifiées par des tests :
-aucun runner ne prend d'argument fourni par l'appelant (`npm run
-<script>` avec un script au choix rendrait joignable tout le
-`package.json` — le nom est donc figé), et aucun n'invoque de shell, de
-`-c` ou de `-e`.
-
-#### Ce qu'il fait malgré tout
-
-Lancer `pytest` dans un dossier exécute le `conftest.py` et les tests
-**de ce dossier**. La commande est figée, mais le code qui tourne
-appartient au projet cible. C'est de la vraie exécution — d'où une
-nouvelle catégorie `verification_run` dans `config/security.yaml` :
-
-- `mutating: true` — une suite de tests écrit (caches, couverture,
-  artefacts). La marquer non mutante l'aurait rendue auto-autorisée à
-  *tous* les niveaux d'autonomie, ce qui serait faux.
-- `path_based: true` — confinée à `ALLOWED_PATHS`.
-- `min_autonomy_for_auto_allow: high`, et non `medium` : à
-  l'`autonomy_level: low` livré, **chaque appel exige une validation
-  humaine**. Passer l'autonomie à `high` est la façon dont un opérateur
-  choisit délibérément des vérifications automatiques ; ce n'est pas le
-  défaut.
-
-Trois limites supplémentaires : délai maximal (une suite bloquée ne peut
-pas retenir un thread indéfiniment), troncature de sortie **conservant la
-tête *et* la queue** (la ligne « N failed » est tout en bas ; une
-troncature naïve jette la seule ligne qui compte), et `shell=False` avec
-argv figé.
-
-Vérifié en réel : les 7 runners listés ; `POST /verification/run` sur ce
-dépôt renvoie `ran=false`, `require_human_validation` (« needs autonomy
-level 'high'… current level is 'low' ») ; un runner hors whitelist est
-refusé en `400` avec la liste des noms valides ; et avec l'autonomie
-relevée **en mémoire seulement**, une suite jetable est réellement
-exécutée et rapporte `1 failed, 1 passed` — `config/security.yaml` reste
-à `low`. 18 tests ajoutés.
-
-**§8 refermé, et le §6 enfin exploité.** `new-app` a été étendu : il
-génère désormais aussi une suite de tests (`scaffold_tests`), l'écrit
-derrière un troisième portail humain (`save_tests`), puis l'exécute
-réellement (`verify`, runner `pytest`). La chaîne « Compilation → Tests »
-du §8 est donc complète.
-
-Deux effets notables :
-
-- **Le workflow a maintenant de vraies vagues parallèles**, alors
-  qu'aucun n'en avait : `review_code` et `scaffold_tests` ne dépendent
-  tous deux que de `scaffold`, et `save_code`/`save_tests` se présentent
-  ensemble — soit une seule ronde d'approbation pour les deux écritures
-  au lieu de deux successives. Vérifié par `simulate` : vagues 5 et 6.
-- **L'arête `verify → backlog` est `always`, pas `on_success`.** Une
-  vérification refusée ou en échec est précisément ce que la tâche de
-  backlog doit consigner. Au niveau d'autonomie livré, `verify` renvoie
-  `ran: false` ; le rapport doit le dire tel quel plutôt que de laisser
-  croire que le code est vérifié — c'est écrit dans le brief du nœud
-  `report`.
-
-### 5.3 §13 Base documentaire — RÉSOLU le 2026-07-25 (sauf OCR)
-
-**Était :** `memory_index(doc_id, text, ...)` ne prenait que du texte
-**déjà extrait**. Toute la couche d'entrée manquait, donc le §9
-(« Import → Découpage → Embeddings ») s'arrêtait à son premier mot.
-
-**Ajouté :** `backend/documents/extractor.py` + l'outil MCP
-`documents_index` + les routes `POST /documents/index` et
-`GET /documents/formats`. On passe désormais un **chemin de fichier** ;
-lecture (sous Aegis), extraction, découpage, embeddings et indexation
-s'enchaînent.
-
-Formats couverts : `.pdf`, `.docx`, et toute la famille texte (`.md`,
-`.txt`, `.json`, `.yaml`, `.csv`, plus une trentaine d'extensions de
-code). Deux dépendances pures Python ajoutées (`pypdf`, `python-docx`),
-importées **paresseusement** : sans elles, la famille texte fonctionne
-toujours et PDF/DOCX échouent avec un message d'installation, au lieu de
-casser l'import de tout le module.
-
-Codes d'erreur volontairement distincts, parce qu'ils appellent des
-réactions différentes : `403` (Aegis refuse), `404` (fichier absent),
-`415` (format jamais supporté), `501` (format supporté, bibliothèque
-manquante), et un `indexed: false` explicite avec `reason` quand un PDF
-scanné ne contient aucune couche de texte — plutôt que d'indexer un
-document vide qui ne matcherait jamais.
-
-Vérifié en réel : le cahier des charges long (59 305 caractères) indexé en
-19 chunks, retrouvé ensuite par recherche sémantique avec son
-`source_path` ; un chemin hors `ALLOWED_PATHS` refusé en `403`. 30 tests
-ajoutés (408 au total).
-
-**Reste non fait — l'OCR.** Les images sont refusées avec un renvoi
-explicite vers `analyze_image` : ce projet a déjà un modèle de vision
-(gemma4) qui lit des schémas et des captures d'écran, pas seulement des
-glyphes. Ajouter une pile tesseract serait une dépendance système plus
-lourde pour un résultat plus étroit. À reconsidérer seulement si des PDF
-scannés en volume deviennent un vrai besoin.
-
-### 5.4 §6 Kronos — parallélisation FAITE le 2026-07-25
-
-**Était :** `engine.py` exécutait les nœuds un par un. Les dépendances,
-priorités et la reprise après portail étaient déjà là ; seule la
-simultanéité manquait.
-
-**Fait :** la boucle calculait déjà `_ready_nodes()`, c'est-à-dire
-l'ensemble des nœuds dont tous les prédécesseurs sont terminés — soit
-exactement une *vague* parallélisable. Elle les exécute désormais
-ensemble via `asyncio.gather`. Par construction, aucun nœud d'une vague
-ne dépend d'un autre de la même vague, donc la résolution des
-placeholders `$steps.` ne peut pas courir après un résultat manquant.
-
-Quatre points de conception :
-
-1. **Concurrence bornée** (`workflow_max_parallel`, défaut 4). Les nœuds
-   appellent des outils adossés à des LLM : un éventail non borné
-   demanderait à Ollama de tenir plusieurs modèles à la fois et ferait
-   swapper un budget VRAM de 16 Go — transformant un gain de
-   parallélisme en perte. Régler à `1` restaure exactement l'ancien
-   comportement séquentiel ; un test le vérifie.
-2. **Ordre des résultats déterministe.** Les résultats sont réécrits dans
-   l'ordre de la vague, pas dans l'ordre d'arrivée : le dictionnaire est
-   persisté, et un ordre dépendant de quel outil a fini en premier
-   rendrait deux runs identiques non reproductibles.
-3. **Isolation des échecs.** Un nœud qui échoue ne fait pas perdre les
-   résultats de ses voisins de vague — `return_exceptions=True`, et une
-   exception qui s'échapperait de `_execute_node` (ce serait un bug du
-   moteur) devient un nœud `failed` portant le message, plutôt que la
-   perte du run entier.
-4. **Les portails de validation bloquent toujours.** Un nœud en attente
-   n'est pas emporté par un voisin parallèle : il reste
-   `awaiting_validation` et tout son aval reste `skipped`.
-
-`simulate()` expose maintenant `execution_waves` et `max_parallel` (MCP et
-REST) : `execution_order`, à lui seul, ne permettait pas de voir si un
-workflow se parallélisera.
-
-**Constat honnête sur le gain réel :** les deux workflows livrés sont des
-chaînes strictement linéaires — `new-app` donne huit vagues d'un nœud,
-`full-code-review` quatre. **Ils ne gagnent donc rien.** La capacité est
-vérifiée de bout en bout sur un graphe en éventail créé pour l'occasion
-(3 analyses en une vague, run réel `completed`), mais tirer parti du §6
-demandera d'écrire des workflows réellement branchés. 9 tests ajoutés,
-dont ceux qui mesurent le recouvrement effectif plutôt que le seul
-résultat — un test qui ne vérifierait que les résultats passerait aussi
-bien contre l'ancien moteur séquentiel.
-
-### 5.5 §23 Interface — TRANCHÉ et livré le 2026-07-25
-
-**Décision (utilisateur) :** pas d'application séparée. Le frontend
-Next.js reste ce qu'il est — une page de chat de 105 lignes, dont
-l'utilisateur a confirmé ne pas avoir besoin (Telegram et le chat
-d'Hermes Agent suffisent). Le plugin du tableau de bord est l'interface.
-
-Le raisonnement qui a tranché : la vue prioritaire (Sécurité) était à
-80 % un manque **backend**, pas d'interface — construire une app n'en
-rapprochait pas d'un pas. Et le besoin d'accès téléphone/tablette plaide
-*contre* l'app : le dashboard d'Hermes Agent embarque déjà des
-fournisseurs d'authentification, qu'une app neuve devrait reconstruire
-avant de quitter `localhost` sans risque.
-
-**Les 3 vues demandées sont livrées**, portant le plugin de 6 à 9
-panneaux :
-
-- **Security — awaiting you** (en tête de grille) : la file
-  d'approbations, avec la raison donnée par Aegis affichée mot pour mot,
-  et les boutons *approve once* / *refuse*. Le panneau qui demande
-  quelque chose ne doit pas être sous quatre cadrans passifs.
-- **Memory** : sélecteur permanent / par projet, le niveau projet groupé
-  par les quatre types du §12, avec les entrées hors vocabulaire
-  signalées.
-- **Models (roles)** : la table rôle → modèle, VRAM par rôle, et trois
-  états distincts — `PINNED`, `loaded`, `—` — parce qu'ils veulent dire
-  des choses différentes quand la contrainte est un budget de 16 Go.
-  Nouvelle route `GET /system/models` : `/system/status` ne renvoyait que
-  des *noms* de rôles, incapables de répondre à « quel modèle » et
-  « est-il résident ».
-
-Vues du §23 non retenues (Chat, Documents, Logs, Paramètres, Agents) :
-écartées par l'utilisateur ou déjà couvertes ailleurs — Hermes Agent a
-ses propres pages Logs et Paramètres.
-
-#### Bug trouvé en affichant, pas en relisant
-
-La vue Mémoire en niveau « permanent » listait les notes d'architecture
-d'un projet. Cause : `list_memories(project_id=None)` signifie « ne pas
-filtrer par projet », pas « entrées sans projet ». Ce n'est pas cosmétique
-— c'est exactement le mélange contre lequel le §5.6 met en garde : une
-décision prise pour un projet finit lue comme une règle globale. Corrigé
-par `permanent_memory()` (+ `GET /memory/permanent`) et trois tests. Le
-bug n'était visible qu'en regardant l'écran.
-
-### 5.6 §12 Mémoire — FAIT le 2026-07-25
-
-**Était :** le stockage existait (`memory_long` avec sa colonne
-`project_id`), mais rien ne distinguait les trois niveaux du §12 : `type`
-est une chaîne libre, sans vocabulaire ni validation, donc « architecture
-de ce projet » et « préférence permanente de l'utilisateur » étaient des
-lignes indiscernables. Et rien ne permettait de charger la mémoire d'un
-projet *comme un tout* avant de travailler dessus.
-
-**Fait :** `backend/memory/project_memory.py` ajoute le vocabulaire du
-§12 (`architecture`, `roadmap`, `decision`, `documentation` pour le
-niveau projet ; `preference`, `habit`, `rule`, `history` pour le
-permanent) et une lecture groupée, exposée en MCP
-(`memory_project_brief`, `memory_known_types`) et en REST
-(`GET /memory/project/{id}`, `GET /memory/types`).
-
-Trois partis pris :
-
-- **Aucune validation qui rejette un type inconnu.** Un vocabulaire qui
-  casse les données existantes au moment de son introduction est une
-  migration, pas un vocabulaire. Un type hors liste est classé
-  `unclassified` et **remonte dans `other`** plutôt que d'être ignoré —
-  un type mal orthographié rendrait sinon l'entrée invisible, le pire
-  échec possible pour une mémoire.
-- **Les quatre sections sont toujours présentes**, même vides, pour que
-  l'appelant affiche une structure stable sans tester l'absence de clés.
-- **La mémoire permanente n'est pas fondue dans le brief projet**, bien
-  qu'elle s'applique aussi : mélanger les deux est la façon dont une
-  décision propre à un projet finit par être appliquée partout.
-
-La **mémoire courte** (§12, conversation en cours) reste volontairement
-hors périmètre : le runtime d'agent possède déjà sa session, et la
-dupliquer ici créerait deux sources de vérité pour le même tour.
-
-#### Bug préexistant trouvé au passage — dérive de schéma
-
-En testant en conditions réelles, toute requête mémoire scopée projet
-échouait : `no such column: memory_long.project_id`. La table avait été
-créée **avant** l'ajout de `project_id` au modèle, et
-`Base.metadata.create_all()` ne crée que les tables *manquantes* — il ne
-touche jamais une table existante. `memory_long` était la seule table
-concernée ; toutes les autres avaient bien leur colonne.
-
-Le bug était invisible depuis les tests, qui construisent une base neuve
-à chaque fois et voyaient donc toujours le schéma courant. Autrement dit :
-la fonctionnalité était cassée en production et verte en CI.
-
-`init_db()` réconcilie désormais les colonnes manquantes, **en ajout
-seulement** : colonnes nullables uniquement, jamais de suppression, de
-renommage ni de changement de type — donc aucune perte possible, ce qui
-la rend sûre à exécuter à chaque démarrage sans outil de migration. Une
-colonne `NOT NULL` manquante est *signalée* et laissée telle quelle :
-elle demande un défaut et une décision de backfill, c'est-à-dire une
-vraie migration, pas quelque chose à improviser au boot. `init_db`
-importe aussi explicitement tous les modules de modèles, pour que le
-schéma ne dépende plus de l'ordre des imports de l'appelant — le couplage
-invisible qui avait laissé `memory_long` dériver.
-
-Vérifié en réel : la base en service a reçu sa colonne au redémarrage,
-sans perte, et le brief projet renvoie ses sections correctement
-groupées. 23 tests ajoutés (18 mémoire projet, 5 réconciliation).
+Ces écarts sont défendables. Ils n'étaient simplement **écrits nulle
+part** — d'où leur présence ici.
 
 ---
 
-## 5.7 Ce que l'audit a révélé sur la suite de tests elle-même
+## 5. Ce que l'audit a rendu au cahier des charges
 
-Quatre bugs ont franchi une suite verte de 500+ tests au cours de cette
-journée, et **aucun n'a été trouvé par un test** — tous en exécutant :
+L'**Annexe B** posait une question ouverte sur les modèles 1-bit
+« Bonsai ». Elle a reçu sa réponse le 2026-07-25 : le modèle est réel
+(sorti le 14/07), mais son format `Q2_0_g128` vient d'un fork de
+llama.cpp et **ne charge pas sur Ollama standard**. Testé, constaté,
+consigné dans l'annexe.
 
-| Bug | Pourquoi la suite ne l'a pas vu |
-|---|---|
-| `_aegis()` appelé, jamais défini (2 routes) | Aucun test n'appelait ces routes |
-| `memory_long.project_id` absent en base réelle | Les tests créent une base neuve, donc au schéma courant |
-| `$steps.review.raw` : clé inexistante | Le workflow livré n'était jamais simulé |
-| Mémoire permanente listant des entrées projet | Visible seulement en regardant le rendu |
+De même, `gemma4` n'est plus prospectif : sorti, installé, promu au rôle
+`vision`. Les tableaux §5.1 et §9.1 ont été alignés sur
+`config/models.yaml` — qui fait foi pour les tags exacts, conformément au
+principe directeur du document.
 
-Le fil commun : **la suite ne touchait jamais la vraie surface HTTP.**
-Tout passait par le `TestClient` en processus de FastAPI, qui partage les
-imports et fixtures du test.
-
-**Correctif : `backend/tests/test_smoke_live_server.py`.** Il démarre un
-vrai `uvicorn` en sous-processus, sur une vraie socket, contre une vraie
-base temporaire, et lui parle en HTTP réel.
-
-L'assertion qui généralise est `test_no_route_returns_5xx` : elle
-**énumère les routes depuis l'application elle-même** plutôt qu'une liste
-écrite à la main, donc une route ajoutée plus tard est couverte sans que
-personne ait à y penser. Un 4xx passe volontairement — un 422 pour un
-paramètre manquant prouve que la route est câblée et valide son entrée ;
-seul un 5xx signifie « cassé ».
-
-**Vérifié en cassant exprès.** Le helper `_aegis()` a été retiré à
-nouveau : le test échoue sur `GET /security/approvals -> 500`. Restauré,
-il repasse. Un test de régression qu'on n'a jamais vu échouer ne prouve
-rien.
-
-Coût : ~23 s, suite totale 1 min 29 s pour 577 tests — assez rapide pour
-rester lancé, ce qui est la seule propriété qui compte pour un test de
-fumée.
+---
 
 ## 6. Ordre de traitement recommandé
 
-1. ~~**Trancher le vocabulaire** (§2)~~ — **constat erroné, corrigé le
-   2026-07-26.** Le cahier des charges officiel n'a jamais divergé du
-   code. Le renommage `hse_*` → `evolution_*` est conservé pour sa
-   lisibilité, pas pour la raison invoquée à l'époque. Reste seulement la
-   dérive des noms de modèles dans le CDC (voir §2.4).
-2. ~~**Ingestion documentaire** (§13)~~ — **fait le 2026-07-25.** PDF,
-   DOCX et famille texte ingérables par chemin, sous Aegis. OCR écarté
-   au profit du modèle de vision déjà présent (voir §5.3).
-3. ~~**Module Git** (§14)~~ — **fait le 2026-07-25.** Lecture et
-   écriture, avec les interdits §14/§18 appliqués de façon déterministe.
-4. ~~**Parallélisation des workflows** (§6)~~ — **fait le 2026-07-25.**
-   Reste à en tirer parti : les workflows livrés sont linéaires.
-5. ~~**Exécution de code** (§16)~~ — **fait le 2026-07-25**, derrière une
-   whitelist de runners et une validation humaine au niveau d'autonomie
-   livré.
-6. **Décision interface** (§23) — décision produit, pas technique.
+1. **`snapshot_manager` (§19.3)** — seul manque qui casse un critère
+   d'acceptation, et trois sections du CDC s'appuient dessus.
+2. **Retry Ollama avec backoff (§19.1, T11)** — quelques lignes, effet
+   direct sur la fiabilité quotidienne.
+3. **Log d'audit §18** — le format est déjà spécifié ; il débloquerait
+   aussi la mesure des latences du §22.1, aujourd'hui invérifiables.
+4. **WebSocket (§24.2)** — nécessaire à la statusbar temps réel.
+5. **`secret_scanner` (§17.1)** — à cadrer : détection par motifs, ou
+   redaction à l'écriture des logs.
+6. **Résumé de contexte (§12)** — le plus coûteux, le moins urgent tant
+   que les sessions restent courtes.
+
+Non traité et assumé : §22.1 latences et §25 installation demandent de
+**mesurer et d'exécuter**, pas de lire. Les compter conformes sur la
+seule foi du code serait exactement l'erreur que relate le §0.
