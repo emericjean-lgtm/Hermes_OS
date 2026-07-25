@@ -50,6 +50,8 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "memory_project_brief",
         "memory_known_types",
         "documents_index",
+        "verification_runners",
+        "verification_run",
         "git_status",
         "git_log",
         "git_branches",

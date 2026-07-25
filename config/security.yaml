@@ -65,6 +65,27 @@ action_categories:
     path_based: false
     mandatory_validation: true # §17.1: commandes destructrices interdites par défaut
 
+  # Running a *whitelisted* verification runner (§16: lint / build /
+  # tests) from config/verification.yaml. Distinct from system_command
+  # because the command is not caller-supplied: the caller names a runner
+  # and cannot pass arguments, and the working directory is confined to
+  # ALLOWED_PATHS.
+  #
+  # It is nonetheless `mutating: true` — running a test suite executes the
+  # target project's own code and routinely writes (caches, coverage,
+  # build output). Marking it non-mutating would make it auto-allowed at
+  # every autonomy level, which would be plainly wrong.
+  #
+  # min_autonomy "high", not "medium": at the shipped autonomy_level of
+  # "low" this requires human validation every single time, which is the
+  # safe default. Raising autonomy to "high" is how an operator opts into
+  # unattended CI-style checks — a deliberate act, not the default.
+  verification_run:
+    mutating: true
+    path_based: true
+    mandatory_validation: false
+    min_autonomy_for_auto_allow: high
+
   # ── Network ──
   network_call:
     mutating: true

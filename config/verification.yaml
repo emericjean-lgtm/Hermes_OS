@@ -1,0 +1,65 @@
+# Verification runners — cahier des charges §16 (lint / build / tests).
+#
+# THIS FILE IS A WHITELIST, AND THAT IS THE ENTIRE POINT.
+#
+# The caller picks a runner *by name* from this file. It cannot pass a
+# command, and it cannot pass arguments — so no caller (agent, LLM, or
+# HTTP client) can turn "run the tests" into "run anything". Adding an
+# entry here is a deliberate, reviewed act; it is the only way to widen
+# what the system can execute.
+#
+# Two rules for anything added below:
+#
+#   1. No entry may take a caller-supplied argument. `npm run <script>`
+#      with a caller-chosen script name is arbitrary execution wearing a
+#      runner's clothes — every package.json script would become
+#      reachable. Pin the script name, as npm_build does.
+#   2. No entry may include a shell, a `-c`, an `-e`, or an interpreter
+#      invoked on caller-supplied text.
+#
+# `{python}` is substituted with the interpreter currently running the
+# backend (sys.executable), so a runner uses this project's virtualenv
+# rather than whatever `python` happens to be first on PATH.
+#
+# Running any of these still executes the *target project's own code*
+# (conftest.py, build scripts, test bodies). That is why the
+# `verification_run` category in config/security.yaml is mutating and
+# path-based: it is confined to ALLOWED_PATHS and, at the shipped
+# autonomy_level of "low", requires human validation every time.
+
+runners:
+  pytest:
+    kind: test
+    argv: ["{python}", "-m", "pytest", "-q"]
+    description: Run the Python test suite (pytest, quiet).
+
+  ruff:
+    kind: lint
+    argv: ["{python}", "-m", "ruff", "check", "."]
+    description: Lint Python sources with ruff.
+
+  ruff_format_check:
+    kind: lint
+    argv: ["{python}", "-m", "ruff", "format", "--check", "."]
+    description: Check Python formatting without rewriting anything.
+
+  mypy:
+    kind: typecheck
+    argv: ["{python}", "-m", "mypy", "."]
+    description: Static type check with mypy.
+
+  npm_test:
+    kind: test
+    argv: ["npm", "test", "--silent"]
+    description: Run the JS/TS test suite via npm.
+
+  npm_build:
+    kind: build
+    # Script name pinned deliberately — see rule 1 above.
+    argv: ["npm", "run", "build"]
+    description: Build the JS/TS project.
+
+  tsc:
+    kind: typecheck
+    argv: ["npx", "--no-install", "tsc", "--noEmit"]
+    description: TypeScript type check without emitting output.

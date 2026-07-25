@@ -58,7 +58,7 @@ from backend.security.aegis_engine import ActionRequest
 from backend.self_evolution import progression_tracker
 from backend.self_evolution.pipeline import process_task
 from backend.tasks.task_manager import Task
-from backend.tools import file_tools, git_tools
+from backend.tools import file_tools, git_tools, verification
 from backend.workflows import loader as workflow_loader
 from backend.workflows.engine import WorkflowEngine
 from backend.workflows.schema import WorkflowDefinition
@@ -311,6 +311,47 @@ def memory_known_types() -> dict:
     memory and which to permanent memory. Unknown types are still
     accepted by memory_remember — this is guidance, not a whitelist."""
     return project_memory.known_types()
+
+
+def verification_runners() -> list[dict]:
+    """List the lint/build/test runners that may be executed (§16). This
+    is a fixed whitelist from config/verification.yaml — you can name one
+    of these and nothing else. There is no way to pass a command or an
+    argument."""
+    return [
+        {"name": r.name, "kind": r.kind, "description": r.description}
+        for r in verification.list_runners()
+    ]
+
+
+def verification_run(
+    repo_path: str,
+    runner: str,
+    timeout: int | None = None,
+    project_id: str | None = None,
+) -> dict:
+    """Run ONE whitelisted verification runner (from verification_runners)
+    in a directory, and report whether it passed. Use this to actually
+    check work rather than assuming it is correct — but note it executes
+    the target project's own code, so at the default autonomy level it
+    returns ran=false with verdict=require_human_validation until a human
+    approves. A failing run is a normal result (ran=true, passed=false),
+    not an error."""
+    result = verification.run(
+        _aegis(), repo_path, runner, timeout=timeout, project_id=project_id
+    )
+    return {
+        "ran": result.ran,
+        "runner": result.runner,
+        "kind": result.kind,
+        "passed": result.passed,
+        "exit_code": result.exit_code,
+        "timed_out": result.timed_out,
+        "verdict": result.verdict,
+        "reason": result.reason,
+        "duration_seconds": result.duration_seconds,
+        "output": result.output,
+    }
 
 
 def documents_index(
@@ -951,6 +992,8 @@ _ALL_TOOLS = [
     memory_project_brief,
     memory_known_types,
     documents_index,
+    verification_runners,
+    verification_run,
     git_status,
     git_log,
     git_branches,

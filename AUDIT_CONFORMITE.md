@@ -1,7 +1,7 @@
 # Audit de conformité — Hermes Ollama vs cahier des charges condensé
 
 **Date :** 2026-07-25
-**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 502 tests au vert
+**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 520 tests au vert
 **Référence :** cahier des charges condensé (30 sections), à lire avec
 `CAHIER_DES_CHARGES_HERMES_OLLAMA.md` (version longue historique)
 
@@ -19,9 +19,9 @@ d'un commentaire.
 | **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
 | **Conforme après correction (cette passe)** | §22 optimisation VRAM |
 | **Vocabulaire tranché et appliqué** (cette passe) | §17 « HSE » → moteur Aegis + auto-évolution, §6 Atlas/Swift/Sentinel |
-| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation, §12 mémoire projet |
+| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation, §12 mémoire projet, §16 vérification |
 | **Partiel** | §23 interface |
-| **Absent** | §16 vérification (lint/build/tests), §8 workflow de développement complet |
+| **Absent** | §8 workflow de développement complet (le chaînon §16 existe, reste à le câbler) |
 
 L'écart le plus coûteux n'était pas une fonctionnalité manquante : c'était
 le **glissement de vocabulaire** entre le cahier des charges et le code.
@@ -270,22 +270,69 @@ refusé (`deny`), push vers `main` refusé, création d'une branche nommée
 `require_human_validation` du fait de l'autonomie basse. 27 tests
 supplémentaires (18 sur les garde-fous, 9 sur la surface REST).
 
-### 5.2 §16 Vérification (lint / build / tests) — impossible en l'état
+### 5.2 §16 Vérification (lint / build / tests) — FAIT le 2026-07-25
 
-Le registre d'actions (`get_tool_registry()`) ne contient **aucun outil
-d'exécution**. Hermes ne peut donc ni lancer les tests, ni compiler, ni
-linter. Cela bloque mécaniquement :
+**Était :** le registre d'actions ne contenait aucun outil d'exécution.
+Hermes ne pouvait ni lancer les tests, ni compiler, ni linter — ce qui
+bloquait mécaniquement le §16 entier, le §8 (*Compilation → Tests*) et le
+rôle d'exécution attendu de Swift.
 
-- le §8 (workflow de développement : *Compilation → Tests*),
-- le §16 en entier,
-- le rôle d'exécution attendu de Swift (§6).
+**Fait :** `backend/tools/verification.py`, les outils MCP
+`verification_runners` / `verification_run`, et les routes
+`GET /verification/runners` + `POST /verification/run`.
 
-C'est aussi la limite assumée du workflow `new-app` livré récemment : il
-**écrit** une application, il ne l'**exécute** pas.
+#### Ce que ce module ne fait pas
 
-Point de vigilance : ajouter l'exécution de code est le changement le plus
-sensible du lot. Il doit passer par Aegis avec `mandatory_validation`, pas
-être branché directement.
+**Il n'exécute pas de commandes.** L'appelant *nomme* un runner déclaré
+dans `config/verification.yaml` et ne peut rien transmettre d'autre : ni
+commande, ni argument, ni variable d'environnement, ni shell. Aucun
+chemin de code ne transforme une entrée d'appelant en jeton exécutable.
+Un test vérifie la **signature** de `run()` elle-même et échouerait si
+quelqu'un ajoutait un paramètre `args` « par commodité » — c'est
+exactement ainsi qu'une whitelist redevient un shell.
+
+Deux règles écrites dans le fichier de config et vérifiées par des tests :
+aucun runner ne prend d'argument fourni par l'appelant (`npm run
+<script>` avec un script au choix rendrait joignable tout le
+`package.json` — le nom est donc figé), et aucun n'invoque de shell, de
+`-c` ou de `-e`.
+
+#### Ce qu'il fait malgré tout
+
+Lancer `pytest` dans un dossier exécute le `conftest.py` et les tests
+**de ce dossier**. La commande est figée, mais le code qui tourne
+appartient au projet cible. C'est de la vraie exécution — d'où une
+nouvelle catégorie `verification_run` dans `config/security.yaml` :
+
+- `mutating: true` — une suite de tests écrit (caches, couverture,
+  artefacts). La marquer non mutante l'aurait rendue auto-autorisée à
+  *tous* les niveaux d'autonomie, ce qui serait faux.
+- `path_based: true` — confinée à `ALLOWED_PATHS`.
+- `min_autonomy_for_auto_allow: high`, et non `medium` : à
+  l'`autonomy_level: low` livré, **chaque appel exige une validation
+  humaine**. Passer l'autonomie à `high` est la façon dont un opérateur
+  choisit délibérément des vérifications automatiques ; ce n'est pas le
+  défaut.
+
+Trois limites supplémentaires : délai maximal (une suite bloquée ne peut
+pas retenir un thread indéfiniment), troncature de sortie **conservant la
+tête *et* la queue** (la ligne « N failed » est tout en bas ; une
+troncature naïve jette la seule ligne qui compte), et `shell=False` avec
+argv figé.
+
+Vérifié en réel : les 7 runners listés ; `POST /verification/run` sur ce
+dépôt renvoie `ran=false`, `require_human_validation` (« needs autonomy
+level 'high'… current level is 'low' ») ; un runner hors whitelist est
+refusé en `400` avec la liste des noms valides ; et avec l'autonomie
+relevée **en mémoire seulement**, une suite jetable est réellement
+exécutée et rapporte `1 failed, 1 passed` — `config/security.yaml` reste
+à `low`. 18 tests ajoutés.
+
+**Conséquence pour le §8 et le workflow `new-app`.** Le chaînon manquant
+existe désormais : un nœud `verification_run` peut être ajouté après
+`save_code`. Le workflow livré ne l'utilise pas encore — l'ajouter
+demande de décider quel runner convient au projet généré, ce qui dépend
+de la stack choisie.
 
 ### 5.3 §13 Base documentaire — RÉSOLU le 2026-07-25 (sauf OCR)
 
@@ -459,6 +506,7 @@ groupées. 23 tests ajoutés (18 mémoire projet, 5 réconciliation).
    écriture, avec les interdits §14/§18 appliqués de façon déterministe.
 4. ~~**Parallélisation des workflows** (§6)~~ — **fait le 2026-07-25.**
    Reste à en tirer parti : les workflows livrés sont linéaires.
-5. **Exécution de code** (§16) — le plus utile *et* le plus risqué.
-   À ne faire qu'après 2-4, et strictement derrière `mandatory_validation`.
+5. ~~**Exécution de code** (§16)~~ — **fait le 2026-07-25**, derrière une
+   whitelist de runners et une validation humaine au niveau d'autonomie
+   livré.
 6. **Décision interface** (§23) — décision produit, pas technique.
