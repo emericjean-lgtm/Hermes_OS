@@ -17,6 +17,7 @@ from backend.api.routes import (
     evolution,
     files,
     git,
+    logs,
     memory,
     messages,
     projects,
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(documents.router)
     app.include_router(git.router)
     app.include_router(snapshots.router)
+    app.include_router(logs.router)
     app.include_router(verification.router)
     app.include_router(evolution.router)
     app.mount("/mcp", mcp_asgi_app)

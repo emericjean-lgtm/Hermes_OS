@@ -40,9 +40,10 @@ lisibilité et non par la raison invoquée à l'époque.
 |---|---|
 | **Conforme, vérifié** | §9 agents · §9.2 bus · §10 routage · §11 mémoire · §13 tâches · §14.1 fichiers · §15 workflows · §17 sécurité · §20 auto-évolution · §21 monitoring |
 | **Conforme après les travaux du 2026-07-25** | §13 ingestion documentaire · §14 Git · §16 vérification · §22 VRAM |
-| **Absent** | §12 résumé de contexte · §18 log d'audit structuré · §24.2 WebSocket · §17.1 `secret_scanner` |
+| **Absent** | §12 résumé de contexte · §24.2 WebSocket |
 | **Écart assumé, à documenter** | §4.1 stack (LangChain, Watchdog, keyring, Telegram) · §23 interface |
-| **Non vérifié** | §22.1 latences · §25 installation |
+| **Non vérifié** | §25 installation |
+| **Mesuré en échec** | §22.1 latences — T3 à 3-7× le budget (voir §3.2.1) |
 
 Le projet couvre la majeure partie du corps normatif. Le seul manque qui
 cassait un critère d'acceptation explicite (T8, snapshots) a été comblé
@@ -81,11 +82,11 @@ critère du §28.
 | T6 diff avant application | ✅ | `propose_write` |
 | T7 validation humaine sur suppression | ✅ | Vérifié en réel : `file_delete` = `mandatory_validation` |
 | T9 lint + tests après modification | ✅ | Depuis le 2026-07-25 (§16) |
-| T12 secret ciblé → validation | ⚠️ partiel | `secret_modification` est en validation obligatoire, mais **aucun `secret_scanner`** ne détecte un secret ailleurs |
+| T12 secret ciblé → validation | ⚠️ partiel | `secret_modification` est en validation obligatoire ; `audit_log.redact()` couvre désormais la détection sur ce qui est journalisé, mais il n'y a toujours pas de `secret_scanner` sur les fichiers |
 | **T8 reprise après interruption** | ✅ | `snapshot_manager` — vérifié en réel le 2026-07-26 |
 | **T11 3 tentatives + backoff** | ✅ | `ollama_client.py` — vérifié en réel contre un port fermé |
-| T1 premier token < 1 s | ⏳ | Non mesuré |
-| T3 réutilisation du modèle chargé | ⏳ | Logique présente, non mesurée en conditions réelles |
+| T1 premier token < 1 s | ❌ | Mesurable depuis le §18. Non testé sur Tier 1 ; Tier 2 est déjà 3-7× hors budget |
+| T3 réutilisation du modèle chargé | ❌ | Mesuré : 9,5 à 20,9 s au premier token **modèle déjà en VRAM** (budget 3 s) — §3.2.1 |
 | T5 recherche < 500 ms | ⏳ | Non mesuré |
 
 ---
@@ -132,18 +133,52 @@ réunis.
 `cancelled`, restauration refusée (`require_human_validation`), approuvée
 via la file, relancée — la tâche est revenue à `todo`. 19 tests.
 
-### 3.2 §18 — Log d'audit structuré
+### 3.2 ~~§18 — Log d'audit structuré~~ — **fait le 2026-07-26**
 
 Le §18 spécifie un format JSON précis : `routing_decision`,
 `context_used`, `files_modified`, `tests_run`, `duration_ms`,
 `tokens_used`, `tokens_per_second`, `vram_used_gb`, `result` — stocké en
 table `audit_log` et en fichiers sous `data/logs/`.
 
-**Il n'y a pas de table `audit_log`.** Les traces existent, dispersées :
-bus de messages, historique des tâches, runs de workflow. Aucune ne porte
-le format du §18, et les métriques de performance (`tokens_per_second`,
-`duration_ms`) ne sont mesurées nulle part — ce qui explique aussi
-pourquoi le §22.1 est invérifiable.
+`backend/core/audit_log.py` implémente les deux destinations, avec
+`redact()` appliqué **à l'écriture** (un secret arrivé sur le disque a
+déjà fuité ; filtrer à l'affichage serait du théâtre). `/chat` est
+instrumenté ; `GET /logs`, `/logs/{session_id}` et `/logs/latency`
+exposent la lecture. 28 tests.
+
+Un champ supplémentaire hors §18 : **`first_token_ms`**. Le §22.1 budgète
+le *premier token*, pas la durée totale — un seul chiffre ne distingue
+pas un chargement lent d'un modèle lent, et les deux appellent des
+corrections opposées. La mesure ci-dessous montre pourquoi c'était
+nécessaire.
+
+### 3.2.1 §22.1 — premières latences réellement mesurées
+
+Mesuré le 2026-07-26 via `/logs/latency`, RX 6800, `qwen3.5:9b` (Tier 2,
+budget **< 3 s au premier token**), modèle **déjà chargé** en VRAM :
+
+| requête | premier token | total | tokens | débit |
+|---|---|---|---|---|
+| « Capitale de l'Espagne ? » | 9 541 ms | 9 673 ms | 9 | 68,4 t/s |
+| « Capitale de la Belgique ? » | 17 501 ms | 17 751 ms | 17 | 67,8 t/s |
+| « Capitale du Portugal ? » | 20 911 ms | 22 186 ms | 86 | 67,5 t/s |
+
+**T3 est en échec, pas « non vérifié » : 3 à 7× le budget.** Le débit
+(~68 t/s) est bon ; la latence est presque intégralement du
+time-to-first-token. Deux causes plausibles, **non départagées** :
+
+1. `qwen3.5:9b` est un modèle à raisonnement — il peut consommer tout son
+   temps dans `message.thinking`, que `chat_stream` ne yield pas. Le
+   « premier token » mesuré est donc le premier token *de contenu*,
+   après la phase de raisonnement.
+2. Le routage envoie une question triviale au Tier 2 alors que
+   Hermes Swift (Tier 1) devrait la traiter.
+
+Constat associé : une requête a produit **0 token en 59,7 s** tout en
+étant enregistrée `result: "success"`. Corrigé — un flux sans token est
+désormais `result: "empty"` avec son motif. C'est le même défaut que
+partout ailleurs dans cet audit : du code qui affirme une réussite qu'il
+n'a pas constatée.
 
 ### 3.3 §24.2 — WebSocket
 
@@ -231,15 +266,22 @@ principe directeur du document.
 1. ~~**`snapshot_manager` (§19.3)**~~ — **fait le 2026-07-26**, T8 vérifié.
 2. ~~**Retry Ollama avec backoff (§19.1, T11)**~~ — **fait le 2026-07-26.** — quelques lignes, effet
    direct sur la fiabilité quotidienne.
-3. **Log d'audit §18** — *prochaine étape.* Le format est déjà spécifié,
+3. ~~**Log d'audit §18**~~ — **fait le 2026-07-26.** Le format est déjà spécifié,
    et il débloquerait la mesure des latences du §22.1 (T1, T3, T5),
-   aujourd'hui invérifiables faute d'instrumentation.
-4. **WebSocket (§24.2)** — nécessaire à la statusbar temps réel.
-5. **`secret_scanner` (§17.1)** — à cadrer : détection par motifs, ou
-   redaction à l'écriture des logs.
-6. **Résumé de contexte (§12)** — le plus coûteux, le moins urgent tant
+   aujourd'hui invérifiables faute d'instrumentation. *Il l'a fait, et le
+   verdict n'est pas celui qu'on espérait : voir §3.2.1.*
+4. **Latence du premier token (§22.1, T1/T3)** — **passe en tête.** Ce
+   n'est plus une case à cocher mais un écart mesuré de 3 à 7×. Première
+   étape : un *diagnostic*, pas un correctif — départager la phase de
+   raisonnement du modèle et le choix de tier fait par le routeur, en
+   comparant `qwen3.5:9b` avec et sans `think`, puis contre le Tier 1.
+5. **WebSocket (§24.2)** — nécessaire à la statusbar temps réel.
+6. **`secret_scanner` (§17.1)** — le socle existe : `audit_log.redact()`
+   couvre déjà la détection par motifs sur ce qui est journalisé. Reste à
+   l'appliquer aux *fichiers* (T12).
+7. **Résumé de contexte (§12)** — le plus coûteux, le moins urgent tant
    que les sessions restent courtes.
 
-Non traité et assumé : §22.1 latences et §25 installation demandent de
-**mesurer et d'exécuter**, pas de lire. Les compter conformes sur la
-seule foi du code serait exactement l'erreur que relate le §0.
+Non traité et assumé : §25 installation demande d'**exécuter**, pas de
+lire. La compter conforme sur la seule foi du code serait exactement
+l'erreur que relate le §0.

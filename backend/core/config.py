@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # Snapshots (§19.3). snapshot_every_steps <= 0 disables automatic
     # ones; snapshot_keep bounds the directory, since §3.7 budgets only
     # ~2-5 GB for logs and snapshots together.
+    logs_dir: str = "./data/logs"
     snapshot_dir: str = "./data/snapshots"
     snapshot_every_steps: int = 10
     snapshot_keep: int = 20
