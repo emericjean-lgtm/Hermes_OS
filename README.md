@@ -358,27 +358,73 @@ Bot token setup is interactive (`hermes gateway setup`) and must be done by
 the machine's own operator — the token is a secret and shouldn't pass
 through anything else, including an AI assistant helping configure it.
 
-**Known real limitation, found via this exact setup:** `devstral` calls a
-tool reliably when very few (1-3, tightly relevant) are on offer, but
-silently reverts to prose — describing the action instead of taking it —
-once the full toolset is in play (46 MCP tools + ~10 native ones, the
-normal state for a general-purpose Telegram session). Confirmed with
-`tool_choice` forced to `"required"` and with Hermes Agent's own
-progressive tool-disclosure feature forced on (`tools.tool_search.enabled:
-"on"` in config.yaml, replacing on-demand tools with 3 bridge tools —
-`tool_search`/`tool_describe`/`tool_call` — cuts the directly-visible set
-roughly in half) — neither fixes it; `devstral` doesn't even attempt the
-bridge tools. Isolated by replaying real captured HTTP requests directly
-against Ollama, bypassing Hermes Agent entirely, so this is a `devstral`
-reliability ceiling at this tool count, not a wiring bug. Plain conversation
-and the Aegis-hook path (tested with a deliberately small active toolset)
-both work correctly regardless. `tools.tool_search.enabled: "on"` is kept
-in config.yaml anyway — it roughly halves prompt size per turn even though
-it didn't fix this — but the underlying ceiling is unresolved. Revisit if
-a future Hermes Agent version exposes per-provider `tool_choice`, or if a
-different already-downloaded model (`qwen3-coder:30b`, `gpt-oss:20b`,
-`deepseek-r1:14b`) turns out to hold up better at full tool count — not
-yet tried for this specific role.
+**Known real limitation, found via this exact setup (2026-07-25 follow-up
+below the original finding):** `devstral` calls a tool reliably when very
+few (1-3, tightly relevant) are on offer, but silently reverts to prose —
+describing the action instead of taking it — once the full toolset is in
+play (46 MCP tools + ~10 native ones, the normal state for a
+general-purpose Telegram session).
+
+A deeper diagnostic session isolated this to more than just tool *count*.
+Findings, in the order they were ruled out (each confirmed by capturing and
+replaying the real HTTP request directly against Ollama, bypassing Hermes
+Agent entirely):
+
+- **Tool count alone**: `devstral` calls tools correctly up to ~30 total,
+  reverts to prose at ~35+. Fixed by curating `mcp_servers.hermes-ollama.tools.
+  include` in config.yaml down to the 16 MCP tools actually needed
+  (`security_evaluate`, `files_*`, `memory_remember`/`memory_search`,
+  `tasks_*`, `system_status`, `research_query`, `write_document`,
+  `analyze_image`) instead of all 46 — necessary, not sufficient alone.
+- **`tools.tool_search` (progressive disclosure)**: hides MCP tools behind
+  3 bridge tools (`tool_search`/`tool_describe`/`tool_call`); `devstral`
+  never explores them, so `tasks_create` was invisible in practice even
+  after the count fix. Set to `"off"` in config.yaml — with only 16 curated
+  tools the indirection is no longer needed anyway.
+- **Native `todo` toolset competing with Kronos**: once `tasks_create` was
+  directly visible, `devstral` still consistently picked the native `todo`
+  tool for "crée une tâche" phrasing over the MCP `tasks_create` tool, even
+  though the two aren't meant to compete (`todo` = ephemeral per-session
+  scratchpad, `tasks_create` = Kronos's persistent project tracking). Added
+  `todo` to `agent.disabled_toolsets` in config.yaml to remove the
+  ambiguity.
+- **`agent.tool_use_enforcement`**: Hermes Agent has a built-in "you MUST
+  call tools, don't just narrate" prompt block, but it's only auto-injected
+  for a hardcoded model-family list (`gpt`, `codex`, `gemini`, `gemma`,
+  `grok`, `glm`, `qwen`, `deepseek` — see `agent/prompt_builder.py`'s
+  `TOOL_USE_ENFORCEMENT_MODELS`). `devstral`/Mistral isn't in it, so it
+  never got this instruction. Set `agent.tool_use_enforcement: true` in
+  config.yaml to force it for every model.
+- **`SOUL.md` disambiguation**: added an explicit paragraph to
+  `~/.hermes/SOUL.md` telling the model that "crée une tâche" means call
+  `tasks_create`, not go implement/configure whatever the title describes.
+
+None of the above, individually or combined, fully fixed it: replaying the
+exact real captured request (real system prompt, real 16+10 tools) still
+made `devstral` either narrate with zero tool calls, or — worse — write and
+execute a fabricated Python/Celery script to "solve" the task's title
+instead of recording it. A fair rematch against `qwen3-coder:30b` on the
+*same real request* (the original devstral-vs-qwen3-coder comparison earlier
+in this doc used a simplified synthetic prompt and undersold both models)
+showed `qwen3-coder:30b` does reliably emit real tool calls under full
+prompt complexity — a genuine capability gap over `devstral` — but it still
+picked the wrong tool (`write_file`/`terminal` to author a script) instead
+of `tasks_create`, even with a non-adversarial, unambiguous task title. This
+is a real ~20-30B local-model ceiling under Hermes Agent's actual (long,
+general-purpose coding-agent) system prompt, not a config bug to keep
+chasing.
+
+**Solution adopted:** a deterministic Telegram slash command,
+`/tache <titre>`, that bypasses the LLM's tool-selection judgment entirely.
+New plugin at `config/hermes_agent_plugins/kronos-tasks/` (`plugin.yaml` +
+`__init__.py`, copied into `~/.hermes/plugins/kronos-tasks/`), registered
+via `ctx.register_command("tache", ...)` and calling
+`ctx.dispatch_tool("mcp__hermes_ollama__tasks_create", {"title": ...})`
+directly in code — no model involved, so no narration/misinterpretation
+risk. Confirmed end-to-end: task actually appears in Kronos, and the
+capture log shows zero LLM calls for that turn. Natural-language "crée une
+tâche" requests still go through the normal (unreliable, on `devstral`)
+chat path — `/tache` is the reliable path for this one action.
 
 ## Adding a real agent
 

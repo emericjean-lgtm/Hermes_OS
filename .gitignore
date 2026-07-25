@@ -20,5 +20,8 @@ data/snapshots/*
 !data/logs/.gitkeep
 !data/snapshots/.gitkeep
 
+# Diagnostic capture logs (scripts/capture_proxy.py output)
+scripts/capture_log.jsonl
+
 # OS
 .DS_Store

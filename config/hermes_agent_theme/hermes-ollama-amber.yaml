@@ -1,0 +1,79 @@
+# Hermes Ollama Amber — custom dashboard-wide theme for Hermes Agent's web UI.
+#
+# Install: copy this file to ~/.hermes/dashboard-themes/hermes-ollama-amber.yaml,
+# then either pick "Hermes Ollama Amber" from the dashboard's theme switcher
+# (top-right, next to the language switcher), or set it as default via
+# ~/.hermes/config.yaml:
+#
+#   dashboard:
+#     theme: hermes-ollama-amber
+#
+# Schema confirmed from Hermes Agent v0.19.0 source
+# (hermes_cli/web_server.py::_normalise_theme_definition, web/src/themes/
+# types.ts) — user themes are fully official, loaded from
+# ~/.hermes/dashboard-themes/*.yaml, no source-code edits, survives
+# `hermes update`.
+name: hermes-ollama-amber
+label: Hermes Ollama Amber
+description: Warm amber CRT terminal — matches the Hermes Ollama dashboard plugin
+
+palette:
+  background: { hex: "#0a0805", alpha: 1 }
+  midground: { hex: "#e8a83d", alpha: 1 }
+  foreground: { hex: "#ffffff", alpha: 0 }
+  warmGlow: "rgba(232, 168, 61, 0.30)"
+  noiseOpacity: 1.0
+
+typography:
+  fontSans: '"JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace'
+  fontMono: '"JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace'
+  fontUrl: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap"
+  baseSize: "14px"
+  lineHeight: "1.55"
+  letterSpacing: "0"
+
+layout:
+  radius: "0"
+  density: comfortable
+
+layoutVariant: standard
+
+colorOverrides:
+  destructive: "#e05a4d"
+  destructiveForeground: "#0a0805"
+  success: "#8fbf6a"
+  warning: "#e8a83d"
+  border: "#3a2c14"
+  ring: "#e8a83d"
+  accent: "#e8a83d"
+  accentForeground: "#0a0805"
+  primary: "#e8a83d"
+  primaryForeground: "#0a0805"
+  muted: "#120d08"
+  mutedForeground: "#a8926a"
+
+# Embedded xterm.js pane (the /chat terminal) — matches the plugin's palette.
+terminalBackground: "#0a0805"
+terminalForeground: "#e9d9b8"
+
+# Global scanline overlay, applied once to the whole app shell. Purely
+# decorative (no data implied), same technique as the Hermes Ollama
+# dashboard plugin's own CRT styling.
+customCSS: |
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255, 200, 100, 0.02) 0px,
+      rgba(255, 200, 100, 0.02) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ::selection { background: rgba(232, 168, 61, 0.35); }
+  }

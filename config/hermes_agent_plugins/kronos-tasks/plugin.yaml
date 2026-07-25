@@ -1,0 +1,10 @@
+name: kronos-tasks
+version: 1.0.0
+description: >
+  Deterministic /tache slash command that creates a Kronos task directly via
+  dispatch_tool, bypassing the LLM's tool-selection judgment. Added because
+  devstral (and qwen3-coder:30b) do not reliably map "crée une tâche" /
+  "create a task" phrasing to the tasks_create MCP tool under Hermes Agent's
+  real system prompt, even with tool_use_enforcement and SOUL.md guidance
+  (see hermes-ollama/README.md's "Hermes Agent integration" section for the
+  full diagnostic trail).
