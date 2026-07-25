@@ -383,6 +383,97 @@ def git_diff(
     return git_tools.diff(_aegis(), repo_path, staged=staged, project_id=project_id)
 
 
+def _write_result_to_dict(result) -> dict:
+    return {
+        "applied": result.applied,
+        "operation": result.operation,
+        "verdict": result.verdict,
+        "reason": result.reason,
+        "output": result.output,
+        "detail": result.detail,
+    }
+
+
+def git_create_branch(
+    repo_path: str,
+    name: str,
+    from_ref: str | None = None,
+    project_id: str | None = None,
+) -> dict:
+    """Create a branch and check it out. Protected names (main/master/
+    production/prod) are refused — §14 forbids working directly on the
+    main branch. Returns applied=false with a verdict/reason if Aegis or
+    that rule blocks it; nothing is changed in that case."""
+    return _write_result_to_dict(
+        git_tools.create_branch(
+            _aegis(), repo_path, name, from_ref=from_ref, project_id=project_id
+        )
+    )
+
+
+def git_commit(
+    repo_path: str,
+    message: str,
+    paths: list[str] | None = None,
+    project_id: str | None = None,
+) -> dict:
+    """Stage and commit. `paths` limits staging to those files; omit it to
+    stage everything. REFUSED on a protected branch (§14: never commit
+    directly to main) — create a feature branch first. Returns
+    applied=false with the reason rather than raising."""
+    return _write_result_to_dict(
+        git_tools.commit(_aegis(), repo_path, message, paths=paths, project_id=project_id)
+    )
+
+
+def git_push(
+    repo_path: str,
+    remote: str = "origin",
+    branch: str | None = None,
+    set_upstream: bool = True,
+    project_id: str | None = None,
+) -> dict:
+    """Push a branch to a remote. REFUSED for protected branches (§14) —
+    open a pull request instead. There is deliberately no force option."""
+    return _write_result_to_dict(
+        git_tools.push(
+            _aegis(),
+            repo_path,
+            remote=remote,
+            branch=branch,
+            set_upstream=set_upstream,
+            project_id=project_id,
+        )
+    )
+
+
+def git_revert(repo_path: str, sha: str, project_id: str | None = None) -> dict:
+    """Roll back a commit by adding a new commit that undoes it (git
+    revert, never reset --hard) — reversible, and it cannot lose committed
+    work. Refused on a protected branch."""
+    return _write_result_to_dict(
+        git_tools.revert_commit(_aegis(), repo_path, sha, project_id=project_id)
+    )
+
+
+def git_create_pull_request(
+    repo_path: str,
+    title: str,
+    body: str,
+    base: str = "main",
+    project_id: str | None = None,
+) -> dict:
+    """Open a pull request from the current branch via the gh CLI. This is
+    an outward-facing action (it publishes and notifies people), so it is
+    classified git_critical — always requires human validation, at any
+    autonomy level."""
+    return _write_result_to_dict(
+        git_tools.create_pull_request(
+            _aegis(), repo_path, title, body, base=base, project_id=project_id
+        )
+    )
+
+
 # ── Minerva: research/RAG ─────────────────────────────────────────────
 
 
@@ -833,6 +924,11 @@ _ALL_TOOLS = [
     git_log,
     git_branches,
     git_diff,
+    git_create_branch,
+    git_commit,
+    git_push,
+    git_revert,
+    git_create_pull_request,
     research_query,
     verify_output,
     write_document,

@@ -1,7 +1,7 @@
 # Audit de conformité — Hermes Ollama vs cahier des charges condensé
 
 **Date :** 2026-07-25
-**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 443 tests au vert
+**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 470 tests au vert
 **Référence :** cahier des charges condensé (30 sections), à lire avec
 `CAHIER_DES_CHARGES_HERMES_OLLAMA.md` (version longue historique)
 
@@ -19,9 +19,9 @@ d'un commentaire.
 | **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
 | **Conforme après correction (cette passe)** | §22 optimisation VRAM |
 | **Vocabulaire tranché et appliqué** (cette passe) | §17 « HSE » → moteur Aegis + auto-évolution, §6 Atlas/Swift/Sentinel |
-| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git en lecture |
+| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture) |
 | **Partiel** | §6 Kronos (pas de parallélisation), §12 mémoire, §23 interface |
-| **Absent** | §16 vérification (lint/build/tests), §8 workflow de développement complet, §14 Git *écriture* (lecture faite) |
+| **Absent** | §16 vérification (lint/build/tests), §8 workflow de développement complet |
 
 L'écart le plus coûteux n'était pas une fonctionnalité manquante : c'était
 le **glissement de vocabulaire** entre le cahier des charges et le code.
@@ -188,7 +188,7 @@ helper. Suite complète : 378 au vert.
 
 ## 5. Manques réels, par ordre de valeur
 
-### 5.1 §14 Gestion Git — phase 1 (lecture) FAITE le 2026-07-25
+### 5.1 §14 Gestion Git — FAIT le 2026-07-25 (lecture + écriture)
 
 **Était :** aucun module Git. Ni lecture, ni branche, ni commit, ni PR,
 ni rollback — et « jamais directement sur la branche principale » n'était
@@ -233,10 +233,42 @@ données, `C:/Windows` est refusé en `403`, un dossier non-dépôt en `400`.
 git — le risque de ce module est le parsing de la sortie de git, et un
 mock n'aurait fait que confirmer mes propres suppositions de format.
 
-**Reste à faire — phase 2 (écriture).** Branche, commit, push, PR,
-rollback, derrière les catégories `git_operation` et `git_critical` que
-`config/security.yaml` déclare depuis le début et dont ce module est le
-premier consommateur (en `file_read` seulement, pour l'instant).
+**Phase 2 (écriture) — FAITE le 2026-07-25.** `create_branch`,
+`commit`, `push`, `revert_commit`, `create_pull_request`, exposés en MCP
+(`git_*`) et en REST (`POST /git/*`).
+
+Le modèle de sécurité tient en trois niveaux :
+
+1. **Interdictions dures**, refusées par le module *avant* même de
+   consulter Aegis, parce que le CDC les formule comme des interdits et
+   non comme des permissions à arbitrer : commiter sur une branche
+   protégée, pousser sur une branche protégée (§14), et créer une branche
+   portant un nom protégé. Un refus arbitré serait un prompt qu'on finit
+   par valider machinalement ; un interdit n'est pas négociable.
+2. **`git_critical`** pour l'ouverture de pull request — action tournée
+   vers l'extérieur (elle publie et notifie des gens), donc
+   `mandatory_validation` à *tout* niveau d'autonomie (§18).
+3. **`git_operation`** pour le reste. Avec l'`autonomy_level: low` livré
+   par défaut, cela signifie déjà `require_human_validation` : rien de
+   mutant ne se produit sans supervision, sans configuration
+   supplémentaire. Vérifié en réel.
+
+Deux absences volontaires, testées comme telles :
+
+- **Aucun paramètre `force`** sur `push`. Le §18 range la « suppression
+  Git critique » parmi les interdits permanents, et un `force=True`
+  mettrait le cas destructeur à une frappe du cas sûr. Un test vérifie
+  que le paramètre n'existe pas.
+- **Aucun `git reset --hard`.** Le rollback du §14 est assuré par
+  `revert_commit`, qui *ajoute* un commit annulant un autre : réversible,
+  et incapable de perdre du travail déjà commité. Un test vérifie que
+  l'historique grandit au lieu de rétrécir.
+
+Vérifié en conditions réelles à travers la couche MCP : commit sur `main`
+refusé (`deny`), push vers `main` refusé, création d'une branche nommée
+`main` refusée, et création d'une branche ordinaire renvoyant
+`require_human_validation` du fait de l'autonomie basse. 27 tests
+supplémentaires (18 sur les garde-fous, 9 sur la surface REST).
 
 ### 5.2 §16 Vérification (lint / build / tests) — impossible en l'état
 
@@ -326,11 +358,10 @@ n'existe que comme entrées mémoire scopées par `project_id`.
 2. ~~**Ingestion documentaire** (§13)~~ — **fait le 2026-07-25.** PDF,
    DOCX et famille texte ingérables par chemin, sous Aegis. OCR écarté
    au profit du modèle de vision déjà présent (voir §5.3).
-3. **Module Git — phase 2, écriture** (§14) — la lecture est faite ;
-   branche/commit/push/PR derrière `git_operation` et `git_critical`.
-   **Prochaine étape recommandée.**
+3. ~~**Module Git** (§14)~~ — **fait le 2026-07-25.** Lecture et
+   écriture, avec les interdits §14/§18 appliqués de façon déterministe.
 4. **Parallélisation des workflows** (§6) — gain de performance, périmètre
-   contenu au moteur.
+   contenu au moteur. **Prochaine étape recommandée.**
 5. **Exécution de code** (§16) — le plus utile *et* le plus risqué.
    À ne faire qu'après 2-4, et strictement derrière `mandatory_validation`.
 6. **Décision interface** (§23) — décision produit, pas technique.

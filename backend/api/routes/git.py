@@ -122,3 +122,140 @@ async def git_diff(
         lambda: git_tools.diff(_aegis(), repo_path, staged=staged, project_id=project_id)
     )
     return GitDiffResponse(diff=out, staged=staged)
+
+
+# ── writes (§14 phase 2) ─────────────────────────────────────────────
+# These return 200 with applied=false when Aegis or the protected-branch
+# rule refuses, rather than an error status: a refusal is a normal,
+# expected outcome carrying a verdict the caller must show the user, not
+# a malfunction. Only genuine faults (bad path, not a repo, git failure)
+# use error codes, via _guard.
+
+
+class GitWriteResponse(BaseModel):
+    applied: bool
+    operation: str
+    verdict: str
+    reason: str
+    output: str
+    detail: dict
+
+
+class CreateBranchRequest(BaseModel):
+    repo_path: str
+    name: str
+    from_ref: str | None = None
+    project_id: str | None = None
+
+
+class CommitRequest(BaseModel):
+    repo_path: str
+    message: str
+    paths: list[str] | None = None
+    project_id: str | None = None
+
+
+class PushRequest(BaseModel):
+    repo_path: str
+    remote: str = "origin"
+    branch: str | None = None
+    set_upstream: bool = True
+    project_id: str | None = None
+
+
+class RevertRequest(BaseModel):
+    repo_path: str
+    sha: str
+    project_id: str | None = None
+
+
+class PullRequestRequest(BaseModel):
+    repo_path: str
+    title: str
+    body: str
+    base: str = "main"
+    project_id: str | None = None
+
+
+def _to_response(result) -> GitWriteResponse:
+    return GitWriteResponse(
+        applied=result.applied,
+        operation=result.operation,
+        verdict=result.verdict,
+        reason=result.reason,
+        output=result.output,
+        detail=result.detail,
+    )
+
+
+@router.post("/git/branch")
+async def create_branch(request: CreateBranchRequest) -> GitWriteResponse:
+    return _to_response(
+        _guard(
+            lambda: git_tools.create_branch(
+                _aegis(),
+                request.repo_path,
+                request.name,
+                from_ref=request.from_ref,
+                project_id=request.project_id,
+            )
+        )
+    )
+
+
+@router.post("/git/commit")
+async def commit(request: CommitRequest) -> GitWriteResponse:
+    return _to_response(
+        _guard(
+            lambda: git_tools.commit(
+                _aegis(),
+                request.repo_path,
+                request.message,
+                paths=request.paths,
+                project_id=request.project_id,
+            )
+        )
+    )
+
+
+@router.post("/git/push")
+async def push(request: PushRequest) -> GitWriteResponse:
+    return _to_response(
+        _guard(
+            lambda: git_tools.push(
+                _aegis(),
+                request.repo_path,
+                remote=request.remote,
+                branch=request.branch,
+                set_upstream=request.set_upstream,
+                project_id=request.project_id,
+            )
+        )
+    )
+
+
+@router.post("/git/revert")
+async def revert(request: RevertRequest) -> GitWriteResponse:
+    return _to_response(
+        _guard(
+            lambda: git_tools.revert_commit(
+                _aegis(), request.repo_path, request.sha, project_id=request.project_id
+            )
+        )
+    )
+
+
+@router.post("/git/pull-request")
+async def pull_request(request: PullRequestRequest) -> GitWriteResponse:
+    return _to_response(
+        _guard(
+            lambda: git_tools.create_pull_request(
+                _aegis(),
+                request.repo_path,
+                request.title,
+                request.body,
+                base=request.base,
+                project_id=request.project_id,
+            )
+        )
+    )

@@ -1,10 +1,32 @@
 """Git operations — cahier des charges §14.
 
-Phase 1: read-only. Everything here observes a repository; nothing
-mutates one. Writes (branch, commit, push, PR, rollback) are deliberately
-left for a second pass, behind the `git_operation` / `git_critical`
-categories that config/security.yaml already declares — this module is
-their first consumer, and it only needs `file_read`.
+Reads (status/log/branches/diff) go through `file_read`. Writes (branch,
+commit, push, revert, PR) go through `git_operation` or `git_critical`,
+the two categories config/security.yaml has declared since the start —
+this module is their first consumer.
+
+**The safety model, in short.** At the shipped `autonomy_level: low`,
+`git_operation` already resolves to require_human_validation, so nothing
+mutating happens unattended by default; `git_critical` is
+mandatory_validation and stays that way at *any* autonomy level. On top
+of that, three things are refused outright by this module, before Aegis
+is even consulted, because §14 and §18 word them as prohibitions rather
+than as gated permissions:
+
+  - committing on a protected branch (§14 "jamais directement sur la
+    branche principale"),
+  - pushing to a protected branch (same rule),
+  - force-pushing anywhere (§18 "suppression Git critique").
+
+A refusal is returned as a result object (applied=False + verdict +
+reason), not raised — the same shape file_tools.propose_write uses, so a
+caller handles a security refusal the same way whichever subsystem it
+came from.
+
+Deliberately absent: `git reset --hard` and any other history-destroying
+operation. Rollback is offered as `revert_commit`, which *adds* a
+commit undoing another — reversible, and it cannot lose committed work.
+A destructive reset deserves its own design pass, not a flag on this one.
 
 **Why this is not `system_command`.** Aegis marks `system_command` as
 mandatory_validation because arbitrary shell execution is unbounded. What
@@ -81,6 +103,24 @@ class GitBranches:
     remote: tuple[str, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True)
+class GitWriteResult:
+    """Outcome of a mutating operation.
+
+    Mirrors file_tools.FileWriteResult on purpose: a security refusal is
+    data (applied=False + verdict + reason), not an exception, so callers
+    treat "Aegis said no" identically across subsystems. `output` carries
+    git's own stdout when something did run.
+    """
+
+    applied: bool
+    operation: str
+    verdict: str = "allow"
+    reason: str = ""
+    output: str = ""
+    detail: dict = field(default_factory=dict)
+
+
 def is_protected_branch(name: str) -> bool:
     """True for branches §14 forbids writing to directly.
 
@@ -144,6 +184,39 @@ def _run(repo_path: str, args: list[str]) -> str:
     if completed.returncode != 0:
         raise GitCommandError(
             f"git {' '.join(args)} failed ({completed.returncode}): {completed.stderr.strip()}"
+        )
+    return completed.stdout
+
+
+def _run_gh(repo_path: str, args: list[str]) -> str:
+    """Same fixed-argv discipline as _run, for the `gh` CLI.
+
+    Separate function rather than a flag on _run: gh is a different
+    binary with a different failure mode (not installed, not
+    authenticated), and its "not found" message should say `gh`, not
+    leave the caller hunting for a missing git.
+    """
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False, path pre-checked by Aegis
+            ["gh", *args],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            shell=False,
+            timeout=_TIMEOUT_SECONDS,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError as exc:
+        raise GitCommandError(
+            "gh CLI not found on PATH — required to open pull requests"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise GitCommandError(f"gh {' '.join(args)} timed out") from exc
+
+    if completed.returncode != 0:
+        raise GitCommandError(
+            f"gh {' '.join(args)} failed ({completed.returncode}): {completed.stderr.strip()}"
         )
     return completed.stdout
 
@@ -245,6 +318,296 @@ def branches(aegis: AegisAgent, repo_path: str, *, project_id: str | None = None
 
     current = _run(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
     return GitBranches(current=current, local=tuple(local), remote=tuple(remote))
+
+
+def _check_write(
+    aegis: AegisAgent,
+    action_type: str,
+    repo_path: str,
+    description: str,
+    project_id: str | None,
+) -> tuple[bool, str, str]:
+    """Ask Aegis about a mutating git action.
+
+    Returns (allowed, verdict, reason) rather than raising: callers turn
+    a refusal into a GitWriteResult, matching propose_write's contract.
+    `action_type` is "git_operation" or "git_critical" — never
+    "file_write", because a git mutation is not confined to one path and
+    the path-based whitelist would give a false sense of narrowing.
+    """
+    decision = aegis.evaluate(
+        ActionRequest(
+            action_type=action_type,
+            description=description,
+            target_path=repo_path,
+            requesting_agent="atlas",
+            project_id=project_id,
+        )
+    )
+    allowed = decision.verdict is Verdict.ALLOW
+    return allowed, decision.verdict.value, decision.reason
+
+
+def _current_branch(repo_path: str) -> str:
+    return _run(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
+
+
+def create_branch(
+    aegis: AegisAgent,
+    repo_path: str,
+    name: str,
+    *,
+    from_ref: str | None = None,
+    project_id: str | None = None,
+) -> GitWriteResult:
+    """Create a branch and check it out.
+
+    Refuses to *create* a protected name: a branch called `main` in a repo
+    that didn't have one is how a protected name gets introduced by
+    accident, and every later guard keys off that name.
+    """
+    if is_protected_branch(name):
+        return GitWriteResult(
+            applied=False,
+            operation="create_branch",
+            verdict="deny",
+            reason=f"{name!r} is a protected branch name (§14) — pick a feature branch name.",
+        )
+
+    allowed, verdict, reason = _check_write(
+        aegis, "git_operation", repo_path, f"Create branch {name} in {repo_path}", project_id
+    )
+    if not allowed:
+        return GitWriteResult(
+            applied=False, operation="create_branch", verdict=verdict, reason=reason
+        )
+
+    args = ["checkout", "-b", name]
+    if from_ref:
+        args.append(from_ref)
+    output = _run(repo_path, args)
+    return GitWriteResult(
+        applied=True,
+        operation="create_branch",
+        output=output,
+        detail={"branch": name, "from_ref": from_ref},
+    )
+
+
+def commit(
+    aegis: AegisAgent,
+    repo_path: str,
+    message: str,
+    *,
+    paths: list[str] | None = None,
+    project_id: str | None = None,
+) -> GitWriteResult:
+    """Stage and commit.
+
+    `paths` limits staging to those files; omitting it stages every
+    tracked modification (`git add -A`). Untracked files are included by
+    -A, which is why the caller sees the file list back in `detail`.
+    """
+    if not message.strip():
+        return GitWriteResult(
+            applied=False, operation="commit", verdict="deny", reason="Empty commit message."
+        )
+
+    branch = _current_branch(repo_path)
+    if is_protected_branch(branch):
+        # §14, worded as a prohibition — so it is refused here rather than
+        # escalated to a validation prompt a user could wave through.
+        return GitWriteResult(
+            applied=False,
+            operation="commit",
+            verdict="deny",
+            reason=(
+                f"Refusing to commit directly on protected branch {branch!r} "
+                "(§14: jamais directement sur la branche principale). "
+                "Create a feature branch first."
+            ),
+            detail={"branch": branch},
+        )
+
+    allowed, verdict, reason = _check_write(
+        aegis, "git_operation", repo_path, f"Commit on {branch} in {repo_path}", project_id
+    )
+    if not allowed:
+        return GitWriteResult(
+            applied=False, operation="commit", verdict=verdict, reason=reason,
+            detail={"branch": branch},
+        )
+
+    _run(repo_path, ["add", *(paths if paths else ["-A"])])
+
+    staged = _run(repo_path, ["diff", "--cached", "--name-only"]).split()
+    if not staged:
+        return GitWriteResult(
+            applied=False,
+            operation="commit",
+            verdict="allow",
+            reason="Nothing staged — no changes to commit.",
+            detail={"branch": branch},
+        )
+
+    output = _run(repo_path, ["commit", "-m", message])
+    sha = _run(repo_path, ["rev-parse", "HEAD"]).strip()
+    return GitWriteResult(
+        applied=True,
+        operation="commit",
+        output=output,
+        detail={"branch": branch, "sha": sha, "files": staged},
+    )
+
+
+def push(
+    aegis: AegisAgent,
+    repo_path: str,
+    *,
+    remote: str = "origin",
+    branch: str | None = None,
+    set_upstream: bool = True,
+    project_id: str | None = None,
+) -> GitWriteResult:
+    """Push a branch to a remote.
+
+    No force option exists on this function, by design: §18 lists
+    "suppression Git critique" among the always-forbidden, and a
+    force-push rewrites history other people may already have. Adding a
+    `force=True` parameter would make the dangerous case one keystroke
+    away from the safe one.
+    """
+    target = branch or _current_branch(repo_path)
+    if is_protected_branch(target):
+        return GitWriteResult(
+            applied=False,
+            operation="push",
+            verdict="deny",
+            reason=(
+                f"Refusing to push directly to protected branch {target!r} "
+                "(§14). Open a pull request instead."
+            ),
+            detail={"branch": target, "remote": remote},
+        )
+
+    allowed, verdict, reason = _check_write(
+        aegis,
+        "git_operation",
+        repo_path,
+        f"Push {target} to {remote} from {repo_path}",
+        project_id,
+    )
+    if not allowed:
+        return GitWriteResult(
+            applied=False, operation="push", verdict=verdict, reason=reason,
+            detail={"branch": target, "remote": remote},
+        )
+
+    args = ["push"]
+    if set_upstream:
+        args.append("--set-upstream")
+    args += [remote, target]
+    output = _run(repo_path, args)
+    return GitWriteResult(
+        applied=True, operation="push", output=output,
+        detail={"branch": target, "remote": remote},
+    )
+
+
+def revert_commit(
+    aegis: AegisAgent,
+    repo_path: str,
+    sha: str,
+    *,
+    project_id: str | None = None,
+) -> GitWriteResult:
+    """Roll back a commit by *adding* one that undoes it (§14 rollback).
+
+    `git revert`, never `git reset --hard`: revert is reversible and
+    cannot lose committed work, which is the only kind of rollback safe
+    to expose to an automated caller.
+    """
+    branch = _current_branch(repo_path)
+    if is_protected_branch(branch):
+        return GitWriteResult(
+            applied=False,
+            operation="revert_commit",
+            verdict="deny",
+            reason=f"Refusing to revert on protected branch {branch!r} (§14).",
+            detail={"branch": branch},
+        )
+
+    allowed, verdict, reason = _check_write(
+        aegis, "git_operation", repo_path, f"Revert {sha} in {repo_path}", project_id
+    )
+    if not allowed:
+        return GitWriteResult(
+            applied=False, operation="revert_commit", verdict=verdict, reason=reason
+        )
+
+    output = _run(repo_path, ["revert", "--no-edit", sha])
+    new_sha = _run(repo_path, ["rev-parse", "HEAD"]).strip()
+    return GitWriteResult(
+        applied=True,
+        operation="revert_commit",
+        output=output,
+        detail={"reverted": sha, "new_sha": new_sha, "branch": branch},
+    )
+
+
+def create_pull_request(
+    aegis: AegisAgent,
+    repo_path: str,
+    title: str,
+    body: str,
+    *,
+    base: str = "main",
+    project_id: str | None = None,
+) -> GitWriteResult:
+    """Open a pull request via the `gh` CLI.
+
+    Classified `git_critical`, i.e. mandatory_validation at every autonomy
+    level — unlike a local commit, this is outward-facing: it publishes to
+    a hosting service and notifies people. §18 puts that class of action
+    firmly in "toujours validé par l'utilisateur".
+    """
+    head = _current_branch(repo_path)
+    if is_protected_branch(head):
+        return GitWriteResult(
+            applied=False,
+            operation="create_pull_request",
+            verdict="deny",
+            reason=f"Head branch {head!r} is protected — nothing to open a PR from (§14).",
+            detail={"head": head},
+        )
+
+    allowed, verdict, reason = _check_write(
+        aegis,
+        "git_critical",
+        repo_path,
+        f"Open pull request {head} -> {base} for {repo_path}",
+        project_id,
+    )
+    if not allowed:
+        return GitWriteResult(
+            applied=False, operation="create_pull_request", verdict=verdict, reason=reason,
+            detail={"head": head, "base": base},
+        )
+
+    try:
+        output = _run_gh(
+            repo_path,
+            ["pr", "create", "--title", title, "--body", body, "--base", base, "--head", head],
+        )
+    except GitCommandError as exc:
+        return GitWriteResult(
+            applied=False, operation="create_pull_request", verdict="allow",
+            reason=str(exc), detail={"head": head, "base": base},
+        )
+    return GitWriteResult(
+        applied=True, operation="create_pull_request", output=output,
+        detail={"head": head, "base": base},
+    )
 
 
 def diff(
