@@ -161,3 +161,28 @@ generation_defaults:
   creative:
     temperature: 0.85
     top_p: 0.95
+
+# Reasoning ("think") per task type — §22.1.
+#
+# Measured on RX 6800 with qwen3.5:9b, model warm, same prompt:
+#   think=False -> 675 / 705 / 697 ms to the first *content* token
+#   think=True  -> 4 223 / 4 405 ms
+# The first token of any kind arrives in ~660 ms either way; the gap is
+# entirely the reasoning phase, which chat_stream does not yield — so the
+# user sees nothing for ~3.5 s. The Tier 2 budget is 3 s (§22.1), which
+# is why T3 was failing.
+#
+# Reasoning is kept where it changes the answer (code, planning,
+# verification, security) and dropped where it only adds silence
+# (conversation, classification, extraction). The resolved value is
+# carried on the RoutingDecision and recorded in the audit log, so a task
+# type missing from this map is visible rather than silently downgraded.
+thinking:
+  default: false
+  by_task_type:
+    reasoning: true
+    verification: true
+    planning: true
+    code_analysis: true
+    code_generation: true
+    code_refactor: true

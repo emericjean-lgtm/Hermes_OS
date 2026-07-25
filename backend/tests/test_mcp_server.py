@@ -250,7 +250,7 @@ async def test_research_query_returns_answer_and_passages(monkeypatch, tmp_path)
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+    async def fake_chat_stream(self, model, messages, **_kwargs):
         for chunk in ["Answer", " from", " Minerva"]:
             yield chunk
 
@@ -272,7 +272,7 @@ async def test_verify_output_returns_parsed_verdict(monkeypatch, tmp_path):
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+    async def fake_chat_stream(self, model, messages, **_kwargs):
         for chunk in ["VERDICT: approved\n", "ISSUES:\n- none\n", "CORRECTIONS:\nnone"]:
             yield chunk
 
@@ -297,7 +297,7 @@ async def test_write_document_returns_document(monkeypatch, tmp_path):
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+    async def fake_chat_stream(self, model, messages, **_kwargs):
         for chunk in ["# Title\n", "Some content."]:
             yield chunk
 
@@ -318,7 +318,7 @@ async def test_analyze_image_returns_description(monkeypatch, tmp_path):
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+    async def fake_chat_stream(self, model, messages, **_kwargs):
         for chunk in ["An ", "RX 6800 ", "graphics card."]:
             yield chunk
 
@@ -339,7 +339,7 @@ async def test_classify_request_returns_known_task_type(monkeypatch, tmp_path):
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None):
+    async def fake_chat_stream(self, model, messages, **_kwargs):
         yield "code_generation"
 
     monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)

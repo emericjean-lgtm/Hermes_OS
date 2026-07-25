@@ -60,5 +60,10 @@ class BaseAgent(ABC):
             messages,
             temperature=params["temperature"],
             top_p=params["top_p"],
+            # From the routing decision, not resolved here: the value is
+            # per task_type (config/models.yaml → `thinking`) and must be
+            # the same one the audit log records. See §22.1 — reasoning
+            # costs ~3.5 s of silence before the first visible word.
+            think=decision.thinking,
         )
         return decision, stream

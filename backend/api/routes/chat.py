@@ -111,10 +111,11 @@ async def _audited(stream, request: ChatRequest, decision) -> AsyncIterator[str]
                     result=result,
                     error=detail,
                     routing_decision={
-                        "task_type": request.task_type,
+                        "task_type": decision.task_type,
                         "model_selected": decision.model,
                         "tier": decision.tier,
-                        "reason": decision.role,
+                        "reason": decision.reason,
+                        "thinking": decision.thinking,
                     },
                     duration_ms=timer.duration_ms,
                     first_token_ms=timer.first_token_ms,

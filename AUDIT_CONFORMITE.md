@@ -43,7 +43,7 @@ lisibilité et non par la raison invoquée à l'époque.
 | **Absent** | §12 résumé de contexte · §24.2 WebSocket |
 | **Écart assumé, à documenter** | §4.1 stack (LangChain, Watchdog, keyring, Telegram) · §23 interface |
 | **Non vérifié** | §25 installation |
-| **Mesuré** | §22.1 latences — T1 passe ; **T3 en échec**, cause diagnostiquée (§3.2.2), correctif à arbitrer |
+| **Mesuré, corrigé** | §22.1 latences — T1 et T3 passent après le correctif du raisonnement par `task_type` (§3.2.3) |
 
 Le projet couvre la majeure partie du corps normatif. Le seul manque qui
 cassait un critère d'acceptation explicite (T8, snapshots) a été comblé
@@ -86,7 +86,7 @@ critère du §28.
 | **T8 reprise après interruption** | ✅ | `snapshot_manager` — vérifié en réel le 2026-07-26 |
 | **T11 3 tentatives + backoff** | ✅ | `ollama_client.py` — vérifié en réel contre un port fermé |
 | T1 premier token < 1 s | ✅ | Mesuré via Hermes : `qwen3:1.7b` à 766 et 978 ms, raisonnement activé |
-| T3 réutilisation du modèle chargé | ❌ | La réutilisation *fonctionne* (§10.3 vérifié) ; c'est la latence Tier 2 qui échoue : 4,2 s au premier token de contenu contre 3 s de budget, à cause du raisonnement — §3.2.2 |
+| T3 réutilisation du modèle chargé | ✅ | §10.3 vérifié ; latence Tier 2 ramenée de 4 223 ms à **594-615 ms** (budget 3 s) par le raisonnement par `task_type` — §3.2.3 |
 | T5 recherche < 500 ms | ⏳ | Non mesuré |
 
 ---
@@ -198,11 +198,50 @@ réelles via Hermes, `qwen3:1.7b` (Tier 1, budget 1 s) répond en 766 et
 Le routeur avait d'ailleurs correctement privilégié le modèle résident
 (§10.3).
 
-Le correctif n'est pas mécanique : désactiver le raisonnement rend le
-modèle plus rapide *et moins bon*, alors que c'est précisément pour ses
-gains en raisonnement que `qwen3.5:9b` a été choisi. Arbitrage à faire
-(par rôle, par `task_type`, ou en streamant le raisonnement à
-l'affichage) — **non tranché.**
+### 3.2.3 Correctif — raisonnement par `task_type` — fait le 2026-07-26
+
+Arbitrage retenu : le raisonnement reste actif là où il change la
+réponse, et disparaît là où il n'ajoute que du silence. Déclaré en
+configuration (`config/models.yaml` → `thinking`), conformément au §22.4
+« ajouter/retirer sans toucher au cœur » :
+
+```yaml
+thinking:
+  default: false
+  by_task_type:
+    reasoning: true        # + verification, planning,
+    ...                    #   code_analysis, code_generation, code_refactor
+```
+
+La valeur résolue est portée par `RoutingDecision` — pas recalculée par
+chaque appelant — et enregistrée dans le `routing_decision` du log
+d'audit. Un `task_type` absent de la table prend le défaut *et se voit*
+dans les logs, au lieu d'être silencieusement dégradé.
+
+`select_model` a quatre chemins de sortie qui construisaient chacun le
+dataclass à la main ; ils passent désormais par un constructeur unique.
+Renseigner le champ sur trois chemins sur quatre aurait livré une valeur
+juste seulement parfois — exactement la forme du bug `first_token_ms`
+ci-dessus.
+
+**Mesuré en réel après correctif**, `qwen3.5:9b` en Tier 2, modèle chaud :
+
+| `task_type` | raisonnement | 1er token de contenu |
+|---|---|---|
+| `writing` | non | **594 ms** / **615 ms** |
+| `conversation` | non | **577 ms** |
+| `extraction` | non | **519 ms** |
+| `planning` | oui | 6 137 ms |
+| `code_analysis` | oui | 42 160 ms |
+
+**T3 passe** : 594-615 ms contre 3 s de budget, soit ~7× de marge, là où
+la mesure d'avant donnait 4 223 ms. Le raisonnement reste coûteux — c'est
+le prix assumé, désormais payé uniquement sur les tâches qui en tirent
+quelque chose.
+
+Reste non traité : le **chargement à froid** (~6,5 s à la première
+requête). C'est un sujet distinct — le rôle `standard` n'est pas
+`always_loaded` (§22, budget VRAM de 16 Go).
 
 Constat associé : une requête a produit **0 token en 59,7 s** tout en
 étant enregistrée `result: "success"`. Corrigé — un flux sans token est
@@ -300,14 +339,10 @@ principe directeur du document.
    et il débloquerait la mesure des latences du §22.1 (T1, T3, T5),
    aujourd'hui invérifiables faute d'instrumentation. *Il l'a fait, et le
    verdict n'est pas celui qu'on espérait : voir §3.2.1.*
-4. **Latence du premier token (§22.1, T3)** — **diagnostic fait le
-   2026-07-26** (§3.2.2) : la cause est la phase de raisonnement, pas le
-   tier. Reste un *arbitrage produit*, pas une correction technique —
-   désactiver `think` par rôle ou par `task_type` gagne 6× en latence
-   mais dégrade la qualité de raisonnement, qui est la raison même du
-   choix de `qwen3.5:9b`. Une troisième voie existe : streamer le
-   raisonnement à l'affichage, ce qui supprime le silence perçu sans rien
-   sacrifier. **À trancher avant de coder.**
+4. ~~**Latence du premier token (§22.1, T3)**~~ — **diagnostiqué et
+   corrigé le 2026-07-26** (§3.2.2 et §3.2.3). T1 et T3 passent.
+   Reste ouvert, plus petit : le chargement à froid du rôle `standard`
+   (~6,5 s), et l'option d'afficher le raisonnement là où il est actif.
 5. **WebSocket (§24.2)** — nécessaire à la statusbar temps réel.
 6. **`secret_scanner` (§17.1)** — le socle existe : `audit_log.redact()`
    couvre déjà la détection par motifs sur ce qui est journalisé. Reste à
