@@ -57,7 +57,7 @@ from backend.security.aegis_engine import ActionRequest
 from backend.self_evolution import progression_tracker
 from backend.self_evolution.pipeline import process_task
 from backend.tasks.task_manager import Task
-from backend.tools import file_tools
+from backend.tools import file_tools, git_tools
 from backend.workflows import loader as workflow_loader
 from backend.workflows.engine import WorkflowEngine
 from backend.workflows.schema import WorkflowDefinition
@@ -330,6 +330,57 @@ def documents_index(
         "warnings": list(extracted.warnings),
         "characters": len(extracted.text),
     }
+
+
+# ── Git (§14) — read-only phase ──────────────────────────────────────
+
+
+def git_status(repo_path: str, project_id: str | None = None) -> dict:
+    """Inspect a git repository: current branch, staged/modified/untracked
+    files, and how far ahead/behind its upstream it is. `protected` is true
+    when the checked-out branch is one you must never commit to directly
+    (main/master/production). Read-only — nothing is modified."""
+    result = git_tools.status(_aegis(), repo_path, project_id=project_id)
+    return {
+        "branch": result.branch,
+        "detached": result.detached,
+        "dirty": result.dirty,
+        "staged": list(result.staged),
+        "modified": list(result.modified),
+        "untracked": list(result.untracked),
+        "ahead": result.ahead,
+        "behind": result.behind,
+        "protected": result.protected,
+    }
+
+
+def git_log(repo_path: str, limit: int = 20, project_id: str | None = None) -> list[dict]:
+    """Recent commits of a repository, newest first (sha, author, ISO date,
+    subject). Read-only."""
+    return [
+        {"sha": c.sha, "author": c.author, "date": c.date, "subject": c.subject}
+        for c in git_tools.log(_aegis(), repo_path, limit=limit, project_id=project_id)
+    ]
+
+
+def git_branches(repo_path: str, project_id: str | None = None) -> dict:
+    """Local and remote branches of a repository, plus the current one.
+    Read-only."""
+    result = git_tools.branches(_aegis(), repo_path, project_id=project_id)
+    return {
+        "current": result.current,
+        "local": list(result.local),
+        "remote": list(result.remote),
+    }
+
+
+def git_diff(
+    repo_path: str, staged: bool = False, project_id: str | None = None
+) -> str:
+    """Uncommitted changes in a repository as a unified diff. Set
+    staged=True for what is in the index instead of the working tree.
+    Truncated past 20k characters. Read-only."""
+    return git_tools.diff(_aegis(), repo_path, staged=staged, project_id=project_id)
 
 
 # ── Minerva: research/RAG ─────────────────────────────────────────────
@@ -778,6 +829,10 @@ _ALL_TOOLS = [
     memory_index,
     memory_search,
     documents_index,
+    git_status,
+    git_log,
+    git_branches,
+    git_diff,
     research_query,
     verify_output,
     write_document,

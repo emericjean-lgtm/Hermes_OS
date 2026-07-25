@@ -1,7 +1,7 @@
 # Audit de conformité — Hermes Ollama vs cahier des charges condensé
 
 **Date :** 2026-07-25
-**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 408 tests au vert
+**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 443 tests au vert
 **Référence :** cahier des charges condensé (30 sections), à lire avec
 `CAHIER_DES_CHARGES_HERMES_OLLAMA.md` (version longue historique)
 
@@ -19,9 +19,9 @@ d'un commentaire.
 | **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
 | **Conforme après correction (cette passe)** | §22 optimisation VRAM |
 | **Vocabulaire tranché et appliqué** (cette passe) | §17 « HSE » → moteur Aegis + auto-évolution, §6 Atlas/Swift/Sentinel |
-| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR, voir §5.3) |
+| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git en lecture |
 | **Partiel** | §6 Kronos (pas de parallélisation), §12 mémoire, §23 interface |
-| **Absent** | §14 Git, §16 vérification (lint/build/tests), §8 workflow de développement complet |
+| **Absent** | §16 vérification (lint/build/tests), §8 workflow de développement complet, §14 Git *écriture* (lecture faite) |
 
 L'écart le plus coûteux n'était pas une fonctionnalité manquante : c'était
 le **glissement de vocabulaire** entre le cahier des charges et le code.
@@ -188,12 +188,55 @@ helper. Suite complète : 378 au vert.
 
 ## 5. Manques réels, par ordre de valeur
 
-### 5.1 §14 Gestion Git — absent
+### 5.1 §14 Gestion Git — phase 1 (lecture) FAITE le 2026-07-25
 
-Aucun module Git dans `backend/`. Ni lecture de dépôt, ni branche, ni
-commit, ni PR, ni rollback. C'est le manque le plus visible : le CDC y
-consacre une section entière, et « jamais directement sur la branche
-principale » est une règle qu'aucun code n'applique aujourd'hui.
+**Était :** aucun module Git. Ni lecture, ni branche, ni commit, ni PR,
+ni rollback — et « jamais directement sur la branche principale » n'était
+appliqué par aucun code.
+
+**Ajouté (lecture seule) :** `backend/tools/git_tools.py`, les outils MCP
+`git_status` / `git_log` / `git_branches` / `git_diff`, et les routes
+`GET /git/*`. Aucune dépendance nouvelle : le binaire `git` est déjà
+requis pour utiliser ce dépôt, ce qui évite d'ajouter GitPython pour
+quatre commandes de lecture.
+
+Trois points de conception qui méritent d'être connus :
+
+1. **Ce n'est pas `system_command`.** Aegis classe `system_command` en
+   `mandatory_validation` parce que l'exécution shell arbitraire est
+   illimitée. Ici, chaque commande est une **liste argv constante écrite
+   dans le fichier**, lancée avec `shell=False` ; la seule valeur fournie
+   par l'appelant est le chemin du dépôt, qui passe par le contrôle
+   `ALLOWED_PATHS` *avant* que git ne soit invoqué. Il n'y a aucune
+   interpolation de chaîne dans une commande, donc rien à injecter.
+   Classer `git status` en `system_command` imposerait une validation
+   humaine à chaque lecture — ce qui entraînerait l'utilisateur à cliquer
+   « oui » machinalement, exactement l'inverse du but de la catégorie.
+   Un test vérifie l'invariant (`shell=False`, argv toujours une liste).
+
+2. **La règle « jamais sur la branche principale » est déjà codée**, alors
+   qu'aucune écriture n'existe encore : `is_protected_branch()` reconnaît
+   `main`, `master`, `production`, `prod`, y compris sous forme qualifiée
+   (`refs/heads/main`, `origin/main`). Une future écriture qui se
+   contenterait de comparer la chaîne `"main"` passerait à côté d'une ref
+   qualifiée — c'est précisément le cas que le §14 veut empêcher. Le
+   champ `protected` est exposé sur `/git/status`, donc un appelant sait
+   *avant* d'agir.
+
+3. **Sortie bornée** : `git diff` est tronqué à 20 000 caractères, parce
+   que cette sortie finit généralement dans une fenêtre de contexte LLM.
+
+Vérifié en réel sur ce dépôt même : `status` détecte exactement les
+fichiers modifiés et non suivis, `log` et `branches` renvoient les vraies
+données, `C:/Windows` est refusé en `403`, un dossier non-dépôt en `400`.
+35 tests, construits sur de **vrais dépôts jetables** avec le vrai binaire
+git — le risque de ce module est le parsing de la sortie de git, et un
+mock n'aurait fait que confirmer mes propres suppositions de format.
+
+**Reste à faire — phase 2 (écriture).** Branche, commit, push, PR,
+rollback, derrière les catégories `git_operation` et `git_critical` que
+`config/security.yaml` déclare depuis le début et dont ce module est le
+premier consommateur (en `file_read` seulement, pour l'instant).
 
 ### 5.2 §16 Vérification (lint / build / tests) — impossible en l'état
 
@@ -283,8 +326,9 @@ n'existe que comme entrées mémoire scopées par `project_id`.
 2. ~~**Ingestion documentaire** (§13)~~ — **fait le 2026-07-25.** PDF,
    DOCX et famille texte ingérables par chemin, sous Aegis. OCR écarté
    au profit du modèle de vision déjà présent (voir §5.3).
-3. **Module Git** (§14) — valeur élevée ; à cadrer (lecture seule d'abord,
-   écriture derrière Aegis ensuite). **Prochaine étape recommandée.**
+3. **Module Git — phase 2, écriture** (§14) — la lecture est faite ;
+   branche/commit/push/PR derrière `git_operation` et `git_critical`.
+   **Prochaine étape recommandée.**
 4. **Parallélisation des workflows** (§6) — gain de performance, périmètre
    contenu au moteur.
 5. **Exécution de code** (§16) — le plus utile *et* le plus risqué.
