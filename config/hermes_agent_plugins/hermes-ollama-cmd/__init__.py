@@ -49,6 +49,60 @@ def _as_data(result):
     return result
 
 
+class _ToolReadError(Exception):
+    """The tool answered in a shape this plugin can't read.
+
+    Exists so that failure is never mistaken for an empty queue. The
+    first version of `/attente` returned [] on any unrecognised shape and
+    therefore said "rien en attente" while an approval was genuinely
+    waiting — a confident, wrong answer, which is worse than an error
+    because it looks like it worked.
+    """
+
+
+def _as_list(result, *, item_key: str):
+    """Coerce a tool result into a list of records.
+
+    Observed shapes, all from the same tool depending on item count and
+    transport: a bare list; a {"result": [...]} envelope; a
+    {"result": "<json string>"} envelope (double-encoded — the value is
+    itself JSON text); and, when exactly one item came back, that single
+    object on its own rather than a one-element list.
+
+    Unwrapping is therefore iterative rather than a fixed sequence of
+    `if`s: each pass either peels one layer or stops. Anything left
+    unrecognised raises, so failure can never be mistaken for an empty
+    queue.
+    """
+    data = _as_data(result)
+    if data is None:
+        raise _ToolReadError(f"réponse illisible : {str(result)[:120]}")
+
+    # Bounded: three peels covers every observed nesting, and a cap means
+    # a pathological payload can't spin here.
+    for _ in range(3):
+        if isinstance(data, str):
+            parsed = _as_data(data)
+            if parsed is None:
+                break
+            data = parsed
+            continue
+        if isinstance(data, dict) and item_key not in data and "result" in data:
+            data = data["result"]
+            continue
+        break
+
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        if item_key in data:
+            # Exactly one record, unwrapped by the serialiser.
+            return [data]
+        if data.get("error") or data.get("isError"):
+            raise _ToolReadError(str(data)[:200])
+    raise _ToolReadError(f"forme inattendue : {type(data).__name__} {str(data)[:120]}")
+
+
 def handle_tache(ctx, raw_args: str) -> str:
     title = raw_args.strip()
     if not title:
@@ -62,17 +116,26 @@ def handle_tache(ctx, raw_args: str) -> str:
 
 def _pending(ctx):
     """Pending approvals, oldest first — see the module docstring on why
-    the ordering is load-bearing."""
-    data = _as_data(
-        ctx.dispatch_tool("mcp__hermes_ollama__approvals_list", {"status": "pending"})
+    the ordering is load-bearing. Raises _ToolReadError rather than
+    returning [] when the answer can't be read."""
+    entries = _as_list(
+        ctx.dispatch_tool("mcp__hermes_ollama__approvals_list", {"status": "pending"}),
+        item_key="action_type",
     )
-    if not isinstance(data, list):
-        return []
-    return sorted(data, key=lambda a: a.get("created_at") or "")
+    return sorted(entries, key=lambda a: a.get("created_at") or "")
 
 
 def handle_attente(ctx, raw_args: str) -> str:
-    entries = _pending(ctx)
+    try:
+        entries = _pending(ctx)
+    except _ToolReadError as exc:
+        # Say what actually happened. Reporting an empty queue here would
+        # be a confident lie about a security-relevant list.
+        return (
+            f"Impossible de lire la file d'attente : {exc}\n"
+            "Vérifie que le backend tourne et que approvals_list figure "
+            "dans mcp_servers.hermes-ollama.tools.include."
+        )
     if not entries:
         return "Rien en attente de validation."
 
@@ -102,7 +165,10 @@ def _resolve(entries, token: str):
 
 def _decide(ctx, raw_args: str, *, approved: bool) -> str:
     verb = "/ok" if approved else "/non"
-    entries = _pending(ctx)
+    try:
+        entries = _pending(ctx)
+    except _ToolReadError as exc:
+        return f"Impossible de lire la file d'attente : {exc}"
     if not entries:
         return "Rien en attente de validation."
 
