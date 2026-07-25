@@ -23,6 +23,7 @@ from backend.api.routes import (
     research,
     security,
     skills,
+    snapshots,
     system,
     tasks,
     verification,
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(skills.router)
     app.include_router(documents.router)
     app.include_router(git.router)
+    app.include_router(snapshots.router)
     app.include_router(verification.router)
     app.include_router(evolution.router)
     app.mount("/mcp", mcp_asgi_app)

@@ -46,6 +46,7 @@ from backend.agents.minerva import MinervaAgent
 from backend.agents.veritas import VeritasAgent
 from backend.core.agent_registry import get_agent_registry
 from backend.core.config import get_settings, load_models_config
+from backend.core import snapshot_manager
 from backend.core.message_bus import get_message_bus
 from backend.documents.extractor import extract_text
 from backend.memory import project_memory
@@ -370,6 +371,54 @@ def approvals_decide(approval_id: str, approved: bool) -> dict | None:
     permission, and it can never unlock a hard denial (outside
     ALLOWED_PATHS, outside a project root)."""
     return _aegis().decide_approval(approval_id, approved=approved)
+
+
+def snapshots_create(reason: str = "", context: dict | None = None) -> dict:
+    """Save the current application state (tasks, workflow runs, plus any
+    context you pass) to a restorable snapshot (§19.3). Read-only with
+    respect to that state — safe to call before anything risky."""
+    info = snapshot_manager.create_snapshot(reason=reason, context=context)
+    return {
+        "id": info.id, "created_at": info.created_at, "reason": info.reason,
+        "task_count": info.task_count, "run_count": info.run_count,
+    }
+
+
+def snapshots_list() -> list[dict]:
+    """Available snapshots, newest first."""
+    return [
+        {"id": s.id, "created_at": s.created_at, "reason": s.reason,
+         "task_count": s.task_count, "run_count": s.run_count, "context": s.context}
+        for s in snapshot_manager.list_snapshots()
+    ]
+
+
+def snapshots_preview_restore(snapshot_id: str) -> dict:
+    """What restoring a snapshot WOULD change, without changing anything.
+    Always call this before snapshots_restore and show the result to the
+    user — restoring overwrites live state."""
+    p = snapshot_manager.preview_restore(snapshot_id)
+    return {
+        "snapshot_id": p.snapshot_id,
+        "tasks_restored": p.tasks_restored,
+        "tasks_overwritten": p.tasks_overwritten,
+        "tasks_created": p.tasks_created,
+        "tasks_absent_from_snapshot": p.tasks_absent_from_snapshot,
+        "runs_restored": p.runs_restored,
+    }
+
+
+def snapshots_restore(snapshot_id: str, project_id: str | None = None) -> dict:
+    """Write a snapshot back over the current state. DESTRUCTIVE for
+    anything changed since — always preview first. Classified
+    data_migration, so it requires human validation at every autonomy
+    level. Tasks created after the snapshot are NOT deleted."""
+    r = snapshot_manager.restore_snapshot(_aegis(), snapshot_id, project_id=project_id)
+    return {
+        "restored": r.restored, "snapshot_id": r.snapshot_id,
+        "verdict": r.verdict, "reason": r.reason,
+        "tasks_restored": r.tasks_restored, "runs_restored": r.runs_restored,
+    }
 
 
 def documents_index(
@@ -1010,6 +1059,10 @@ _ALL_TOOLS = [
     memory_project_brief,
     memory_known_types,
     documents_index,
+    snapshots_create,
+    snapshots_list,
+    snapshots_preview_restore,
+    snapshots_restore,
     approvals_list,
     approvals_decide,
     verification_runners,

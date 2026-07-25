@@ -5,7 +5,7 @@
 le document normatif versionné dans ce dépôt, lu intégralement
 (1 195 lignes) avant toute conclusion.
 **Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`,
-611 tests au vert.
+631 tests au vert.
 
 ---
 
@@ -40,13 +40,14 @@ lisibilité et non par la raison invoquée à l'époque.
 |---|---|
 | **Conforme, vérifié** | §9 agents · §9.2 bus · §10 routage · §11 mémoire · §13 tâches · §14.1 fichiers · §15 workflows · §17 sécurité · §20 auto-évolution · §21 monitoring |
 | **Conforme après les travaux du 2026-07-25** | §13 ingestion documentaire · §14 Git · §16 vérification · §22 VRAM |
-| **Absent** | §12 résumé de contexte · §18 log d'audit structuré · §19.3 snapshots/rollback · §24.2 WebSocket · §17.1 `secret_scanner` |
+| **Absent** | §12 résumé de contexte · §18 log d'audit structuré · §24.2 WebSocket · §17.1 `secret_scanner` |
 | **Écart assumé, à documenter** | §4.1 stack (LangChain, Watchdog, keyring, Telegram) · §23 interface |
 | **Non vérifié** | §22.1 latences · §25 installation |
 
-Le projet couvre la majeure partie du corps normatif. Les manques réels
-sont peu nombreux, mais l'un d'eux — les snapshots — **casse un critère
-d'acceptation explicite** (§28, T8).
+Le projet couvre la majeure partie du corps normatif. Le seul manque qui
+cassait un critère d'acceptation explicite (T8, snapshots) a été comblé
+le 2026-07-26 ; les manques restants sont réels mais ne bloquent aucun
+critère du §28.
 
 ---
 
@@ -81,7 +82,7 @@ d'acceptation explicite** (§28, T8).
 | T7 validation humaine sur suppression | ✅ | Vérifié en réel : `file_delete` = `mandatory_validation` |
 | T9 lint + tests après modification | ✅ | Depuis le 2026-07-25 (§16) |
 | T12 secret ciblé → validation | ⚠️ partiel | `secret_modification` est en validation obligatoire, mais **aucun `secret_scanner`** ne détecte un secret ailleurs |
-| **T8 reprise après interruption** | ❌ | **Aucun snapshot d'état** — voir §3.1 |
+| **T8 reprise après interruption** | ✅ | `snapshot_manager` — vérifié en réel le 2026-07-26 |
 | **T11 3 tentatives + backoff** | ❌ | **Aucun retry** dans `ollama_client.py` |
 | T1 premier token < 1 s | ⏳ | Non mesuré |
 | T3 réutilisation du modèle chargé | ⏳ | Logique présente, non mesurée en conditions réelles |
@@ -91,24 +92,45 @@ d'acceptation explicite** (§28, T8).
 
 ## 3. Manques réels
 
-### 3.1 §19.3 — Snapshots & rollback *(le plus grave)*
+### 3.1 §19.3 — Snapshots & rollback — FAIT le 2026-07-26
 
-Le CDC exige un `snapshot_manager` sauvegardant l'état (tâches, contexte,
-fichiers modifiés) toutes les N étapes, permettant reprise et annulation.
+`backend/core/snapshot_manager.py` + `POST /snapshots`,
+`GET /snapshots`, `GET /snapshots/{id}/preview`,
+`POST /snapshots/{id}/restore`, et quatre outils MCP.
 
-**Rien de tel n'existe.** Le seul « snapshot » du code est
-`GpuMonitor.snapshot()` — de la télémétrie, sans rapport. Les seules
-sauvegardes sont les backups de fichiers de `propose_write`.
+**Ce qui est capturé, et ce qui ne l'est délibérément pas.** Les tâches
+et les runs de workflow (l'état durable), plus un `context` libre fourni
+par l'appelant. Les *contenus* de fichiers ne sont **pas** recopiés :
+`propose_write` sauvegarde déjà chaque fichier avant écrasement, dans ce
+même `data/snapshots/`. Les dupliquer doublerait le coût disque et
+créerait deux chemins de restauration pouvant diverger. Le snapshot
+enregistre les *chemins* touchés, pas les octets.
 
-Pourquoi c'est le plus grave : **T8 est un critère d'acceptation
-explicite**, la réversibilité est le principe de conception n°4 (§7), et
-le §19.2 promet « interruption de session → sauvegarde d'état » puis
-« redémarrage → reprise au dernier point sûr ». Trois endroits du
-document s'appuient dessus.
+**La restauration est destructive, et traitée comme telle :**
 
-*Nuance :* les runs de workflow, eux, **sont** reprenables
-(`run_store.py`, reprise après portail via `run_id`). La reprise existe
-donc pour les workflows, pas pour les sessions ni les tâches.
+- classée `data_migration`, donc validation humaine obligatoire à *tout*
+  niveau d'autonomie (§17.3 liste « migration de données ») ;
+- jamais automatique — ni au démarrage, ni après un plantage. Restaurer
+  sans demander serait précisément le genre d'action que le §17 encadre ;
+- `preview_restore` montre ce qui changerait avant d'accepter, le même
+  contrat « diff d'abord » que le §14.1 impose aux écritures ;
+- **les tâches créées après le snapshot ne sont pas supprimées.**
+  Restaurer n'est pas « remettre le monde exactement comme avant » :
+  effacer du travail postérieur ferait *perdre* des données à un outil de
+  récupération.
+
+Les snapshots sont du JSON lisible au `cat`, sans table ni migration —
+ce qui compte pour un mécanisme dont la raison d'être est de rattraper un
+état cassé, y compris si ce module est lui-même en panne.
+
+`StepCounter` déclenche un snapshot toutes les N étapes
+(`SNAPSHOT_EVERY_STEPS`, 0 pour désactiver), et `prune_snapshots` borne
+le répertoire — le §3.7 ne budgète que ~2-5 Go pour logs et snapshots
+réunis.
+
+**T8 vérifié en réel**, pas seulement en test : une tâche passée à
+`cancelled`, restauration refusée (`require_human_validation`), approuvée
+via la file, relancée — la tâche est revenue à `todo`. 19 tests.
 
 ### 3.2 §18 — Log d'audit structuré
 
@@ -187,9 +209,8 @@ principe directeur du document.
 
 ## 6. Ordre de traitement recommandé
 
-1. **`snapshot_manager` (§19.3)** — seul manque qui casse un critère
-   d'acceptation, et trois sections du CDC s'appuient dessus.
-2. **Retry Ollama avec backoff (§19.1, T11)** — quelques lignes, effet
+1. ~~**`snapshot_manager` (§19.3)**~~ — **fait le 2026-07-26**, T8 vérifié.
+2. **Retry Ollama avec backoff (§19.1, T11)** — *prochaine étape.* — quelques lignes, effet
    direct sur la fiabilité quotidienne.
 3. **Log d'audit §18** — le format est déjà spécifié ; il débloquerait
    aussi la mesure des latences du §22.1, aujourd'hui invérifiables.

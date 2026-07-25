@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     chroma_path: str = "./data/db/chroma"
     sqlite_path: str = "./data/db/hermes.db"
     workflows_dir: str = "./data/workflows"
+    # Snapshots (§19.3). snapshot_every_steps <= 0 disables automatic
+    # ones; snapshot_keep bounds the directory, since §3.7 budgets only
+    # ~2-5 GB for logs and snapshots together.
+    snapshot_dir: str = "./data/snapshots"
+    snapshot_every_steps: int = 10
+    snapshot_keep: int = 20
     # Max workflow nodes executed concurrently (§6: parallélisation).
     # Bounded, and deliberately small: workflow nodes call LLM-backed
     # tools, so an unbounded fan-out would ask Ollama to hold several
