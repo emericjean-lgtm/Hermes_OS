@@ -19,8 +19,8 @@ d'un commentaire.
 | **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
 | **Conforme après correction (cette passe)** | §22 optimisation VRAM |
 | **Vocabulaire tranché et appliqué** (cette passe) | §17 « HSE » → moteur Aegis + auto-évolution, §6 Atlas/Swift/Sentinel |
-| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation, §12 mémoire projet, §16 vérification, §8 chaîne de développement |
-| **Partiel** | §23 interface |
+| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation, §12 mémoire projet, §16 vérification, §8 chaîne de développement, §23 interface |
+
 | **Absent** | *(plus aucun manque de code — voir §6 pour ce qui reste)* |
 
 L'écart le plus coûteux n'était pas une fonctionnalité manquante : c'était
@@ -434,14 +434,50 @@ dont ceux qui mesurent le recouvrement effectif plutôt que le seul
 résultat — un test qui ne vérifierait que les résultats passerait aussi
 bien contre l'ancien moteur séquentiel.
 
-### 5.5 §23 Interface — 11 vues attendues, 1 page réelle
+### 5.5 §23 Interface — TRANCHÉ et livré le 2026-07-25
 
-`frontend/src/app/page.tsx` fait 105 lignes. Le tableau de bord réel est
-aujourd'hui le plugin Hermes Agent (`config/hermes_agent_dashboard/`,
-6 panneaux : système, lancement, projets, tâches, auto-évolution, activité
-des agents). À trancher : abandonner le frontend Next.js et assumer le
-plugin comme interface unique, ou le développer. Maintenir les deux à
-moitié est le pire scénario.
+**Décision (utilisateur) :** pas d'application séparée. Le frontend
+Next.js reste ce qu'il est — une page de chat de 105 lignes, dont
+l'utilisateur a confirmé ne pas avoir besoin (Telegram et le chat
+d'Hermes Agent suffisent). Le plugin du tableau de bord est l'interface.
+
+Le raisonnement qui a tranché : la vue prioritaire (Sécurité) était à
+80 % un manque **backend**, pas d'interface — construire une app n'en
+rapprochait pas d'un pas. Et le besoin d'accès téléphone/tablette plaide
+*contre* l'app : le dashboard d'Hermes Agent embarque déjà des
+fournisseurs d'authentification, qu'une app neuve devrait reconstruire
+avant de quitter `localhost` sans risque.
+
+**Les 3 vues demandées sont livrées**, portant le plugin de 6 à 9
+panneaux :
+
+- **Security — awaiting you** (en tête de grille) : la file
+  d'approbations, avec la raison donnée par Aegis affichée mot pour mot,
+  et les boutons *approve once* / *refuse*. Le panneau qui demande
+  quelque chose ne doit pas être sous quatre cadrans passifs.
+- **Memory** : sélecteur permanent / par projet, le niveau projet groupé
+  par les quatre types du §12, avec les entrées hors vocabulaire
+  signalées.
+- **Models (roles)** : la table rôle → modèle, VRAM par rôle, et trois
+  états distincts — `PINNED`, `loaded`, `—` — parce qu'ils veulent dire
+  des choses différentes quand la contrainte est un budget de 16 Go.
+  Nouvelle route `GET /system/models` : `/system/status` ne renvoyait que
+  des *noms* de rôles, incapables de répondre à « quel modèle » et
+  « est-il résident ».
+
+Vues du §23 non retenues (Chat, Documents, Logs, Paramètres, Agents) :
+écartées par l'utilisateur ou déjà couvertes ailleurs — Hermes Agent a
+ses propres pages Logs et Paramètres.
+
+#### Bug trouvé en affichant, pas en relisant
+
+La vue Mémoire en niveau « permanent » listait les notes d'architecture
+d'un projet. Cause : `list_memories(project_id=None)` signifie « ne pas
+filtrer par projet », pas « entrées sans projet ». Ce n'est pas cosmétique
+— c'est exactement le mélange contre lequel le §5.6 met en garde : une
+décision prise pour un projet finit lue comme une règle globale. Corrigé
+par `permanent_memory()` (+ `GET /memory/permanent`) et trois tests. Le
+bug n'était visible qu'en regardant l'écran.
 
 ### 5.6 §12 Mémoire — FAIT le 2026-07-25
 

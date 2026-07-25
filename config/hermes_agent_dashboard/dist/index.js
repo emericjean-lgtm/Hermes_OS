@@ -506,6 +506,135 @@
     }, body);
   }
 
+  function ModelsPanel(props) {
+    const { data, error, loading, latencyMs } = useBackendResource("/models", props.reloadKey);
+    let body;
+    if (loading) { body = ErrorNote("Reading model roles…"); }
+    else if (error) { body = ErrorNote("Backend unreachable: " + error); }
+    else {
+      body = React.createElement("div", { className: "flex flex-col" },
+        data.roles.map(function (r) {
+          // Three states worth distinguishing, because they mean
+          // different things for a 16GB budget: pinned in VRAM, resident
+          // but evictable, and not loaded at all.
+          const badge = r.always_loaded ? "good" : r.loaded ? "" : "dim";
+          const label = r.always_loaded ? "pinned" : r.loaded ? "loaded" : "—";
+          return React.createElement("div", { key: r.role, className: "ho-row" },
+            React.createElement("span", {
+              className: "ho-label",
+              style: { color: "var(--ho-text)" },
+              title: r.model,
+            }, r.role),
+            React.createElement("span", { style: { display: "flex", gap: "6px", alignItems: "center" } },
+              React.createElement("span", { className: "ho-muted", style: { fontSize: "11px" } },
+                (r.vram_gb != null ? r.vram_gb + " GB" : "")),
+              React.createElement("span", { className: cn("ho-badge", badge) }, label),
+            ),
+          );
+        }),
+        React.createElement(Row, {
+          label: "resident / pinned",
+          value: data.loaded_count + " / " + data.always_loaded_count,
+        }),
+      );
+    }
+    return React.createElement(Panel, {
+      title: "Models (roles)",
+      right: React.createElement(LinkBadge, { error: error, latencyMs: latencyMs }),
+    }, body);
+  }
+
+  function MemoryPanel(props) {
+    const { data: projects } = useBackendResource("/projects", props.reloadKey);
+    // "" means the permanent level (§12), not "no filter": permanent and
+    // project memory are different levels and are never shown mixed —
+    // that is how a project-specific decision ends up applied globally.
+    const [scope, setScope] = useState("");
+    const path = scope ? "/memory/project/" + scope : "/memory/permanent";
+    const { data, error, loading, latencyMs } = useBackendResource(path, props.reloadKey);
+
+    const selectStyle = {
+      background: "#1c1509",
+      border: "1px solid var(--ho-line)",
+      color: "var(--ho-text)",
+      font: "inherit",
+      fontSize: "12px",
+      padding: "3px 6px",
+      width: "100%",
+      outline: "none",
+      marginBottom: "8px",
+    };
+
+    function entryRow(entry) {
+      return React.createElement("div", {
+        key: entry.id,
+        className: "ho-row",
+        style: { alignItems: "flex-start" },
+      },
+        React.createElement("span", {
+          className: "ho-value",
+          style: { fontSize: "12px", lineHeight: "1.5" },
+          title: entry.content,
+        }, entry.content.length > 90 ? entry.content.slice(0, 90) + "…" : entry.content),
+        React.createElement("span", { className: "ho-badge dim" }, entry.type),
+      );
+    }
+
+    let body;
+    if (loading) { body = ErrorNote("Reading memory…"); }
+    else if (error) { body = ErrorNote("Backend unreachable: " + error); }
+    else if (scope) {
+      // Project level: the four §12 sections, always all present so the
+      // shape stays stable, plus anything off-vocabulary.
+      const sections = Object.keys(data.by_type || {});
+      body = React.createElement("div", { className: "flex flex-col" },
+        sections.map(function (kind) {
+          const entries = data.by_type[kind];
+          return React.createElement("div", { key: kind, style: { marginBottom: "8px" } },
+            React.createElement("div", {
+              className: "ho-muted",
+              style: { fontSize: "10.5px", letterSpacing: "0.08em", textTransform: "uppercase" },
+            }, kind + " (" + entries.length + ")"),
+            entries.length
+              ? entries.map(entryRow)
+              : React.createElement("span", {
+                  className: "ho-muted",
+                  style: { fontSize: "11px", opacity: 0.6 },
+                }, "—"),
+          );
+        }),
+        (data.other || []).length
+          ? React.createElement("div", { style: { marginTop: "6px" } },
+              React.createElement("span", { className: "ho-badge bad" },
+                data.other.length + " off-vocabulary"),
+              data.other.map(entryRow),
+            )
+          : null,
+      );
+    } else if (data.length === 0) {
+      body = React.createElement("span", { className: "ho-muted" }, "No permanent memory yet.");
+    } else {
+      body = React.createElement("div", { className: "flex flex-col" }, data.map(entryRow));
+    }
+
+    return React.createElement(Panel, {
+      title: "Memory",
+      right: React.createElement(LinkBadge, { error: error, latencyMs: latencyMs }),
+    },
+      React.createElement("select", {
+        style: selectStyle,
+        value: scope,
+        onChange: function (e) { setScope(e.target.value); },
+      },
+        React.createElement("option", { value: "" }, "permanent (preferences, rules)"),
+        (projects || []).map(function (p) {
+          return React.createElement("option", { key: p.id, value: p.id }, "project: " + p.name);
+        }),
+      ),
+      body,
+    );
+  }
+
   function LaunchPanel(props) {
     const { data: projects } = useBackendResource("/projects", props.reloadKey);
     const [projectName, setProjectName] = useState("");
@@ -647,6 +776,8 @@
         React.createElement(LaunchPanel, { reloadKey: reloadKey, onChanged: onChanged }),
         React.createElement(ProjectsPanel, { reloadKey: reloadKey }),
         React.createElement(TasksPanel, { reloadKey: reloadKey }),
+        React.createElement(MemoryPanel, { reloadKey: reloadKey }),
+        React.createElement(ModelsPanel, { reloadKey: reloadKey }),
         React.createElement(ProgressionPanel, { reloadKey: reloadKey }),
         React.createElement(AgentActivityPanel, { reloadKey: reloadKey }),
       ),

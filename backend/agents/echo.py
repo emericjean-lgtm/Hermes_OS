@@ -90,6 +90,11 @@ class EchoAgent:
         with self._session_factory() as session:
             return episodic.list_memories(session, type_=type_, project_id=project_id)
 
+    def permanent_memory(self) -> list[dict]:
+        """Entries attached to no project — the §12 permanent level."""
+        with self._session_factory() as session:
+            return project_memory.permanent_memory(session)
+
     def project_brief(self, project_id: str) -> project_memory.ProjectBrief:
         """A project's memory grouped by §12 type — architecture, roadmap,
         decisions, documentation — rather than one flat list. Meant to be

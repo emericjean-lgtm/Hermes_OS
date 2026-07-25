@@ -28,3 +28,49 @@ async def system_status() -> dict:
         "configured_roles": sorted(models_config["roles"]),
         **snapshot.to_dict(),
     }
+
+
+@router.get("/system/models")
+async def system_models() -> dict:
+    """The role → model table (§21) crossed with what Ollama is actually
+    holding right now (§22).
+
+    /system/status already reports `configured_roles`, but only as bare
+    role *names* — which cannot answer the two questions that matter when
+    a 16 GB budget is the constraint: which model does this role use, and
+    is it resident? This joins config/models.yaml against Ollama's live
+    list so `always_loaded` can be seen to be working (or not) rather
+    than taken on trust.
+    """
+    config = load_models_config()
+    # snapshot() is the monitor's public API; _read_loaded_models is
+    # private and would couple this route to its internals.
+    snapshot = await get_gpu_monitor().snapshot()
+    loaded = {m.get("name", "") for m in snapshot.loaded_models}
+
+    def _is_loaded(tag: str) -> bool:
+        # Ollama reports "qwen3:1.7b" as "qwen3:1.7b" but a tagless
+        # reference as "<name>:latest", so compare both ways rather than
+        # reporting a resident model as absent on a naming technicality.
+        return tag in loaded or f"{tag}:latest" in loaded
+
+    roles = []
+    for name, spec in (config.get("roles") or {}).items():
+        tag = spec.get("model", "")
+        roles.append(
+            {
+                "role": name,
+                "model": tag,
+                "tier": spec.get("tier", ""),
+                "vram_gb": spec.get("vram_gb"),
+                "always_loaded": bool(spec.get("always_loaded")),
+                "loaded": _is_loaded(tag),
+            }
+        )
+
+    roles.sort(key=lambda r: (not r["always_loaded"], not r["loaded"], r["role"]))
+    return {
+        "roles": roles,
+        "loaded_count": len(loaded),
+        "always_loaded_count": sum(1 for r in roles if r["always_loaded"]),
+    }

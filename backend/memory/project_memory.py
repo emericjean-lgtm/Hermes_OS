@@ -27,6 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.memory import episodic
@@ -95,6 +96,25 @@ def _entry_to_dict(entry: MemoryEntry) -> dict:
         "confidence": entry.confidence,
         "created_at": entry.created_at.isoformat(),
     }
+
+
+def permanent_memory(session: Session) -> list[dict]:
+    """The permanent level (§12) only: entries attached to no project.
+
+    Needed because `list_memories(project_id=None)` means "don't filter by
+    project", not "entries with no project" — so asking for permanent
+    memory that way returns every project's entries too. That is not a
+    cosmetic difference: the two levels being shown mixed is precisely how
+    a decision taken for one project ends up read as a global rule.
+    Caught by rendering it (the dashboard's permanent view listed a
+    project's architecture notes), not by reading the query.
+    """
+    entries = session.execute(
+        select(MemoryEntry)
+        .where(MemoryEntry.project_id.is_(None))
+        .order_by(MemoryEntry.created_at.desc())
+    ).scalars()
+    return [_entry_to_dict(e) for e in entries]
 
 
 def project_brief(session: Session, project_id: str) -> ProjectBrief:

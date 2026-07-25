@@ -126,6 +126,14 @@ async def project_brief(project_id: str) -> dict:
     }
 
 
+@router.get("/memory/permanent")
+async def permanent_memory() -> list[dict]:
+    """The permanent level only (§12) — entries belonging to no project.
+    Distinct from GET /memory, which filters nothing and therefore mixes
+    every project's entries in."""
+    return _echo().permanent_memory()
+
+
 @router.get("/memory/types")
 async def memory_types() -> dict:
     """The §12 vocabulary. Guidance, not a whitelist: memory_remember

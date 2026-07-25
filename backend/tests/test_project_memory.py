@@ -133,3 +133,36 @@ def test_entries_carry_their_level(session):
 
     assert entry["level"] == "project"
     assert "created_at" in entry and "id" in entry
+
+
+# ── the permanent level, kept separate ───────────────────────────────
+def test_permanent_memory_excludes_project_entries(session):
+    """The bug the dashboard revealed: list_memories(project_id=None)
+    means "don't filter", not "no project", so the permanent view was
+    listing a project's architecture notes as if they were global rules."""
+    episodic.add_memory(session, type_="preference", content="repond en francais")
+    episodic.add_memory(session, type_="rule", content="jamais de push sur main")
+    episodic.add_memory(session, type_="architecture", content="specifique au projet", project_id="p1")
+
+    permanent = project_memory.permanent_memory(session)
+
+    contents = {e["content"] for e in permanent}
+    assert contents == {"repond en francais", "jamais de push sur main"}
+    assert all(e["level"] == "permanent" for e in permanent)
+
+
+def test_permanent_memory_is_empty_when_everything_is_scoped(session):
+    episodic.add_memory(session, type_="decision", content="projet only", project_id="p1")
+
+    assert project_memory.permanent_memory(session) == []
+
+
+def test_the_two_levels_never_overlap(session):
+    episodic.add_memory(session, type_="preference", content="globale")
+    episodic.add_memory(session, type_="decision", content="projet", project_id="p1")
+
+    permanent = {e["content"] for e in project_memory.permanent_memory(session)}
+    brief = project_memory.project_brief(session, "p1")
+    project = {e["content"] for section in brief.by_type.values() for e in section}
+
+    assert permanent & project == set()

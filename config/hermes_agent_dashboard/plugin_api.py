@@ -143,6 +143,40 @@ class TaskCreate(BaseModel):
     project_id: str | None = None
 
 
+@router.get("/models")
+async def models():
+    """Role -> model table crossed with what Ollama currently holds
+    (§21/§22)."""
+    return _get_json("/system/models")
+
+
+@router.get("/memory")
+async def memory(type: str | None = None, project_id: str | None = None):  # noqa: A002 - query name
+    """Long-term memory entries. Without project_id this is the permanent
+    level (§12): preferences, rules, habits — the things that apply
+    everywhere."""
+    params = []
+    if type:
+        params.append(f"type={type}")
+    if project_id:
+        params.append(f"project_id={project_id}")
+    suffix = "?" + "&".join(params) if params else ""
+    return _get_json(f"/memory{suffix}")
+
+
+@router.get("/memory/permanent")
+async def memory_permanent():
+    """Permanent level only — never mixed with a project's entries."""
+    return _get_json("/memory/permanent")
+
+
+@router.get("/memory/project/{project_id}")
+async def memory_project(project_id: str):
+    """One project's memory grouped by §12 kind — architecture, roadmap,
+    decision, documentation — rather than a flat list."""
+    return _get_json(f"/memory/project/{project_id}")
+
+
 @router.get("/approvals")
 async def approvals(status: str | None = None):
     """Actions Aegis refused, awaiting a human decision (§23 security
