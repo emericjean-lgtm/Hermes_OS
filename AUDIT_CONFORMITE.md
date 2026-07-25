@@ -543,6 +543,42 @@ groupées. 23 tests ajoutés (18 mémoire projet, 5 réconciliation).
 
 ---
 
+## 5.7 Ce que l'audit a révélé sur la suite de tests elle-même
+
+Quatre bugs ont franchi une suite verte de 500+ tests au cours de cette
+journée, et **aucun n'a été trouvé par un test** — tous en exécutant :
+
+| Bug | Pourquoi la suite ne l'a pas vu |
+|---|---|
+| `_aegis()` appelé, jamais défini (2 routes) | Aucun test n'appelait ces routes |
+| `memory_long.project_id` absent en base réelle | Les tests créent une base neuve, donc au schéma courant |
+| `$steps.review.raw` : clé inexistante | Le workflow livré n'était jamais simulé |
+| Mémoire permanente listant des entrées projet | Visible seulement en regardant le rendu |
+
+Le fil commun : **la suite ne touchait jamais la vraie surface HTTP.**
+Tout passait par le `TestClient` en processus de FastAPI, qui partage les
+imports et fixtures du test.
+
+**Correctif : `backend/tests/test_smoke_live_server.py`.** Il démarre un
+vrai `uvicorn` en sous-processus, sur une vraie socket, contre une vraie
+base temporaire, et lui parle en HTTP réel.
+
+L'assertion qui généralise est `test_no_route_returns_5xx` : elle
+**énumère les routes depuis l'application elle-même** plutôt qu'une liste
+écrite à la main, donc une route ajoutée plus tard est couverte sans que
+personne ait à y penser. Un 4xx passe volontairement — un 422 pour un
+paramètre manquant prouve que la route est câblée et valide son entrée ;
+seul un 5xx signifie « cassé ».
+
+**Vérifié en cassant exprès.** Le helper `_aegis()` a été retiré à
+nouveau : le test échoue sur `GET /security/approvals -> 500`. Restauré,
+il repasse. Un test de régression qu'on n'a jamais vu échouer ne prouve
+rien.
+
+Coût : ~23 s, suite totale 1 min 29 s pour 577 tests — assez rapide pour
+rester lancé, ce qui est la seule propriété qui compte pour un test de
+fumée.
+
 ## 6. Ordre de traitement recommandé
 
 1. ~~**Trancher le vocabulaire** (§2)~~ — **fait le 2026-07-25.** Sigle
