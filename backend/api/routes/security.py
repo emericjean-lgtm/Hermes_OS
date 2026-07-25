@@ -65,3 +65,32 @@ async def evaluate(request: EvaluateRequest) -> EvaluateResponse:
         action_type=decision.action_type,
         advisory=decision.advisory,
     )
+
+def _aegis() -> AegisAgent:
+    """Same lookup /security/evaluate does, factored out for the approval
+    routes below."""
+    try:
+        return get_agent_registry().get("aegis")
+    except AgentNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/security/approvals")
+async def list_approvals(status: str | None = None, project_id: str | None = None) -> list[dict]:
+    """Queue of actions Aegis refused pending a human decision — the data
+    behind §23's security view."""
+    return _aegis().list_approvals(status=status, project_id=project_id)
+
+
+class ApprovalDecision(BaseModel):
+    approved: bool
+
+
+@router.post("/security/approvals/{approval_id}")
+async def decide_approval(approval_id: str, decision: ApprovalDecision) -> dict:
+    """Relay a human yes/no. Single-use and time-limited: it authorises
+    one later retry of that exact action, never a standing permission."""
+    result = _aegis().decide_approval(approval_id, approved=decision.approved)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No approval {approval_id!r}")
+    return result

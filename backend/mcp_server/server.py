@@ -354,6 +354,24 @@ def verification_run(
     }
 
 
+def approvals_list(status: str | None = None, project_id: str | None = None) -> list[dict]:
+    """Actions Aegis refused and queued for a human decision. Filter by
+    status: pending / approved / refused / used. This is how you find out
+    what is waiting on the user rather than guessing why something was
+    blocked."""
+    return _aegis().list_approvals(status=status, project_id=project_id)
+
+
+def approvals_decide(approval_id: str, approved: bool) -> dict | None:
+    """Record a HUMAN decision on a queued action. Do NOT call this to
+    approve your own request — it exists so a user interface can relay a
+    person's answer. An approval authorises exactly one later retry of
+    that same action and then expires; it never becomes a standing
+    permission, and it can never unlock a hard denial (outside
+    ALLOWED_PATHS, outside a project root)."""
+    return _aegis().decide_approval(approval_id, approved=approved)
+
+
 def documents_index(
     path: str,
     doc_id: str | None = None,
@@ -992,6 +1010,8 @@ _ALL_TOOLS = [
     memory_project_brief,
     memory_known_types,
     documents_index,
+    approvals_list,
+    approvals_decide,
     verification_runners,
     verification_run,
     git_status,

@@ -68,6 +68,8 @@ from backend.core.config import get_settings, load_security_config
 from backend.core.message_bus import MessageType, get_message_bus
 from backend.core.router import ModelRouter
 from backend.projects.store import get_project_store
+from backend.memory.db import init_db, make_engine, make_session_factory
+from backend.security import approvals
 from backend.security.aegis_engine import ActionRequest, AegisDecision, AegisEngine, Verdict
 from backend.security.permission_matrix import PermissionMatrix
 
@@ -122,6 +124,34 @@ class AegisAgent:
         matrix = PermissionMatrix(load_security_config())
         self._engine = AegisEngine(matrix, settings.allowed_paths_list)
 
+        # The approvals queue lives here, not in the engine: aegis_engine
+        # is deliberately DB-free and pure so a verdict stays reproducible
+        # from its inputs alone. Consent is state, so it belongs to the
+        # agent that already owns state (project lookup, message bus).
+        db_engine = make_engine(settings.sqlite_path)
+        init_db(db_engine)
+        self._session_factory = make_session_factory(db_engine)
+
+    # ── human approvals (§23 "vue sécurité") ─────────────────────────
+    def list_approvals(
+        self, *, status: str | None = None, project_id: str | None = None
+    ) -> list[dict]:
+        with self._session_factory() as session:
+            return [
+                approvals.to_dict(a)
+                for a in approvals.list_approvals(
+                    session, status=status, project_id=project_id
+                )
+            ]
+
+    def decide_approval(self, approval_id: str, *, approved: bool) -> dict | None:
+        """Record a human yes/no. An approval authorises exactly one later
+        retry of the same action and then expires — it never becomes a
+        standing permission."""
+        with self._session_factory() as session:
+            entry = approvals.decide(session, approval_id, approved=approved)
+            return approvals.to_dict(entry) if entry is not None else None
+
     def evaluate(self, action: ActionRequest) -> AegisDecision:
         bus = get_message_bus()
         bus.publish(
@@ -137,7 +167,7 @@ class AegisAgent:
             project_id=action.project_id,
         )
 
-        decision = self._resolve_decision(action)
+        decision = self._apply_human_consent(action, self._resolve_decision(action))
 
         bus.publish(
             from_agent=self.name,
@@ -151,6 +181,50 @@ class AegisAgent:
             task_id=action.task_id,
             project_id=action.project_id,
         )
+
+        return decision
+
+    def _apply_human_consent(
+        self, action: ActionRequest, decision: AegisDecision
+    ) -> AegisDecision:
+        """Turn a require_human_validation verdict into ALLOW when a human
+        has already approved this exact action, otherwise queue it.
+
+        Only ever acts on REQUIRE_HUMAN_VALIDATION. A DENY is never
+        upgraded: those come from the hard boundaries (outside
+        ALLOWED_PATHS, outside a project root, missing target_path), which
+        no amount of consent should be able to unlock from here.
+        """
+        if decision.verdict is not Verdict.REQUIRE_HUMAN_VALIDATION:
+            return decision
+
+        with self._session_factory() as session:
+            consumed = approvals.consume_approval(
+                session,
+                action_type=action.action_type,
+                target_path=action.target_path,
+                description=action.description,
+            )
+            if consumed is not None:
+                return AegisDecision(
+                    verdict=Verdict.ALLOW,
+                    reason=(
+                        f"Human approval {consumed.id} accepted for this exact action "
+                        f"(single use, granted {consumed.decided_at.isoformat()})."
+                    ),
+                    action_type=decision.action_type,
+                )
+
+            approvals.record_pending(
+                session,
+                action_type=action.action_type,
+                description=action.description,
+                reason=decision.reason,
+                target_path=action.target_path,
+                requesting_agent=action.requesting_agent,
+                task_id=action.task_id,
+                project_id=action.project_id,
+            )
 
         return decision
 
