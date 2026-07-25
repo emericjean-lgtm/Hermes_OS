@@ -17,7 +17,7 @@ from typing import ClassVar
 from backend.connectors.ollama_client import OllamaClientProtocol
 from backend.core.config import get_settings
 from backend.core.router import ModelRouter
-from backend.memory import episodic, skill_library
+from backend.memory import episodic, project_memory, skill_library
 from backend.memory.db import init_db, make_engine, make_session_factory
 from backend.memory.episodic import MemoryEntry
 from backend.memory.semantic import DocumentStore, OllamaEmbeddingFunction, chunk_text
@@ -89,6 +89,13 @@ class EchoAgent:
     ) -> list[MemoryEntry]:
         with self._session_factory() as session:
             return episodic.list_memories(session, type_=type_, project_id=project_id)
+
+    def project_brief(self, project_id: str) -> project_memory.ProjectBrief:
+        """A project's memory grouped by §12 type — architecture, roadmap,
+        decisions, documentation — rather than one flat list. Meant to be
+        loaded once before working on a project."""
+        with self._session_factory() as session:
+            return project_memory.project_brief(session, project_id)
 
     def forget(self, memory_id: str) -> bool:
         with self._session_factory() as session:

@@ -47,6 +47,8 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "memory_forget",
         "memory_index",
         "memory_search",
+        "memory_project_brief",
+        "memory_known_types",
         "documents_index",
         "git_status",
         "git_log",

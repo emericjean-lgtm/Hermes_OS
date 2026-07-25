@@ -48,6 +48,7 @@ from backend.core.agent_registry import get_agent_registry
 from backend.core.config import get_settings, load_models_config
 from backend.core.message_bus import get_message_bus
 from backend.documents.extractor import extract_text
+from backend.memory import project_memory
 from backend.memory.episodic import MemoryEntry
 from backend.memory.skill_library import Skill, status_for
 from backend.monitoring.gpu_monitor import get_gpu_monitor
@@ -286,6 +287,30 @@ def memory_search(query: str, n_results: int = 5, project_id: str | None = None)
     """Semantic search over indexed documents, optionally scoped to a
     project. Requires a live Ollama server for embeddings."""
     return _echo().recall(query, n_results=n_results, project_id=project_id)
+
+
+def memory_project_brief(project_id: str) -> dict:
+    """Everything remembered about one project, grouped by the kinds the
+    cahier des charges §12 names: architecture, roadmap, decision,
+    documentation. Load this ONCE before working on a project instead of
+    listing every memory and sorting them yourself. Entries whose type
+    falls outside that vocabulary come back under "other" rather than
+    being dropped. Permanent memory (preferences, rules) is deliberately
+    not folded in — use memory_list for that."""
+    brief = _echo().project_brief(project_id)
+    return {
+        "project_id": brief.project_id,
+        "by_type": brief.by_type,
+        "other": brief.other,
+        "total": brief.total,
+    }
+
+
+def memory_known_types() -> dict:
+    """The §12 memory vocabulary: which `type` values belong to project
+    memory and which to permanent memory. Unknown types are still
+    accepted by memory_remember — this is guidance, not a whitelist."""
+    return project_memory.known_types()
 
 
 def documents_index(
@@ -923,6 +948,8 @@ _ALL_TOOLS = [
     memory_forget,
     memory_index,
     memory_search,
+    memory_project_brief,
+    memory_known_types,
     documents_index,
     git_status,
     git_log,

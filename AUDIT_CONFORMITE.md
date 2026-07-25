@@ -1,7 +1,7 @@
 # Audit de conformité — Hermes Ollama vs cahier des charges condensé
 
 **Date :** 2026-07-25
-**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 479 tests au vert
+**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 502 tests au vert
 **Référence :** cahier des charges condensé (30 sections), à lire avec
 `CAHIER_DES_CHARGES_HERMES_OLLAMA.md` (version longue historique)
 
@@ -19,8 +19,8 @@ d'un commentaire.
 | **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
 | **Conforme après correction (cette passe)** | §22 optimisation VRAM |
 | **Vocabulaire tranché et appliqué** (cette passe) | §17 « HSE » → moteur Aegis + auto-évolution, §6 Atlas/Swift/Sentinel |
-| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation |
-| **Partiel** | §12 mémoire, §23 interface |
+| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation, §12 mémoire projet |
+| **Partiel** | §23 interface |
 | **Absent** | §16 vérification (lint/build/tests), §8 workflow de développement complet |
 
 L'écart le plus coûteux n'était pas une fonctionnalité manquante : c'était
@@ -382,12 +382,67 @@ des agents). À trancher : abandonner le frontend Next.js et assumer le
 plugin comme interface unique, ou le développer. Maintenir les deux à
 moitié est le pire scénario.
 
-### 5.6 §12 Mémoire — deux niveaux sur trois
+### 5.6 §12 Mémoire — FAIT le 2026-07-25
 
-Mémoire permanente (`episodic.py`, entrées datées et dédupliquées) et
-mémoire documentaire (`semantic.py`) sont là. La **mémoire projet**
-(architecture, roadmap, décisions) n'a pas de structure propre : elle
-n'existe que comme entrées mémoire scopées par `project_id`.
+**Était :** le stockage existait (`memory_long` avec sa colonne
+`project_id`), mais rien ne distinguait les trois niveaux du §12 : `type`
+est une chaîne libre, sans vocabulaire ni validation, donc « architecture
+de ce projet » et « préférence permanente de l'utilisateur » étaient des
+lignes indiscernables. Et rien ne permettait de charger la mémoire d'un
+projet *comme un tout* avant de travailler dessus.
+
+**Fait :** `backend/memory/project_memory.py` ajoute le vocabulaire du
+§12 (`architecture`, `roadmap`, `decision`, `documentation` pour le
+niveau projet ; `preference`, `habit`, `rule`, `history` pour le
+permanent) et une lecture groupée, exposée en MCP
+(`memory_project_brief`, `memory_known_types`) et en REST
+(`GET /memory/project/{id}`, `GET /memory/types`).
+
+Trois partis pris :
+
+- **Aucune validation qui rejette un type inconnu.** Un vocabulaire qui
+  casse les données existantes au moment de son introduction est une
+  migration, pas un vocabulaire. Un type hors liste est classé
+  `unclassified` et **remonte dans `other`** plutôt que d'être ignoré —
+  un type mal orthographié rendrait sinon l'entrée invisible, le pire
+  échec possible pour une mémoire.
+- **Les quatre sections sont toujours présentes**, même vides, pour que
+  l'appelant affiche une structure stable sans tester l'absence de clés.
+- **La mémoire permanente n'est pas fondue dans le brief projet**, bien
+  qu'elle s'applique aussi : mélanger les deux est la façon dont une
+  décision propre à un projet finit par être appliquée partout.
+
+La **mémoire courte** (§12, conversation en cours) reste volontairement
+hors périmètre : le runtime d'agent possède déjà sa session, et la
+dupliquer ici créerait deux sources de vérité pour le même tour.
+
+#### Bug préexistant trouvé au passage — dérive de schéma
+
+En testant en conditions réelles, toute requête mémoire scopée projet
+échouait : `no such column: memory_long.project_id`. La table avait été
+créée **avant** l'ajout de `project_id` au modèle, et
+`Base.metadata.create_all()` ne crée que les tables *manquantes* — il ne
+touche jamais une table existante. `memory_long` était la seule table
+concernée ; toutes les autres avaient bien leur colonne.
+
+Le bug était invisible depuis les tests, qui construisent une base neuve
+à chaque fois et voyaient donc toujours le schéma courant. Autrement dit :
+la fonctionnalité était cassée en production et verte en CI.
+
+`init_db()` réconcilie désormais les colonnes manquantes, **en ajout
+seulement** : colonnes nullables uniquement, jamais de suppression, de
+renommage ni de changement de type — donc aucune perte possible, ce qui
+la rend sûre à exécuter à chaque démarrage sans outil de migration. Une
+colonne `NOT NULL` manquante est *signalée* et laissée telle quelle :
+elle demande un défaut et une décision de backfill, c'est-à-dire une
+vraie migration, pas quelque chose à improviser au boot. `init_db`
+importe aussi explicitement tous les modules de modèles, pour que le
+schéma ne dépende plus de l'ordre des imports de l'appelant — le couplage
+invisible qui avait laissé `memory_long` dériver.
+
+Vérifié en réel : la base en service a reçu sa colonne au redémarrage,
+sans perte, et le brief projet renvoie ses sections correctement
+groupées. 23 tests ajoutés (18 mémoire projet, 5 réconciliation).
 
 ---
 

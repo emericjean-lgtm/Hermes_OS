@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from backend.agents.echo import EchoAgent
 from backend.core.agent_registry import get_agent_registry
+from backend.memory import project_memory
 from backend.memory.episodic import MemoryEntry
 
 router = APIRouter()
@@ -110,3 +111,23 @@ async def search_memory(
 ) -> list[SearchResult]:
     results = _echo().recall(query, n_results=n_results, project_id=project_id)
     return [SearchResult(**r) for r in results]
+
+@router.get("/memory/project/{project_id}")
+async def project_brief(project_id: str) -> dict:
+    """A project's memory grouped by the §12 kinds (architecture,
+    roadmap, decision, documentation), rather than one flat list — the
+    shape an agent needs before starting work on a project."""
+    brief = _echo().project_brief(project_id)
+    return {
+        "project_id": brief.project_id,
+        "by_type": brief.by_type,
+        "other": brief.other,
+        "total": brief.total,
+    }
+
+
+@router.get("/memory/types")
+async def memory_types() -> dict:
+    """The §12 vocabulary. Guidance, not a whitelist: memory_remember
+    still accepts any type string."""
+    return project_memory.known_types()
