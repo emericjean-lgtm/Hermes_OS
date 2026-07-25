@@ -65,9 +65,26 @@ class AgentRegistry:
         return sorted(self._agents)
 
 
+def always_loaded_models(models_config: dict) -> set[str]:
+    """Ollama tags for roles flagged `always_loaded: true` in
+    config/models.yaml — pinned in VRAM rather than expiring on idle
+    (§22). Returned as tags, not role names, because that's what the
+    Ollama API keys on and what OllamaClient sees per request."""
+    return {
+        role["model"]
+        for role in models_config.get("roles", {}).values()
+        if role.get("always_loaded")
+    }
+
+
 @lru_cache
 def get_agent_registry() -> AgentRegistry:
     settings = get_settings()
-    ollama_client = OllamaClient(settings.ollama_api_url, keep_alive=settings.ollama_keep_alive)
-    router = ModelRouter(load_models_config())
-    return AgentRegistry(ollama_client, router, load_models_config())
+    models_config = load_models_config()
+    ollama_client = OllamaClient(
+        settings.ollama_api_url,
+        keep_alive=settings.ollama_keep_alive,
+        always_loaded_models=always_loaded_models(models_config),
+    )
+    router = ModelRouter(models_config)
+    return AgentRegistry(ollama_client, router, models_config)

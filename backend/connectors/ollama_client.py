@@ -35,10 +35,28 @@ class OllamaClientProtocol(Protocol):
 class OllamaClient:
     """Real implementation, talking to a live Ollama server over HTTP."""
 
-    def __init__(self, base_url: str, *, keep_alive: str = "10m", timeout: float = 120.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        keep_alive: str = "10m",
+        timeout: float = 120.0,
+        always_loaded_models: set[str] | None = None,
+    ) -> None:
+        """`always_loaded_models` holds the Ollama tags that should never be
+        evicted for idleness — config/models.yaml's `always_loaded: true`
+        roles (swift, embedding). They get keep_alive: -1 instead of the
+        global expiry, so the routing/classification pre-pass doesn't pay a
+        cold load on every request after an idle gap (§22)."""
         self._base_url = base_url.rstrip("/")
         self._keep_alive = keep_alive
+        self._always_loaded = always_loaded_models or set()
         self._client = httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
+
+    def _keep_alive_for(self, model: str) -> Any:
+        """-1 means "hold in VRAM indefinitely" in Ollama's API; anything
+        else is passed through as the configured duration string."""
+        return -1 if model in self._always_loaded else self._keep_alive
 
     async def chat_stream(
         self,
@@ -62,7 +80,7 @@ class OllamaClient:
             "model": model,
             "messages": messages,
             "stream": True,
-            "keep_alive": self._keep_alive,
+            "keep_alive": self._keep_alive_for(model),
             "options": options,
         }
         # think=True asks Ollama to return a reasoning-capable model's

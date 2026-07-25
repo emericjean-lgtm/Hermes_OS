@@ -21,17 +21,31 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
     up its default embed_query() implementation, which ChromaDB's query
     path requires."""
 
-    def __init__(self, base_url: str, model: str, timeout: float = 60.0) -> None:
+    def __init__(
+        self, base_url: str, model: str, timeout: float = 60.0, keep_alive: object = -1
+    ) -> None:
+        """`keep_alive` is forwarded to /api/embeddings; -1 means "hold in
+        VRAM indefinitely". Defaults to -1 because config/models.yaml marks
+        the embedding role `always_loaded`. This path previously sent no
+        keep_alive at all, so nomic-embed-text fell back to Ollama's own
+        short default and was evicted between indexing runs — every later
+        RAG query then paid a cold reload (§22)."""
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout
+        self._keep_alive = keep_alive
 
     def __call__(self, input: Documents) -> Embeddings:  # noqa: A002 - chromadb's protocol name
         vectors: Embeddings = []
         with httpx.Client(base_url=self._base_url, timeout=self._timeout) as client:
             for text in input:
                 response = client.post(
-                    "/api/embeddings", json={"model": self._model, "prompt": text}
+                    "/api/embeddings",
+                    json={
+                        "model": self._model,
+                        "prompt": text,
+                        "keep_alive": self._keep_alive,
+                    },
                 )
                 response.raise_for_status()
                 vectors.append(response.json()["embedding"])

@@ -43,8 +43,15 @@ class EchoAgent:
         init_db(engine)
         self._session_factory = make_session_factory(engine)
 
-        embedding_model = models_config["roles"]["embedding"]["model"]
-        embedding_fn = OllamaEmbeddingFunction(settings.ollama_api_url, embedding_model)
+        embedding_role = models_config["roles"]["embedding"]
+        embedding_model = embedding_role["model"]
+        # -1 pins the model in VRAM; the configured expiry applies when the
+        # role isn't flagged always_loaded (§22).
+        embedding_fn = OllamaEmbeddingFunction(
+            settings.ollama_api_url,
+            embedding_model,
+            keep_alive=-1 if embedding_role.get("always_loaded") else settings.ollama_keep_alive,
+        )
         self._documents = DocumentStore(embedding_fn, persist_directory=settings.chroma_path)
         # Cosine distance, not Chroma's default (L2): its [0, ~2] range,
         # normalized by vector direction rather than magnitude, is what

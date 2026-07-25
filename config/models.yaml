@@ -12,6 +12,13 @@ roles:
     model: qwen3:1.7b
     tier: turbo
     vram_gb: 1.5
+    # always_loaded pins this model in VRAM (keep_alive: -1) instead of
+    # letting it expire after OLLAMA_KEEP_ALIVE (§22: "conserve les
+    # modèles rapides en mémoire"). Structured flag rather than inferring
+    # it from `tier: turbo` — double_check is turbo too but is genuinely
+    # occasional, and pinning a third model would eat headroom the 16GB
+    # budget doesn't have.
+    always_loaded: true
     description: Ultra-fast routing and classification. Kept loaded at all times.
 
   standard:
@@ -107,6 +114,7 @@ roles:
     model: nomic-embed-text
     tier: turbo
     vram_gb: 0.3
+    always_loaded: true
     description: Text embeddings for RAG. Kept loaded at all times.
 
   double_check:
