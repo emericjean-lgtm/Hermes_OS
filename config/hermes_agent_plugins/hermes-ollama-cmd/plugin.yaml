@@ -1,0 +1,18 @@
+name: hermes-ollama-cmd
+version: 1.1.0
+description: >
+  Deterministic slash commands for the Hermes Ollama backend, bypassing
+  the LLM's tool-selection judgment: /tache creates a Kronos task, and
+  /attente + /ok + /non drive the Aegis approval queue from wherever you
+  are — which matters because at the shipped autonomy_level of "low"
+  every mutating action waits for a human, and the dashboard is not
+  always the device in your hand.
+
+  Renamed from "kronos-tasks" in 1.1.0: it now spans Kronos and Aegis, so
+  a Kronos-specific name had become a lie.
+
+  Added after the 2026-07-25 finding that neither devstral nor
+  qwen3-coder:30b reliably maps plain-language requests to the right MCP
+  tool under Hermes Agent's real system prompt, even with
+  tool_use_enforcement and SOUL.md guidance — see hermes-ollama/README.md's
+  "Telegram gateway" section for the full diagnostic trail.
