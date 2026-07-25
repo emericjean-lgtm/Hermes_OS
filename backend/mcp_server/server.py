@@ -735,6 +735,10 @@ def workflows_simulate(workflow_id: str) -> dict:
         "workflow_id": result.workflow_id,
         "execution_order": result.execution_order,
         "human_validation_nodes": result.human_validation_nodes,
+        # §6: which nodes run concurrently, and the cap they run under.
+        # execution_order alone can't show that.
+        "execution_waves": result.execution_waves,
+        "max_parallel": result.max_parallel,
     }
 
 

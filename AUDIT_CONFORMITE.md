@@ -1,7 +1,7 @@
 # Audit de conformité — Hermes Ollama vs cahier des charges condensé
 
 **Date :** 2026-07-25
-**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 470 tests au vert
+**Base auditée :** branche `claude/hermes-ollama-specs-v4-fa08ou`, 479 tests au vert
 **Référence :** cahier des charges condensé (30 sections), à lire avec
 `CAHIER_DES_CHARGES_HERMES_OLLAMA.md` (version longue historique)
 
@@ -19,8 +19,8 @@ d'un commentaire.
 | **Conforme** | §5 modèles, §10-11 gestion de projet/états, §17-18 sécurité, §19 journalisation, §20 bus, §21 routage, §26 API interne, §27 extensibilité |
 | **Conforme après correction (cette passe)** | §22 optimisation VRAM |
 | **Vocabulaire tranché et appliqué** (cette passe) | §17 « HSE » → moteur Aegis + auto-évolution, §6 Atlas/Swift/Sentinel |
-| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture) |
-| **Partiel** | §6 Kronos (pas de parallélisation), §12 mémoire, §23 interface |
+| **Implémenté (cette passe)** | §13 ingestion documentaire (hors OCR), §14 Git (lecture + écriture), §6 parallélisation |
+| **Partiel** | §12 mémoire, §23 interface |
 | **Absent** | §16 vérification (lint/build/tests), §8 workflow de développement complet |
 
 L'écart le plus coûteux n'était pas une fonctionnalité manquante : c'était
@@ -325,11 +325,53 @@ glyphes. Ajouter une pile tesseract serait une dépendance système plus
 lourde pour un résultat plus étroit. À reconsidérer seulement si des PDF
 scannés en volume deviennent un vrai besoin.
 
-### 5.4 §6 Kronos — pas de parallélisation
+### 5.4 §6 Kronos — parallélisation FAITE le 2026-07-25
 
-`backend/workflows/engine.py` exécute les nœuds séquentiellement. Le CDC
-demande explicitement la parallélisation. Les dépendances, priorités et la
-reprise après portail de validation sont, elles, bien là.
+**Était :** `engine.py` exécutait les nœuds un par un. Les dépendances,
+priorités et la reprise après portail étaient déjà là ; seule la
+simultanéité manquait.
+
+**Fait :** la boucle calculait déjà `_ready_nodes()`, c'est-à-dire
+l'ensemble des nœuds dont tous les prédécesseurs sont terminés — soit
+exactement une *vague* parallélisable. Elle les exécute désormais
+ensemble via `asyncio.gather`. Par construction, aucun nœud d'une vague
+ne dépend d'un autre de la même vague, donc la résolution des
+placeholders `$steps.` ne peut pas courir après un résultat manquant.
+
+Quatre points de conception :
+
+1. **Concurrence bornée** (`workflow_max_parallel`, défaut 4). Les nœuds
+   appellent des outils adossés à des LLM : un éventail non borné
+   demanderait à Ollama de tenir plusieurs modèles à la fois et ferait
+   swapper un budget VRAM de 16 Go — transformant un gain de
+   parallélisme en perte. Régler à `1` restaure exactement l'ancien
+   comportement séquentiel ; un test le vérifie.
+2. **Ordre des résultats déterministe.** Les résultats sont réécrits dans
+   l'ordre de la vague, pas dans l'ordre d'arrivée : le dictionnaire est
+   persisté, et un ordre dépendant de quel outil a fini en premier
+   rendrait deux runs identiques non reproductibles.
+3. **Isolation des échecs.** Un nœud qui échoue ne fait pas perdre les
+   résultats de ses voisins de vague — `return_exceptions=True`, et une
+   exception qui s'échapperait de `_execute_node` (ce serait un bug du
+   moteur) devient un nœud `failed` portant le message, plutôt que la
+   perte du run entier.
+4. **Les portails de validation bloquent toujours.** Un nœud en attente
+   n'est pas emporté par un voisin parallèle : il reste
+   `awaiting_validation` et tout son aval reste `skipped`.
+
+`simulate()` expose maintenant `execution_waves` et `max_parallel` (MCP et
+REST) : `execution_order`, à lui seul, ne permettait pas de voir si un
+workflow se parallélisera.
+
+**Constat honnête sur le gain réel :** les deux workflows livrés sont des
+chaînes strictement linéaires — `new-app` donne huit vagues d'un nœud,
+`full-code-review` quatre. **Ils ne gagnent donc rien.** La capacité est
+vérifiée de bout en bout sur un graphe en éventail créé pour l'occasion
+(3 analyses en une vague, run réel `completed`), mais tirer parti du §6
+demandera d'écrire des workflows réellement branchés. 9 tests ajoutés,
+dont ceux qui mesurent le recouvrement effectif plutôt que le seul
+résultat — un test qui ne vérifierait que les résultats passerait aussi
+bien contre l'ancien moteur séquentiel.
 
 ### 5.5 §23 Interface — 11 vues attendues, 1 page réelle
 
@@ -360,8 +402,8 @@ n'existe que comme entrées mémoire scopées par `project_id`.
    au profit du modèle de vision déjà présent (voir §5.3).
 3. ~~**Module Git** (§14)~~ — **fait le 2026-07-25.** Lecture et
    écriture, avec les interdits §14/§18 appliqués de façon déterministe.
-4. **Parallélisation des workflows** (§6) — gain de performance, périmètre
-   contenu au moteur. **Prochaine étape recommandée.**
+4. ~~**Parallélisation des workflows** (§6)~~ — **fait le 2026-07-25.**
+   Reste à en tirer parti : les workflows livrés sont linéaires.
 5. **Exécution de code** (§16) — le plus utile *et* le plus risqué.
    À ne faire qu'après 2-4, et strictement derrière `mandatory_validation`.
 6. **Décision interface** (§23) — décision produit, pas technique.

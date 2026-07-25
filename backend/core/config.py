@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     chroma_path: str = "./data/db/chroma"
     sqlite_path: str = "./data/db/hermes.db"
     workflows_dir: str = "./data/workflows"
+    # Max workflow nodes executed concurrently (§6: parallélisation).
+    # Bounded, and deliberately small: workflow nodes call LLM-backed
+    # tools, so an unbounded fan-out would ask Ollama to hold several
+    # models at once and thrash a 16 GB VRAM budget — turning a
+    # parallelism win into a swapping loss. Set to 1 for the previous
+    # strictly-sequential behaviour.
+    workflow_max_parallel: int = 4
 
     allowed_paths: str = ""
     max_file_size_mb: int = 50

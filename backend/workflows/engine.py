@@ -24,6 +24,7 @@ calling any tool or touching the message bus.
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import uuid
 from dataclasses import dataclass, field
@@ -63,6 +64,12 @@ class SimulationResult:
     workflow_id: str
     execution_order: list[str]
     human_validation_nodes: list[str]
+    # Nodes grouped into the waves run() would execute concurrently.
+    # execution_order stays a flat list (existing callers depend on it);
+    # this shows *what runs together*, which is the part a human actually
+    # needs to judge whether a workflow will parallelize at all.
+    execution_waves: list[list[str]] = field(default_factory=list)
+    max_parallel: int = 1
 
 
 @dataclass
@@ -85,16 +92,48 @@ class WorkflowEngine:
         self._tools = get_tool_registry()
 
         settings = get_settings()
+        self._max_parallel = settings.workflow_max_parallel
         engine = make_engine(settings.sqlite_path)
         init_db(engine)
         self._session_factory = make_session_factory(engine)
 
     def simulate(self, workflow: WorkflowDefinition) -> SimulationResult:
+        waves = self._structural_waves(workflow)
         return SimulationResult(
             workflow_id=workflow.id,
             execution_order=self._topological_order(workflow),
             human_validation_nodes=[n.id for n in workflow.nodes if n.human_validation],
+            execution_waves=waves,
+            max_parallel=self._max_parallel,
         )
+
+    def _structural_waves(self, workflow: WorkflowDefinition) -> list[list[str]]:
+        """Group nodes into the waves run() would execute concurrently.
+
+        Structural, like _topological_order: edge conditions are ignored,
+        since a dry-run has no runtime outcome to evaluate them against.
+        The real run may therefore produce fewer nodes per wave (a failed
+        on_success edge prunes a branch) — never more, so this is an
+        upper bound on parallelism, which is the useful direction for
+        capacity planning.
+        """
+        in_degree = {n.id: 0 for n in workflow.nodes}
+        for edge in workflow.edges:
+            in_degree[edge.to_node] += 1
+
+        waves: list[list[str]] = []
+        remaining = dict(in_degree)
+        while remaining:
+            wave = sorted(nid for nid, degree in remaining.items() if degree == 0)
+            if not wave:
+                break  # unreachable: the schema rejects cycles at construction
+            waves.append(wave)
+            for node_id in wave:
+                del remaining[node_id]
+                for edge in workflow.outgoing_edges(node_id):
+                    if edge.to_node in remaining:
+                        remaining[edge.to_node] -= 1
+        return waves
 
     async def run(
         self,
@@ -141,6 +180,12 @@ class WorkflowEngine:
             if not ready:
                 break  # nothing left is reachable (dead branches or gates upstream)
 
+            # A "wave" is every node whose predecessors are all done. By
+            # construction no node in a wave depends on another in the
+            # same wave, so they can run concurrently and _resolve_params
+            # can read `results` without racing: everything it can
+            # reference was resolved in an earlier wave.
+            runnable: list[str] = []
             for node_id in ready:
                 remaining.discard(node_id)
                 node = workflow.node(node_id)
@@ -150,9 +195,15 @@ class WorkflowEngine:
                     pending_nodes.append(node_id)
                     continue  # NOT added to `done` -> blocks everything downstream
 
-                results[node_id] = await self._execute_node(
-                    workflow, node, results, bus, execution_id
-                )
+                runnable.append(node_id)
+
+            wave = await self._execute_wave(workflow, runnable, results, bus, execution_id)
+            # Written back in the wave's sorted order, not completion
+            # order: `results` is persisted and compared in tests, and a
+            # dict whose key order depended on which tool happened to
+            # finish first would make runs gratuitously non-reproducible.
+            for node_id in runnable:
+                results[node_id] = wave[node_id]
                 done.add(node_id)
 
         for node_id in remaining:
@@ -225,6 +276,58 @@ class WorkflowEngine:
             )
 
     # ── execution ─────────────────────────────────────────────────────
+
+    async def _execute_wave(
+        self,
+        workflow: WorkflowDefinition,
+        node_ids: list[str],
+        results: dict[str, NodeResult],
+        bus: MessageBus,
+        execution_id: str,
+    ) -> dict[str, NodeResult]:
+        """Run one wave of independent nodes concurrently (§6).
+
+        Concurrency is capped by settings.workflow_max_parallel — see that
+        setting's comment for why unbounded fan-out is the wrong default
+        on this hardware. A cap of 1 degrades to the previous sequential
+        behaviour exactly, which is what makes it a safe escape hatch.
+        """
+        if not node_ids:
+            return {}
+        if len(node_ids) == 1:
+            # Avoid the semaphore/gather machinery for the overwhelmingly
+            # common linear case.
+            node = workflow.node(node_ids[0])
+            return {
+                node_ids[0]: await self._execute_node(
+                    workflow, node, results, bus, execution_id
+                )
+            }
+
+        semaphore = asyncio.Semaphore(max(1, self._max_parallel))
+
+        async def run_one(node_id: str) -> NodeResult:
+            async with semaphore:
+                return await self._execute_node(
+                    workflow, workflow.node(node_id), results, bus, execution_id
+                )
+
+        # return_exceptions=True: _execute_node already converts any tool
+        # failure into a "failed" NodeResult, so an exception escaping it
+        # would be a bug in the engine itself. Surfacing that as one
+        # failed node keeps the rest of the wave's real results — and the
+        # error text — instead of losing the whole run to a traceback.
+        outcomes = await asyncio.gather(
+            *(run_one(node_id) for node_id in node_ids), return_exceptions=True
+        )
+        return {
+            node_id: (
+                outcome
+                if isinstance(outcome, NodeResult)
+                else NodeResult(node_id=node_id, status="failed", error=str(outcome))
+            )
+            for node_id, outcome in zip(node_ids, outcomes, strict=True)
+        }
 
     async def _execute_node(
         self,

@@ -216,6 +216,44 @@ def test_simulate_handles_fan_out_fan_in():
     assert set(result.execution_order) == {"start", "left", "right", "end"}
 
 
+def test_simulate_reports_the_parallel_waves():
+    """§6 — execution_order alone can't tell you whether a workflow will
+    parallelize; execution_waves shows what actually runs together."""
+    workflow = _workflow(
+        nodes=[
+            {"id": "start", "action": "tasks_create"},
+            {"id": "left", "action": "tasks_list"},
+            {"id": "right", "action": "tasks_list"},
+            {"id": "end", "action": "tasks_list"},
+        ],
+        edges=[
+            {"from": "start", "to": "left"},
+            {"from": "start", "to": "right"},
+            {"from": "left", "to": "end"},
+            {"from": "right", "to": "end"},
+        ],
+    )
+
+    result = WorkflowEngine().simulate(workflow)
+
+    assert result.execution_waves == [["start"], ["left", "right"], ["end"]]
+    assert result.max_parallel >= 1
+
+
+def test_simulate_on_a_linear_workflow_promises_no_parallelism():
+    """One node per wave — the report must not imply a speed-up that
+    cannot happen."""
+    workflow = _workflow(
+        nodes=[
+            {"id": "a", "action": "tasks_create"},
+            {"id": "b", "action": "tasks_list"},
+        ],
+        edges=[{"from": "a", "to": "b"}],
+    )
+
+    assert WorkflowEngine().simulate(workflow).execution_waves == [["a"], ["b"]]
+
+
 def test_simulate_does_not_touch_message_bus(isolated_settings):
     from backend.core.message_bus import get_message_bus
 
