@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { streamChat, type ChatMessage } from "@/lib/api";
+import ActivityPanel from "@/components/ActivityPanel";
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -56,7 +57,8 @@ export default function ChatPage() {
   }
 
   return (
-    <main className="mx-auto flex h-screen w-full max-w-3xl flex-col px-4">
+    <div className="flex h-screen w-full">
+      <main className="mx-auto flex h-full w-full max-w-3xl flex-col px-4">
       <header className="flex items-center justify-between border-b border-white/10 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Hermes Ollama</h1>
         {routing?.model && (
@@ -158,6 +160,8 @@ export default function ChatPage() {
           </button>
         </form>
       </footer>
-    </main>
+      </main>
+      <ActivityPanel />
+    </div>
   );
 }

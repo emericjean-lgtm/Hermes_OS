@@ -346,7 +346,39 @@ Le ticker métriques ne tourne que tant qu'un client est connecté :
 interroger le GPU toutes les 2 s pour une salle vide réveillerait la carte
 pour rien.
 
-36 tests.
+36 tests backend.
+
+**Une vue consomme le canal.** Un panneau « Activité » (`ActivityPanel`)
+affiche les tâches, les messages inter-agents et les demandes de
+validation en direct, avec une jauge VRAM alimentée par
+`system.metrics`.
+
+`chat.token` n'est **pas** souscrit : un événement par token, des
+centaines par réponse, chasseraient toute autre ligne du panneau en une
+seconde — et la réponse est déjà affichée à côté. Ne souscrire qu'à ce
+qui est affiché évite aussi que le backend mette en file un flux que ce
+client jetterait aussitôt.
+
+L'état de connexion est visible en permanence : « en direct »,
+« connexion… » ou « déconnecté ». Une vue de supervision qui laisse un
+affichage figé passer pour du temps réel est pire que pas de vue du tout.
+La reconnexion est automatique, avec backoff plafonné.
+
+**Vérifié dans le navigateur :**
+
+| test | résultat |
+|---|---|
+| tâche créée **hors de la page** (curl) | apparaît en direct — le cas qui a motivé la vue |
+| refus `file_delete` | les trois lignes : `user → aegis`, `validation.request`, `aegis → user · ESCALATION` |
+| chat de ~30 tokens | **0 ligne** dans le panneau (exclusion confirmée) |
+| backend coupé | l'état cesse d'afficher « en direct » |
+| backend relancé | retour à « en direct » seul, historique conservé, nouveaux événements reçus |
+| jauge VRAM | 7,93 / 17,16 Go, modèle chargé affiché |
+
+Non couvert : le frontend n'a pas de harnais de test (`package.json`
+n'expose que `dev`, `build`, `start`, `lint`). Le panneau est donc
+vérifié par exécution, pas par des tests automatisés — en mettre en place
+serait une tâche à part.
 
 ### 3.4 §12 — Résumé automatique de contexte
 
