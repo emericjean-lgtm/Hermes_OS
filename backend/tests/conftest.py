@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 import yaml
+
+from backend.connectors.ollama_client import StreamChunk
 from fastapi.testclient import TestClient
 
 
@@ -17,12 +19,14 @@ class FakeOllamaClient:
         self,
         running_models: list[str] | None = None,
         response_chunks: list[str] | None = None,
+        thinking_chunks: list[str] | None = None,
     ) -> None:
         self._running = running_models or []
         self._chunks = response_chunks or ["Hello", ", ", "world", "!"]
+        self._thinking = thinking_chunks or []
         self.last_chat_call: dict[str, Any] | None = None
 
-    async def chat_stream(
+    async def chat_events(
         self,
         model: str,
         messages: list[dict[str, Any]],
@@ -31,7 +35,7 @@ class FakeOllamaClient:
         top_p: float | None = None,
         num_ctx: int | None = None,
         think: bool | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamChunk]:
         self.last_chat_call = {
             "model": model,
             "messages": messages,
@@ -39,8 +43,26 @@ class FakeOllamaClient:
             "top_p": top_p,
             "think": think,
         }
+        for chunk in self._thinking:
+            yield StreamChunk("thinking", chunk)
         for chunk in self._chunks:
-            yield chunk
+            yield StreamChunk("content", chunk)
+
+    async def chat_stream(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        """Derived from chat_events, exactly as the real client is.
+
+        Reimplementing it independently would let the fake keep passing
+        after the real filter broke — a fake whose shape diverges from
+        the real one quietly stops proving anything.
+        """
+        async for chunk in self.chat_events(model, messages, **kwargs):
+            if chunk.kind == "content":
+                yield chunk.text
 
     async def list_running_models(self) -> list[dict[str, Any]]:
         return [{"name": name} for name in self._running]

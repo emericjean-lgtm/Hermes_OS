@@ -133,6 +133,7 @@ class AuditRecord(Base):
     # separately from throughput, because a slow *load* and a slow *model*
     # need opposite fixes and a single total cannot tell them apart.
     first_token_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    first_thinking_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tokens_per_second: Mapped[float | None] = mapped_column(Float, nullable=True)
     vram_used_gb: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -158,6 +159,7 @@ class AuditEntry:
     validation_requested: bool = False
     duration_ms: int | None = None
     first_token_ms: int | None = None
+    first_thinking_ms: int | None = None
     tokens_used: int | None = None
     tokens_per_second: float | None = None
     vram_used_gb: float | None = None
@@ -194,6 +196,7 @@ def to_dict(record: AuditRecord) -> dict:
         "validation_requested": record.validation_requested,
         "duration_ms": record.duration_ms,
         "first_token_ms": record.first_token_ms,
+        "first_thinking_ms": record.first_thinking_ms,
         "tokens_used": record.tokens_used,
         "tokens_per_second": record.tokens_per_second,
         "vram_used_gb": record.vram_used_gb,
@@ -323,6 +326,7 @@ class Timer:
     def __init__(self) -> None:
         self._start = time.monotonic()
         self._first_token_at: float | None = None
+        self._first_thinking_at: float | None = None
         self.tokens = 0
 
     async def measure(self, stream):
@@ -332,6 +336,26 @@ class Timer:
                 self._first_token_at = time.monotonic()
             self.tokens += 1
             yield token
+
+    async def measure_events(self, stream):
+        """Same, for a stream of tagged chunks.
+
+        `tokens` and `tokens_per_second` keep counting **content only**.
+        Letting reasoning chunks into that count would leave the field
+        named the same, typed the same, and quietly measuring something
+        else — the throughput would look better precisely on the requests
+        that made the user wait longest.
+        """
+        async for chunk in stream:
+            now = time.monotonic()
+            if chunk.kind == "thinking":
+                if self._first_thinking_at is None:
+                    self._first_thinking_at = now
+            else:
+                if self._first_token_at is None:
+                    self._first_token_at = now
+                self.tokens += 1
+            yield chunk
 
     @property
     def duration_ms(self) -> int:
@@ -344,6 +368,15 @@ class Timer:
         if self._first_token_at is None:
             return None
         return int((self._first_token_at - self._start) * 1000)
+
+    @property
+    def first_thinking_ms(self) -> int | None:
+        """When the reasoning phase began streaming. `first_token_ms`
+        keeps meaning the first *content* token — the two together say
+        whether a slow answer was thinking or merely late."""
+        if self._first_thinking_at is None:
+            return None
+        return int((self._first_thinking_at - self._start) * 1000)
 
     @property
     def tokens_per_second(self) -> float | None:

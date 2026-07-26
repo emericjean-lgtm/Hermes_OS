@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from backend.connectors.ollama_client import StreamChunk
 from backend.core.router import ModelRouter
 
 CONFIG = {
@@ -84,7 +85,7 @@ async def test_the_decision_actually_reaches_ollama():
         async def list_running_models(self):
             return []
 
-        def chat_stream(self, model, messages, **kwargs):
+        def chat_events(self, model, messages, **kwargs):
             sent.update(kwargs)
 
             async def empty():

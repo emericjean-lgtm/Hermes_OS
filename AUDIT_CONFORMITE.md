@@ -239,6 +239,49 @@ la mesure d'avant donnait 4 223 ms. Le raisonnement reste coûteux — c'est
 le prix assumé, désormais payé uniquement sur les tâches qui en tirent
 quelque chose.
 
+### 3.2.4 Le raisonnement est diffusé au lieu d'être caché — fait le 2026-07-26
+
+Le §22.1 est tenu sur les tâches sans raisonnement, mais celles qui en
+gardent restent longues par construction : `code_analysis` mesuré à 42 s
+avant le premier mot visible. Le raisonnement existait pourtant depuis le
+début, dans `message.thinking` — `chat_stream` le jetait.
+
+`chat_events` le remonte, étiqueté. **`chat_stream` devient un filtre
+strict par-dessus** et garde son contrat octet pour octet : les dix
+agents qui parsent la réponse en JSON (classification, vérification,
+extraction) ne doivent jamais voir de raisonnement se mélanger à
+l'answer. C'est l'invariant le plus épinglé par les tests.
+
+Côté HTTP, `include_thinking` est **opt-in** : sans lui le corps reste du
+texte brut. Avec, il passe en NDJSON (`{"kind","text"}` par ligne). Un
+appelant ne peut pas se mettre à recevoir du raisonnement sans l'avoir
+demandé.
+
+Le `Timer` distingue les deux : `tokens_used` et `tokens_per_second`
+continuent de ne compter **que le contenu**. Y laisser entrer le
+raisonnement aurait laissé ces champs identiquement nommés et typés en
+mesurant autre chose — le débit aurait paru *meilleur* précisément sur
+les requêtes qui font le plus attendre. Nouveau champ `first_thinking_ms`
+à côté de `first_token_ms`, qui garde son sens (premier token de
+contenu).
+
+**Vérifié dans le navigateur**, pas seulement en test — `code_analysis` :
+
+| repère | mesure |
+|---|---|
+| premier raisonnement affiché | **625 ms** |
+| premier mot de la réponse | 18 903 ms |
+| silence supprimé | **18,3 s** |
+
+Le panneau s'ouvre pendant l'attente, se replie seul dès le premier mot,
+et reste consultable (5 549 caractères conservés). `<details>` natif :
+clavier et lecteurs d'écran sans code supplémentaire.
+
+Constat au passage : la page envoyait toujours `conversation`, où le
+raisonnement est désactivé — le panneau était donc **inatteignable depuis
+l'interface**. Un sélecteur de `task_type` a été ajouté ; sans lui le
+correctif n'aurait rien corrigé d'observable.
+
 Reste non traité : le **chargement à froid** (~6,5 s à la première
 requête). C'est un sujet distinct — le rôle `standard` n'est pas
 `always_loaded` (§22, budget VRAM de 16 Go).
@@ -341,8 +384,9 @@ principe directeur du document.
    verdict n'est pas celui qu'on espérait : voir §3.2.1.*
 4. ~~**Latence du premier token (§22.1, T3)**~~ — **diagnostiqué et
    corrigé le 2026-07-26** (§3.2.2 et §3.2.3). T1 et T3 passent.
-   Reste ouvert, plus petit : le chargement à froid du rôle `standard`
-   (~6,5 s), et l'option d'afficher le raisonnement là où il est actif.
+   Le raisonnement est également diffusé à l'affichage (§3.2.4) :
+   18,3 s de silence supprimées sur `code_analysis`. Reste ouvert, plus
+   petit : le chargement à froid du rôle `standard` (~6,5 s).
 5. **WebSocket (§24.2)** — nécessaire à la statusbar temps réel.
 6. **`secret_scanner` (§17.1)** — le socle existe : `audit_log.redact()`
    couvre déjà la détection par motifs sur ce qui est journalisé. Reste à

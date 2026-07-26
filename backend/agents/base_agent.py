@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any, ClassVar
 
-from backend.connectors.ollama_client import OllamaClientProtocol
+from backend.connectors.ollama_client import OllamaClientProtocol, StreamChunk
 from backend.core.router import ModelRouter, RoutingDecision
 
 
@@ -53,9 +53,31 @@ class BaseAgent(ABC):
     ) -> tuple[RoutingDecision, AsyncIterator[str]]:
         """Resolve a model via the router, then return the routing decision
         alongside the streamed response so callers can log/display both."""
+        decision, events = await self.respond_events(
+            messages, task_type=task_type, sensitivity=sensitivity
+        )
+
+        async def content_only():
+            async for chunk in events:
+                if chunk.kind == "content":
+                    yield chunk.text
+
+        return decision, content_only()
+
+    async def respond_events(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        task_type: str | None = None,
+        sensitivity: str = "standard",
+    ) -> tuple[RoutingDecision, AsyncIterator[StreamChunk]]:
+        """Same as `respond`, but the reasoning phase is surfaced instead
+        of discarded — for callers with a human on the other end, who
+        would otherwise face a silent wait as long as the reasoning takes
+        (measured: 42 s on a code_analysis task)."""
         decision = await self.routing_decision(task_type)
         params = self.generation_params(sensitivity)
-        stream = self._ollama.chat_stream(
+        stream = self._ollama.chat_events(
             decision.model,
             messages,
             temperature=params["temperature"],

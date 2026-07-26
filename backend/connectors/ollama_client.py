@@ -9,9 +9,29 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol
 
 import httpx
+
+
+@dataclass(frozen=True)
+class StreamChunk:
+    """One piece of a response, with what kind of piece it is.
+
+    A reasoning model emits its chain-of-thought in `message.thinking`,
+    separate from `message.content`. `chat_stream` yields content only —
+    which is right for the agents that parse the answer as JSON, and
+    wrong for a human, who then stares at nothing for the whole reasoning
+    phase (measured: 42 s on a code_analysis task).
+
+    So the two live at different levels: `chat_events` yields everything,
+    tagged; `chat_stream` filters it down to content and keeps its old
+    contract byte for byte.
+    """
+
+    kind: Literal["thinking", "content"]
+    text: str
 
 # Retried on: Ollama not listening, dropped connection, timeout (§19.1,
 # acceptance criterion T11). Deliberately NOT retried: httpx.HTTPStatusError.
@@ -72,6 +92,17 @@ class OllamaClientProtocol(Protocol):
         think: bool | None = None,
     ) -> AsyncIterator[str]: ...
 
+    def chat_events(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        *,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        num_ctx: int | None = None,
+        think: bool | None = None,
+    ) -> AsyncIterator[StreamChunk]: ...
+
     async def list_running_models(self) -> list[dict[str, Any]]: ...
 
     async def list_local_models(self) -> list[dict[str, Any]]: ...
@@ -109,12 +140,29 @@ class OllamaClient:
         self,
         model: str,
         messages: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        """Content tokens only — the long-standing contract.
+
+        Every agent that parses the answer (classification, verification,
+        extraction) depends on nothing but content arriving here, so this
+        stays a strict filter over `chat_events` rather than gaining a
+        mode of its own.
+        """
+        async for chunk in self.chat_events(model, messages, **kwargs):
+            if chunk.kind == "content":
+                yield chunk.text
+
+    async def chat_events(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         top_p: float | None = None,
         num_ctx: int | None = None,
         think: bool | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamChunk]:
         options: dict[str, Any] = {}
         if temperature is not None:
             options["temperature"] = temperature
@@ -160,10 +208,19 @@ class OllamaClient:
                         chunk = json.loads(line)
                         if chunk.get("done"):
                             return
-                        content = chunk.get("message", {}).get("content", "")
+                        message = chunk.get("message", {})
+                        # `started` trips on *any* emitted chunk, reasoning
+                        # included: once the caller has received something,
+                        # a retry would repeat it. Tracking only content
+                        # here would let a reconnect replay the reasoning.
+                        thinking = message.get("thinking", "")
+                        if thinking:
+                            started = True
+                            yield StreamChunk("thinking", thinking)
+                        content = message.get("content", "")
                         if content:
                             started = True
-                            yield content
+                            yield StreamChunk("content", content)
                 return
             except _CONNECTION_ERRORS as exc:
                 if started or attempt >= self._max_attempts:

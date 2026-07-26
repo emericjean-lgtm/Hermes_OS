@@ -6,12 +6,15 @@ that a row appeared.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.core import audit_log
 from backend.core.config import get_settings
 from backend.main import create_app
+from backend.core.router import RoutingDecision
 from backend.memory.db import make_engine, make_session_factory
 
 
@@ -99,13 +102,20 @@ def test_an_answer_with_no_tokens_is_not_recorded_as_success(client, monkeypatch
         yield  # pragma: no cover - makes this an async generator
 
     agent = get_agent_registry().get("hermes_prime")
-    original = agent.respond
+    decision = RoutingDecision(
+        task_type="conversation", role="standard", model="fake:1b",
+        tier="standard", reason="fixture", thinking=False,
+    )
 
     async def silent(*args, **kwargs):
-        decision, _ = await original(*args, **kwargs)
+        # No network at all. An earlier version called the real
+        # respond_events for its decision: that opened a connection to
+        # Ollama which stayed pooled against this test's event loop, and
+        # the *next* test died on "Event loop is closed" reusing it. This
+        # test is about the record, not about routing.
         return decision, nothing()
 
-    monkeypatch.setattr(agent, "respond", silent)
+    monkeypatch.setattr(agent, "respond_events", silent)
 
     assert client.post("/chat", json={"messages": [{"role": "user", "content": "x"}]}).status_code == 200
 
@@ -113,3 +123,32 @@ def test_an_answer_with_no_tokens_is_not_recorded_as_success(client, monkeypatch
     assert stored.result == "empty"
     assert stored.tokens_used == 0
     assert "no content token" in stored.error
+
+
+def test_the_default_body_is_unchanged_raw_content(client):
+    """Load-bearing default: the existing frontend and every non-opting
+    consumer must keep receiving raw text, byte for byte."""
+    response = client.post("/chat", json={"messages": [{"role": "user", "content": "x"}]})
+
+    assert response.headers["content-type"].startswith("text/plain")
+    assert not response.text.lstrip().startswith("{")
+
+
+def test_opting_in_switches_to_ndjson(client):
+    response = client.post("/chat", json={
+        "messages": [{"role": "user", "content": "x"}], "include_thinking": True,
+    })
+
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    lines = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    assert lines, "aucune ligne NDJSON"
+    assert all(set(line) == {"kind", "text"} for line in lines)
+    assert all(line["kind"] in ("thinking", "content") for line in lines)
+
+
+def test_the_client_is_told_whether_reasoning_is_on(client):
+    """So it can render a reasoning panel without re-deriving the routing
+    rule it does not own."""
+    response = client.post("/chat", json={"messages": [{"role": "user", "content": "x"}]})
+
+    assert response.headers["X-Hermes-Thinking"] in ("true", "false")

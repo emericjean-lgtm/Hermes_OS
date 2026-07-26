@@ -7,6 +7,7 @@ decision exposed via response headers for the frontend to display.
 """
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator
 
@@ -34,6 +35,12 @@ class ChatRequest(BaseModel):
     agent: str = "hermes_prime"
     task_type: str | None = None
     session_id: str | None = None
+    # Off by default, and that default is load-bearing: without it the
+    # body stays raw content, byte for byte, for every existing consumer.
+    # Opting in switches the body to NDJSON — one {"kind","text"} object
+    # per line — so a caller cannot start receiving reasoning text mixed
+    # into the answer without having asked for it.
+    include_thinking: bool = False
 
 
 @router.post("/chat")
@@ -48,17 +55,22 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     plain_messages = [m.model_dump() for m in request.messages]
 
     try:
-        decision, stream = await agent.respond(plain_messages, task_type=request.task_type)
+        decision, events = await agent.respond_events(
+            plain_messages, task_type=request.task_type
+        )
     except UnknownTaskTypeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return StreamingResponse(
-        _audited(stream, request, decision),
-        media_type="text/plain",
+        _audited(events, request, decision),
+        media_type="application/x-ndjson" if request.include_thinking else "text/plain",
         headers={
             "X-Hermes-Model": decision.model,
             "X-Hermes-Tier": decision.tier,
             "X-Hermes-Role": decision.role,
+            # The client needs to know which framing it got without
+            # inferring it from the flag it sent.
+            "X-Hermes-Thinking": "true" if decision.thinking else "false",
         },
     )
 
@@ -80,8 +92,12 @@ async def _audited(stream, request: ChatRequest, decision) -> AsyncIterator[str]
     timer = Timer()
     error: str | None = None
     try:
-        async for token in timer.measure(stream):
-            yield token
+        async for chunk in timer.measure_events(stream):
+            if request.include_thinking:
+                yield json.dumps({"kind": chunk.kind, "text": chunk.text},
+                                 ensure_ascii=False) + "\n"
+            elif chunk.kind == "content":
+                yield chunk.text
     except Exception as exc:  # recorded, then re-raised — never silenced
         error = f"{type(exc).__name__}: {exc}"
         raise
@@ -119,6 +135,7 @@ async def _audited(stream, request: ChatRequest, decision) -> AsyncIterator[str]
                     },
                     duration_ms=timer.duration_ms,
                     first_token_ms=timer.first_token_ms,
+                    first_thinking_ms=timer.first_thinking_ms,
                     tokens_used=timer.tokens,
                     tokens_per_second=timer.tokens_per_second,
                 ))

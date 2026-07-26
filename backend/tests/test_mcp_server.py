@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from backend.connectors.ollama_client import StreamChunk
 from backend.tests.conftest import open_mcp_session
 
 # These go through the real MCP wire protocol (initialize, list_tools,
@@ -116,10 +117,10 @@ async def test_security_evaluate_mandatory_category(monkeypatch, tmp_path):
 async def test_security_evaluate_include_advisory(monkeypatch, tmp_path):
     from backend.connectors.ollama_client import OllamaClient
 
-    async def fake_chat_stream(self, model, messages, *, temperature=None, top_p=None, num_ctx=None, think=None):
-        yield "This force-pushes to main, which rewrites shared history."
+    async def fake_chat_events(self, model, messages, **_kwargs):
+        yield StreamChunk("content", "This force-pushes to main, which rewrites shared history.")
 
-    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+    monkeypatch.setattr(OllamaClient, "chat_events", fake_chat_events)
 
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         result = await session.call_tool(
@@ -250,12 +251,12 @@ async def test_research_query_returns_answer_and_passages(monkeypatch, tmp_path)
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, **_kwargs):
+    async def fake_chat_events(self, model, messages, **_kwargs):
         for chunk in ["Answer", " from", " Minerva"]:
-            yield chunk
+            yield StreamChunk("content", chunk)
 
     monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
-    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+    monkeypatch.setattr(OllamaClient, "chat_events", fake_chat_events)
 
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         result = await session.call_tool("research_query", {"query": "What GPU?"})
@@ -272,12 +273,12 @@ async def test_verify_output_returns_parsed_verdict(monkeypatch, tmp_path):
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, **_kwargs):
+    async def fake_chat_events(self, model, messages, **_kwargs):
         for chunk in ["VERDICT: approved\n", "ISSUES:\n- none\n", "CORRECTIONS:\nnone"]:
-            yield chunk
+            yield StreamChunk("content", chunk)
 
     monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
-    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+    monkeypatch.setattr(OllamaClient, "chat_events", fake_chat_events)
 
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         result = await session.call_tool(
@@ -297,12 +298,12 @@ async def test_write_document_returns_document(monkeypatch, tmp_path):
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, **_kwargs):
+    async def fake_chat_events(self, model, messages, **_kwargs):
         for chunk in ["# Title\n", "Some content."]:
-            yield chunk
+            yield StreamChunk("content", chunk)
 
     monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
-    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+    monkeypatch.setattr(OllamaClient, "chat_events", fake_chat_events)
 
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         result = await session.call_tool("write_document", {"brief": "Write a README title and one line."})
@@ -318,12 +319,12 @@ async def test_analyze_image_returns_description(monkeypatch, tmp_path):
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, **_kwargs):
+    async def fake_chat_events(self, model, messages, **_kwargs):
         for chunk in ["An ", "RX 6800 ", "graphics card."]:
-            yield chunk
+            yield StreamChunk("content", chunk)
 
     monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
-    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+    monkeypatch.setattr(OllamaClient, "chat_events", fake_chat_events)
 
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         result = await session.call_tool("analyze_image", {"images": ["aGVsbG8="]})
@@ -339,11 +340,11 @@ async def test_classify_request_returns_known_task_type(monkeypatch, tmp_path):
     async def fake_list_running_models(self):
         return []
 
-    async def fake_chat_stream(self, model, messages, **_kwargs):
-        yield "code_generation"
+    async def fake_chat_events(self, model, messages, **_kwargs):
+        yield StreamChunk("content", "code_generation")
 
     monkeypatch.setattr(OllamaClient, "list_running_models", fake_list_running_models)
-    monkeypatch.setattr(OllamaClient, "chat_stream", fake_chat_stream)
+    monkeypatch.setattr(OllamaClient, "chat_events", fake_chat_events)
 
     async with open_mcp_session(monkeypatch, tmp_path) as session:
         result = await session.call_tool("classify_request", {"request": "Write a sort function."})

@@ -254,7 +254,8 @@ def test_every_entry_field_actually_reaches_the_record(session):
         agent="atlas", request="r", session_id="s", task_id="t", project_id="p",
         routing_decision={"k": "v"}, context_used=["c"], steps_executed=["e"],
         files_modified=["f"], tests_run={"status": "passed"}, validation_requested=True,
-        duration_ms=1, first_token_ms=2, tokens_used=3, tokens_per_second=4.0,
+        duration_ms=1, first_token_ms=2, first_thinking_ms=1, tokens_used=3,
+        tokens_per_second=4.0,
         vram_used_gb=5.0, result="failed", error="boom",
     )
 
