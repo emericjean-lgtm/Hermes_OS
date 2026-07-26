@@ -32,8 +32,11 @@ from backend.api.routes import (
     vision,
     workflows,
     write,
+    ws,
 )
 from backend.core.config import get_settings
+from backend.core.event_hub import get_event_hub
+from backend.core.message_bus import get_message_bus
 from backend.mcp_server.server import create_mcp_server
 
 
@@ -60,9 +63,18 @@ def create_app() -> FastAPI:
         be entered explicitly here for the streamable-HTTP transport at
         /mcp to work (see backend/mcp_server/server.py)."""
         get_settings()
+        # §24.2 agent.message: the bus already calls its subscribers
+        # synchronously after every publish, so forwarding is a
+        # registration rather than a change to the bus itself.
+        unsubscribe = get_message_bus().subscribe(
+            lambda message: get_event_hub().publish("agent.message", message.to_dict())
+        )
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(mcp_server.session_manager.run())
-            yield
+            try:
+                yield
+            finally:
+                unsubscribe()
 
     app = FastAPI(title="Hermes Ollama", version="0.1.0", lifespan=lifespan)
 
@@ -93,6 +105,7 @@ def create_app() -> FastAPI:
     app.include_router(git.router)
     app.include_router(snapshots.router)
     app.include_router(logs.router)
+    app.include_router(ws.router)
     app.include_router(verification.router)
     app.include_router(evolution.router)
     app.mount("/mcp", mcp_asgi_app)

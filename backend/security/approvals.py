@@ -49,6 +49,7 @@ from sqlalchemy import DateTime, String, Text, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from backend.memory.db import Base
+from backend.core.event_hub import get_event_hub
 
 DEFAULT_TTL_MINUTES = 15
 
@@ -128,6 +129,11 @@ def record_pending(
         )
     ).scalar_one_or_none()
     if existing is not None:
+        # Deliberately *not* published to §24.2: this is the same pending
+        # item, not a new one. An agent retrying in a loop would otherwise
+        # repeat the same validation.request on the dashboard and bury the
+        # entries that matter — exactly what this dedup prevents in the
+        # table.
         return existing
 
     entry = PendingApproval(
@@ -146,6 +152,9 @@ def record_pending(
     session.add(entry)
     session.commit()
     session.refresh(entry)
+    # After the commit, never before: a client must not be told to
+    # validate something that failed to persist.
+    get_event_hub().publish("validation.request", to_dict(entry))
     return entry
 
 

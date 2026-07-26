@@ -40,7 +40,7 @@ lisibilité et non par la raison invoquée à l'époque.
 |---|---|
 | **Conforme, vérifié** | §9 agents · §9.2 bus · §10 routage · §11 mémoire · §13 tâches · §14.1 fichiers · §15 workflows · §17 sécurité · §20 auto-évolution · §21 monitoring |
 | **Conforme après les travaux du 2026-07-25** | §13 ingestion documentaire · §14 Git · §16 vérification · §22 VRAM |
-| **Absent** | §12 résumé de contexte · §24.2 WebSocket |
+| **Absent** | §12 résumé de contexte |
 | **Écart assumé, à documenter** | §4.1 stack (LangChain, Watchdog, keyring, Telegram) · §23 interface |
 | **Non vérifié** | §25 installation |
 | **Mesuré, corrigé** | §22.1 latences — T1 et T3 passent après le correctif du raisonnement par `task_type` (§3.2.3) |
@@ -292,12 +292,61 @@ désormais `result: "empty"` avec son motif. C'est le même défaut que
 partout ailleurs dans cet audit : du code qui affirme une réussite qu'il
 n'a pas constatée.
 
-### 3.3 §24.2 — WebSocket
+### 3.3 ~~§24.2 — WebSocket~~ — **fait le 2026-07-26**
 
-Cinq événements sont spécifiés (`system.metrics` toutes les 2 s,
-`chat.token`, `agent.message`, `task.update`, `validation.request`).
-**Aucune implémentation** : une seule mention, en commentaire, dans
-`message_bus.py`. La statusbar temps réel du §23.1 en dépend.
+Les cinq événements du §24.2 sont diffusés sur `GET /ws`, filtrables
+(`/ws?types=task.update,validation.request`). Chaque trame est
+`{"type","payload","timestamp"}`.
+
+Aucun de ces événements n'est une information nouvelle : le bus, Kronos,
+la file d'approbation et le moniteur GPU les produisaient déjà. Ce module
+ne fait que les acheminer.
+
+**La publication est synchrone et ne lève jamais.** Quatre des cinq
+producteurs sont des fonctions sync sans boucle d'événements
+(`message_bus.publish`, `kronos.update_task`, `approvals.record_pending`).
+La garantie est *structurelle* — le corps de `publish()` est enveloppé une
+fois, dans le hub — et non une promesse répétée à chaque site d'appel :
+Kronos qui persiste une tâche fait un vrai travail, prévenir un tableau de
+bord n'en est pas un, et ne doit jamais pouvoir le coûter.
+
+**Un client lent est isolé, et les pertes sont annoncées.** File bornée
+par abonné ; en saturation les événements les *plus anciens* sont
+abandonnés et un `stream.dropped` dit combien. Un flux qui saute des
+événements en silence est pire qu'un flux qui admet un trou : le lecteur
+n'a aucun moyen de savoir que l'image est incomplète.
+
+Deux choix de conception méritent d'être notés :
+
+- **`task.update` est publié depuis Kronos, pas depuis la route REST.**
+  Les tâches changent aussi via les outils MCP et les étapes de workflow ;
+  un tableau de bord alimenté par la seule route manquerait précisément
+  les changements faits par un agent de sa propre initiative — le cas qui
+  a motivé cette vue.
+- **Une re-demande de validation n'est pas republiée.** `record_pending`
+  dédoublonne déjà les lignes `pending` ; republier laisserait un agent
+  qui boucle enterrer la file sur le tableau de bord. Le bus, lui,
+  journalise chaque tentative — c'est la distinction voulue.
+
+Un filtre inconnu est **refusé** plutôt qu'ignoré : un client filtrant sur
+une faute de frappe resterait sinon sur une socket muette, indiscernable
+d'un système au repos.
+
+**Les cinq vérifiés en réel**, pas seulement en test :
+
+| événement | déclencheur | observé |
+|---|---|---|
+| `system.metrics` | ticker 2 s | 2 trames en 4,5 s, VRAM et charge réelles |
+| `chat.token` | `POST /chat` | 4 trames, `kind` + `text` |
+| `task.update` | create / patch / delete | 3 trames, `change` correct |
+| `agent.message` | bus | 6 trames sur 3 tentatives |
+| `validation.request` | `file_delete` refusé | 1 trame — et **0** sur 3 re-demandes identiques |
+
+Le ticker métriques ne tourne que tant qu'un client est connecté :
+interroger le GPU toutes les 2 s pour une salle vide réveillerait la carte
+pour rien.
+
+36 tests.
 
 ### 3.4 §12 — Résumé automatique de contexte
 
@@ -387,7 +436,8 @@ principe directeur du document.
    Le raisonnement est également diffusé à l'affichage (§3.2.4) :
    18,3 s de silence supprimées sur `code_analysis`. Reste ouvert, plus
    petit : le chargement à froid du rôle `standard` (~6,5 s).
-5. **WebSocket (§24.2)** — nécessaire à la statusbar temps réel.
+5. ~~**WebSocket (§24.2)**~~ — **fait le 2026-07-26**, les cinq
+   événements vérifiés en réel (§3.3). Reste à en brancher une vue.
 6. **`secret_scanner` (§17.1)** — le socle existe : `audit_log.redact()`
    couvre déjà la détection par motifs sur ce qui est journalisé. Reste à
    l'appliquer aux *fichiers* (T12).

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from backend.core import audit_log
 from backend.core.agent_registry import AgentNotFoundError, get_agent_registry
 from backend.core.audit_log import AuditEntry, Timer
+from backend.core.event_hub import get_event_hub
 from backend.core.router import UnknownTaskTypeError
 
 logger = logging.getLogger(__name__)
@@ -90,9 +91,21 @@ async def _audited(stream, request: ChatRequest, decision) -> AsyncIterator[str]
     is recoverable, a 500 in the middle of a response is not.
     """
     timer = Timer()
+    hub = get_event_hub()
     error: str | None = None
     try:
         async for chunk in timer.measure_events(stream):
+            # §24.2 chat.token — so a monitoring view can follow a
+            # conversation it did not initiate. The HTTP body below is
+            # still the answer's only delivery path; this is a copy for
+            # observers, and a client that cannot keep up drops events
+            # rather than slowing the answer down.
+            hub.publish("chat.token", {
+                "session_id": request.session_id,
+                "agent": request.agent,
+                "kind": chunk.kind,
+                "text": chunk.text,
+            })
             if request.include_thinking:
                 yield json.dumps({"kind": chunk.kind, "text": chunk.text},
                                  ensure_ascii=False) + "\n"
