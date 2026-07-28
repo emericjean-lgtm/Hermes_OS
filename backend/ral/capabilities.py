@@ -7,7 +7,7 @@ may implement. No implementation is provided here.
 from __future__ import annotations
 
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -56,6 +56,7 @@ class ToolResult:
 
     output: Any
     is_error: bool
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @typing.runtime_checkable

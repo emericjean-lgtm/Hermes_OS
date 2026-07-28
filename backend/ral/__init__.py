@@ -59,6 +59,39 @@ from backend.ral.runtime_health import (
     RuntimeHealthStatus,
     RuntimeMetrics,
 )
+from backend.ral.runtime_events import (
+    RuntimeEvent,
+    RuntimeEventBus,
+    RuntimeEventType,
+    RuntimeObservability,
+    Severity,
+)
+from backend.ral.runtime_performance import (
+    RuntimePerformanceAnalyzer,
+    RuntimePerformanceMetrics,
+)
+from backend.ral.runtime_decision import (
+    RuntimeDecision,
+    RuntimeDecisionEngine,
+    RuntimeDecisionError,
+    RuntimeDecisionScore,
+    RuntimeDecisionWeights,
+)
+from backend.ral.runtime_policy import (
+    RuntimeExecutionContext,
+    RuntimePolicy,
+    RuntimePolicyEngine,
+    RuntimePolicyError,
+    RuntimePolicyResult,
+    RuntimePolicyRule,
+)
+from backend.ral.runtime_recovery import (
+    CircuitBreaker,
+    CircuitState,
+    ExecutionTrace,
+    RuntimeRecoveryError,
+    RuntimeRecoveryManager,
+)
 
 __all__ = [
     # runtime
@@ -120,4 +153,32 @@ __all__ = [
     "RuntimeHealthStatus",
     "RuntimeMetrics",
     "RuntimeHealthError",
+    # runtime recovery — HOS-012
+    "RuntimeRecoveryManager",
+    "RuntimeRecoveryError",
+    "CircuitBreaker",
+    "CircuitState",
+    "ExecutionTrace",
+    # runtime event bus & observability — HOS-013
+    "RuntimeEvent",
+    "RuntimeEventBus",
+    "RuntimeEventType",
+    "RuntimeObservability",
+    "Severity",
+    # runtime performance & cost intelligence — HOS-014
+    "RuntimePerformanceAnalyzer",
+    "RuntimePerformanceMetrics",
+    # adaptive runtime decision engine — HOS-015
+    "RuntimeDecision",
+    "RuntimeDecisionEngine",
+    "RuntimeDecisionError",
+    "RuntimeDecisionScore",
+    "RuntimeDecisionWeights",
+    # runtime policy engine — HOS-016
+    "RuntimeExecutionContext",
+    "RuntimePolicy",
+    "RuntimePolicyEngine",
+    "RuntimePolicyError",
+    "RuntimePolicyResult",
+    "RuntimePolicyRule",
 ]
