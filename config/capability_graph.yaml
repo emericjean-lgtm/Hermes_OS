@@ -1,0 +1,33 @@
+# Capability Graph — squelette v0.0.0 (HOS-000 foundations)
+#
+# Ce fichier est la SOURCE DE VÉRITÉ du routage :
+#   Task → Planner → Capability Graph → Runtime → Provider → Model
+#
+# Statut HOS-000 :
+#   * Aucun nœud, aucune arête, aucune règle de routage n'est défini.
+#   * Le squelette doit pouvoir être parsé sans erreur par tout loader YAML.
+#   * Aucune fonctionnalité applicative n'est activée.
+#
+# Le contenu réel (Planner, Provider d'Ollama / Claude / etc., scores
+# VRAM/coût/capacités) sera livré en HOS-006b (capability graph
+# loader) puis enrichi par HOS-006c (ModelRouter évolué).
+#
+# NE MODIFIEZ PAS la structure de haut niveau (version, nodes, edges,
+# routing_rules, provenance) tant que HOS-006b n'est pas merged.
+version: "0.0.0"
+nodes: []
+edges: []
+routing_rules: []
+
+# Provenance et gouvernance : trace d'audit minimaliste.
+# Permet de raisonner sur l'évolution du graphe dans le temps sans
+# dépendre du git log pour les décisions d'architecture.
+provenance:
+  introduced_by: HOS-000
+  introduced_at: "2026-07-28"
+  rationale: "foundations_for_runtime_abstraction_layer"
+  superseded_by: HOS-006b
+  invariants:
+    - "ne référence aucun runtime concret"
+    - "ne contient aucun identifiant de provider/model"
+    - "ne prescrit aucun coût, VRAM ou score"

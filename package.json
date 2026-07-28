@@ -1,0 +1,33 @@
+{
+  "name": "hermes-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hermes Ollama (Hermes OS) — assistant IA local multi-agents : backend Python FastAPI + frontend Next.js 16. Voir CAHIER_DES_CHARGES_HERMES_OLLAMA.md pour la spécification complète.",
+  "type": "module",
+  "engines": {
+    "node": ">=18.18.0",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "install": "pnpm install:frontend && pnpm install:backend",
+    "install:frontend": "pnpm --dir frontend install",
+    "install:backend": "node ./scripts/install-backend.mjs",
+    "dev": "node ./scripts/dev.mjs",
+    "dev:frontend": "pnpm --dir frontend dev",
+    "dev:backend": "node ./scripts/dev-backend.mjs",
+    "preview": "node ./scripts/preview.mjs",
+    "preview:frontend": "pnpm --dir frontend start",
+    "build": "pnpm build:frontend && pnpm build:backend",
+    "build:frontend": "pnpm --dir frontend build",
+    "build:backend": "node ./scripts/build-backend.mjs",
+    "start": "pnpm --dir frontend start",
+    "start:frontend": "pnpm --dir frontend start",
+    "start:backend": "node ./scripts/start-backend.mjs",
+    "lint": "pnpm --dir frontend lint",
+    "test": "pnpm test:backend",
+    "test:backend": "node ./scripts/test-backend.mjs"
+  },
+  "_comment": "Le `package.json` du frontend (frontend/package.json) gère ses propres scripts (dev/build/start/lint). On l'invoque via `pnpm --dir frontend <cmd>` plutôt que de le dupliquer, pour ne pas casser ce qui existe.",
+  "_workspace_notes": "Pour transformer ce dépôt en pnpm-workspace officiel, déplacez `frontend/pnpm-workspace.yaml` à la racine, ajoutez `packages: ['frontend']` (et éventuellement un wrapper backend). Cette première version évite ce mouvement pour ne rien casser ; les scripts ci-dessus fonctionnent déjà comme orchestration externe."
+}

@@ -35,9 +35,11 @@ from backend.api.routes import (
     ws,
 )
 from backend.core.config import get_settings
-from backend.core.event_hub import get_event_hub
+from backend.core.event_hub import EVENT_TYPES, get_event_hub
 from backend.core.message_bus import get_message_bus
 from backend.mcp_server.server import create_mcp_server
+from backend.sds.dependencies import get_eventbus
+from backend.sds.routes import SDS_ROUTER
 
 
 def create_app() -> FastAPI:
@@ -51,30 +53,77 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        """Fail fast and loud on a broken .env instead of surfacing a
-        confusing 500 the first time a request happens to touch Settings.
-        Letting the ValidationError propagate (rather than catching it)
-        is deliberate: uvicorn already prints it clearly as a startup
-        failure, with the exact field and reason, and without the noisy
-        nested-generator traceback a manual sys.exit() produces here.
+        """HOS-003 lifespan: initialises EventBusImpl before ``yield``,
+        forwards events to the legacy ``EventHub``, and preserves the
+        ``MessageBus`` → ``agent.message`` → ``EventHub`` proxy.
+        """
+        import logging
 
-        Also starts the MCP server's session manager: Starlette's Mount
-        does not auto-run a mounted sub-app's own lifespan, so it has to
-        be entered explicitly here for the streamable-HTTP transport at
-        /mcp to work (see backend/mcp_server/server.py)."""
+        from backend.ral.event_bus import TopicPattern
+        from backend.sds.runtime import get_holder, init_eventbus_in_holder
+
+        logger = logging.getLogger("hermes_os.lifespan")
+
+        # --- Pre-init (fail-fast) ---
         get_settings()
-        # §24.2 agent.message: the bus already calls its subscribers
-        # synchronously after every publish, so forwarding is a
-        # registration rather than a change to the bus itself.
-        unsubscribe = get_message_bus().subscribe(
-            lambda message: get_event_hub().publish("agent.message", message.to_dict())
+
+        # --- Initialiser EventBusImpl (D-003) ---
+        eventbus_db = "./data/eventbus/eventbus.sqlite"
+        holder = await init_eventbus_in_holder(eventbus_db)
+        _app.state.eventbus_holder = holder
+
+        # --- Forward EventBusImpl -> EventHub (D-002) ---
+        ehub = get_event_hub()
+        forward_sub = get_holder().bus.subscribe(
+            TopicPattern("*"),
+            lambda e: ehub.publish(e.topic.value, e.payload),
         )
+
+        # --- Legacy proxy (D-001): MessageBus -> agent.message -> EventHub ---
+        legacy_unsub = get_message_bus().subscribe(
+            lambda message: ehub.publish("agent.message", message.to_dict())
+        )
+
+        # --- HOS-008: initialiser le RuntimeRegistry et le RuntimeFactory ---
+        from backend.sds.runtime import (
+            init_runtime_registry_in_holder,
+            shutdown_runtime_registry,
+        )
+
+        runtime_holder = await init_runtime_registry_in_holder(default_runtime="stub")
+        _app.state.runtime_holder = runtime_holder
+        _app.state.runtime_registry = get_runtime_registry()
+        logger.info("Runtime registry initialized")
+
+        # --- MCP session manager (unchanged) ---
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(mcp_server.session_manager.run())
             try:
                 yield
             finally:
-                unsubscribe()
+                # Cleanup (inverse order of init)
+                # 1. Stop all registered runtimes (HOS-008)
+                try:
+                    await shutdown_runtime_registry()
+                except Exception:
+                    logger.warning("Runtime registry shutdown failed", exc_info=True)
+                # 2. Legacy runtime holder (kept for compatibility)
+                try:
+                    await runtime_holder.stop()
+                except Exception:
+                    logger.warning("Runtime stop failed", exc_info=True)
+                # 2. Unsub legacy proxy
+                legacy_unsub()
+                # 3. Unsub wildcard forwarder
+                try:
+                    get_holder().bus.unsubscribe(forward_sub)
+                except Exception:
+                    logger.warning("forward wildcard unsub failed", exc_info=True)
+                # 4. Stop EventBus last
+                try:
+                    await holder.stop()
+                except Exception:
+                    logger.warning("EventBus stop failed", exc_info=True)
 
     app = FastAPI(title="Hermes Ollama", version="0.1.0", lifespan=lifespan)
 

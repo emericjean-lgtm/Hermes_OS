@@ -1,0 +1,6 @@
+ImportError while loading conftest '/home/daytona/codebase/backend/tests/conftest.py'.
+backend/tests/conftest.py:11: in <module>
+    from backend.connectors.ollama_client import StreamChunk
+backend/connectors/ollama_client.py:15: in <module>
+    import httpx
+E   ModuleNotFoundError: No module named 'httpx'

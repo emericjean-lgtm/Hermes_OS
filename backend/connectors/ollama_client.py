@@ -10,9 +10,11 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import httpx
+
+from backend.ral.capabilities import ChatResponse
 
 
 @dataclass(frozen=True)
@@ -78,8 +80,16 @@ class OllamaUnavailableError(RuntimeError):
     """
 
 
+@runtime_checkable
 class OllamaClientProtocol(Protocol):
     """Interface every Ollama client (real or fake) must satisfy."""
+
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+    ) -> ChatResponse: ...
 
     async def chat_stream(
         self,
@@ -135,6 +145,29 @@ class OllamaClient:
         """-1 means "hold in VRAM indefinitely" in Ollama's API; anything
         else is passed through as the configured duration string."""
         return -1 if model in self._always_loaded else self._keep_alive
+
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+    ) -> ChatResponse:
+        """Non-streaming chat that collects all tokens and returns a
+        :class:`ChatResponse`.
+
+        If ``model`` is ``None`` the client's endpoint is expected to
+        provide a default — callers that want a specific model should
+        always pass it explicitly.
+        """
+        used_model = model or "default"
+        tokens: list[str] = []
+        async for token in self.chat_stream(used_model, messages):
+            tokens.append(token)
+        content = "".join(tokens)
+        return ChatResponse(
+            content=content,
+            metadata={"model": used_model, "provider": "ollama"},
+        )
 
     async def chat_stream(
         self,
