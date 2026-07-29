@@ -1,20 +1,63 @@
 "use client";
-
+import { useState } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { DashboardProvider } from "@/store/dashboard-store";
+import RuntimeOverview from "@/components/runtimes/RuntimeOverview";
+import RuntimeTable from "@/components/runtimes/RuntimeTable";
+import RuntimeInspector from "@/components/runtimes/RuntimeInspector";
+import RuntimeDecisionExplorer from "@/components/runtimes/RuntimeDecisionExplorer";
+import RuntimeHealth from "@/components/runtimes/RuntimeHealth";
+import RuntimePerformance from "@/components/runtimes/RuntimePerformance";
+import RuntimePolicies from "@/components/runtimes/RuntimePolicies";
+import RuntimeEvents from "@/components/runtimes/RuntimeEvents";
+import RuntimeControls from "@/components/runtimes/RuntimeControls";
 import { Cpu } from "lucide-react";
 
 export default function RuntimesPage() {
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+
   return (
     <DashboardProvider>
       <DashboardLayout>
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <Cpu size={40} className="text-[var(--color-text-muted)]" />
-          <h2 className="mt-4 text-lg font-semibold text-[var(--color-text-primary)]">Runtimes</h2>
-          <p className="mt-2 max-w-md text-sm text-[var(--color-text-muted)]">
-            Runtime management and monitoring. Configure and monitor AI execution backends.
-          </p>
-          <p className="mt-8 text-xs text-[var(--color-text-muted)]">Coming soon</p>
+        <div className="mx-auto max-w-7xl space-y-4">
+          <div className="flex items-center justify-between">
+            <div><h1 className="text-lg font-bold text-[var(--color-text-primary)]">Runtime Center</h1><p className="mt-1 text-xs text-[var(--color-text-muted)]">Runtime supervision, administration and analysis</p></div>
+          </div>
+
+          <RuntimeControls runtimeName={selectedName} />
+
+          <Group orientation="vertical" style={{ minHeight: 850 }}>
+            {/* Row 1: Overview */}
+            <Panel defaultSize={14} minSize={10}><RuntimeOverview /></Panel>
+            <Separator className="h-2 rounded-md transition-colors hover:bg-white/10" />
+
+            {/* Row 2: Table + Inspector + Decision Explorer */}
+            <Panel defaultSize={32} minSize={20}>
+              <Group orientation="horizontal">
+                <Panel defaultSize={40} minSize={25}><RuntimeTable onSelect={setSelectedName} selectedName={selectedName} /></Panel>
+                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <Panel defaultSize={32} minSize={20}><RuntimeInspector runtimeName={selectedName} /></Panel>
+                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <Panel defaultSize={28} minSize={18}><RuntimeDecisionExplorer /></Panel>
+              </Group>
+            </Panel>
+
+            <Separator className="h-2 rounded-md transition-colors hover:bg-white/10" />
+
+            {/* Row 3: Health + Performance + Policies + Events */}
+            <Panel defaultSize={54} minSize={25}>
+              <Group orientation="horizontal">
+                <Panel defaultSize={25} minSize={18}><RuntimeHealth /></Panel>
+                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <Panel defaultSize={30} minSize={20}><RuntimePerformance /></Panel>
+                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <Panel defaultSize={22} minSize={15}><RuntimePolicies /></Panel>
+                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <Panel defaultSize={23} minSize={15}><RuntimeEvents /></Panel>
+              </Group>
+            </Panel>
+          </Group>
         </div>
       </DashboardLayout>
     </DashboardProvider>

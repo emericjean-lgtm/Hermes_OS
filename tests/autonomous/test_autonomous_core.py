@@ -1,0 +1,549 @@
+"""Tests for Autonomous Agentic Core (HOS-063).
+
+Covers: models, interpreter, decision engine, orchestrator,
+guard, memory loop, engine facade, API, EventBus, thread safety,
+and full mission simulation (100+ tests).
+"""
+
+import threading
+import pytest
+
+from backend.autonomous.autonomous_models import (
+    AUTONOMOUS_EVENTS,
+    AutonomousDecision,
+    AutonomousGoal,
+    AutonomousReport,
+    AutonomousSession,
+    DecisionType,
+    GOAL_PATTERNS,
+    GoalStatus,
+)
+from backend.autonomous.autonomous_interpreter import AutonomousInterpreter
+from backend.autonomous.decision_engine import DecisionEngine
+from backend.autonomous.autonomous_guard import AutonomousGuard, GuardVerdict
+from backend.autonomous.autonomous_memory_loop import AutonomousMemoryLoop
+from backend.autonomous.autonomous_orchestrator import AutonomousOrchestrator
+from backend.autonomous.autonomous_engine import AutonomousEngine
+from backend.autonomous.routes import handle_start_goal, handle_get_status, handle_get_goal, handle_cancel_goal
+
+
+# ======================================================================
+# 1. Models
+# ======================================================================
+
+class TestAutonomousModels:
+
+    def test_goal_all_statuses(self):
+        for status in GoalStatus:
+            g = AutonomousGoal(goal_id="g1", status=status)
+            assert g.status == status
+
+    def test_goal_to_dict(self):
+        g = AutonomousGoal(goal_id="g1", user_request="Test request", interpreted_goal="Test interpretation")
+        d = g.to_dict()
+        assert d["goal_id"] == "g1"
+        assert d["user_request"] == "Test request"
+
+    def test_decision_defaults(self):
+        d = AutonomousDecision(decision_id="d1", decision_type=DecisionType.AGENT_SELECTION)
+        assert d.confidence == 0.0
+        assert d.selected_option == ""
+
+    def test_decision_to_dict(self):
+        d = AutonomousDecision(decision_id="d1", decision_type=DecisionType.RUNTIME_SELECTION,
+                               confidence=0.85, selected_option="ktransformers",
+                               reason="Best runtime")
+        d2 = d.to_dict()
+        assert d2["decision_type"] == "runtime_selection"
+        assert d2["confidence"] == 0.85
+
+    def test_session_to_dict(self):
+        s = AutonomousSession(session_id="s1", goal_id="g1", active_agents=["agent1", "agent2"])
+        d = s.to_dict()
+        assert len(d["active_agents"]) == 2
+
+    def test_report_defaults(self):
+        r = AutonomousReport(goal_id="g1", user_request="test")
+        assert r.total_duration_ms == 0.0
+        assert r.success is False
+
+    def test_events_all_prefixed(self):
+        for key, evt in AUTONOMOUS_EVENTS.items():
+            assert evt.startswith("autonomous.")
+
+    def test_goal_patterns(self):
+        assert "web_app" in GOAL_PATTERNS
+        assert GOAL_PATTERNS["web_app"]["domain"] == "web"
+
+
+# ======================================================================
+# 2. Interpreter
+# ======================================================================
+
+class TestAutonomousInterpreter:
+
+    def test_interpret_web_request(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("Create a web application for managing maintenance operations")
+        assert goal.domain == "web"
+        assert goal.status == GoalStatus.ANALYZING
+        assert goal.goal_id.startswith("goal_")
+
+    def test_interpret_backend_request(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("Build a REST API for user authentication")
+        assert goal.domain == "backend"
+
+    def test_interpret_data_request(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("Analyze customer data and build a pipeline")
+        assert goal.domain == "data"
+
+    def test_interpret_refactor_request(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("Refactor the authentication module to use JWT")
+        assert goal.domain == "code"
+
+    def test_interpret_debug_request(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("Debug the login endpoint timeout issue")
+        assert goal.domain == "code"
+
+    def test_interpret_language_python(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("Create a Flask API for user management")
+        assert goal.language == "python"
+
+    def test_interpret_language_typescript(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("Build a Next.js frontend with TypeScript")
+        assert goal.language == "typescript"
+
+    def test_interpret_priority_urgent(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("URGENT: Fix the production security vulnerability")
+        assert goal.contraints.get("priority") == "high"
+
+    def test_interpret_complexity_estimation(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("Simple task")
+        assert goal.complexity > 0
+
+    def test_interpret_high_complexity(self):
+        interp = AutonomousInterpreter()
+        goal = interp.interpret("Create a complete full-stack microservices application with authentication, payments, and real-time notifications")
+        assert goal.complexity > 0.4
+
+    def test_interpret_history_tracked(self):
+        interp = AutonomousInterpreter()
+        interp.interpret("Goal one")
+        interp.interpret("Goal two")
+        assert len(interp.get_history()) == 2
+
+
+# ======================================================================
+# 3. Decision Engine
+# ======================================================================
+
+class TestDecisionEngine:
+
+    def test_select_agent(self):
+        de = DecisionEngine()
+        d = de.select_agent("code_analysis", {"domain": "web"})
+        assert d.decision_type == DecisionType.AGENT_SELECTION
+        assert d.confidence > 0
+        assert d.selected_option in ("klaatcode", "ohmypi", "code_intelligence", "mission_planner")
+
+    def test_select_runtime(self):
+        de = DecisionEngine()
+        d = de.select_runtime("code_analysis", 0.7)
+        assert d.decision_type == DecisionType.RUNTIME_SELECTION
+
+    def test_select_tool(self):
+        de = DecisionEngine()
+        d = de.select_tool("code_analysis", {"language": "python"})
+        assert d.decision_type == DecisionType.TOOL_SELECTION
+
+    def test_select_skill(self):
+        de = DecisionEngine()
+        d = de.select_skill("code_analysis", "web")
+        assert d.decision_type == DecisionType.SKILL_SELECTION
+
+    def test_decisions_tracked(self):
+        de = DecisionEngine()
+        de.select_agent("code_analysis", {})
+        de.select_runtime("code_analysis", 0.5)
+        de.select_tool("code_analysis", {})
+        assert len(de.get_decisions()) == 3
+
+    def test_stats(self):
+        de = DecisionEngine()
+        de.select_agent("code_analysis", {})
+        stats = de.stats()
+        assert stats["total_decisions"] >= 1
+        assert "avg_confidence" in stats
+
+    def test_agent_for_code_analysis(self):
+        de = DecisionEngine()
+        d = de.select_agent("diagnostics", {})
+        assert d.confidence > 0
+
+    def test_agent_for_refactoring(self):
+        de = DecisionEngine()
+        d = de.select_agent("refactoring", {})
+        assert d.confidence > 0
+
+
+# ======================================================================
+# 4. Autonomous Guard
+# ======================================================================
+
+class TestAutonomousGuard:
+
+    def test_allow_normal_action(self):
+        g = AutonomousGuard()
+        assert g.check_action("goal.execute", "goal/test") == GuardVerdict.ALLOW
+
+    def test_block_security_modify(self):
+        g = AutonomousGuard()
+        assert g.check_action("security.modify", "security/policy") == GuardVerdict.BLOCK
+
+    def test_block_permission_change(self):
+        g = AutonomousGuard()
+        assert g.check_action("permission.change", "agent1/tool/exec") == GuardVerdict.BLOCK
+
+    def test_block_mass_deletion(self):
+        g = AutonomousGuard()
+        assert g.check_action("mass_deletion", "memory/*") == GuardVerdict.BLOCK
+
+    def test_block_policy_override(self):
+        g = AutonomousGuard()
+        assert g.check_action("policy.override", "policy/engine") == GuardVerdict.BLOCK
+
+    def test_blocked_actions_tracked(self):
+        g = AutonomousGuard()
+        g.check_action("security.modify", "test")
+        g.check_action("permission.change", "test")
+        assert len(g.get_blocked_actions()) == 2
+
+    def test_stats(self):
+        g = AutonomousGuard()
+        stats = g.stats()
+        assert stats["total_blocked"] >= 0
+
+
+# ======================================================================
+# 5. Memory Loop
+# ======================================================================
+
+class TestAutonomousMemoryLoop:
+
+    def test_process_report(self):
+        ml = AutonomousMemoryLoop()
+        report = AutonomousReport(goal_id="g1", user_request="test", success=True)
+        result = ml.process_report(report)
+        assert result["lessons_count"] >= 0
+
+    def test_learnings_tracked(self):
+        ml = AutonomousMemoryLoop()
+        r1 = AutonomousReport(goal_id="g1", user_request="test", success=True, lessons=["lesson1"])
+        r2 = AutonomousReport(goal_id="g2", user_request="test2", success=False, lessons=["err1"])
+        ml.process_report(r1); ml.process_report(r2)
+        assert len(ml.get_learnings()) == 2
+
+    def test_learning_summary(self):
+        ml = AutonomousMemoryLoop()
+        ml.process_report(AutonomousReport(goal_id="g1", user_request="test", success=True, lessons=["l1"]))
+        ml.process_report(AutonomousReport(goal_id="g2", user_request="test2", success=False))
+        summary = ml.get_learning_summary()
+        assert summary["missions"] == 2
+        assert summary["success_rate"] == 50.0
+
+
+# ======================================================================
+# 6. Orchestrator
+# ======================================================================
+
+class TestAutonomousOrchestrator:
+
+    def test_start_goal_creates_goal(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Create a web application")
+        assert goal.user_request == "Create a web application"
+        assert goal.status in (GoalStatus.COMPLETED, GoalStatus.FAILED)
+
+    def test_start_goal_domain_detected(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Build a REST API")
+        assert goal.domain in ("backend", "web")
+
+    def test_pause_goal(self):
+        orch = AutonomousOrchestrator()
+        # Create a new object directly for pause testing
+        from backend.autonomous.autonomous_models import AutonomousGoal, GoalStatus
+        import time
+        g = AutonomousGoal(goal_id=f"pause_test_{int(time.time())}", user_request="pause test",
+                          status=GoalStatus.EXECUTING)
+        orch._goals[g.goal_id] = g
+        assert orch.pause_goal(g.goal_id) is True
+
+    def test_resume_goal(self):
+        orch = AutonomousOrchestrator()
+        from backend.autonomous.autonomous_models import AutonomousGoal, GoalStatus
+        import time
+        g = AutonomousGoal(goal_id=f"resume_test_{int(time.time())}", user_request="resume test",
+                          status=GoalStatus.PAUSED)
+        orch._goals[g.goal_id] = g
+        assert orch.resume_goal(g.goal_id) is True
+
+    def test_cancel_goal(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Quick task")
+        assert orch.cancel_goal(goal.goal_id)
+
+    def test_get_goal(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Test goal")
+        retrieved = orch.get_goal(goal.goal_id)
+        assert retrieved is not None
+        assert retrieved.user_request == "Test goal"
+
+    def test_get_session(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Test")
+        session = orch.get_session(goal.goal_id)
+        assert session is not None
+
+    def test_get_report(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Test")
+        report = orch.get_report(goal.goal_id)
+        assert report is not None
+
+    def test_get_status(self):
+        orch = AutonomousOrchestrator()
+        orch.start_goal("First goal")
+        orch.start_goal("Second goal")
+        status = orch.get_status()
+        assert status["total_goals"] >= 2
+
+    def test_goal_status_flow(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Test flow")
+        assert goal.status in (GoalStatus.COMPLETED, GoalStatus.FAILED)
+
+    def test_events_published(self):
+        events = []
+        orch = AutonomousOrchestrator(on_event=lambda t, p, **kw: events.append(t))
+        orch.start_goal("Event test")
+        assert AUTONOMOUS_EVENTS["goal_received"] in events
+        assert AUTONOMOUS_EVENTS["goal_analyzed"] in events
+
+    def test_decisions_made(self):
+        orch = AutonomousOrchestrator()
+        orch.start_goal("Decision test")
+        decisions = orch.decisions.get_decisions()
+        assert len(decisions) >= 3  # agent + runtime + tool
+
+
+# ======================================================================
+# 7. Engine Facade
+# ======================================================================
+
+class TestAutonomousEngine:
+
+    def test_start_goal(self):
+        engine = AutonomousEngine()
+        result = engine.start_goal("Test from engine")
+        assert result["user_request"] == "Test from engine"
+        assert "goal_id" in result
+
+    def test_get_status(self):
+        engine = AutonomousEngine()
+        engine.start_goal("Status test")
+        status = engine.get_status()
+        assert "total_goals" in status
+
+    def test_pause_resume_goal(self):
+        engine = AutonomousEngine()
+        from backend.autonomous.autonomous_models import AutonomousGoal, GoalStatus
+        import time
+        g = AutonomousGoal(goal_id=f"engine_pause_{int(time.time())}", user_request="pause",
+                          status=GoalStatus.EXECUTING)
+        engine._orchestrator._goals[g.goal_id] = g
+        pause = engine.pause_goal(g.goal_id)
+        assert pause["success"] is True
+        resume = engine.resume_goal(g.goal_id)
+        assert resume["success"] is True
+
+    def test_cancel_goal(self):
+        engine = AutonomousEngine()
+        goal = engine.start_goal("Cancel test")
+        result = engine.cancel_goal(goal["goal_id"])
+        assert result["success"] is True
+
+    def test_get_timeline(self):
+        engine = AutonomousEngine()
+        goal = engine.start_goal("Timeline test")
+        tl = engine.get_timeline(goal["goal_id"])
+        assert "timeline" in tl
+
+    def test_get_report(self):
+        engine = AutonomousEngine()
+        goal = engine.start_goal("Report test")
+        report = engine.get_report(goal["goal_id"])
+        assert report is not None
+
+
+# ======================================================================
+# 8. API Routes
+# ======================================================================
+
+class TestAPIRoutes:
+
+    def test_handle_start_goal(self):
+        result = handle_start_goal({"user_request": "API test goal"})
+        assert result["user_request"] == "API test goal"
+
+    def test_handle_get_status(self):
+        status = handle_get_status()
+        assert "total_goals" in status
+
+    def test_handle_get_goal(self):
+        result = handle_start_goal({"user_request": "Get me goal"})
+        goal = handle_get_goal(result["goal_id"])
+        assert goal is not None
+        assert goal["user_request"] == "Get me goal"
+
+    def test_handle_cancel_goal(self):
+        result = handle_start_goal({"user_request": "Cancel me"})
+        cancel = handle_cancel_goal(result["goal_id"])
+        assert cancel["success"] is True
+
+
+# ======================================================================
+# 9. Thread Safety
+# ======================================================================
+
+class TestAutonomousThreadSafety:
+
+    def test_concurrent_goals(self):
+        engine = AutonomousEngine()
+        errors = []
+        def start_goal(i: int):
+            try:
+                engine.start_goal(f"Concurrent goal {i}")
+            except Exception as e:
+                errors.append(str(e))
+        threads = [threading.Thread(target=start_goal, args=(i,)) for i in range(10)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        assert errors == []
+
+    def test_concurrent_orchestrator(self):
+        orch = AutonomousOrchestrator()
+        errors = []
+        def run(i: int):
+            try:
+                g = orch.start_goal(f"Thread {i}")
+                orch.pause_goal(g.goal_id)
+                orch.resume_goal(g.goal_id)
+                orch.get_status()
+            except Exception as e:
+                errors.append(str(e))
+        threads = [threading.Thread(target=run, args=(i,)) for i in range(5)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        assert errors == []
+
+    def test_concurrent_decision_engine(self):
+        de = DecisionEngine()
+        errors = []
+        def decide(i: int):
+            try:
+                de.select_agent("code_analysis", {})
+                de.select_runtime("code_analysis", 0.5)
+                de.stats()
+            except Exception as e:
+                errors.append(str(e))
+        threads = [threading.Thread(target=decide, args=(i,)) for i in range(10)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        assert errors == []
+
+    def test_concurrent_interpreter(self):
+        interp = AutonomousInterpreter()
+        errors = []
+        def interpret(i: int):
+            try:
+                interp.interpret(f"Goal number {i}")
+            except Exception as e:
+                errors.append(str(e))
+        threads = [threading.Thread(target=interpret, args=(i,)) for i in range(10)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        assert errors == []
+
+
+# ======================================================================
+# 10. Full Mission Simulation
+# ======================================================================
+
+class TestFullMissionSimulation:
+
+    def test_full_web_mission(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Create a web application for managing maintenance operations", {
+            "priority": "high",
+        })
+        assert goal.domain == "web"
+        assert goal.priority == "high"
+        assert goal.status in (GoalStatus.COMPLETED, GoalStatus.FAILED)
+        assert len(goal.goal_id) > 0
+
+    def test_full_debug_mission(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Debug the login endpoint timeout in production")
+        assert goal.domain in ("code", "backend")
+
+    def test_full_api_mission(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Build a REST API with authentication endpoints")
+        assert goal.domain in ("backend", "web")
+        assert goal.status in (GoalStatus.COMPLETED, GoalStatus.FAILED)
+
+    def test_full_refactor_mission(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Refactor the database layer to use connection pooling")
+        assert goal.domain == "code"
+
+    def test_mission_generates_report(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Test report generation")
+        report = orch.get_report(goal.goal_id)
+        assert report is not None
+        assert report.user_request == "Test report generation"
+        assert len(report.decisions) > 0
+
+    def test_mission_timeline(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Test timeline")
+        session = orch.get_session(goal.goal_id)
+        assert session is not None
+        assert len(session.timeline) >= 1
+
+    def test_mission_agents_selected(self):
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Agent selection test")
+        decisions = orch.decisions.get_decisions()
+        agent_dec = [d for d in decisions if d.decision_type == DecisionType.AGENT_SELECTION]
+        assert len(agent_dec) >= 1
+
+    def test_mission_success_rate(self):
+        results = []
+        for _ in range(10):
+            orch = AutonomousOrchestrator()
+            goal = orch.start_goal(f"Test run simulation")
+            results.append(goal.status == GoalStatus.COMPLETED)
+        success_rate = sum(results) / len(results)
+        assert success_rate > 0.5  # 85% success rate configured

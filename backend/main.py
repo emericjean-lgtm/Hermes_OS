@@ -34,6 +34,7 @@ from backend.api.routes import (
     write,
     ws,
 )
+from backend.tools.connectors.klaatcode.routes import klaatcode_router
 from backend.core.config import get_settings
 from backend.core.event_hub import EVENT_TYPES, get_event_hub
 from backend.core.message_bus import get_message_bus
@@ -157,6 +158,7 @@ def create_app() -> FastAPI:
     app.include_router(ws.router)
     app.include_router(verification.router)
     app.include_router(evolution.router)
+    app.include_router(klaatcode_router, prefix="/api/v1")
     app.mount("/mcp", mcp_asgi_app)
 
     @app.get("/health")

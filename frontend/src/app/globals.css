@@ -1,25 +1,78 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
-  --color-bg-base: #0a0a0f;
-  --color-bg-surface: #111118;
-  --color-bg-elevated: #1a1a24;
-  --color-accent: #6366f1;
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
-  --color-text-primary: #f1f5f9;
-  --color-text-muted: #64748b;
+  --hermes-bg: #0a0a0f;
+  --hermes-surface: #111118;
+  --hermes-card: #18181f;
+  --hermes-border: #27272f;
+  --hermes-amber: #f59e0b;
+  --hermes-amber-bright: #fbbf24;
+  --hermes-green: #22c55e;
+  --hermes-red: #ef4444;
+  --hermes-blue: #3b82f6;
+  --hermes-purple: #8b5cf6;
+  --hermes-text: #e4e4e7;
+  --hermes-muted: #71717a;
 }
 
-@theme inline {
-  --color-background: var(--color-bg-base);
-  --color-foreground: var(--color-text-primary);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
+html,
 body {
-  background: var(--color-bg-base);
-  color: var(--color-text-primary);
+  margin: 0;
+  padding: 0;
+  background: var(--hermes-bg);
+  color: var(--hermes-text);
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--hermes-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--hermes-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a45;
+}
+
+/* React Flow overrides */
+.react-flow__node {
+  font-size: 12px;
+}
+.react-flow__edge-path {
+  stroke: var(--hermes-amber) !important;
+  stroke-width: 1.5px !important;
+}
+.react-flow__background {
+  background: var(--hermes-bg) !important;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 12px rgba(245, 158, 11, 0.6); }
+}
+.animate-fade-in { animation: fadeIn 0.5s ease-out; }
+.animate-slide-up { animation: slideUp 0.4s ease-out; }
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }

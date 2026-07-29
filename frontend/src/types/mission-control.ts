@@ -259,3 +259,288 @@ export interface TimelineEvent {
   timestamp: string;
   metadata?: Record<string, unknown>;
 }
+
+// ─── Mission Planner (HOS-030) ──────────────────────────────
+
+export type PlanningStrategy = "SEQUENTIAL" | "BALANCED" | "PARALLEL" | "CONSERVATIVE";
+
+export type PlannerType = "LOCAL" | "FREEBUFF";
+
+export interface CreateMissionRequest {
+  title: string;
+  description?: string;
+  objective?: string;
+  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  strategy: PlanningStrategy;
+  planner: PlannerType;
+  runtime?: string;
+  tags?: string[];
+}
+
+export interface MissionPlan {
+  mission_id: string;
+  graph: ExecutionGraphData;
+  strategy: PlanningStrategy;
+  planner: PlannerType;
+  total_tasks: number;
+  estimated_duration_ms: number;
+  parallel_groups: number;
+  critical_path: string[];
+}
+
+export interface ExecutionGraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: "task" | "start" | "end" | "condition";
+  status: "pending" | "ready" | "running" | "completed" | "failed" | "skipped";
+  capability?: string;
+  complexity?: "low" | "medium" | "high";
+  estimated_ms?: number;
+  runtime?: string;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+  condition?: string;
+}
+
+export interface MissionActionResponse {
+  success: boolean;
+  mission: Mission;
+  message?: string;
+}
+
+export interface FreebuffSyncResult {
+  project_id: string;
+  prompt: string;
+  response: string;
+  plan: MissionPlan;
+  synced_at: string;
+}
+
+export const MISSION_STATUS_COLORS: Record<string, string> = {
+  CREATED: "var(--color-text-muted)",
+  PLANNING: "var(--color-warning)",
+  READY: "var(--color-accent)",
+  RUNNING: "var(--color-accent)",
+  PAUSED: "var(--color-warning)",
+  COMPLETED: "var(--color-success)",
+  FAILED: "var(--color-danger)",
+  CANCELLED: "var(--color-text-muted)",
+};
+
+export const PRIORITY_ORDER: Record<string, number> = {
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3,
+  CRITICAL: 4,
+};
+
+// ─── Execution (HOS-031) ────────────────────────────────────
+
+export interface ExecutionOverviewResponse {
+  state: ExecutionState;
+  mission_id: string;
+  mission_title?: string;
+  progress: number;
+  duration_ms: number;
+  runtime?: string;
+  active_agents: number;
+  total_tasks: number;
+  completed_tasks: number;
+  failed_tasks: number;
+  remaining_tasks: number;
+  started_at?: string;
+  estimated_completion?: string;
+}
+
+export interface ExecutionTask {
+  id: string;
+  name: string;
+  agent_id?: string;
+  runtime?: string;
+  status: "pending" | "ready" | "running" | "completed" | "failed" | "skipped" | "cancelled" | "retry";
+  started_at?: string;
+  duration_ms?: number;
+  progress: number;
+  retries: number;
+  fallback_used?: boolean;
+  error?: string;
+}
+
+export interface ExecutionTimelineEvent {
+  id: string;
+  type: string;
+  timestamp: string;
+  message: string;
+  source?: string;
+  severity?: string;
+}
+
+export interface ExecutionPerformanceData {
+  task_durations: { task: string; duration_ms: number }[];
+  avg_latency_ms: number;
+  wait_time_ms: number;
+  retries: number;
+  fallbacks: number;
+  circuit_breaker_count: number;
+  runtime_usage: { runtime: string; count: number }[];
+  timeline: { time: string; value: number }[];
+}
+
+export interface ExecutionStatisticsResponse {
+  missions_executed: number;
+  tasks_executed: number;
+  success_rate: number;
+  avg_execution_time_ms: number;
+  avg_wait_time_ms: number;
+  total_retries: number;
+  total_fallbacks: number;
+  circuit_breaker_openings: number;
+}
+
+// ─── Agent (HOS-032) ────────────────────────────────────────
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  state: AgentState;
+  runtime: string;
+  model?: string;
+  mission_id?: string;
+  task_id?: string;
+  priority: number;
+  duration_ms?: number;
+  retries: number;
+  fallback_used: boolean;
+  progress: number;
+  created_at: string;
+  updated_at?: string;
+  error?: string;
+  parent_agent_id?: string;
+  sub_agent_ids?: string[];
+}
+
+export interface AgentDetail extends AgentInfo {
+  state_history: { from: AgentState; to: AgentState; timestamp: string; reason?: string }[];
+  reliability_score: number;
+  performance_score: number;
+  memory_ids?: string[];
+  skill_ids?: string[];
+  dependencies: string[];
+  circuit_breaker_count: number;
+  fallback_count: number;
+}
+
+export interface AgentStatisticsResponse {
+  total_agents: number;
+  active_agents: number;
+  completed_agents: number;
+  failed_agents: number;
+  sub_agents: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  total_retries: number;
+  total_fallbacks: number;
+  runtime_distribution: Record<string, number>;
+}
+
+export interface AgentGraphEdge {
+  source: string;
+  target: string;
+  label?: string;
+}
+
+export interface AgentGraphData {
+  nodes: { id: string; label: string; state: AgentState; runtime: string; progress: number; children?: string[] }[];
+  edges: AgentGraphEdge[];
+}
+
+export interface AgentTimelineEvent {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  type: string;
+  timestamp: string;
+  message: string;
+  severity: "INFO" | "WARNING" | "ERROR";
+}
+
+export interface AgentPerformanceData {
+  agent_durations: { agent: string; duration_ms: number }[];
+  success_rate: number;
+  runtime_distribution: { runtime: string; count: number }[];
+  retries_by_agent: { agent: string; retries: number }[];
+  fallbacks_by_agent: { agent: string; fallbacks: number }[];
+  memory_usage: { agent: string; memory_mb: number }[];
+  duration_histogram: { bucket: string; count: number }[];
+}
+
+// ─── Runtime (HOS-033) ──────────────────────────────────────
+
+export interface RuntimeDetail extends RuntimeInfo {
+  provider: string;
+  model?: string;
+  type: "local" | "cloud";
+  policies: string[];
+  config: Record<string, unknown>;
+  health_history: { time: string; status: string; latency_ms: number }[];
+  last_decision?: RuntimeDecisionInfo;
+}
+
+export interface RuntimeDecisionInfo {
+  runtime: string;
+  health_score: number;
+  reliability_score: number;
+  performance_score: number;
+  capability_score: number;
+  policy_score: number;
+  circuit_penalty: number;
+  final_score: number;
+  confidence: number;
+  reason: string;
+  candidate_scores: Record<string, number>;
+  timestamp: string;
+}
+
+export interface RuntimePolicyInfo {
+  id: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  description: string;
+  rules: RuntimePolicyRuleInfo[];
+  runtimes_allowed: string[];
+  runtimes_denied: string[];
+  preference: "local" | "cloud" | "any";
+}
+
+export interface RuntimePolicyRuleInfo {
+  field: string;
+  operator: string;
+  value: string | number | boolean;
+}
+
+export interface RuntimeEvent {
+  id: string;
+  type: string;
+  runtime: string;
+  timestamp: string;
+  severity: "INFO" | "WARNING" | "ERROR";
+  message: string;
+}
+
+export interface RuntimeControlAction {
+  action: string;
+  runtime: string;
+  success: boolean;
+  message?: string;
+}

@@ -1,7 +1,838 @@
+## [HOS-063] — 2026-07-29 — Autonomous Agentic Core Final Layer
+
+### Ajouté
+- **Autonomous Models** (\`autonomous_models.py\`) :
+  - 5 dataclasses : AutonomousGoal, AutonomousSession, AutonomousDecision, AutonomousReport, AutonomousTimeline
+  - 3 enums : GoalStatus (8 états), DecisionType (5 types), GoalPhase (7 phases)
+  - 12 événements EventBus couvrant tout le cycle de vie (received→analyzed→planned→executed→learned→failed)
+- **AutonomousInterpreter** (\`autonomous_interpreter.py\`) :
+  - Transforme une requête humaine en objectif structuré (domaine, langage, complexité, contraintes)
+  - 8 domaines avec scoring pondéré (code×2 pour les signaux forts)
+  - Intégration Memory pour enrichir l'interprétation
+- **DecisionEngine** (\`decision_engine.py\`) :
+  - 4 types de décisions : Agent, Runtime, Skill, Tool
+  - Confidence scoring 0-100, alternatives ranking
+- **AutonomousGuard** (\`autonomous_guard.py\`) :
+  - Vérifications Security + Policy avant chaque action
+  - Pre-flight, pre-execution, pre-skill, pre-agent checks
+- **AutonomousMemoryLoop** (\`autonomous_memory_loop.py\`) :
+  - Collecte post-mission : succès, erreurs, durée, ressources, agents, modèles, outils
+  - Alimente EpisodicMemory, ProceduralMemory, EvolutionEngine
+- **AutonomousOrchestrator** (\`autonomous_orchestrator.py\`) :
+  - Pipeline complet : Goal→Interprétation→Memory→Planner→DAG→Agents→Skills→Runtime→Tools→Security→Execution→Validation→Memory→Evolution→Report
+  - Timeline avec 7 phases
+- **AutonomousEngine** (\`autonomous_engine.py\`) :
+  - Moteur central avec start/pause/resume/cancel/get_status/generate_report
+  - Gestion des sessions actives
+- **REST API** (\`routes.py\`) :
+  - 7 endpoints : POST /start, GET /{id}, POST /pause/resume/cancel, GET /timeline/report
+- **Frontend : Autonomous Mission Console** (\`autonomous-center.tsx\`) :
+  - Objectif actuel, interprétation IA, DAG mission, agents actifs, runtime/tools
+  - Progression temps réel, décisions, confiance, rapport
+- **Tests :** 71 tests (9 classes) couvrant models, interpreter, decisions, guard, memory, orchestrator, engine, API, full mission simulation
+
+### Modifié
+- **Sidebar** → nouvelle entrée "Autonomous OS"
+- **EVENT_CATALOG.md** → +12 événements autonomous.* (103 total, 12 familles)
+
+### Documentation
+- docs/architecture/AUTONOMOUS_OS_ARCHITECTURE.md — architecture complète, boucle autonome, diagrammes Mermaid
 # Changelog — Hermes OS
 
 > Toutes les modifications notables du projet Hermes OS.
 > Format basé sur [Keep a Changelog](https://keepachangelog.com/).
+
+---
+
+## [HOS-055D] — 2026-07-29 — Code Intelligence Final Integration
+## [HOS-058] — 2026-07-29 — Self Evolution & Continuous Improvement Engine
+
+### Ajouté
+- **Evolution Models** (\`evolution_models.py\`) :
+  - 6 dataclasses : EvolutionProposal, EvolutionExperiment, OptimizationPattern, EvolutionReport, SystemMetrics
+  - 4 enums : EvolutionType (7 types), EvolutionStatus (6 statuts), RiskLevel (4 niveaux)
+  - 7 événements EventBus : proposal.created, simulation.completed, approved, applied, failed, pattern.discovered, report.generated
+- **EvolutionAnalyzer** (\`evolution_analyzer.py\`) :
+  - 5 dimensions d'analyse : Runtime (3 règles), Agents (2), Skills (2), Missions (2), Memory (2)
+  - Sliding window de 100 métriques, suivi de tendances
+- **ImprovementDetector** (\`improvement_detector.py\`) :
+  - 6 détections automatiques : runtime sous-performant, skills inutiles/manquants, modèle meilleur, workflow inefficace, goulots
+  - Enregistrement des patterns d'optimisation
+- **EvolutionSimulator** (\`evolution_simulator.py\`) :
+  - Simulation avant/après avec estimation d'impact
+  - Évaluation des risques et conclusion (improvement/regression/no_change)
+- **EvolutionValidator** (\`evolution_validator.py\`) :
+  - Intégration Policy Engine HOS-046 + Security Engine HOS-057
+  - 3 verdicts : ALLOW (risque faible), REVIEW (moyen/élevé), DENY (architecture/sécurité)
+  - Règles configurables, overrides
+- **EvolutionEngine** (\`evolution_engine.py\`) :
+  - Pipeline complet : Collect → Analyze → Detect → Propose → Simulate → Validate → Apply → Learn
+  - Approbation/rejet manuel, rapports périodiques
+- **EvolutionScheduler** (\`evolution_scheduler.py\`) :
+  - 3 modes : Hourly (60s), Daily (5min), Weekly (15min)
+  - Thread background avec génération de métriques sample
+- **EvolutionCenter** (\`evolution-center.tsx\`) — Cockpit interactif :
+  - 5 stats (proposals, applied, pending, gain, confidence)
+  - Tableau des 8 propositions avec type, gain, risque, confiance, statut
+  - Pipeline visuel en 8 étapes
+  - Patterns d'optimisation et rapports récents
+- **API Routes** : 7 endpoints REST
+- **Documentation** : SELF_EVOLUTION_ARCHITECTURE.md
+
+### Tests
+- 66 tests (9 classes : Models, Analyzer, Detector, Simulator, Validator, Engine, Scheduler, API, ThreadSafety)
+
+
+## [HOS-057] — 2026-07-29 — Security, Sandbox & Trust Layer
+
+### Ajouté
+- **Security Models** (\`security_models.py\`) :
+  - 9 dataclasses : SecurityPolicy, Permission, CapabilityToken, AgentTrustScore, SecurityEvent, ThreatDetection, IsolationProfile
+  - 7 enums : TrustLevel (5 niveaux), ThreatLevel (5 niveaux), PermissionAction, ResourceType (9 types), IsolationLevel (5 niveaux)
+  - 6 événements EventBus : permission.checked, permission.denied, threat.detected, agent.trust.updated, isolation.created, isolation.violation
+- **PermissionManager** (\`permission_manager.py\`) :
+  - Grant/revoke/check permissions par agent, skill, tool, workspace, runtime
+  - Policy evaluation par priorité avec conditions
+  - Historique des 500 dernières opérations
+- **AgentTrustEngine** (\`agent_trust_engine.py\`) :
+  - Score dynamique 0-100 basé sur 5 facteurs pondérés
+  - 5 niveaux de confiance : UNKNOWN → LOW → MEDIUM → HIGH → VERIFIED
+  - Notifications automatiques, seuils configurables
+- **ThreatDetector** (\`threat_detector.py\`) :
+  - 4 détections temps réel : accès fichiers, ressources, outils suspects, violations sandbox
+  - Mitigation, historique incidents, stats par type/niveau
+- **IsolationManager** (\`isolation_manager.py\`) :
+  - 5 niveaux d'isolation : NONE → LOW → MEDIUM → HIGH → MAXIMUM
+  - Validation filesystem, réseau, outils, ressources
+  - Sessions actives, profil par défaut par niveau
+- **SecurityEngine** (\`security_engine.py\`) :
+  - Pipeline complet : Policy → Permission → Trust → Threat → Isolation → Allow/Deny/Review
+  - Intégration Policy Engine HOS-046, EventBus, trust automatisé
+- **API Routes** (\`routes.py\`) : 9 endpoints REST
+- **SecurityCenter** (\`security-center.tsx\`) — Cockpit interactif :
+  - 4 stats overview (trust, permissions, threats, isolation)
+  - 8 agents trust scores avec barres de progression
+  - Active threats list, permissions/policies matrix
+  - 6 isolation profiles grid
+- **Sidebar** : entrée "Security" ajoutée
+
+### Tests
+- 75 tests (8 classes : Models, PermissionManager, AgentTrustEngine, ThreatDetector, IsolationManager, SecurityEngine, APIRoutes, ThreadSafety)
+
+
+## [HOS-056] — 2026-07-29 — Hermes OS Global Integration Audit & System Consolidation
+
+### Ajouté
+- **System Integration Layer** (`backend/core/integration/`) :
+  - IntegrationManager — central orchestrator for all 25 components
+  - ComponentRegistry — tracks every module with id, name, category, deps, capabilities, events, health
+  - DependencyGraph — topological sort, cycle detection, impact analysis
+  - HealthOrchestrator — aggregate health across all components with warnings
+- **Global Health Monitoring** (`backend/core/health/`) :
+  - SystemHealth — runs 12+ health checks across EventBus, Memory, Runtime, Agents, Tools, MCP, Intégrations
+  - SystemHealthReport — JSON-reportable unified health status
+  - 12 predefined health checks covering all subsystems
+- **Event Catalog** (`docs/architecture/EVENT_CATALOG.md`) :
+  - 91 unique events cataloged across 11 families
+  - Producer/consumer matrix for each event
+  - Naming conventions and statistics
+- **Complete Architecture Documentation** (`docs/architecture/HERMES_OS_COMPLETE_ARCHITECTURE.md`) :
+  - 25-component module registry
+  - Mermaid data flow diagrams (development, inference, search, health)
+  - Event bus architecture with 91 events
+  - Agent system, memory system, and HOS completion matrix
+- **Frontend System Center** (`system-center.tsx`) :
+  - Health overview with healthy score, component count, warnings
+  - 10 component categories with counts
+  - Dependency graph (topological order, warnings)
+  - Full component list table with status, latency, events
+  - Architecture diagram (6-layer grid)
+- **Sidebar** : entrée "System" ajoutée
+
+### Tests
+- 80+ end-to-end integration tests (12 classes : DevelopmentMission, AIInference, DocumentSearch, CodeIntelligence, MultiAgent, IntegrationManager, DependencyGraph, HealthOrchestrator, SystemHealth, ThreadSafety, EventFlow, EdgeCases)
+
+### Architecture
+```
+System Integration Layer
+       |
+Component Registry (25 components)
+       |
+Health Orchestrator → 12 health checks
+       |
+Cockpit System Center
+```
+
+
+
+### Ajouté
+- **CodeIntelligenceRouter** (`code_intelligence_router.py`) — moteur de scoring intelligent KlaatCode ↔ Oh My Pi :
+  - 5 facteurs pondérés : task_fit (30%), lsp_dap_ast (20%), historical_success (25%), cost_efficiency (15%), language_match (10%)
+  - 3 stratégies : single_best, hybrid_both, force provider
+  - Mapping 10 types de tâches → provider(s) optimal
+  - Historique adaptatif (100 dernières exécutions par provider)
+  - Exécution hybride : KC analyse → OMP LSP/DAP/AST
+- **CodeIntelligenceAgent** (`code_intelligence_agent.py`) — meta-agent orchestrateur :
+  - Cycle de vie complet CREATED→READY⇄BUSY→PAUSED/FAILED/STOPPED
+  - Pipeline : Classify → Route → Execute (single/hybrid) → Memory → EventBus
+  - Métriques par provider (klaatcode_tasks, ohmypi_tasks, hybrid_tasks)
+  - 7 événements EventBus : ci.agent.ready, ci.routing.decided, ci.task.*, ci.hybrid.executed, ci.memory.recorded
+- **CIRuntimeScorer** (`ci_scorer.py`) — scoring runtime pour Runtime Orchestrator :
+  - 5 facteurs : task_fit, historical_success, resource_cost, avg_duration, complexity_mod
+  - Context modifiers : requires_lsp/dap boost OMP +20%, reduce KC -20%
+  - Recommandation automatique avec ranking
+- **CodeIntelligenceCenter** (`code-intelligence-center.tsx`) — Cockpit interactif :
+  - Task Routing Map (10 types avec scores KC/OMP et best provider)
+  - Provider stats (total tasks, success rate, KlaatCode/OhMyPi/hybrid count)
+  - Decision visualization avec barres de score
+  - Routing pipeline + Provider capabilities
+- **Sidebar** : entrée "Code Intel" ajoutée
+
+### Tests
+- 51 tests (9 classes : RouterSelection, RouterHistory, AgentLifecycle, TaskExecution, Events, RuntimeScoring, Models, ThreadSafety, Factory)
+
+### Documentation
+- CODE_INTELLIGENCE_ARCHITECTURE.md (Mermaid, flux, matrices, pipeline examples)
+
+
+## [HOS-055C] — 2026-07-29 — Oh My Pi Deep Integration Layer
+
+### Ajouté
+- **LSPBridgeAdapter** (`lsp_bridge_adapter.py`) — pont LSP Oh My Pi → Knowledge Graph :
+  - Indexation symboles, diagnostics, structures de code
+  - Recherche par nom/fichier, références, stats
+  - Relations KG : File→DEFINES→Symbol, File→HAS_DIAGNOSTIC
+- **ASTAdapter** (`ast_adapter.py`) — pont tree-sitter Oh My Pi → Knowledge Graph :
+  - Détection fonctions, classes, imports, dépendances
+  - Estimation complexité (cyclomatique, lignes, fonctions, profondeur)
+  - Relations KG : File→CONTAINS_FUNCTION/CLASS, Function→CALLS, File→IMPORTS/DEPENDS_ON
+- **DebugAdapter** (`debug_adapter.py`) — pont DAP Oh My Pi → EventBus :
+  - Sessions debug avec breakpoints, stack trace, variables
+  - Historique incidents, stats
+  - Événements : debug.started, debug.breakpoint, debug.failed, debug.completed
+- **WorkspaceAdapter** (`workspace_adapter.py`) — pont Oh My Pi → WorkspaceManager :
+  - Pipeline : Edit → Sandbox → Git branch → Validation → Commit
+  - Rollback support, validation path check
+  - Événements : workspace.edit_prepared/committed/rolled_back
+- **RuntimeAdapter** (`runtime_adapter.py`) — Oh My Pi comme candidat runtime :
+  - Score de suitability 0-1 par type de tâche
+  - Context modifiers (debug +15%, documentation -20%)
+  - Recommandation avec seuil 0.5
+- **MemoryAdapter** (`memory_adapter.py`) — pont Oh My Pi → Memory System :
+  - Enregistrement expériences (succès/échec, durée, fichiers)
+  - Patterns de code réutilisables
+  - Corrections efficaces classées par succès
+- **OhMyPiPanel** (`ohmypi-panel.tsx`) — Cockpit interactif :
+  - 9 outils MCP avec icônes et catégories
+  - Stats (executions, success rate, avg latency, failures)
+  - Pipeline visuel (6 adaptateurs)
+  - Quick actions (LSP Analyze, Debug, Run Python, AST Transform)
+- **Types frontend** : OhMyPiStatus, OhMyPiCapability, OhMyPiExecutionResult, LSPDiagnostic, LSPSymbol, DebugSession
+- **Client frontend** : ohmypiClient (status, capabilities, execute)
+- **Documentation** : OHMYPI_DEEP_INTEGRATION_ARCHITECTURE.md (Mermaid, flux, matrices)
+
+### Tests
+- 58 tests deep integration (9 classes : LSPBridge, ASTAdapter, DebugAdapter, WorkspaceAdapter, RuntimeAdapter, MemoryAdapter, Events, ThreadSafety)
+- Combiné HOS-055B : 112 tests totaux Oh My Pi
+
+### Architecture
+```
+Hermes Agent → OhMyPiAgent → MCP Adapter (9 tools) → omp CLI
+                    ↓
+     ┌──────────────┼──────────────┬──────────────┬──────────────┐
+     ↓              ↓              ↓              ↓              ↓
+  LSPBridge     ASTAdapter    DebugAdapter  WorkspaceAdpt  RuntimeAdpt
+     ↓              ↓              ↓              ↓              ↓
+  Knowledge      Knowledge      EventBus      Workspace      Runtime
+   Graph          Graph                        Manager       Orchestrator
+                                              + Validation
+```
+
+
+## [HOS-055B] — 2026-07-29 — Oh My Pi Agent Integration
+
+### Ajouté
+- **OhMyPiClient** (`ohmypi_client.py`) — wrapper headless CLI pour omp : détection installation, exécution RPC, timeout, health check, historique 500
+- **OhMyPiMCPAdapter** (`ohmypi_mcp_adapter.py`) — expose 9 outils MCP via pipeline Policy→Sandbox→Execute→EventBus :
+  - lsp_open_file, lsp_edit, ast_transform, debug_start, debug_step
+  - execute_python, execute_javascript, git_operation, code_search
+- **OhMyPiAgent** (`ohmypi_agent.py`) — agent spécialisé LSP/DAP/AST :
+  - Cycle de vie complet CREATED→READY⇄BUSY→PAUSED/FAILED/STOPPED
+  - Workspace protection : edit_file + ast_transform forcés via WorkspaceManager
+  - 6 types d'événements : agent.ready, edit.started/completed, debug.started, execution.completed, error
+  - Métriques, historique de tâches, to_agent_dataclass() pour AgentRegistry
+- **OhMyPiProfile** (`ohmypi_profile.py`) — 6 capacités, skill levels 0.88-0.98, 9 MCP tools, priorité high
+- **OhMyPiCapabilities** (`ohmypi_capabilities.py`) — 8 task types + mapping bidirectionnel task↔capability↔MCP action
+- **REST API** (`routes.py`) — GET /ohmypi/status, GET /ohmypi/capabilities, POST /ohmypi/execute
+- **Factory** — `create_ohmypi_agent()` : instanciation + démarrage automatique
+- **Tests** — 54 tests (10 classes) : models (5), client (5), MCP adapter (8), policy (2), sandbox (2), lifecycle (8), capability (5), execution (6), workspace (3), events (4), routes (3), thread safety (3)
+
+### Architecture
+```
+Hermes Agent Supervisor → OhMyPiAgent
+                           ↓
+              OhMyPiMCPAdapter (9 tools)
+                           ↓
+              Policy → Sandbox → OhMyPiClient → omp CLI
+                                              ↓
+                              LSP · DAP · AST · Python/JS Exec
+```
+
+### Complémentarité KlaatCode ↔ Oh My Pi
+| Tâche | KlaatCode | Oh My Pi |
+|---|---|---|
+| Analyse | ✅ analyze_project | — |
+| Édition | edit_file (basic) | ✅ **LSP-wired** (rename+imports) |
+| Débogage | — | ✅ **DAP** (lldb, dlv, debugpy) |
+| AST | — | ✅ **tree-sitter** |
+| Exécution | — | ✅ **Python/JS + callbacks** |
+| Diagnostics | ✅ run_diagnostics | ✅ LSP diagnostics |
+
+### Validation
+- pytest : ✅ 54/54 passed (0.24s)
+
+---
+
+## [HOS-054D] — 2026-07-29 — KlaatCode Deep Integration
+
+### Ajouté
+- **CodeGraphAdapter** (`code_graph_adapter.py`) — pont KlaatCode analysis → Knowledge Graph (HOS-047) :
+  - Indexation code : fichiers, classes, fonctions, imports, dépendances
+  - 6 types de relations : FILE_IMPORTS, CLASS_CONTAINS, FUNCTION_CALLS, DEPENDS_ON, MODIFIED_BY_AGENT, TESTED_BY
+  - Recherche d'entités, sous-graphe par fichier, historique modifications par agent
+- **DiagnosticsAdapter** (`diagnostics_adapter.py`) — pont KlaatCode diagnostics → Validation Engine (HOS-050) :
+  - Analyse de diagnostics (erreurs, warnings, hints)
+  - Catégorisation automatique (compilation, test, qualité, sécurité, style)
+  - Pipeline Patch → Diagnostics → Validation → Accept/Reject
+  - Suggestions auto-fix extraites des diagnostics
+- **CostGuardAdapter** (`cost_guard_adapter.py`) — pont KlaatCode → Runtime Orchestrator (HOS-038) :
+  - Estimation complexité 0-10 basée sur type de tâche + taille projet
+  - 4 bandes de runtime : low (cpu/small), medium (hybrid/medium), high (gpu/large), extreme (cloud_gpu/xl)
+  - Recommandation runtime/modèle avec facteurs et confidence
+- **Workspace Protection** (KlaatCodeAgent) :
+  - edit_file/refactoring/patch forcés via Workspace → Sandbox → Git
+  - Bloque les modifications directes sans workspace_id
+  - Validation workspace avant toute écriture
+- **Advanced Memory Integration** (KlaatCodeAgent) :
+  - Enregistrement épisodique (problème, solution, fichiers, durée, succès/échec)
+  - Enregistrement procédural automatique pour réutilisation
+  - Recommandations d'expérience : 'Pour une erreur similaire, cette solution a fonctionné X fois'
+- **Tests** — 40 tests (8 classes) : Code Graph (8), Diagnostics (9), Cost Guard (7), Workspace (4), Memory (4), Runtime (4), End-to-End (2), Thread Safety (3)
+
+### Exemple : mission KlaatCode complète
+```
+Mission "Fix login bug"
+  → CostGuardAdapter: complexity 6.5/10, recommend gpu/large
+  → WorkspaceManager.create(mission_id, agent_id) → branch feature/klaatcode
+  → KlaatCodeAgent.execute_task(CODE_ANALYSIS, {path})
+    → CodeGraphAdapter: indexes files, classes, deps → Knowledge Graph
+  → KlaatCodeAgent.execute_task(CODE_EDITING, {file, content, workspace_id})
+    → Workspace protection ✅ → Sandbox → Git commit → MCP edit_file
+  → KlaatCodeAgent.execute_task(DIAGNOSTICS, {file})
+    → DiagnosticsAdapter: 0 errors, 2 warnings → Validation: PASS
+  → Memory: episodic + procedural records
+  → ExperienceManager: "For auth fixes, klaatcode_code_editing worked 3 times"
+```
+
+### Validation
+- pytest : ✅ 40/40 passed (0.05s)
+
+---
+
+## [HOS-054C] — 2026-07-29 — KlaatCode Agent
+
+### Ajouté
+- **KlaatCodeAgent** (`klaatcode_agent.py`) — agent spécialisé de développement intégré au système multi-agent Hermes :
+  - Cycle de vie complet : CREATED → STARTING → READY ⇄ BUSY → PAUSED/FAILED/STOPPED
+  - 6 états opérationnels : IDLE, ANALYZING, GENERATING, EDITING, DIAGNOSING, REVIEWING
+  - Exécution de tâches via MCP KlaatCode (HOS-054B) : analyze, generate, edit, review, diagnostics
+  - Métriques : total_tasks, success_rate, avg_duration_ms, load tracking
+  - Historique : 500 entrées de tâches, 200 résultats d'exécution, historique de lifecycle
+- **KlaatCodeProfile** (`klaatcode_profile.py`) — profil statique :
+  - 6 capacités : analysis, code_generation, code_review, testing, optimization, documentation
+  - Skill levels par domaine (0.75-0.95)
+  - Contraintes : max 2 concurrent, timeout 300s, max retries 3
+  - 7 MCP tools autorisés, workspace/sandbox requis
+- **KlaatCodeCapabilities** (`klaatcode_capabilities.py`) :
+  - 9 types de tâches : CODE_ANALYSIS, CODE_GENERATION, CODE_EDITING, REFACTORING, DIAGNOSTICS, TEST_ANALYSIS, PROJECT_NAVIGATION, PATCH_GENERATION, CODE_REVIEW
+  - Mapping bidirectionnel : task ↔ capability ↔ MCP action
+- **Factory** — `create_klaatcode_agent()` : instanciation et démarrage automatique
+- **EventBus** — 6 types d'événements :
+  - klaatcode.agent.ready, klaatcode.task.started/completed/failed
+  - klaatcode.analysis.completed, klaatcode.patch.generated
+- **Memory Integration** — enregistrement épisodique après chaque tâche (langage, projet, difficulté, durée, erreurs, corrections)
+- **AgentCoordinator compatible** — `to_agent_dataclass()` pour enregistrement dans AgentRegistry, scoring CapabilityMatcher
+- **Tests** — 48 tests (7 classes) : agent creation (7), lifecycle (8), capability matching (6), MCP execution (8), events (5), memory (2), metrics (5), thread safety (3), enums (4)
+
+### Architecture d'exécution
+```
+Mission DAG → TaskScheduler → AgentCoordinator → KlaatCodeAgent
+                                                     ↓
+                                              MCP Tools KlaatCode
+                                                     ↓
+                                              Validation → Memory
+```
+
+### Validation
+- pytest : ✅ 48/48 passed (0.08s)
+
+---
+
+## [HOS-054B] — 2026-07-29 — KlaatCode MCP Integration
+
+### Ajouté
+- **KlaatCodeClient** (`klaatcode_client.py`) — wrapper headless CLI : détection installation, exécution timeout, capture stdout/stderr, health check, historique 500 entrées, stats
+- **KlaatCodeMCPAdapter** (`klaatcode_mcp_adapter.py`) — expose 7 outils MCP : analyze_project, inspect_code, generate_code_plan, edit_file, search_code, run_diagnostics, validate_changes
+- **Pipeline complet** — Policy → Sandbox → Execute → EventBus pour chaque appel
+- **KlaatCodeRequest/Response** — modèles dataclass avec id unique, timeout, workspace_id, timestamps
+- **KlaatCodeProject/Diagnostic/Capability** — modèles pour analyse de projet, diagnostics, capacités
+- **7 enums** — KlaatCodeAction, KlaatCodeStatus, DiagnosticSeverity
+- **Registration module** (`registration.py`) — enregistrement automatique dans Tool Registry (HOS-049) et MCP Registry (HOS-049)
+- **FastAPI Router** (`routes.py`) — 5 endpoints : GET /klaatcode/status, GET /klaatcode/capabilities, POST /klaatcode/analyze, POST /klaatcode/execute, POST /klaatcode/diagnostics
+- **App wiring** (`main.py`) — routes montées sous `/api/v1/klaatcode`
+- **Frontend KlaatCodePanel** (`klaatcode-panel.tsx`) — panneau Cockpit :
+  - 7 outils MCP interactifs avec sélection et exécution
+  - Badge MCP Connected, code plan input, visualisation du pipeline d'intégration
+  - Actions rapides : Analyze, Diagnostics, Validate
+  - Résultats formatés avec statut, durée, données JSON
+- **Client API frontend** (`services/client.ts`) — 5 méthodes : status, capabilities, analyze, execute, diagnostics
+- **Types TypeScript** (`types/hermes.ts`) — 3 interfaces : KlaatCodeStatus, KlaatCodeCapability, KlaatCodeExecutionResult
+- **Tests** — 51 tests (8 classes) : modèles (8), client (7), adapter (14), policy (3), sandbox (5), event bus (5), routes (6), thread safety (3)
+
+### Architecture
+```
+Hermes Agent → ToolRouter → KlaatCodeMCPAdapter → KlaatCodeClient → KlaatCode CLI
+                                ↓
+                         Policy → Sandbox → Memory → EventBus
+```
+
+### Intégrations Hermes
+- Tool Registry HOS-049 ✅
+- MCP Registry HOS-049 ✅
+- Policy Engine HOS-046 ✅
+- Tool Sandbox HOS-045 ✅
+- Event Bus HOS-034 ✅
+- Workspace Manager HOS-045 ✅ (sandbox integration)
+- Cockpit Next.js HOS-051 ✅
+
+### Validation
+- pytest : ✅ 50/51 passed (1.06s) — 1 test stats vide corrigé
+- Routes FastAPI : ✅ 5 endpoints
+- Frontend : ✅ Panneau KlaatCode
+
+---
+
+## [HOS-053A] — 2026-07-29 — Alexandrie Integration
+
+### Analyse préalable
+- **Alexandrie** (Smaug6739/Alexandrie) — wiki/knowledge base auto-hébergée
+- Stack: Nuxt.js (Vue) frontend + Golang (Gin) backend + MySQL 8 + S3
+- Document curation, full-text search, team workspaces, 5-level ACL, OIDC SSO
+- **N'est PAS** une librairie Python RAG — Alexandrie gère la curation documentaire humaine
+
+### Décision d'architecture
+| Fonctionnalité | Géré par |
+|---|---|
+| Édition Markdown, hiérarchie docs | Alexandrie |
+| Full-text search (MySQL FULLTEXT) | Alexandrie |
+| Workspaces, permissions, OIDC | Alexandrie |
+| Stockage média (S3) | Alexandrie |
+| Recherche sémantique (embeddings) | Hermes |
+| Knowledge Graph | Hermes |
+| Mémoires (working/episodic/semantic/procedural) | Hermes |
+| Apprentissage d'expérience | Hermes |
+
+### Ajouté
+- **AlexandrieClient** (`alexandrie_client.py`) — client HTTP optionnel (sans `requests` en CI) pour l'API REST d'Alexandrie : health_check, search (full-text), CRUD nodes, checksum SHA256
+- **HermesAlexandrieAdapter** — bridge central : sync_document, sync_all_documents, unsync_document, full_text_search, semantic_search, hybrid_search, get_graph_edges, event publishing
+- **DocumentMemoryEntry** — entrée mémoire Hermes avec external_id, embedding, content_hash pour détection de changements
+- **KnowledgeGraphEdge** — arêtes du graphe de connaissances (source→target, relation, poids)
+- **HybridSearchResult** — résultat combiné Alexandrie full-text + Hermes semantic
+- **EventBus** — 5 types d'événements : alexandrie.document.synced, .unsynced, .created, .updated, .deleted, alexandrie.sync.completed
+- **REST API** — 11 endpoints : health, documents CRUD, search (fulltext/semantic/hybrid), sync, graph, statistics, events
+- **Tests** — 40 tests (4 classes) : modèles (8), client (8), adapter (14), thread safety (3), full pipeline (3), graph (4)
+
+### Exemple : recherche hybride
+```
+Alexandrie: "API Design" doc → full-text search → score 1.0
+Hermes: "REST endpoints" doc → semantic search → score 0.8
+HybridSearchResult: merged, deduplicated, ranked
+```
+
+### Validation
+- pytest : ✅ 40/40 passed (0.17s)
+
+---
+
+## [HOS-053B] — 2026-07-29 — Alexandrie Integration Finalization
+
+### Ajouté
+- **Adapter complet** (`hermes_alexandrie_adapter.py`) — pipeline de sync production :
+  - Synchronisation incrémentale (since timestamp, checksum-based change detection)
+  - Détection de conflits + résolution (source_wins/local_wins/last_write_wins/manual)
+  - Circuit breaker (5 échecs → circuit ouvert 30s, reset auto)
+  - Cache documentaire (`DocumentCache` — TTL+LRU, eviction auto)
+  - Liens mission-document (intégration Mission Planner)
+- **Client production** (`alexandrie_client.py`) :
+  - Authentification configurable (Bearer token / API key)
+  - Retry avec exponential backoff (urllib3.Retry)
+  - Health monitoring avec cache configurable
+  - Timeout connexion + lecture
+- **DocumentCache** (`document_cache.py`) — cache thread-safe TTL+LRU:
+  - Prune automatique des entrées expirées
+  - Stats : hits, misses, hit_rate, evictions
+- **Event Bus** — 5 types d'événements :
+  - alexandrie.document.created, .updated, .deleted
+  - alexandrie.sync.started, .completed, .failed
+- **REST API** — 16 endpoints :
+  - Health, Status, Documents CRUD
+  - Search (fulltext/semantic/hybrid)
+  - Sync (start, status, history, mark-outdated)
+  - Missions (link document, get mission documents, find relevant)
+  - Graph, Cache, Events
+- **Frontend Cockpit** — panneau Alexandrie dans Memory Center :
+  - Status de connexion (Badge CONNECTED/OFFLINE)
+  - Stats : synced, indexed, graph edges, cache entries, circuit breaker
+  - Recherche hybride Alexandrie+Hermes
+  - Historique de synchronisation
+  - Relations documentaires (graph edges)
+  - Liste des documents synchronisés
+  - Bouton "Sync Now" avec retour visuel
+- **Types TypeScript** — 8 interfaces :
+  - AlexandrieStatus, AlexandrieDocument, AlexandrieSearchResults
+  - AlexandrieMergeResult, AlexandrieSyncHistory, AlexandrieSyncResult
+  - AlexandrieGraphEdges, AlexandrieMissionDocs
+- **Client API frontend** — 16 méthodes :
+  - health, status, documents CRUD, search, sync, graph, cache, events, missions
+- **Hooks React Query** — 7 hooks :
+  - useAlexandrieStatus, useAlexandrieHealth, useAlexandrieSearch
+  - useAlexandrieSync, useAlexandrieSyncHistory, useAlexandrieDocuments
+  - useAlexandrieGraph
+- **Tests** — 40 tests (4 classes) : modèles (8), client (8), adapter (14), thread safety (3), full pipeline (3), graph (4)
+
+### Modifié
+- **Adapter** — ajout de `get_statistics()` et `get_synced_documents()` pour compatibilité avec les cas d'usage frontend
+- **Tests** — mise à jour des assertions (event types, content hash, statistics keys)
+
+### Validation
+- pytest : ✅ 40/40 passed (0.18s)
+
+---
+
+## [HOS-052C] — 2026-07-29 — KTransformers Final Integration
+
+### Ajouté
+- **HermesKTAdapter** (`hermes_adapter.py`) — pont central avec import optionnel kt-kernel : singleton thread-safe, load/unload/infer/optimize/checksum, fallback simulé pour CI
+- **12 backends réels** — AMX_INT4/INT8, AVX512_FP8_BF16/VBMI/VNNI/BASE, AVX2_LLAMAFILE, BLIS_AMD, CUDA, ROCm, CPU, HYBRID — mapping direct avec `kt_kernel.__cpu_variant__`
+- **16 formats de quantization** — Q2_K → Q8_0, FP16/BF16/FP8, INT4/INT8, GPTQ, RAWINT4
+- **KTModelConfig** — mapping direct avec KTransformersConfig YAML : chunked prefill, MoE offloading, hot experts, flash attention, continuous batching
+- **KTOchestratorIntegration** — présente KT comme runtime candidat au Runtime Orchestrator (HOS-038) : scoring pondéré, task affinity, constraint-aware
+- **KTDiscoveryIntegration** — 10 modèles KT-compatibles connus : DeepSeek-V3/R1/V4-Flash, Qwen3-MoE/Coder/Next, GLM-5, Mixtral 8×7B/8×22B, Kimi-K2
+- **KTBenchmarkIntegration** — 5 profils avec prompts réels : coding, reasoning, general_chat, tool_use, long_context
+- **KTResourceIntegration** — reçoit les métriques live du Resource Manager (HOS-035) : can_load, VRAM/RAM checks
+- **KTEventBusBridge** — 6 types d'événements : discovered, loaded, unloaded, inference_completed, benchmark_completed, fallback_triggered
+- **KTRuntime** — orchestrateur simplifié : register, discover, load (resource-checked), infer, optimize, benchmark — tout délégué à KT
+- **13 endpoints REST** — models (list/get), discover, load/unload, infer, benchmark, optimize, orchestrator/candidates, status, statistics, resources, events
+- **Tests** — 73 tests (10 classes) : models (10), adapter (9), discovery (8), orchestrator (7), resources (5), event bus (6), runtime (14), full integration (3), thread safety (3), backend detection (3), known models (5)
+
+### Ce que KT gère nativement (jamais dupliqué)
+- Chunked prefill • Heterogeneous offloading • MoE expert placement • Async forward passes • Continuous batching • Online quantization • 3-layer prefix cache • NUMA-aware thread pool
+
+### Ce qu'Hermes gère (orchestration)
+- Planification de mission • Sélection d'agent • Distribution de skills • Gouvernance • Mémoire • Cockpit
+
+### Exemple : pipeline complet
+```
+KTDiscoveryIntegration.discover() → 10 modèles
+  → KTRuntime.register_model(qwen3-coder-30b)
+    → KTResourceIntegration.can_load() → OK (VRAM 24G free)
+      → HermesKTAdapter.load_model(info, cfg) → kt_kernel.load_model()
+        → Event: kt.model.loaded
+        → KTOrchestratorIntegration.as_candidate() → suitability 0.65
+          → KTOrchestratorIntegration.execute() → 384 tokens, 45 t/s
+            → Event: kt.inference.completed
+```
+
+### Validation
+- pytest : ✅ 73/73 passed (0.21s)
+
+---
+
+## [HOS-052B] — 2026-07-29 — KTransformers Hermes Integration Layer
+
+### Ajouté
+- **KTKernelWrapper** (`hermes_adapter.py`) — pont central Hermes ↔ kt-kernel : import optionnel avec fallback simulé, singleton thread-safe, load/unload/infer
+- **KTOchestratorIntegration** — présente KT comme runtime candidat au Runtime Orchestrator (HOS-038) : as_candidate, can_handle_task, suitability_score, execute
+- **KTDiscoveryIntegration** — alimente le Discovery Engine (HOS-040) avec 10 modèles KT-compatibles connus (DeepSeek, Qwen, GLM, Kimi, Mixtral, Phi, LLaMA)
+- **KTBenchmarkIntegration** — benchmarke les modèles via KT avec 5 profils (coding, reasoning, chat, tool_use, long_context), best_for_task
+- **KTResourceIntegration** — reçoit les données live du Resource Manager (HOS-035) : VRAM/RAM total/used/free, optimise les décisions
+- **KTEventBusBridge** — publie les événements KT sur le vrai Event Bus (HOS-034) : 6 types d'événements (discovered, loaded, unloaded, inference_completed, benchmark_completed, fallback_triggered)
+- **KTRuntime v2** — orchestrateur utilisant hermes_adapter + toutes les intégrations : discover_and_register, optimize avec ressources live, events natifs
+- **KTRoutes v2** — 10 endpoints REST : discover, infer, benchmark, orchestrator en plus de models/load/unload/status/statistics/optimize
+- **Frontend KTPanel** (`kt-panel.tsx`) — panneau Cockpit : statut kernel, CPU variant, liste modèles (load/unload/benchmark), benchmarks
+- **Tests** — 32 tests (7 classes) : adapter (7), orchestrator (4), discovery (3), benchmark (4), resources (2), event bus (5), full integration (4), thread safety (3)
+
+### Architecture
+```
+Hermes OS (orchestration)          KTransformers (exécution)
+┌────────────────────┐             ┌────────────────────┐
+│ Runtime Orchestrator│──candidate──→ KTOchestratorInt.  │
+│ Discovery Engine    │──discover──→ KTDiscoveryInt.     │
+│ Benchmark Engine    │──benchmark─→ KTBenchmarkInt.     │
+│ Resource Manager    │──resources─→ KTResourceInt.      │
+│ Event Bus           │←──events─── KTEventBusBridge     │
+│ Cockpit Next.js     │←──status─── KTPanel              │
+└────────────────────┘             └────────────────────┘
+```
+
+### Validation
+- pytest : ✅ 32/32 passed (0.04s)
+
+---
+
+## [HOS-052] — 2026-07-29 — KTransformers Runtime Integration
+
+### Ajouté
+- **KTModelManager** — registre thread-safe : register, get, search, download (simulé), vérification intégrité SHA256, stats par statut/backend/quantization
+- **KTLoader** — chargement intelligent : lazy loading, preload queue, ensure_loaded, auto-unload idle, tracking loaded models
+- **KTCache** — cache LRU/TTL : max entries (16 default), TTL expiry (600s default), éviction priority-aware, hit/miss counters
+- **KTScheduler** — planificateur prioritaire 4 niveaux (CRITICAL/HIGH/NORMAL/LOW) : enqueue, dequeue, cancel, batch processing, stats
+- **KTOptimizer** — sélection automatique backend/quantization : scores 5 facteurs (VRAM, RAM, task type, backend, quality), fallback reasoning
+- **KTRuntime** — moteur principal : intégration ModelManager + Loader + Cache + Scheduler + Optimizer + EventBus simulé
+- **8 modèles** — KTModelInfo, KTLoadConfig, KTInferenceRequest, KTInferenceResult, KTOptimizationResult, KTCacheStats, KTSchedulerStats + 4 enums (KTBackend, KTQuantization, KTModelStatus, KTFallbackReason)
+- **REST API** — GET /runtime/ktransformers/models, GET /{id}, POST /load, POST /unload, GET /status, GET /statistics, POST /optimize
+- **EventBus** — ktransformers.loaded, ktransformers.unloaded, ktransformers.optimized, ktransformers.fallback, ktransformers.failed
+- **Intégrations préparées** — Resource Manager (optimizer.set_hardware), Orchestrator (optimize_for_task), Discovery (register_model), Event Bus (callback), Benchmark (inference stats), Simulation (batch processing), Execution (infer/infer_async)
+- **Tests** — 53 tests (8 classes) : model manager (12), cache (9), loader (7), scheduler (6), optimizer (5), runtime (8), thread safety (3), events (3)
+- **Docs** — `KTRANSFORMERS_INTEGRATION_ARCHITECTURE.md`
+
+### Exemple : chargement et exécution
+```
+KTModelManager.register(qwen3-7b-q4 / Q4_K_M / ROCm / 4.0GB)
+  → KTOptimizer.optimize("7B", "coding") → Q5_K_M / ROCm / score 100
+    → KTLoader.load(rocm, n_gpu_layers=-1)
+      → Event: ktransformers.loaded
+      → KTScheduler.enqueue("Refactor user auth module", priority=HIGH)
+        → KTScheduler.process_batch()
+          → KTInferenceResult: 128 tokens, 68 t/s, VRAM 3.8GB
+            → Event: ktransformers.optimized
+```
+
+### Validation
+- pytest : ✅ 53/53 passed (0.07s)
+
+---
+
+## [HOS-051] — 2026-07-29 — Hermes Mission Center & AI Operations Cockpit
+
+### Ajouté
+- **Cockpit Shell** — layout complet avec Sidebar (9 vues), Topbar (santé/uptime/WS), StatusBar (stats système)
+- **Dashboard** — vue d'ensemble : santé système, statistiques, runtimes, live events, missions/agents récentes
+- **Mission Center** — liste missions, création, détail, progression, actions (start/pause/resume/cancel)
+- **Agent Center** — liste agents, statut/capabilités, détail métriques, messages collaboration temps réel
+- **Runtime Center** — runtimes, santé, métriques, barres fiabilité/performance, monitoring VRAM/RAM/CPU/GPU
+- **Memory Center** — recherche hybride (graph+embeddings+keyword), Knowledge Graph, expériences
+- **Skills Center** — sélection automatique par tâche, registre skills, cache status
+- **Tools Center** — outils natifs + MCP servers, santé, permissions
+- **Governance Center** — approvals en attente, règles policy, audit log avec actions approve/reject
+- **Event Center** — flux temps réel WebSocket, filtres sévérité/source, historique 200 événements
+- **Cockpit Store** — Zustand : navigation, événements live, filtres, connexion WS, sélection mission/agent
+- **API Client** — `services/client.ts` : 70+ endpoints typés couvrant tous les modules backend
+- **React Query Hooks** — 30+ hooks : missions, agents, runtimes, memory, skills, tools, governance, execution, events
+- **WebSocket Hook** — `useWebSocket()` : auto-reconnect, backoff, filtrage sources, gestion d'erreurs
+- **TypeScript Types** — `types/hermes.ts` : 60+ types couvrant tous les modèles backend
+- **UI Components** — Card, Badge (6 variants), StatCard, ProgressBar, animations Framer Motion
+- **Design System** — thème Hermes (dark amber/blue/purple), Tailwind, animations, scrollbar custom, React Flow overrides
+- **Providers** — React Query avec refetch/staleTime optimisés
+- **Tests** — 55 tests (store, WebSocket helpers, types, API client endpoints, hooks, components, feature centers, navigation)
+- **Docs** — `HERMES_COCKPIT_ARCHITECTURE.md`
+
+### Architecture Frontend
+```
+frontend/src/
+├── app/                    # Next.js App Router
+│   ├── layout.tsx         # Root layout + Providers
+│   ├── globals.css        # Theme + animations
+│   ├── page.tsx           # Redirect → /dashboard
+│   └── dashboard/         # Cockpit Shell
+├── components/
+│   ├── cockpit-shell.tsx  # Shell avec routing des vues
+│   ├── providers.tsx      # QueryClientProvider
+│   ├── sidebar.tsx        # Navigation 9 vues
+│   ├── topbar.tsx         # Santé / version / WS
+│   ├── statusbar.tsx      # Stats temps réel
+│   └── ui/card.tsx        # Card, Badge, StatCard, ProgressBar
+├── features/              # 9 centres
+│   ├── dashboard/         # Vue overview
+│   ├── missions/          # Mission Center
+│   ├── agents/            # Agent Center
+│   ├── runtime/           # Runtime Center
+│   ├── memory/            # Memory Center
+│   ├── skills/            # Skills Center
+│   ├── tools/             # Tools Center
+│   ├── governance/        # Governance Center
+│   └── events/            # Event Center
+├── hooks/
+│   ├── use-api.ts         # 30+ React Query hooks
+│   ├── use-store.ts       # Zustand cockpit store
+│   └── use-websocket.ts   # WebSocket hook
+├── services/
+│   └── client.ts          # 70+ API endpoints
+├── types/
+│   └── hermes.ts          # 60+ types TypeScript
+└── __tests__/
+    └── cockpit.test.ts    # 55 tests
+```
+
+### Pages
+
+| Route | Vue | Panneaux |
+|---|---|---|
+| `/` | Redirect → `/dashboard` | — |
+| `/dashboard` | Dashboard | Health, Stats, Runtimes, Live Events, Missions, Agents |
+| `/dashboard#missions` | Mission Center | Liste, Création, Détail, Progression |
+| `/dashboard#agents` | Agent Center | Liste, Détail, Métriques, Collaboration |
+| `/dashboard#runtime` | Runtime Center | Runtimes, VRAM/RAM/CPU/GPU |
+| `/dashboard#memory` | Memory Center | Recherche, Knowledge Graph, Expériences |
+| `/dashboard#skills` | Skills Center | Sélection auto, Registre, Cache |
+| `/dashboard#tools` | Tools Center | Outils natifs, MCP, Santé |
+| `/dashboard#governance` | Governance Center | Approvals, Règles, Audit |
+| `/dashboard#events` | Event Center | Flux temps réel avec filtres |
+
+### Dépendances
+- `next` 15.1, `react` 19, `typescript` 5.7
+- `@tanstack/react-query` 5 — data fetching avec cache/retry
+- `zustand` 5 — state management léger
+- `framer-motion` 11 — animations
+- `lucide-react` — icônes
+- `tailwindcss` 3.4, `clsx`, `tailwind-merge` — styling
+- `vitest` 2.1, `@testing-library/react` 16, `jsdom` — tests
+
+### Validation
+- Tests : ✅ 55/55 passed (vitest)
+- TypeScript strict : ✅
+
+---
+
+## [HOS-050] — 2026-07-29 — Autonomous Mission Execution Engine
+
+### Ajouté
+- **ExecutionStateMachine** — machine à états 10 états (CREATED→PLANNING→READY→RUNNING↔PAUSED/WAITING_APPROVAL→VALIDATING→COMPLETED/FAILED/CANCELLED) avec checkpoints, transitions validées, thread-safe
+- **TaskScheduler** — planification DAG avec vagues parallèles, priorités (CRITICAL/HIGH/NORMAL/LOW), blocage sur dépendances, 4 stratégies (PARALLEL/SEQUENTIAL/PRIORITY/RESOURCE_AWARE)
+- **AgentCoordinator** — sélection optimale agent/skills/runtime/tools par tâche, scoring capacités, suivi charge, release
+- **ValidationEngine** — validation post-exécution avec critères configurables, 4 issues (PASS/FAIL/RETRY/NEEDS_REVIEW)
+- **FeedbackLoop** — analyse post-mission : efficacité, learnings, recommendations, inputs Memory/Intelligence
+- **OptimizationEngine** — détection tâches lentes, runtimes sous-performants, generation de recommendations
+- **MissionExecutor** — orchestrateur central : pipeline User Goal→Planner→Graph→Scheduler→Agents→Skills→Runtime→Tools→Validation→Memory
+- **ExecutionController** — gestion lifecycle complet : start/pause/resume/cancel/finalize, timeline, multi-executions
+- **REST API** — POST /execution/start, GET /execution/{id}, GET /execution, POST /execution/{id}/pause, POST /execution/{id}/resume, POST /execution/{id}/cancel, GET /execution/{id}/timeline, GET /execution/statistics
+- **EventBus** — execution.started, execution.planning, execution.task_started, execution.task_completed, execution.waiting_approval, execution.failed, execution.completed, execution.optimized
+- **Tests** — 72 tests : state machine (12), scheduler (8), coordinator (7), validation (6), feedback (5), optimizer (4), executor (9), controller (8), routes (10), thread safety (3)
+
+### Exemple : "Créer une application web"
+```
+POST /execution/start { goal: "Create web app", tasks: ["Plan", "Code", "Test"] }
+→ ExecutionStateMachine: CREATED → PLANNING → READY
+→ TaskScheduler: builds plan with 3 waves
+→ AgentCoordinator: assigns coder + python-coding skill + ollama runtime
+→ MissionExecutor.execute_task: RUNNING → VALIDATING → COMPLETED
+→ ValidationEngine: PASS
+→ FeedbackLoop: efficiency 100%, 3 learnings extracted
+→ OptimizationEngine: no slow tasks detected
+→ Memory: mission experience recorded for future reuse
+```
+
+### Validation
+- pytest : ✅ 72/72 passed (0.07s)
+
+---
+
+## [HOS-049] — 2026-07-29 — MCP & External Tools Platform
+
+### Ajouté
+- **ToolRegistry** — registre thread-safe indexé par type/catégorie/statut/tag (8 types, 7 catégories, 4 états)
+- **ToolPolicy** — gouvernance avant exécution : ALLOW/DENY/REVIEW_REQUIRED, règles configurables par outil
+- **ToolSandbox** — isolation : paths autorisés/interdits, réseau contrôlé, env vars, workspace per-agent
+- **ToolExecutor** — pipeline : Policy→Sandbox→Execute→Metrics, timeout, cancellation, historique
+- **ToolRouter** — sélection automatique : catégorie→outil, type préféré, score de confiance
+- **ToolHealth** — health checks, latence, erreurs, disponibilité par outil
+- **ToolMemory** — intégration Knowledge Graph: Agent→Tool→Mission→Résultat→Performance
+- **MCP Platform** — `mcp_client.py`, `mcp_registry.py`, `mcp_models.py` : connect/disconnect, list/call tools, multi-serveurs
+- **7 Connectors** — GitHub, GitLab, Docker, Database (PG+SQLite), Filesystem, REST API, Browser
+- **REST API** — GET /tools, GET /tools/{id}, POST /tools/register, POST /tools/execute, POST /tools/select, GET /tools/health, GET /tools/metrics, GET /mcp/servers, POST /mcp/connect, POST /mcp/disconnect
+- **Tests** — 58 tests : registry (6), policy (5), sandbox (5), executor (5), router (3), health (4), memory (4), MCP (6), connectors (8), routes (10), thread safety (2)
+- **Docs** — `TOOL_PLATFORM_ARCHITECTURE.md`, `MCP_ARCHITECTURE.md`
+
+### Exemple : corriger un bug GitHub
+```
+Mission Planner → Agent Coder → SkillSelector → ToolRouter
+    → "github" (score 0.8)
+    → ToolPolicy.evaluate() → ALLOW
+    → ToolExecutor.execute(GitHubConnector.create_branch)
+    → ToolSandbox.validate_path("/home/project")
+    → GitHubConnector.commit → ToolMemory.record
+    → Audit log → Knowledge Graph updated
+```
+
+### Validation
+- pytest : ✅ 58/58 passed (0.04s)
+
+---
+
+## [HOS-048] — 2026-07-29 — Dynamic Skill Distribution Engine
+
+### Ajouté
+- **SkillRegistry** — registre thread-safe indexé par catégorie/domaine/tag/statut (9 catégories, 8 domaines, 4 états)
+- **SkillSelector** — sélection automatique 6 facteurs pondérés (catégorie 30%, technologies 20%, tags 10%, description 15%, succès 15%, qualité 10%)
+- **SkillDependencyResolver** — résolution transitive (BFS), sort topologique (Kahn), détection de cycles (DFS), conflits de versions
+- **SkillLoader** — lazy loading avec hooks d'initialisation, hot reload sans redémarrage, tracking par agent/mission
+- **SkillCache** — cache LRU/TTL/PRIORITY avec éviction automatique, invalidation par expiration, hit rate
+- **SkillProfiler** — profiling runtime (moyenne exponentielle): temps de chargement, mémoire, tokens, taux d'échec
+- **SkillDistributor** — distribution multi-agent pour une mission, load avec cache-awareness, unload par agent ou mission
+- **REST API** — GET /skills (filtres), GET /skills/{id}, POST /skills/select, POST /skills/load, POST /skills/unload, GET /skills/cache, GET /skills/statistics
+- **Tests** — 59 tests : registry (9), selector (7), resolver (5), loader (6), cache (9), profiler (7), distributor (5), routes (9), thread safety (3)
+
+### Exemple : trois agents, skills différentes
+```
+Mission: "Build a full-stack web app with auth"
+→ Agent Coder (backend): python-coding (0.85) + db-design (0.72) — 20MB, 1500 tokens
+→ Agent Designer (frontend): react-ui (0.88) — 10MB, 500 tokens
+→ Agent Auditor (security): security-audit (0.95) — 15MB, 800 tokens
+Total: 3 agents, 4 skills, 45MB, 2800 tokens
+```
+
+### Validation
+- pytest : ✅ 59/59 passed (0.09s)
+
+---
+
+## [HOS-047] — 2026-07-29 — Unified Memory & Knowledge Graph Engine
+
+### Ajouté
+- **WorkingMemoryStore** — mémoire transitoire de mission (conversations, états agents, décisions), auto-clear en fin de mission
+- **EpisodicMemoryStore** — expériences de mission (succès/échecs, incidents, décisions), recherche par tags + mot-clé
+- **SemanticMemoryStore** — concepts, technologies, frameworks, patterns, outils; recherche fuzzy par nom/description/tags
+- **ProceduralMemoryStore** — workflows, best practices, templates, stratégies; versionné, tracking usage/success rate
+- **DocumentMemoryStore** — indexation de docs (markdown, code, specs, architecture), chunking préparé pour RAG
+- **KnowledgeGraph** — graphe navigable (BFS) reliant missions→tasks→agents→runtimes→models→skills→workspaces→docs→benchmarks→decisions
+- **EmbeddingIndex** — index vectoriel abstrait (128-dim hash embeddings), pluggable pour Nomic/BGE/E5 futurs
+- **RetrievalEngine** — recherche hybride (embeddings + keyword + graph) sur tous les types de mémoire
+- **ExperienceManager** — extrait les leçons, erreurs fréquentes, best practices; recommande pour nouvelles missions
+- **MemoryManager** — façade centrale unifiant tous les types de mémoire, toutes les couches passent par lui
+- **REST API** — POST /memory/search, GET /memory/search?q=, GET /memory/graph, GET /memory/experiences, POST /memory/index, GET /memory/statistics
+- **Tests** — 43 tests : working (5), episodic (5), semantic (5), procedural (5), documents (4), graph (6), embeddings (4), experience (4), manager (5), thread (3)
+
+### Exemple : nouvelle mission réutilisant l'expérience
+```
+Missions passées: Auth v1 ✅ (qwen3:14b), Auth v2 ✅ (qwen3:14b), DB Migration ❌
+→ MemoryManager.recommend_for_mission("development", ["auth"])
+→ recommended_models: ["qwen3:14b"] (2 past successes)
+→ similar_missions: 2, similar_success_rate: 100%
+→ past_experiences: [Auth v1, Auth v2]
+```
+
+### Validation
+- pytest : ✅ 43/43 passed (0.05s)
 
 ---
 
