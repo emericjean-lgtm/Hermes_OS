@@ -5,6 +5,41 @@
 
 ---
 
+## [HOS-040] — 2026-07-29 — Model Benchmark & Discovery Engine
+
+### Ajouté
+- **DiscoveryEngine** — découverte automatique de modèles avec connecteurs pluggables (Ollama, HuggingFace)
+- **OllamaConnector** — catalogue de 12 modèles Ollama connus (qwen3, deepseek, gemma3, phi4, llama, nomic, codellama)
+- **HuggingFaceConnector** — curated hot list (phi-4, Mistral-Nemo, Llama-3.1)
+- **ModelRegistry** — registre central thread-safe (5000 max) avec stats par statut et source
+- **CompatibilityAnalyzer** — analyse VRAM/RAM/ROCm/quantization avec recommandations de downgrade
+- **BenchmarkEngine** — 5 profils (CODING, REASONING, GENERAL_CHAT, TOOL_USE, LONG_CONTEXT) avec métriques
+- **CronScheduler** — planificateur in-process pour discovery/benchmark périodiques (sans dépendance externe)
+- **REST API** — POST /scan, GET /models, GET /benchmarks, GET /stats
+- **Tests** — 24 tests : registry, compatibility, discovery, connectors, benchmark, cron, thread safety
+
+### Validation
+- pytest : ✅ 24/24 passed (1.04s)
+
+---
+
+## [HOS-039] — 2026-07-29 — Runtime Simulation Engine
+
+### Ajouté
+- **SimulationEngine** — simulacres de tâches avant exécution réelle, intégration orchestrator
+- **ResourcePredictor** — prédiction VRAM/RAM/durée/charge par modèle et type de tâche
+- **RiskAnalyzer** — analyse de risque (échec, surcharge, instabilité, recovery) à 4 niveaux
+- **Simulation models** — SimulationResult, SimulatedCandidate, ResourcePrediction, RiskAssessment, RiskLevel
+- **REST API** — POST /runtime/simulation/run, GET /{id}, GET /history
+- **Intégration EventBus** — publie simulation.started, simulation.completed, simulation.warning
+- **simulate_before_execute()** — pont vers RuntimeOrchestrator (HOS-038)
+- **Tests** — 19 tests : prédiction, risque, simulation, events, thread safety
+
+### Validation
+- pytest : ✅ 19/19 passed (0.02s)
+
+---
+
 ## [HOS-038] — 2026-07-29 — Adaptive Runtime Orchestrator
 
 ### Ajouté
