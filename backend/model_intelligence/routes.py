@@ -1,0 +1,196 @@
+"""REST API routes for Hermes OS Model Intelligence (HOS-065)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from .adaptive_router import AdaptiveRouter
+from .benchmark_scheduler import BenchmarkScheduler
+from .model_intelligence_models import TaskType
+from .model_profiler import ModelProfiler
+from .model_predictor import ModelPredictor
+from .model_runtime_optimizer import ModelRuntimeOptimizer
+from .performance_analyzer import PerformanceAnalyzer
+
+_profiler: ModelProfiler | None = None
+_analyzer: PerformanceAnalyzer | None = None
+_predictor: ModelPredictor | None = None
+_router: AdaptiveRouter | None = None
+_scheduler: BenchmarkScheduler | None = None
+_optimizer: ModelRuntimeOptimizer | None = None
+
+
+def _get_profiler() -> ModelProfiler:
+    global _profiler
+    if _profiler is None:
+        _profiler = ModelProfiler()
+    return _profiler
+
+
+def _get_analyzer() -> PerformanceAnalyzer:
+    global _analyzer
+    if _analyzer is None:
+        _analyzer = PerformanceAnalyzer()
+    return _analyzer
+
+
+def _get_predictor() -> ModelPredictor:
+    global _predictor
+    if _predictor is None:
+        _predictor = ModelPredictor()
+    return _predictor
+
+
+def _get_router() -> AdaptiveRouter:
+    global _router
+    if _router is None:
+        _router = AdaptiveRouter(
+            profiler=_get_profiler(),
+            analyzer=_get_analyzer(),
+            predictor=_get_predictor(),
+        )
+    return _router
+
+
+def _get_scheduler() -> BenchmarkScheduler:
+    global _scheduler
+    if _scheduler is None:
+        _scheduler = BenchmarkScheduler(
+            profiler=_get_profiler(),
+            analyzer=_get_analyzer(),
+        )
+    return _scheduler
+
+
+def _get_optimizer() -> ModelRuntimeOptimizer:
+    global _optimizer
+    if _optimizer is None:
+        _optimizer = ModelRuntimeOptimizer()
+    return _optimizer
+
+
+def handle_get_intelligence() -> dict[str, Any]:
+    """GET /models/intelligence"""
+    profiler = _get_profiler()
+    return {
+        "success": True,
+        "data": profiler.get_stats(),
+    }
+
+
+def handle_get_ranking(task_type: str = "", limit: int = 5) -> dict[str, Any]:
+    """GET /models/ranking"""
+    profiler = _get_profiler()
+    tt = TaskType(task_type) if task_type and task_type in TaskType._value2member_map_ else None
+    top = profiler.get_top_models(tt, limit)
+    return {
+        "success": True,
+        "models": [
+            {
+                "model_id": m.model_id,
+                "name": m.name,
+                "score": round(m.overall_score, 3),
+                "parameters_b": m.parameters_b,
+                "vram_mb": m.vram_required_mb,
+                "tps": m.tokens_per_second,
+                "success_rate": round(m.success_rate, 3),
+                "tags": m.tags,
+            }
+            for m in top
+        ],
+    }
+
+
+def handle_recommend(task_description: str, language: str = "python",
+                     max_vram_mb: int = 8192) -> dict[str, Any]:
+    """POST /models/recommend"""
+    router = _get_router()
+    decision = router.recommend_for_text(task_description, language, max_vram_mb)
+    return {
+        "success": True,
+        "decision": {
+            "model_id": decision.model_id,
+            "model_name": decision.model_name,
+            "runtime": decision.runtime.value,
+            "quantization": decision.quantization.value,
+            "confidence": round(decision.confidence, 3),
+            "reason": decision.reason,
+            "estimated_latency_ms": decision.estimated_latency_ms,
+            "estimated_tps": decision.estimated_tokens_per_second,
+            "estimated_vram_mb": decision.estimated_vram_mb,
+            "alternatives": decision.alternatives,
+        },
+    }
+
+
+def handle_get_history(limit: int = 20) -> dict[str, Any]:
+    """GET /models/history"""
+    router = _get_router()
+    return {
+        "success": True,
+        "decisions": router.get_decision_history(limit),
+    }
+
+
+def handle_run_benchmark(model_id: str = "", task_type: str = "code_generation") -> dict[str, Any]:
+    """POST /models/benchmark"""
+    scheduler = _get_scheduler()
+    tt = TaskType(task_type) if task_type in TaskType._value2member_map_ else TaskType.CODE_GENERATION
+    if model_id:
+        result = scheduler.run_benchmark(model_id, tt)
+        return {"success": True, "benchmark": {
+            "benchmark_id": result.benchmark_id,
+            "model_id": result.model_id,
+            "task_type": result.task_type.value,
+            "latency_ms": result.latency_ms,
+            "tokens_per_second": result.tokens_per_second,
+            "vram_usage_mb": result.vram_usage_mb,
+            "quality_score": result.quality_score,
+        }}
+    results = scheduler.run_full_benchmark()
+    return {
+        "success": True,
+        "benchmarks": len(results),
+        "message": f"Benchmarked {len(results)} model-task combinations",
+    }
+
+
+def handle_get_performance(model_id: str = "") -> dict[str, Any]:
+    """GET /models/performance"""
+    profiler = _get_profiler()
+    analyzer = _get_analyzer()
+    if model_id:
+        profile = profiler.get_profile(model_id)
+        if not profile:
+            return {"success": False, "error": f"Model {model_id} not found"}
+        records = profiler.get_performance_history(model_id)
+        score = analyzer.compute_model_score(profile, [])
+        return {
+            "success": True,
+            "model_id": model_id,
+            "score": round(score, 3),
+            "profile": {
+                "name": profile.name,
+                "parameters_b": profile.parameters_b,
+                "vram_mb": profile.vram_required_mb,
+                "tps": profile.tokens_per_second,
+                "task_scores": profile.task_scores,
+                "success_rate": round(profile.success_rate, 3),
+                "total_runs": profile.total_runs,
+            },
+            "benchmark_summary": analyzer.get_benchmark_summary(model_id),
+            "recent_runs": records[-10:],
+        }
+    return {
+        "success": True,
+        "data": profiler.get_stats(),
+    }
+
+
+def handle_get_benchmarks(model_id: str = "") -> dict[str, Any]:
+    """GET /models/benchmarks"""
+    scheduler = _get_scheduler()
+    return {
+        "success": True,
+        "benchmarks": scheduler.get_latest_benchmarks(model_id if model_id else None),
+    }

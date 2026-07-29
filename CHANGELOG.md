@@ -1,3 +1,30 @@
+## [HOS-064] — 2026-07-29 — Human Experience & Natural Interaction Layer
+
+### Ajouté
+- **Conversation Intelligence** (\`backend/conversation/\`) :
+  - ConversationManager — sessions, messages, intent routing
+  - IntentAnalyzer — 11 intent types (optimization, analysis, debug, refactor, doc, command, greeting, approval, cancel, question)
+  - ContextBuilder — enrichment from Memory, Agents, Missions, Runtime
+  - ResponseGenerator — contextual responses with approval flow, suggested actions
+  - REST API (7 endpoints) + WebSocket ready
+- **Explainability** (\`backend/explainability/\`) :
+  - DecisionExplainer — human-readable explanations for agent/runtime/model/tool/skill/policy decisions
+  - Alternative ranking with pros/cons, risk levels, rollback info
+  - REST API (3 endpoints)
+- **Approval Flow Enhanced** (\`backend/policy/approval_explainer.py\`) :
+  - ApprovalExplainer — clear risk/impact descriptions, agent scope, rollback status
+  - Pending queue with approve/reject workflow
+- **Voice Ready** (\`backend/voice/\`) :
+  - SpeechToTextProvider abstract (Whisper, Cloud)
+  - TextToSpeechProvider abstract (Piper, Cloud)
+- **Frontend : Conversation Center** (\`conversation-center.tsx\`) :
+  - Chat interface with streaming simulation
+  - Markdown rendering, approval banners, suggested actions
+  - Real-time status indicators
+- **Tests :** 103 tests (session management, intent detection, context building, response gen, explainability, approval, voice, thread safety)
+
+### Documentation
+- docs/architecture/HUMAN_EXPERIENCE_ARCHITECTURE.md — conversational architecture, REST API, WebSocket, approval flow
 ## [HOS-062] — 2026-07-29 — Production Readiness & Deployment Layer
 
 ### Ajouté

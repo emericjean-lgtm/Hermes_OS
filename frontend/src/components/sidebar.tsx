@@ -5,6 +5,8 @@ import { useCockpitStore } from "@/hooks/use-store";
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: "⌂" },
+  { id: "conversation", label: "Assistant", icon: "💬" },
+  { id: "models", label: "Models", icon: "🧠" },
   { id: "missions", label: "Missions", icon: "◆" },
   { id: "agents", label: "Agents", icon: "◈" },
   { id: "runtime", label: "Runtime", icon: "⚡" },
