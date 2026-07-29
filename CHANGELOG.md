@@ -5,6 +5,60 @@
 
 ---
 
+## [HOS-046] — 2026-07-29 — Human Approval & Policy Engine
+
+### Ajouté
+- **PolicyEngine** — moteur central de gouvernance : toutes les opérations sensibles passent par lui (ALLOW / DENY / REVIEW_REQUIRED)
+- **RuleEvaluator** — 10 règles intégrées : git_merge, workspace_delete, model_download, runtime_cloud, internet_access, system_modification (DENY), external_tool, git_rollback, high_risk (≥7), critical_risk (≥9)
+- **ApprovalEngine** — workflow humain : approve, reject, comment, delegate, cancel, multi-approval (N validations requises)
+- **ApprovalQueue** — file d'attente thread-safe triée par priorité (CRITICAL > HIGH > NORMAL > LOW)
+- **AuditLog** — journal immuable : qui, quoi, quand, pourquoi, résultat, durée (10000 entrées max, auto-prune)
+- **REST API** — GET /policy/rules, POST /policy/evaluate, GET /approval, POST /approval/{id}/approve, POST /approval/{id}/reject, GET /audit
+- **EventBus** — policy.allowed, policy.denied, approval.requested, approval.granted, approval.rejected, approval.expired, audit.created
+- **Tests** — 45 tests : evaluator (11), queue (7), engine (8), audit (6), policy engine (10), thread safety (3)
+
+### Exemple : mission avec validation humaine avant merge Git
+```
+CoderAgent → PolicyEngine.evaluate(operation="git_merge")
+  → Rule: "git_merge_requires_review" → REVIEW_REQUIRED
+  → ApprovalQueue: [PENDING, priority=HIGH]
+  → Event: approval.requested
+Admin → POST /approval/{id}/approve → APPROVED
+  → AuditLog: [agent=admin, action=approved, operation=git_merge]
+  → Event: approval.granted
+CoderAgent → merge allowed ✅
+```
+
+### Validation
+- pytest : ✅ 45/45 passed (0.06s)
+
+---
+
+## [HOS-045] — 2026-07-29 — Workspace & Sandbox Manager
+
+### Ajouté
+- **WorkspaceManager** — cycle de vie complet : create/open/lock/release/archive/destroy, quotas disque/durée, par agent/mission
+- **SandboxManager** — environnements isolés par agent : work dir, env vars, read-only, network control, allowed tools, temp storage
+- **ArtifactManager** — versioning d'artefacts (files, patches, reports, logs, docs, tests) avec checksums SHA256
+- **GitWorkspace** — abstraction Git : branches, commits, merge, rollback, stash (jamais main direct)
+- **WorkspacePolicyEngine** — moteur de règles : disk quota (90% warn, 100% deny), max duration, read-only, network, outils autorisés
+- **REST API** — POST /workspace, GET /workspace, GET /workspace/{id}, DELETE /workspace/{id}, POST /lock, POST /release, GET /artifacts, GET /status
+- **EventBus** — workspace.{created,opened,locked,released,archived}, sandbox.{created,destroyed}, artifact.{created,updated}, git.{branch_created,commit_created}
+- **Tests** — 48 tests : git (9), sandbox (8), artifact (8), policy (6), workspace manager (13), thread safety (3)
+
+### Exemple : deux agents sur deux branches
+```
+CoderAgent → workspace "feature/backend" → commit "Add API" → artifact api.py
+ReviewerAgent → workspace "feature/review" → commit "Reviewed API"
+→ merge feature/backend → main
+→ merge feature/review → main
+```
+
+### Validation
+- pytest : ✅ 48/48 passed (0.06s)
+
+---
+
 ## [HOS-044] — 2026-07-29 — Multi-Agent Collaboration Engine
 
 ### Ajouté
