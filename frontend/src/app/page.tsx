@@ -61,12 +61,20 @@ export default function ChatPage() {
       <main className="mx-auto flex h-full w-full max-w-3xl flex-col px-4">
       <header className="flex items-center justify-between border-b border-white/10 py-4">
         <h1 className="text-lg font-semibold tracking-tight">Hermes Ollama</h1>
-        {routing?.model && (
-          <span className="text-xs text-[var(--color-text-muted)]">
-            {routing.model}
-            {routing.tier ? ` · ${routing.tier}` : ""}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {routing?.model && (
+            <span className="text-xs text-[var(--color-text-muted)]">
+              {routing.model}
+              {routing.tier ? ` · ${routing.tier}` : ""}
+            </span>
+          )}
+          <a
+            href="/dashboard"
+            className="rounded-md bg-[var(--color-accent)]/10 px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/20"
+          >
+            Dashboard
+          </a>
+        </div>
       </header>
 
       <section className="flex-1 space-y-4 overflow-y-auto py-6">
