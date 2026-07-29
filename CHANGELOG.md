@@ -5,6 +5,128 @@
 
 ---
 
+## [HOS-044] — 2026-07-29 — Multi-Agent Collaboration Engine
+
+### Ajouté
+- **MessageBus** — messagerie inter-agents : direct, broadcast, groupe, help requests, conversations threadées, accusés de réception
+- **ContextSharing** — partage de contexte avec permissions (visible_to, editable_by), mise à jour collaborative
+- **DelegationManager** — délégation de tâches entre agents, demande d'expertise, workflow accept→start→complete
+- **ConsensusEngine** — votes multi-agents : unanimous, majority, super-majority (2/3), single
+- **ConflictResolver** — détection 5 types de conflits (disagreement, resource, concurrent, decision, priority) + auto-résolution
+- **CollaborationEngine** — orchestrateur central : messages, contextes, délégations, reviews, consensus, conflits + historique mission
+- **REST API** — 12 endpoints : GET/POST /messages, POST /broadcast, GET /unread, GET /conversations, POST /delegate, GET /delegations, POST|accept|complete delegations, POST /review, POST /consensus, POST /vote, GET /history
+- **EventBus** — collaboration.started, message.sent, message.received, task.delegated, review.requested, review.completed, consensus.started, consensus.reached, conflict.detected, conflict.resolved
+- **Tests** — 64 tests (14 msg + 9 ctx + 10 deleg + 8 consensus + 10 conflict + 10 engine + 3 threads)
+
+### Exemple : mission collaborative
+```
+CoderAgent → "Implement login" (COMPLETED)
+     → MessageBus.send(ReviewerAgent, "Please review PR")
+     → ContextSharing.share("PR diff", visible_to=[ReviewerAgent])
+ReviewerAgent → "Review PR" (APPROVED)
+     → ConsensusEngine.propose("Architecture", ["monolith", "microservices"], mode=MAJORITY)
+     → Vote: Coder="microservices", Reviewer="microservices", Designer="monolith"
+     → Outcome: "microservices" (2/3 majority)
+```
+
+### Validation
+- pytest : ✅ 64/64 passed
+- Fix: RLock pour thread-safety réentrante (consensus, conflicts, delegations)
+
+---
+
+## [HOS-043] — 2026-07-29 — Agent Supervisor
+
+### Ajouté
+- **Agent models** — Agent, AgentCapability (13 types), AgentProfile, AgentStatus (10 états), ExecutionContext, ExecutionResult, AgentMetrics, AgentTask
+- **AgentRegistry** — registre thread-safe avec index par capability, status et métriques
+- **CapabilityMatcher** — scoring multi-critères (capability 30%, load 25%, availability 20%, history 15%, runtime 10%) + mapping task→capability
+- **AgentLifecycle** — machine à états 10 transitions validées, historique, callback événements
+- **ExecutionContextManager** — gestion thread-safe des contextes d'exécution par agent/mission
+- **TaskDispatcher** — pipeline complet : sélection agent → contexte → exécution → résultat → métriques
+- **AgentSupervisor** — superviseur central : création agents, dispatch tâches, exécution mission DAG, réassignation, métriques
+- **REST API** — GET /agents, POST /agents, GET /agents/{id}, GET /agents/status, GET /agents/metrics, POST /agents/{id}/start, POST /agents/{id}/stop, POST /agents/{id}/pause
+- **Intégrations** — Mission Graph (HOS-041): dispatch MissionNode → agent, Runtime Orchestrator (HOS-038): callback de sélection runtime
+- **EventBus** — agent.created, agent.started, agent.ready, agent.busy, agent.completed, agent.failed, agent.stopped, task.assigned, task.reassigned
+- **Tests** — 49 tests : registry (10), lifecycle (8), matcher (7), context (5), dispatcher (4), supervisor (11), full execution (2), thread safety (2)
+
+### Exemple : mission multi-agent
+```
+DesignerAgent → "Design architecture"
+       ↓
+CoderAgent → "Implement backend"
+       ↓
+CoderAgent → "Write tests"  ∥  ReviewerAgent → "Code review"
+```
+
+### Validation
+- pytest : ✅ 49/49 passed (0.06s)
+
+---
+
+## [HOS-042] — 2026-07-29 — Intelligent Mission Planner
+
+### Ajouté
+- **TaskDecomposer** — décomposition automatique de requêtes utilisateur en tâches structurées (7 patterns connus : auth, database, api, frontend, deployment, + pattern générique)
+- **DependencyBuilder** — construction automatique du graphe de dépendances, détection de groupes parallèles, détection d'incohérences
+- **ComplexityEstimator** — estimation de complexité (0-10), durée, VRAM/RAM, tokens, risque (LOW→CRITICAL), priorité suggérée
+- **RuntimeRecommender** — recommandation de modèle/base runtime par catégorie de tâche et niveau de complexité (coding/reasoning/chat)
+- **ValidationEngine** — 7 vérifications : complétude, dépendances, ressources, cycles, orphelins, estimates, recommendations
+- **TemplateLibrary** — 6 templates de mission réutilisables (web_app, api_service, cli_tool, data_pipeline, microservice, refactoring)
+- **MissionPlanner** — orchestrateur principal : pipeline complet request → DAG valide
+- **REST API** — POST /planner/plan, POST /planner/plan/template/{id}, GET /planner/results, GET /planner/results/{id}, POST /planner/results/{id}/build, GET /planner/templates
+- **Intégration** — GraphExecutor (HOS-041), catégories Runtime Discovered (HOS-040), EventBus callback
+- **Tests** — 47 tests : decomposer (7), dependency builder (7), complexity estimator (7), runtime recommender (5), validation (4), templates (5), full pipeline (11), thread safety (1)
+
+### Pipeline de planification
+```
+User Request → Decomposer → DependencyBuilder → ComplexityEstimator
+                                                       ↓
+              Mission DAG ← MissionPlanner ← RuntimeRecommender
+                                  ↓
+                          ValidationEngine
+```
+
+### Templates disponibles
+| Template | Tâches |
+|---|---|
+| web_app | 10 (analysis → deployment) |
+| api_service | 8 (analysis → deploy) |
+| cli_tool | 7 (design → distribute) |
+| data_pipeline | 8 (analysis → deploy) |
+| microservice | 7 (analysis → runbook) |
+| refactoring | 6 (analysis → review) |
+
+### Validation
+- pytest : ✅ 47/47 passed (0.06s)
+- compileall : ✅
+
+---
+
+## [HOS-041] — 2026-07-29 — Mission Graph Engine
+
+### Ajouté
+- **MissionGraph** — représentation DAG avec validation, détection de cycles (Kahn), tri topologique
+- **Mission models** — Mission, MissionNode, MissionEdge, MissionContext, MissionStatus, MissionPriority, MissionType, NodeStatus
+- **DependencyResolver** — résolution de dépendances, nœuds ready/blocked, groupes parallèles, cascade d'échecs
+- **GraphExecutor** — moteur d'exécution pas-à-pas, intégration RuntimeOrchestrator, progression
+- **GraphSerializer** — sérialisation JSON/YAML avec versioning (schema v1.0.0)
+- **REST API** — POST /missions, GET /missions, GET /missions/{id}, GET /{id}/graph, POST /{id}/start, POST /{id}/cancel, GET /{id}/progress
+- **Intégration EventBus** — mission.created, mission.started, mission.node_ready, mission.node_completed, mission.node_failed, mission.completed, mission.cancelled
+- **Tests** — 27 tests : modèles, validation DAG, cycles, tri topologique, résolution, exécution, sérialisation, événements, thread safety
+
+### Exemple : mission de développement logiciel (7 nœuds)
+```
+init → db → api → auth → deploy
+  │              │        ↗
+  └→ frontend ──→ tests ─┘
+```
+
+### Validation
+- pytest : ✅ 27/27 passed (0.02s)
+
+---
+
 ## [HOS-040] — 2026-07-29 — Model Benchmark & Discovery Engine
 
 ### Ajouté

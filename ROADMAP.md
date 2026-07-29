@@ -170,8 +170,8 @@ gantt
 
 | Métrique | Valeur |
 |---|---|
-| HOS complétés | 37 (HOS-000 à HOS-040) |
-| Tests d'architecture | 793+ |
+| HOS complétés | 41 (HOS-000 à HOS-044) |
+| Tests d.architecture | 980+ |
 | Tests intégrations | 63+ |
 | Total tests | ~693 |
 | Fichiers source Python | ~60 |
