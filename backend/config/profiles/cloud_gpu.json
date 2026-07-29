@@ -1,0 +1,37 @@
+{
+  "profile": "cloud_gpu",
+  "debug": false,
+  "database": {
+    "backend": "postgresql",
+    "pool_size": 30,
+    "max_overflow": 50,
+    "ssl_mode": "require"
+  },
+  "redis": {
+    "socket_timeout_s": 3
+  },
+  "security": {
+    "enable_ssl": true,
+    "token_expiry_h": 4
+  },
+  "monitoring": {
+    "enabled": true,
+    "health_check_interval_s": 10,
+    "memory_threshold_mb": 32768,
+    "recovery_attempts": 5,
+    "recovery_cooldown_s": 30
+  },
+  "runtime": {
+    "mode": "distributed",
+    "enable_gpu": true,
+    "max_concurrent_tasks": 16,
+    "memory_limit_mb": 16384,
+    "cache_size_mb": 4096
+  },
+  "logging": {
+    "level": "INFO",
+    "json_format": true,
+    "max_file_size_mb": 500,
+    "backup_count": 7
+  }
+}

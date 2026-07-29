@@ -1,0 +1,25 @@
+{
+  "profile": "docker",
+  "debug": false,
+  "database": {
+    "backend": "postgresql",
+    "host": "postgres",
+    "port": 5432
+  },
+  "redis": {
+    "host": "redis"
+  },
+  "vector": {
+    "host": "chromadb",
+    "port": 8000
+  },
+  "runtime": {
+    "enable_gpu": false,
+    "task_timeout_s": 600
+  },
+  "logging": {
+    "json_format": true,
+    "console_output": true,
+    "file_output": false
+  }
+}

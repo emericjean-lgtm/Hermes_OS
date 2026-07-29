@@ -1,3 +1,44 @@
+## [HOS-062] — 2026-07-29 — Production Readiness & Deployment Layer
+
+### Ajouté
+- **Configuration Management** (\`backend/config/\`) :
+  - ConfigManager singleton with 6 deployment profiles (local_gpu, cpu_only, wsl, docker, server, cloud_gpu)
+  - HermesConfig with nested DatabaseConfig, RedisConfig, VectorConfig, SecurityConfig, MonitoringConfig, LoggingConfig, RuntimeConfig
+  - EnvironmentLoader with profile-required and optional env vars
+  - Config validation, JSON profile loading, env override
+- **Installer** (\`installer/\`) :
+  - SystemDetector — detects OS, CPU, RAM, GPU (NVIDIA/AMD), VRAM, disk, Docker, WSL
+  - HardwareProfile — 6 predefined profiles with min/recommended specs
+  - Profile recommendation and model suggestion based on hardware
+- **Persistence Layer** (\`backend/storage/\`) :
+  - DatabaseManager — SQLite (dev) and PostgreSQL (prod) with connection pooling
+  - MigrationManager — schema versioning, upgrade/rollback
+  - BackupManager — zip-based backup/restore, config export/import, auto-backup
+- **Monitoring** (\`backend/monitoring/\`) :
+  - SystemMonitor — CPU, RAM, disk metrics, service checks, alerts
+  - HealthMonitor — component registration, check intervals, 3-strikes unhealthy
+  - RecoveryManager — configurable max attempts, cooldown, reset
+- **Logging** (\`backend/logging/\`) :
+  - ProductionLogger — structured JSON logs, RotatingFileHandler, correlation IDs
+  - mission_log, agent_log, event_log methods
+  - Global singleton get_logger()
+- **Deployment** (\`deployment/\`) :
+  - Dockerfile.backend (Python 3.11, FastAPI, uvicorn)
+  - Dockerfile.frontend (Next.js build + Nginx)
+  - docker-compose.yml (PostgreSQL + Redis + ChromaDB + Backend + Frontend)
+  - docker-compose.gpu.yml (adds Ollama with NVIDIA GPU + Prometheus)
+  - docker-compose.cpu.yml (CPU-only with Ollama)
+  - nginx.conf (gzip, caching, API proxy, WebSocket, security headers)
+- **Frontend : Deployment Center** (\`deployment-center.tsx\`) :
+  - System overview with component health, service status
+  - Hardware profile display
+  - Backup management with create/restore/delete
+  - Health monitoring with latency
+  - Quick actions (backup, health check, export, report)
+- **Tests :** 80+ tests covering config, hardware, database, migrations, backups, monitoring, health, recovery, logging, thread safety
+
+### Documentation
+- docs/architecture/PRODUCTION_ARCHITECTURE.md — deployment architecture, configuration system, monitoring, backup strategy, production recommendations
 ## [HOS-063] — 2026-07-29 — Autonomous Agentic Core Final Layer
 
 ### Ajouté

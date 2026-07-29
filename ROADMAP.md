@@ -170,7 +170,7 @@ gantt
 
 | Métrique | Valeur |
 |---|---|
-| HOS complétés | 61 (HOS-000 à HOS-063) |
+| HOS complétés | 62 (HOS-000 à HOS-062) |
 | Tests d.architecture | 1553+|Tests frontend | 55+| |
 | Tests intégrations | 63+ |
 | Total tests | ~693 |

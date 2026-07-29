@@ -17,6 +17,7 @@ const navItems = [
   { id: "autonomous", label: "Autonomous", icon: "🧬" },
   { id: "security", label: "Security", icon: "🔒" },
   { id: "system", label: "System", icon: "⊞" },
+  { id: "deployment", label: "Deploy", icon: "🚀" },
 ];
 
 export function Sidebar() {

@@ -1,0 +1,25 @@
+{
+  "profile": "local_gpu",
+  "debug": false,
+  "runtime": {
+    "enable_gpu": true,
+    "enable_cpu_fallback": true,
+    "max_concurrent_tasks": 4,
+    "memory_limit_mb": 8192,
+    "cache_size_mb": 2048,
+    "default_model": "llama3.2:3b"
+  },
+  "database": {
+    "backend": "sqlite"
+  },
+  "monitoring": {
+    "memory_threshold_mb": 8192,
+    "cpu_threshold_pct": 85.0,
+    "recovery_attempts": 2
+  },
+  "logging": {
+    "level": "INFO",
+    "json_format": false,
+    "file_output": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "profile": "cpu_only",
+  "debug": false,
+  "runtime": {
+    "enable_gpu": false,
+    "enable_cpu_fallback": true,
+    "max_concurrent_tasks": 2,
+    "memory_limit_mb": 2048,
+    "cache_size_mb": 512
+  },
+  "monitoring": {
+    "memory_threshold_mb": 4096,
+    "cpu_threshold_pct": 80.0
+  }
+}

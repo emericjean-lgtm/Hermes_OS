@@ -1,0 +1,30 @@
+{
+  "profile": "server",
+  "debug": false,
+  "database": {
+    "backend": "postgresql",
+    "pool_size": 20,
+    "max_overflow": 40
+  },
+  "redis": {
+    "socket_timeout_s": 3
+  },
+  "security": {
+    "enable_ssl": true,
+    "token_expiry_h": 8
+  },
+  "monitoring": {
+    "health_check_interval_s": 15,
+    "recovery_attempts": 5
+  },
+  "runtime": {
+    "mode": "distributed",
+    "max_concurrent_tasks": 8,
+    "task_timeout_s": 600
+  },
+  "logging": {
+    "level": "INFO",
+    "max_file_size_mb": 200,
+    "backup_count": 30
+  }
+}
