@@ -5,7 +5,214 @@
 
 ---
 
+## [HOS-038] — 2026-07-29 — Adaptive Runtime Orchestrator
+
+### Ajouté
+- **RuntimeOrchestrator** — couche d'orchestration finale combinant intelligence, santé, ressources, recovery
+- **DecisionPipeline** — pipeline multi-facteurs : évalue les candidats, élimine les invalides, score les restants
+- **PriorityManager** — 4 profils (CRITICAL/HIGH/NORMAL/BACKGROUND) avec poids et seuils adaptatifs
+- **Decision models** — OrchestratedDecision, CandidateRuntime, DecisionExplanation, PriorityLevel, DecisionStatus
+- **REST API** — GET /history, GET /decision/{id}, POST /evaluate
+- **Intégration EventBus** — publie routing.analysis_started, routing.runtime_selected, routing.decision_created, routing.decision_failed
+- **Tests** — 24 tests : priority profiles, pipeline evaluation, elimination logic, explanation, events, thread safety
+
+### Profils de priorité
+| Priorité | Intelligence | Santé | Ressources | Confiance min |
+|---|---|---|---|---|
+| CRITICAL | 15% | 35% | 20% | 85% |
+| HIGH | 30% | 30% | 25% | 70% |
+| NORMAL | 40% | 25% | 25% | 50% |
+| BACKGROUND | 25% | 15% | 50% | 30% |
+
+### Validation
+- pytest : ✅ 24/24 passed (0.04s)
+- compileall : ✅
+
+---
+
+## [HOS-037] — 2026-07-29 — Runtime Intelligence Layer
+
+### Ajouté
+- **LearningEngine** — apprentissage incrémental : enregistre les résultats, met à jour les scores, ajuste les poids
+- **DecisionMemory** — stockage thread-safe des décisions passées (10000 max) avec index par runtime et type de tâche
+- **PerformanceAnalyzer** — success rate, avg latency, latency stddev, stability score, resource efficiency
+- **RuntimeScorer** — score composite pondéré (performance 35%, fiabilité 40%, efficacité 25%), comparaison, recommandations contextuelles
+- **Intelligence models** — DecisionRecord, RuntimeScore, TaskContext, Recommendation, TaskStatus
+- **REST API** — GET /runtime/intelligence/scores, GET /runtime/intelligence/{id}, GET /runtime/intelligence/recommendations?task_type=&max_latency_ms=&priority=
+- **Intégration EventBus** — publie intelligence.score_updated, intelligence.recommendation_created
+- **Tests** — 26 tests : decision memory, performance analysis, scoring, learning, recommendations, events, thread safety
+
+### Validation
+- pytest : ✅ 26/26 passed (0.05s)
+- compileall : ✅
+
+---
+
+## [HOS-036] — 2026-07-29 — Runtime Recovery Engine
+
+### Ajouté
+- **RecoveryEngine** — moteur d'auto-récupération : écoute les événements runtime, match les politiques, exécute les actions
+- **RecoveryPolicyEngine** — 6 politiques par défaut : restart_on_failure, fallback_on_unavailable, unload_on_resource_limit, reload_on_model_failure, notify_on_health_degraded, unload_on_overloaded
+- **RecoveryActions** — 5 actions concrètes : RestartRuntimeAction, ReloadModelAction, SwitchRuntimeAction, UnloadResourceAction, NotifyAction
+- **Recovery models** — IncidentType, RecoveryIncident, RecoveryAttempt, RecoveryPolicy, RecoveryStatus, ActionResult
+- **REST API** — GET /runtime/recovery/history, GET /runtime/recovery/status, POST /runtime/recovery/{id}/retry
+- **Intégration EventBus** — publie recovery.started, recovery.action_started, recovery.completed, recovery.failed
+- **Cooldown** — empêche la répétition de politiques pour le même runtime dans une fenêtre configurable
+- **Max attempts** — limite le nombre de tentatives par politique (3 par défaut)
+- **Tests** — 25 tests : détection incidents, actions, policies, cooldown, history, thread safety, events
+
+### Validation
+- pytest : ✅ 25/25 passed (2.95s)
+- compileall : ✅
+
+---
+
+## [HOS-035] — 2026-07-29 — Runtime Resource Manager
+
+### Ajouté
+- **ResourceManager** — gestionnaire centralisé CPU/RAM/GPU/VRAM avec allocation thread-safe
+- **GPUMonitor** — surveillance GPU via rocm-smi (AMD), nvidia-smi (NVIDIA), ollama ps (fallback), NoopGPUMonitor pour CI
+- **MemoryManager** — suivi RAM système via /proc/meminfo avec fallback psutil
+- **AllocationPolicy** — DefaultAllocationPolicy (first-fit, priorité) + VramAwareAllocationPolicy (température, utilisation)
+- **Resource Models** — ResourceType, ResourceStatus, ResourceSnapshot, ResourceAllocation, ResourceLimit, GPUInfo
+- **REST API** — GET /runtime/resources, GET /runtime/resources/status, GET /runtime/resources/allocations, POST /runtime/resources/release
+- **Intégration EventBus** — callback on_event publie vram.allocated, resource.allocation_failed, resource.released, resource.warning, vram.limit_reached
+- **Tests** — 21 tests : allocation, refus surcharge, libération, événements, seuils, thread safety, mock GPU
+
+### Validation
+- pytest : ✅ 21/21 passed (0.03s)
+- compileall : ✅
+
+---
+
+## [HOS-034] — 2026-07-29 — Runtime Event Bus & Observability
+
+### Ajouté
+- **RuntimeEventBus** — bus publish/subscribe thread-safe avec historique configurable
+- **RuntimeEventModel** — modèle Pydantic immutable : id, runtime_id, event_type, severity, timestamp, source, payload, correlation_id
+- **RuntimeEventType** — 16 types d'événements en 4 catégories : runtime, model, router, resource
+- **RuntimeEventStore** — abstraction EventStore + implémentation SQLite avec WAL 
+- **REST API** — GET /runtime/events (filtres), GET /runtime/events/{runtime_id}, POST /runtime/events
+- **WebSocket** — /runtime/events/ws avec streaming temps réel et filtrage
+- **useRuntimeEvents hook** — hook React WebSocket avec reconnexion automatique
+- **Tests** — 24 tests : création, publication, abonnement, persistence SQLite, thread safety, event types
+
+### Validation
+- pytest : ✅ 24/24 passed
+- compileall : ✅
+
+---
+
 ## [HOS-029] — 2026-07-29 — Mission Control Dashboard (Next.js)
+
+---
+
+## [HOS-030] — 2026-07-29 — Mission Center & Visual Planner
+
+---
+
+## [HOS-031] — 2026-07-29 — Execution Center & Live Monitoring
+
+---
+
+## [HOS-032] — 2026-07-29 — Agent Center & Live Agent Inspector
+
+---
+
+## [HOS-033] — 2026-07-29 — Runtime Center & Intelligent Runtime Management
+
+### Ajouté
+- **Runtime Center** — page /runtimes avec 9 panneaux redimensionnables (react-resizable-panels)
+- **RuntimeOverview** — 8 stat-cards : total, healthy, degraded, avg latency, most reliable, most used, best score, failures
+- **RuntimeTable** — tableau TanStack 9 colonnes : nom, status, healthy, latence, fiabilité, performance, succès, exécutions, échecs (tri, filtre, sélection)
+- **RuntimeInspector** — inspection : status, version, latence, scores, capacités, type, dernière décision
+- **RuntimeDecisionExplorer** — visualisation Recharts des scores par runtime (health, reliability, performance, capability, policy) avec penalty circuit breaker
+- **RuntimeHealth** — santé temps réel : statut, latence, erreurs, graphique d'évolution
+- **RuntimePerformance** — graphiques Recharts : barres succès, pie exécutions, barres scores fiabilité
+- **RuntimePolicies** — politiques actives : règles, priorités, runtimes autorisés/interdits, préférence local/cloud
+- **RuntimeEvents** — timeline temps réel : 8 types d'événements runtime avec filtres
+- **RuntimeControls** — barre d'actions : refresh, health check, reset circuit, disable, enable
+- **RuntimeClient** — 13 endpoints : list, get, health, metrics, decisions, policies, events, refresh, healthCheck, resetCircuit, disable, enable, export
+- **Hooks runtime** — 10 hooks : useRuntimeList (10s), useRuntime (10s), useRuntimeHealth (5s), useRuntimeMetrics (10s), useRuntimeDecisions (15s), useRuntimeDecision, useRuntimePolicies, useRuntimeEvents (5s), useRuntimeControl
+- **Types runtime** — RuntimeDetail, RuntimeDecisionInfo, RuntimePolicyInfo, RuntimePolicyRuleInfo, RuntimeEvent, RuntimeControlAction
+
+### Validation
+- Build Next.js 16 : ✅ (Turbopack, 5.6s)
+- TypeScript strict : ✅
+- Pages : 11 statiques (dont /runtimes)
+
+### Ajouté
+- **Agent Center** — page /agents avec 8 panneaux redimensionnables (react-resizable-panels)
+- **AgentOverview** — 8 stat-cards : total, actifs, complétés, échecs, sous-agents, succès, durée moyenne, runtimes
+- **AgentTable** — tableau TanStack : nom, état, runtime, mission, durée, retries, progression (tri, filtre, sélection)
+- **AgentInspector** — panneau d'inspection : état, runtime, durée, retries, fallback, erreur, scores fiabilité/performance, historique des transitions, circuit breaker, sous-agents
+- **AgentGraph** — visualisation React Flow mission → agents → sous-agents avec couleurs par état
+- **AgentTimeline** — timeline temps réel : événements created/ready/running/completed/failed/paused/recovered
+- **AgentPerformance** — graphiques Recharts : barres durée par agent, pie runtimes, histogramme
+- **AgentHermesCard** — carte Hermes Agent : statut connexion, sessions, capacités, connect/disconnect, créer sous-agent
+- **AgentControls** — barre d'actions : pause, resume, cancel, retry, recover, duplicate
+- **AgentClient** — 17 endpoints : list, get, statistics, graph, timeline, performance, control, hermes
+- **Hooks agents** — 9 hooks : useAgents (5s), useAgent (5s), useAgentStatistics (15s), useAgentGraph (10s), useAgentTimeline (5s), useAgentPerformance (15s), useHermesStatus, useAgentControl
+- **Types agent** — AgentInfo, AgentDetail, AgentStatisticsResponse, AgentGraphData, AgentTimelineEvent, AgentPerformanceData
+
+### Validation
+- Build Next.js 16 : ✅ (Turbopack, 5.6s)
+- TypeScript strict : ✅
+- Pages : 11 statiques (dont /agents)
+
+### Ajouté
+- **Execution Center** — page /execution avec 6 panneaux redimensionnables (react-resizable-panels)
+- **ExecutionOverview** — état global, progression, durée, runtime, agents, tâches
+- **LiveGraph** — DAG temps réel React Flow avec mise à jour WebSocket (couleurs par statut, mini-map, zoom)
+- **TaskTable** — tableau TanStack des tâches actives (tri, filtre, statut, runtime, agent, durée, retries)
+- **ExecutionTimeline** — timeline temps réel avec événements WebSocket, auto-scroll, filtres par type, sévérité
+- **PerformanceCharts** — graphiques Recharts : barres durée tâches, pie runtime usage, line latence trend
+- **ExecutionControls** — barre de contrôle : pause, resume, cancel, recover, retry failed, export logs, tick
+- **ExecutionClient** — API client complet avec données sample pour développement hors-ligne
+- **Hooks execution** — `useExecutionOverview()`, `useExecutionTasks()`, `useExecutionPerformance()`, `useExecutionGraph()`, `useExecutionStatistics()`, `useExecutionTimeline()`, `useExecutionControl()`
+- **Types execution** — `ExecutionOverviewResponse`, `ExecutionTask`, `ExecutionTimelineEvent`, `ExecutionPerformanceData`, `ExecutionStatisticsResponse`
+
+### Dépendances ajoutées
+- `recharts` — graphiques de performance
+- `react-resizable-panels` — panneaux redimensionnables
+
+### Validation
+- Build Next.js 16 : ✅ (Turbopack, 5.6s)
+- TypeScript strict : ✅
+- Pages : 11 statiques (dont /execution)
+
+### Ajouté
+- **Mission Center** — page /missions complète avec 5 panneaux intégrés
+- **MissionListTable** — liste des missions avec TanStack Table (tri, recherche, filtrage)
+- **MissionForm** — création de mission avec react-hook-form + zod (titre, description, objectif, priorité, stratégie, planificateur)
+- **MissionDetails** — panneau détaillé : statistiques, progression, plan d'exécution
+- **MissionActions** — barre d'actions contextuelles : start/pause/resume/cancel/duplicate/delete/sync Freebuff
+- **VisualPlanner** — visualisation DAG avec React Flow (mini-map, zoom, contrôles, couleurs par statut)
+- **Mission Planner API** — `MissionPlanner` client avec generateSampleGraph() pour démo
+- **Hooks missions** — `useMissionList()`, `useMission()`, `useMissionPlan()`, `useMissionGraph()`, `useCreateMission()`, `useStartMission()`, `usePauseMission()`, `useResumeMission()`, `useCancelMission()`, `useDeleteMission()`, `useDuplicateMission()`, `useSyncFreebuff()`
+- **Types enrichis** — `CreateMissionRequest`, `MissionPlan`, `ExecutionGraphData`, `GraphNode`, `GraphEdge`, `PlanningStrategy`, `PlannerType`
+
+### Dépendances ajoutées
+- `@xyflow/react` — Visual Planner DAG
+- `@tanstack/react-table` — Mission list table
+- `react-hook-form` + `@hookform/resolvers` + `zod` — Formulaire création
+- `@dnd-kit/core` + `@dnd-kit/sortable` — Préparation drag & drop futur
+
+### Intégration Freebuff
+- Planificateur Freebuff disponible dans le formulaire de création
+- `syncWithFreebuff()` — synchronisation mission → Freebuff
+- `FreebuffSyncResult` — prompt, réponse, plan, date
+
+### UX
+- Loading skeletons, empty states, error states
+- Animations transitions, hover states
+- Formulaire avec validation temps réel
+- Actions contextuelles selon le statut de la mission
+
+### Validation
+- Build Next.js 16 : ✅ (Turbopack, 4.1s)
+- TypeScript strict : ✅
+- 10 pages statiques maintenues
 
 ### Ajouté
 - `frontend/src/types/mission-control.ts` — 30+ types TypeScript correspondant aux modèles Pydantic HOS-028

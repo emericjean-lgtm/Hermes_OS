@@ -87,29 +87,40 @@ Tests totaux : ~693
 
 ---
 
-## Phase 6 — À venir (📅 Planifié)
+## Phase 6 — Observabilité & Événements (HOS-034 — HOS-037) ✅
 
-| HOS | Description | Priorité |
+| HOS | Description | Statut |
 |---|---|---|
-| HOS-030 | Connexion Alexandrie (Memory Backend distribué) | Moyenne |
-| HOS-031 | Persistance SQLite pour Event Bus & UnifiedMemory | Haute |
-| HOS-032 | MCP Server enrichi — exposition de tous les services | Moyenne |
+| HOS-034 | Runtime Event Bus & Observability — 24 tests, WebSocket temps réel | ✅ |
+| HOS-035 | Runtime Resource Manager — 21 tests, allocation VRAM/RAM, thresholds | ✅ |
+| HOS-036 | Runtime Recovery Engine — 25 tests, policies, actions, cooldown | ✅ |
+| HOS-037 | Runtime Intelligence Layer — 26 tests, scoring, recommendations | ✅ |
 
 ---
 
-## Phase 7 — Futur (🔮)
+## Phase 7 — À venir (📅 Planifié)
+
+| HOS | Description | Priorité |
+|---|---|---|
+| HOS-036 | Connexion Alexandrie (Memory Backend distribué) | Moyenne |
+| HOS-037 | Persistance SQLite pour Event Bus & UnifiedMemory | Haute |
+| HOS-038 | MCP Server enrichi — exposition de tous les services | Moyenne |
+
+---
+
+## Phase 8 — Futur (🔮)
 
 | HOS | Description |
 |---|---|
-| HOS-033 | Support OpenAI / Anthropic comme runtimes additionnels |
-| HOS-034 | Support vLLM comme runtime |
-| HOS-035 | Authentification & permissions multi-utilisateur |
-| HOS-036 | Rate limiting & quotas |
-| HOS-037 | Scheduler distribué |
-| HOS-038 | Homelable intégration |
-| HOS-039 | KTransformers support |
-| HOS-040 | GraphQL API |
-| HOS-041 | SDK Python public |
+| HOS-038 | Support OpenAI / Anthropic comme runtimes additionnels |
+| HOS-039 | Support vLLM comme runtime |
+| HOS-040 | Authentification & permissions multi-utilisateur |
+| HOS-041 | Rate limiting & quotas |
+| HOS-042 | Scheduler distribué |
+| HOS-043 | Homelable intégration |
+| HOS-044 | KTransformers support |
+| HOS-045 | GraphQL API |
+| HOS-046 | SDK Python public |
 
 ---
 
@@ -135,11 +146,22 @@ gantt
 
     section Frontend
     HOS-029 Dashboard          :done, 2026-07-29, 1d
+    HOS-030 Mission Center      :done, 2026-07-29, 1d
+    HOS-031 Execution Center     :done, 2026-07-29, 1d
+    HOS-032 Agent Center         :done, 2026-07-29, 1d
+    HOS-033 Runtime Center        :done, 2026-07-29, 1d
+
+    section Observabilité
+    HOS-034 Event Bus          :done, 2026-07-29, 1d
+    HOS-035 Resource Mgr       :done, 2026-07-29, 1d
+    HOS-036 Recovery Engine    :done, 2026-07-29, 1d
+    HOS-037 Intelligence        :done, 2026-07-29, 1d
+    HOS-038 Orchestrator        :done, 2026-07-29, 1d
 
     section Infrastructure
-    HOS-030 Alexandrie         :2026-08-01, 7d
-    HOS-031 Persistance        :2026-08-01, 5d
-    HOS-032 MCP Server         :2026-08-05, 5d
+    HOS-039 Alexandrie         :2026-08-01, 7d
+    HOS-040 Persistance        :2026-08-01, 5d
+    HOS-041 MCP Server         :2026-08-05, 5d
 ```
 
 ---
@@ -148,8 +170,8 @@ gantt
 
 | Métrique | Valeur |
 |---|---|
-| HOS complétés | 30 (HOS-000 à HOS-029) |
-| Tests d'architecture | 630+ |
+| HOS complétés | 35 (HOS-000 à HOS-038) |
+| Tests d'architecture | 750+ |
 | Tests intégrations | 63+ |
 | Total tests | ~693 |
 | Fichiers source Python | ~60 |
