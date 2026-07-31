@@ -19,10 +19,12 @@ The assertions are chosen to be impossible to satisfy by fabrication:
 
 from __future__ import annotations
 
+import collections
 import json
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -320,11 +322,28 @@ class TestMCPTransport:
             cwd=str(REPO_ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, shell=False,
         )
+        # Nothing read process.stdout during normal operation (only on the
+        # failure branch below, reached after the process had already exited).
+        # subprocess.PIPE gives the child a small OS buffer; once cumulative
+        # log output filled it, the child's next write() to stdout blocked
+        # indefinitely — inline with request handling — which is what turned
+        # a real MCP handshake into a TimeoutError with the server sitting
+        # there alive but unresponsive. Same bug, same fix, as
+        # backend/tests/test_smoke_live_server.py: drain continuously.
+        output_tail: collections.deque = collections.deque(maxlen=200)
+
+        def _drain() -> None:
+            if process.stdout is None:
+                return
+            for line in process.stdout:
+                output_tail.append(line)
+
+        threading.Thread(target=_drain, daemon=True).start()
         try:
             deadline = time.monotonic() + 90
             while time.monotonic() < deadline:
                 if process.poll() is not None:
-                    pytest.fail(f"server exited: {(process.stdout.read() if process.stdout else '')[:800]}")
+                    pytest.fail(f"server exited: {''.join(output_tail)[:800]}")
                 try:
                     with urllib.request.urlopen(
                             f"http://127.0.0.1:{port}/health", timeout=2) as r:

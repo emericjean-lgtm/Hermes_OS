@@ -29,10 +29,12 @@ correctly and validating its input. Only 5xx means "this is broken".
 """
 from __future__ import annotations
 
+import collections
 import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -47,6 +49,34 @@ def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def _drain_in_background(process: subprocess.Popen, *, keep_last: int) -> collections.deque:
+    """Continuously read a subprocess's stdout so it never blocks on write().
+
+    ``stdout=PIPE`` gives the child a pipe with a small OS-level buffer
+    (Windows: a few KB). Nothing in this file used to read that pipe except in
+    the failure branch — reached only after the process had already exited —
+    so during normal operation nobody drained it. Once cumulative log output
+    (as little as ~50 lines of this app's multi-line, box-drawn logging)
+    filled the buffer, the child's *next* write() call to stdout blocked
+    indefinitely, and because that call happens inline with request handling,
+    it froze every HTTP request the server was in the middle of or about to
+    serve — observed as an httpx.ReadTimeout on requests whose own handlers
+    did nothing slow at all. A background thread that keeps reading for the
+    whole lifetime of the process is the standard fix for this subprocess.PIPE
+    footgun; the bounded deque still gives failure messages something to show.
+    """
+    tail: collections.deque = collections.deque(maxlen=keep_last)
+
+    def _drain() -> None:
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            tail.append(line)
+
+    threading.Thread(target=_drain, daemon=True).start()
+    return tail
 
 
 @pytest.fixture(scope="module")
@@ -79,13 +109,13 @@ def live_server(tmp_path_factory):
         text=True,
         shell=False,
     )
+    output_tail = _drain_in_background(process, keep_last=200)
 
     base = f"http://127.0.0.1:{port}"
     deadline = time.monotonic() + STARTUP_TIMEOUT
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            output = process.stdout.read() if process.stdout else ""
-            pytest.fail(f"server exited during startup:\n{output}")
+            pytest.fail(f"server exited during startup:\n{''.join(output_tail)}")
         try:
             if httpx.get(f"{base}/health", timeout=2).status_code == 200:
                 break

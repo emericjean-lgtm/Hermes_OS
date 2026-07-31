@@ -1,3 +1,35 @@
+## Correction — Blocage de la boucle événementielle sous test réel (2026-07-31)
+
+Root-cause des 5 échecs de tests non élucidés lors du dernier commit P-002.
+
+### Fixed
+- **Cause réelle (tests)** : `backend/tests/test_smoke_live_server.py` et
+  `tests/integration/test_real_execution.py` lancent un vrai processus uvicorn
+  via `subprocess.Popen(..., stdout=PIPE, stderr=STDOUT)` sans jamais drainer
+  cette sortie pendant l'exécution normale. Le tampon de pipe Windows sature en
+  environ 50 lignes de logs applicatifs ; l'écriture suivante du processus
+  enfant se bloque alors indéfiniment, gelant toute requête HTTP en cours —
+  observé comme un `httpx.ReadTimeout` sur des routes par ailleurs instantanées
+  (`/api/v1/system/models`, `/system/ready`, `/system/statistics`,
+  `/system/status`, et le handshake MCP). Confirmé par reproduction isolée :
+  échec systématique sans drainage, succès systématique avec. Corrigé par un
+  thread de drainage continu dans les deux fixtures. Ce bug préexistait ; la
+  migration P-002 l'a rendu visible en rendant `/api/v1/system/status` et
+  `/api/v1/system/models` nouvellement testables sous `/api/v1`.
+- **Défaut latent (application)**, trouvé en chemin et corrigé par prudence :
+  `GpuMonitor.snapshot()` (`backend/monitoring/gpu_monitor.py`) exécutait
+  jusqu'à six sous-processus PowerShell **synchrones** dans une méthode
+  `async`, sans `run_in_executor` — jusqu'à 30 s de blocage réel de la boucle
+  asyncio dans un déploiement à un seul worker. Corrigé via `asyncio.to_thread`.
+  `bootstrap.health()`/`.statistics()` (`backend/main.py`), qui parcourent tous
+  les sous-systèmes et peuvent toucher ce même chemin, sont protégés de la
+  même façon.
+
+### Verified
+- Les 5 tests initialement en échec : **5/5 verts** (48,31 s, contre
+  138,96 s + 28,18 s de délais dépassés).
+- Suite complète : **3357 réussis, 3 ignorés, 0 échec** (11 min 02 s).
+
 ## P-002 — Unified API Exposure & Legacy Route Migration (2026-07-30)
 
 ### Changed

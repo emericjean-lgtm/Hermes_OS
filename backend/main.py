@@ -20,6 +20,7 @@ Two router families remain distinct on purpose:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -317,9 +318,20 @@ def create_app() -> FastAPI:
         """Dependency graph of every subsystem (STEP 8)."""
         return bootstrap.dependency_report()
 
+    # health() and statistics() walk every registered service and call
+    # whichever zero-arg accessor each one exposes (ServiceHealthProbe,
+    # health.py). One of those — the resource manager's GPU reading — makes a
+    # blocking network call on a cold cache. Called directly, that blocked
+    # this server's single event loop long enough to cascade into
+    # httpx.ReadTimeout on unrelated, otherwise-instant routes queued behind
+    # it (root-caused via backend/tests/test_smoke_live_server.py). Running
+    # the whole synchronous call chain in a thread — rather than reworking
+    # every service's accessor to be async — keeps the fix at the API
+    # boundary, where it protects against any future accessor that blocks,
+    # not just the one caught here.
     @app.get(f"{API_V1}/system/health", tags=["system"])
     async def subsystem_health() -> dict:
-        return bootstrap.health()
+        return await asyncio.to_thread(bootstrap.health)
 
     @app.get(f"{API_V1}/system/ready", tags=["system"])
     async def subsystem_ready() -> dict:
@@ -327,7 +339,7 @@ def create_app() -> FastAPI:
 
     @app.get(f"{API_V1}/system/statistics", tags=["system"])
     async def subsystem_statistics() -> dict:
-        return bootstrap.statistics()
+        return await asyncio.to_thread(bootstrap.statistics)
 
     return app
 

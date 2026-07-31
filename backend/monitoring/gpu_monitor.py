@@ -40,6 +40,7 @@ verify it against a real machine before relying on its exact numbers.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import platform
@@ -139,10 +140,21 @@ class GpuMonitor:
         self._platform_name = platform_name
 
     async def snapshot(self) -> SystemSnapshot:
-        gpu = self._read_gpu()
+        # _read_gpu / _read_cpu_load / _read_memory are synchronous and, on
+        # Windows, each shells out to one or more powershell.exe subprocesses
+        # (up to six across the three calls, 5s timeout apiece). Calling them
+        # directly here blocked the single asyncio event loop for as long as
+        # those processes took — worst case 30s — which stalled every OTHER
+        # in-flight request on this server too, not just this one. That is
+        # what surfaced as a cascading httpx.ReadTimeout across unrelated
+        # /api/v1/system/* routes once /status and /models became reachable
+        # under /api/v1 (P-002). asyncio.to_thread moves the blocking work off
+        # the loop; snapshot() still awaits it, so callers see no change.
+        gpu = await asyncio.to_thread(self._read_gpu)
         loaded_models, ollama_alert = await self._read_loaded_models()
-        cpu_load_pct = self._read_cpu_load()
-        ram_used_gb, ram_total_gb, swap_used_gb, swap_total_gb = self._read_memory()
+        cpu_load_pct = await asyncio.to_thread(self._read_cpu_load)
+        ram_used_gb, ram_total_gb, swap_used_gb, swap_total_gb = await asyncio.to_thread(
+            self._read_memory)
         disk = shutil.disk_usage(self._disk_path)
 
         alerts = self._build_gpu_alerts(gpu)
