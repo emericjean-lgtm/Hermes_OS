@@ -21,6 +21,7 @@ import {
   Target,
   Zap,
 } from "lucide-react";
+import { CenterHeader } from "@/components/center-scaffold";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ const evolutionTypeColor = (type: string) => {
     model_switch: "text-hermes-purple",
     workflow_optimization: "text-hermes-amber",
     agent_improvement: "text-hermes-pink",
-    memory_optimization: "text-emerald-400",
+    memory_optimization: "text-hermes-green",
     architecture_improvement: "text-hermes-red",
   };
   return colors[type] || "text-hermes-muted";
@@ -127,17 +128,16 @@ export function EvolutionCenter() {
   return (
     <div className="animate-fade-in p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-hermes-text font-mono">Self Evolution</h2>
-          <p className="text-xs text-hermes-muted mt-1">
-            Autonomous improvement engine — detect, simulate, validate, apply, learn
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="success"><BrainCircuit className="w-3 h-3 mr-1" />Active</Badge>
-        </div>
-      </div>
+      <CenterHeader
+        title="Self Evolution"
+        subtitle="Moteur d'amélioration autonome — détecter, simuler, valider, appliquer, apprendre"
+        right={
+          <Badge variant="success">
+            <BrainCircuit className="w-3 h-3" />
+            Actif
+          </Badge>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-5 gap-3 mb-6">
@@ -146,7 +146,7 @@ export function EvolutionCenter() {
           { icon: TrendingUp, label: "Applied", value: stats.applied, sub: "optimizations", color: "text-hermes-green" },
           { icon: AlertTriangle, label: "Pending", value: stats.detected, sub: "to review", color: "text-hermes-amber" },
           { icon: Target, label: "Total Gain", value: `${stats.totalGain}%`, sub: "estimated", color: "text-hermes-purple" },
-          { icon: Zap, label: "Avg Conf", value: stats.total ? `${(proposals.reduce((sum, p) => sum + p.confidence, 0) / stats.total * 100).toFixed(0)}%` : "—", sub: "confidence", color: "text-emerald-400" },
+          { icon: Zap, label: "Avg Conf", value: stats.total ? `${(proposals.reduce((sum, p) => sum + p.confidence, 0) / stats.total * 100).toFixed(0)}%` : "—", sub: "confidence", color: "text-hermes-green" },
         ].map((stat) => (
           <div key={stat.label} className="bg-hermes-card border border-hermes-border rounded-lg p-3">
             <stat.icon className={`w-4 h-4 mb-1 ${stat.color}`} />

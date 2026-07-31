@@ -4,6 +4,7 @@ import { useAgents, useCollaborationMessages } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
 import { Card, Badge, ProgressBar } from "@/components/ui/card";
 import type { Agent, AgentStatus } from "@/types/hermes";
+import { CenterHeader } from "@/components/center-scaffold";
 
 const statusBadge: Record<AgentStatus, keyof typeof statusColors> = {
   CREATED: "default",
@@ -38,16 +39,10 @@ export function AgentCenter() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-hermes-text font-mono tracking-tight">
-            Agent Center
-          </h1>
-          <p className="text-xs text-hermes-muted mt-1">
-            Multi-agent supervision & collaboration
-          </p>
-        </div>
-      </div>
+      <CenterHeader
+        title="Agent Center"
+        subtitle="Supervision multi-agents et collaboration"
+      />
 
       {/* Overview stats */}
       <div className="grid grid-cols-4 gap-3 mb-6">

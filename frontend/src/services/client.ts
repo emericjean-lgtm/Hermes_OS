@@ -78,11 +78,95 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+/** Réponse réelle de GET /api/v1/system/health (ServiceHealthProbe).
+ *  Documentée ici parce qu'elle ne ressemble pas au type SystemHealth que
+ *  le Cockpit manipule : statuts en minuscules, sous-systèmes sous `detail`,
+ *  ni version ni uptime. La normalisation est faite ci-dessous. */
+interface SubsystemHealthWire {
+  status?: string;
+  detail?: string;
+}
+interface SystemHealthWire {
+  status?: string;
+  services?: number;
+  by_status?: Record<string, number>;
+  unhealthy?: string[];
+  silent?: string[];
+  detail?: Record<string, SubsystemHealthWire>;
+}
+interface RootHealthWire {
+  status?: string;
+  uptime_seconds?: number;
+}
+
+const normaliseStatus = (s: string | undefined): SystemHealth["status"] => {
+  const v = (s ?? "").toLowerCase();
+  if (v === "healthy" || v === "ok") return "HEALTHY";
+  if (v === "degraded") return "DEGRADED";
+  if (v === "unhealthy" || v === "error" || v === "failed") return "UNHEALTHY";
+  // "unknown" et tout statut non prévu : ne pas mentir en annonçant HEALTHY.
+  return "DEGRADED";
+};
+
 // ── System ──────────────────────────────────────────
 export const systemClient = {
-  health: () => fetchJSON<SystemHealth>("/health"),
-  statistics: () => // /statistics does not exist (404); the route is /system/statistics.
-    fetchJSON<SystemStatistics>("/system/statistics"),
+  /** Le Cockpit interrogeait GET /health, qui est la sonde de vivacité
+   *  héritée : elle renvoie `{"status": "ok", "uptime_seconds": …}` et rien
+   *  d'autre. Le bandeau affichait donc « UNKNOWN » en permanence (le
+   *  Cockpit compare à "HEALTHY") et n'avait aucun sous-système à lister.
+   *  La vraie sonde agrégée est /system/health (34 services). Les deux sont
+   *  interrogées : l'une pour le détail par sous-système, l'autre parce
+   *  qu'elle seule expose l'uptime du processus. */
+  health: async (): Promise<SystemHealth> => {
+    const [agg, root] = await Promise.all([
+      fetchJSON<SystemHealthWire>("/system/health"),
+      fetchJSON<RootHealthWire>("/health").catch(() => ({} as RootHealthWire)),
+    ]);
+    const subsystems: SystemHealth["subsystems"] = {};
+    for (const [name, info] of Object.entries(agg.detail ?? {})) {
+      subsystems[name] = {
+        status: normaliseStatus(info?.status),
+        message: info?.detail,
+      };
+    }
+    return {
+      status: normaliseStatus(agg.status),
+      version: "",
+      uptime_seconds: root.uptime_seconds ?? 0,
+      subsystems,
+    };
+  },
+  /** /system/statistics renvoie `{services: {<clé>: {…}}}`, pas les champs
+   *  plats (`missions_total`, `agents_active`…) que le type SystemStatistics
+   *  déclare. Toutes ces lectures valaient donc `undefined`, et la barre
+   *  d'état affichait « 0/0 » partout en permanence. On projette ici la
+   *  charge utile réelle sur le type attendu ; `raw` reste exposé pour les
+   *  Centers qui ont besoin du détail par service. */
+  statistics: async (): Promise<SystemStatistics> => {
+    const raw = await fetchJSON<Record<string, any>>("/system/statistics");
+    const svc = (raw?.services ?? {}) as Record<string, any>;
+    const sched = svc.execution_engine?.scheduler ?? {};
+    const coord = svc.execution_engine?.coordinator ?? {};
+    const sup = svc.agent_supervisor ?? {};
+    const mem = svc.memory_manager ?? {};
+    const num = (v: unknown) => (typeof v === "number" ? v : 0);
+
+    return {
+      missions_total: num(sched.total),
+      missions_active: num(sched.running) + num(sched.pending),
+      missions_completed: num(sched.completed),
+      missions_failed: num(sched.failed),
+      agents_total: num(sup.total_agents) || num(coord.agents_registered),
+      agents_active: num(sup.busy),
+      runtimes_total: num(svc.runtime_orchestrator?.known_runtimes),
+      runtimes_healthy: num(coord.runtimes_available),
+      memory_entries:
+        num(mem.episodic?.total) +
+        num(mem.semantic?.total) +
+        num(mem.procedural?.total_procedures),
+      raw,
+    } as SystemStatistics;
+  },
   // GET /version n'existe pas (404) : méthode retirée (P-002 §7).
 };
 
@@ -104,8 +188,28 @@ export const missionsClient = {
 };
 
 // ── Agents ───────────────────────────────────────────
+/** GET /api/v1/agents renvoie `agent_id`, `preferred_runtime` et
+ *  `preferred_model` — pas `id`, `type` ni `runtime`. Chaque agent avait donc
+ *  `id === undefined`, ce qui donnait dix clés React identiques (« Each child
+ *  in a list should have a unique key ») et un `type` vide sous chaque nom
+ *  dans le Dashboard. On projette ici la charge utile réelle sur le type
+ *  Agent, en gardant les champs d'origine. */
+function toAgent(raw: Record<string, any>): Agent {
+  return {
+    ...raw,
+    id: raw.id ?? raw.agent_id ?? raw.name,
+    name: raw.name ?? raw.agent_id ?? "(inconnu)",
+    type: raw.type ?? raw.preferred_model ?? "",
+    runtime: raw.runtime ?? raw.preferred_runtime ?? "",
+    capabilities: Array.isArray(raw.capabilities) ? raw.capabilities : [],
+  } as Agent;
+}
+
 export const agentsClient = {
-  list: () => fetchJSON<unknown>("/agents").then((d) => unwrap<Agent>(d, "agents")),
+  list: () =>
+    fetchJSON<unknown>("/agents")
+      .then((d) => unwrap<Record<string, any>>(d, "agents"))
+      .then((rows) => rows.map(toAgent)),
   get: (id: string) => fetchJSON<Agent>(`/agents/${id}`),
   create: (data: Partial<Agent>) =>
     fetchJSON<Agent>("/agents", { method: "POST", body: JSON.stringify(data) }),
@@ -153,7 +257,11 @@ export const runtimeClient = {
   get: (name: string) => fetchJSON<RuntimeInfo>(`/runtimes/${name}`),
   health: () => fetchJSON<Record<string, { status: string; latency_ms: number }>>("/runtimes/health"),
   metrics: () => fetchJSON<Record<string, unknown>>("/runtimes/metrics"),
-  resources: () => fetchJSON<ResourceStatus>("/runtime/resources/status"),
+  // `/runtime/resources/status` n'existe pas (404) : la route est
+  // `/runtime/resources`. Le Runtime Center n'a donc jamais affiché la
+  // moindre jauge de ressources — la requête échouait à chaque fois et le
+  // garde `resources && …` masquait l'erreur en n'affichant rien.
+  resources: () => fetchJSON<ResourceStatus>("/runtime/resources"),
   allocations: () => fetchJSON<Record<string, unknown>[]>("/runtime/resources/allocations"),
   release: (data: { resource_id: string }) =>
     fetchJSON<{ status: string }>("/runtime/resources/release", {

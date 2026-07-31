@@ -2,8 +2,9 @@
 
 import { useWebSocket, severityColor, severityBg } from "@/hooks/use-websocket";
 import { useCockpitStore } from "@/hooks/use-store";
-import { Card, Badge } from "@/components/ui/card";
+import { Card, Badge, Beacon, Button } from "@/components/ui/card";
 import type { EventSeverity, SystemEvent } from "@/types/hermes";
+import { CenterHeader } from "@/components/center-scaffold";
 
 export function EventsCenter() {
   const { events, connected, clearEvents } = useWebSocket({});
@@ -27,27 +28,19 @@ export function EventsCenter() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-hermes-text font-mono tracking-tight">
-            Event Center
-          </h1>
-          <p className="text-xs text-hermes-muted mt-1">
-            Real-time event bus & system observability
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Badge variant={connected ? "success" : "danger"}>
-            {connected ? "LIVE" : "DISCONNECTED"}
-          </Badge>
-          <button
-            onClick={clearEvents}
-            className="px-3 py-1.5 text-xs font-mono text-hermes-muted border border-hermes-border rounded-lg hover:border-hermes-amber hover:text-hermes-amber transition-colors"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
+      <CenterHeader
+        title="Event Center"
+        subtitle="Bus d'événements temps réel et observabilité"
+        right={
+          <>
+            <Badge variant={connected ? "success" : "danger"}>
+              {connected && <Beacon tone="green" />}
+              {connected ? "LIVE" : "DÉCONNECTÉ"}
+            </Badge>
+            <Button onClick={clearEvents}>Vider</Button>
+          </>
+        }
+      />
 
       {/* Filters */}
       <div className="flex gap-4 mb-4">

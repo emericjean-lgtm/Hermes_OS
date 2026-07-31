@@ -179,16 +179,16 @@ export default function ConversationCenter() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-700">
-        <div className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse" />
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-hermes-border">
+        <div className="w-3 h-3 rounded-full bg-hermes-cyan animate-pulse" />
         <div>
-          <h1 className="text-lg font-semibold text-white">Assistant Hermes</h1>
-          <p className="text-xs text-gray-400">
+          <h1 className="text-lg font-semibold text-hermes-text-bright">Assistant Hermes</h1>
+          <p className="text-xs text-hermes-muted">
             Session active · {messages.length} messages
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-gray-500 bg-gray-800/60 px-2 py-1 rounded">
+          <span className="text-xs text-hermes-dim bg-hermes-elevated/60 px-2 py-1 rounded">
             {sessionId ? sessionId.slice(0, 16) + "…" : "no session yet"}
           </span>
         </div>
@@ -196,7 +196,7 @@ export default function ConversationCenter() {
 
       {/* A failed call must be visible, not silently swallowed. */}
       {error && (
-        <div className="mx-6 mt-3 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
+        <div className="mx-6 mt-3 px-4 py-2 rounded-lg bg-hermes-red/10 border border-hermes-red/30 text-hermes-red text-sm">
           {error}
         </div>
       )}
@@ -211,17 +211,17 @@ export default function ConversationCenter() {
             <div
               className={`max-w-[80%] rounded-2xl px-5 py-3 ${
                 msg.role === "user"
-                  ? "bg-cyan-500/20 text-cyan-100 border border-cyan-500/30"
+                  ? "bg-hermes-cyan/20 text-hermes-cyan border border-hermes-cyan/30"
                   : msg.role === "system"
-                  ? "bg-yellow-500/10 text-yellow-200 border border-yellow-500/20"
-                  : "bg-gray-800/80 text-gray-200 border border-gray-700"
+                  ? "bg-hermes-amber/10 text-hermes-amber border border-hermes-amber/20"
+                  : "bg-hermes-elevated/80 text-hermes-text border border-hermes-border"
               }`}
             >
               <div
                 className="text-sm leading-relaxed prose prose-invert max-w-none"
                 dangerouslySetInnerHTML={{ __html: displayContent(msg.content) }}
               />
-              <div className="text-[10px] text-gray-500 mt-2 font-mono">
+              <div className="text-[10px] text-hermes-dim mt-2 font-mono">
                 {new Date(msg.timestamp).toLocaleTimeString()}
               </div>
             </div>
@@ -230,11 +230,11 @@ export default function ConversationCenter() {
 
         {isProcessing && (
           <div className="flex justify-start">
-            <div className="bg-gray-800/80 border border-gray-700 rounded-2xl px-5 py-3">
+            <div className="bg-hermes-elevated/80 border border-hermes-border rounded-2xl px-5 py-3">
               <div className="flex gap-1.5">
-                <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce delay-100" />
-                <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce delay-200" />
+                <div className="w-2 h-2 bg-hermes-cyan rounded-full animate-bounce" />
+                <div className="w-2 h-2 bg-hermes-cyan rounded-full animate-bounce delay-100" />
+                <div className="w-2 h-2 bg-hermes-cyan rounded-full animate-bounce delay-200" />
               </div>
             </div>
           </div>
@@ -245,22 +245,22 @@ export default function ConversationCenter() {
 
       {/* Approval Banner */}
       {pendingApproval && (
-        <div className="mx-6 mb-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+        <div className="mx-6 mb-4 bg-hermes-amber/10 border border-hermes-amber/30 rounded-xl p-4">
           <div className="flex items-start gap-3">
             <span className="text-xl">🔔</span>
             <div className="flex-1">
-              <div className="text-yellow-300 font-medium text-sm">
+              <div className="text-hermes-amber font-medium text-sm">
                 Action nécessitant votre approbation
               </div>
-              <div className="text-yellow-200/80 text-xs mt-1">
+              <div className="text-hermes-amber/80 text-xs mt-1">
                 {pendingApproval.description}
               </div>
               <div className="flex items-center gap-3 mt-2">
                 <span
                   className={`text-[10px] font-medium px-2 py-0.5 rounded ${
                     pendingApproval.risk === "HIGH"
-                      ? "bg-red-500/20 text-red-400"
-                      : "bg-yellow-500/20 text-yellow-400"
+                      ? "bg-hermes-red/20 text-hermes-red"
+                      : "bg-hermes-amber/20 text-hermes-amber"
                   }`}
                 >
                   Risque : {pendingApproval.risk}
@@ -269,13 +269,13 @@ export default function ConversationCenter() {
               <div className="flex gap-2 mt-3">
                 <button
                   onClick={handleApprove}
-                  className="px-4 py-1.5 bg-green-500/20 text-green-300 rounded-lg text-sm hover:bg-green-500/30 transition-all"
+                  className="px-4 py-1.5 bg-hermes-green/20 text-hermes-green rounded-lg text-sm hover:bg-hermes-green/30 transition-all"
                 >
                   ✅ Approuver
                 </button>
                 <button
                   onClick={handleReject}
-                  className="px-4 py-1.5 bg-red-500/20 text-red-300 rounded-lg text-sm hover:bg-red-500/30 transition-all"
+                  className="px-4 py-1.5 bg-hermes-red/20 text-hermes-red rounded-lg text-sm hover:bg-hermes-red/30 transition-all"
                 >
                   ❌ Refuser
                 </button>
@@ -294,7 +294,7 @@ export default function ConversationCenter() {
               onClick={() => {
                 setInput(action.label);
               }}
-              className="px-3 py-1.5 bg-gray-800/60 border border-gray-700 text-gray-300 rounded-lg text-xs hover:border-cyan-500/40 hover:text-cyan-300 transition-all"
+              className="px-3 py-1.5 bg-hermes-elevated/60 border border-hermes-border text-hermes-muted rounded-lg text-xs hover:border-hermes-cyan/40 hover:text-hermes-cyan transition-all"
             >
               {action.label}
             </button>
@@ -303,7 +303,7 @@ export default function ConversationCenter() {
       )}
 
       {/* Input Area */}
-      <div className="border-t border-gray-700 px-6 py-4">
+      <div className="border-t border-hermes-border px-6 py-4">
         <div className="flex gap-3">
           <input
             type="text"
@@ -312,17 +312,17 @@ export default function ConversationCenter() {
             onKeyDown={handleKeyDown}
             placeholder="Posez votre question ou donnez une instruction..."
             disabled={isProcessing}
-            className="flex-1 bg-gray-800/60 border border-gray-700 rounded-xl px-5 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 transition-all disabled:opacity-50"
+            className="flex-1 bg-hermes-elevated/60 border border-hermes-border rounded-xl px-5 py-3 text-sm text-hermes-text-bright placeholder-gray-500 focus:outline-none focus:border-hermes-cyan/50 transition-all disabled:opacity-50"
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isProcessing}
-            className="px-5 py-3 bg-cyan-500/20 text-cyan-300 rounded-xl text-sm font-medium hover:bg-cyan-500/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            className="px-5 py-3 bg-hermes-cyan/20 text-hermes-cyan rounded-xl text-sm font-medium hover:bg-hermes-cyan/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           >
             {isProcessing ? (
               <div className="flex gap-1">
-                <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce" />
-                <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-bounce delay-100" />
+                <div className="w-1.5 h-1.5 bg-hermes-cyan rounded-full animate-bounce" />
+                <div className="w-1.5 h-1.5 bg-hermes-cyan rounded-full animate-bounce delay-100" />
               </div>
             ) : (
               "Envoyer"

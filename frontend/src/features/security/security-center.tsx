@@ -16,6 +16,7 @@ import {
   Boxes,
   Server,
 } from "lucide-react";
+import { CenterHeader } from "@/components/center-scaffold";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -39,10 +40,10 @@ interface AgentTrustData {
 
 const trustColor = (level: string) => {
   switch (level) {
-    case "verified": return "text-emerald-400";
+    case "verified": return "text-hermes-green";
     case "high": return "text-hermes-green";
     case "medium": return "text-hermes-amber";
-    case "low": return "text-orange-400";
+    case "low": return "text-hermes-amber";
     default: return "text-hermes-muted";
   }
 };
@@ -106,21 +107,23 @@ export function SecurityCenter() {
   return (
     <div className="animate-fade-in p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-hermes-text font-mono">Security</h2>
-          <p className="text-xs text-hermes-muted mt-1">
-            Trust scoring · Permission management · Threat detection · Sandbox isolation
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {s.threats.unmitigated > 0 ? (
-            <Badge variant="danger"><ShieldAlert className="w-3 h-3 mr-1" /> {s.threats.unmitigated} Threats</Badge>
+      <CenterHeader
+        title="Security"
+        subtitle="Score de confiance · Permissions · Détection de menaces · Isolation sandbox"
+        right={
+          s.threats.unmitigated > 0 ? (
+            <Badge variant="danger">
+              <ShieldAlert className="w-3 h-3" />
+              {s.threats.unmitigated} menace(s)
+            </Badge>
           ) : (
-            <Badge variant="success"><Shield className="w-3 h-3 mr-1" /> Secure</Badge>
-          )}
-        </div>
-      </div>
+            <Badge variant="success">
+              <Shield className="w-3 h-3" />
+              Sécurisé
+            </Badge>
+          )
+        }
+      />
 
       {/* Overview Stats */}
       <div className="grid grid-cols-4 gap-3 mb-6">
@@ -168,7 +171,7 @@ export function SecurityCenter() {
                       <div className="w-16 h-1.5 bg-hermes-bg rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full ${
-                            agent.score >= 80 ? "bg-emerald-400" :
+                            agent.score >= 80 ? "bg-hermes-green" :
                             agent.score >= 50 ? "bg-hermes-amber" : "bg-hermes-red"
                           }`}
                           style={{ width: `${agent.score}%` }}

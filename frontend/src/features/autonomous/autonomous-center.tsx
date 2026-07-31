@@ -17,6 +17,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
+import { CenterHeader } from "@/components/center-scaffold";
 
 // This Center used to render four module-level constants — MOCK_GOAL,
 // MOCK_SESSION, MOCK_DECISIONS and MOCK_TIMELINE — describing a fabricated
@@ -57,12 +58,10 @@ export function AutonomousCenter() {
   return (
     <div className="animate-fade-in p-6">
       {/* Header — the badge reflects the engine's real counters */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-hermes-text font-mono">Autonomous OS</h2>
-          <p className="text-xs text-hermes-muted mt-1">Final Agentic Core — HOS-063</p>
-        </div>
-        {status.isLoading ? (
+      <CenterHeader
+        title="Autonomous OS"
+        subtitle="Noyau agentique final — HOS-063"
+        right={<>{status.isLoading ? (
           <Badge variant="default">Checking core…</Badge>
         ) : status.isError ? (
           <Badge variant="danger">
@@ -74,8 +73,8 @@ export function AutonomousCenter() {
             <BrainCircuit className="w-3 h-3 mr-1" />
             {status.data?.total_goals ?? 0} goal(s) · {status.data?.active ?? 0} active
           </Badge>
-        )}
-      </div>
+        )}</>}
+      />
 
       {/* Goal Input — now actually starts a mission */}
       <Card title="Goal Input" className="mb-6">

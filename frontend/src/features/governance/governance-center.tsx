@@ -3,6 +3,7 @@
 import { usePolicyRules, useApprovals, useApproveAction, useRejectAction, useAuditLog } from "@/hooks/use-api";
 import { Card, Badge } from "@/components/ui/card";
 import type { PolicyRule, ApprovalRequest, AuditEntry } from "@/types/hermes";
+import { CenterHeader } from "@/components/center-scaffold";
 
 export function GovernanceCenter() {
   const { data: rules } = usePolicyRules();
@@ -15,16 +16,10 @@ export function GovernanceCenter() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-hermes-text font-mono tracking-tight">
-            Governance Center
-          </h1>
-          <p className="text-xs text-hermes-muted mt-1">
-            Human approval, policy engine & audit trail
-          </p>
-        </div>
-      </div>
+      <CenterHeader
+        title="Governance Center"
+        subtitle="Approbation humaine, moteur de politiques et piste d'audit"
+      />
 
       {/* Pending approvals */}
       {pendingApprovals.length > 0 && (

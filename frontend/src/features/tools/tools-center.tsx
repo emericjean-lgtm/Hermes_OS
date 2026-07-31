@@ -3,6 +3,7 @@
 import { useTools, useToolsHealth, useMCPServers, useExecuteTool } from "@/hooks/use-api";
 import { Card, Badge } from "@/components/ui/card";
 import type { ToolDefinition, MCPServer, ToolHealth } from "@/types/hermes";
+import { CenterHeader } from "@/components/center-scaffold";
 
 export function ToolsCenter() {
   const { data: tools } = useTools();
@@ -16,16 +17,10 @@ export function ToolsCenter() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-hermes-text font-mono tracking-tight">
-            Tools Center
-          </h1>
-          <p className="text-xs text-hermes-muted mt-1">
-            MCP Platform & external tools governance
-          </p>
-        </div>
-      </div>
+      <CenterHeader
+        title="Tools Center"
+        subtitle="Plateforme MCP et gouvernance des outils externes"
+      />
 
       <div className="grid grid-cols-2 gap-4 mb-6">
         {/* Native tools */}
@@ -86,14 +81,14 @@ export function ToolsCenter() {
 
 function ToolCard({ tool, health }: { tool: ToolDefinition; health?: ToolHealth }) {
   const typeColors: Record<string, string> = {
-    GITHUB: "text-purple-400",
-    GITLAB: "text-orange-400",
-    DOCKER: "text-blue-400",
-    DATABASE: "text-green-400",
-    FILESYSTEM: "text-yellow-400",
-    REST_API: "text-cyan-400",
-    BROWSER: "text-pink-400",
-    MCP: "text-amber-400",
+    GITHUB: "text-hermes-violet",
+    GITLAB: "text-hermes-amber",
+    DOCKER: "text-hermes-blue",
+    DATABASE: "text-hermes-green",
+    FILESYSTEM: "text-hermes-amber",
+    REST_API: "text-hermes-cyan",
+    BROWSER: "text-hermes-magenta",
+    MCP: "text-hermes-amber",
   };
 
   return (

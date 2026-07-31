@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSkills, useSelectSkills, useSkillCache } from "@/hooks/use-api";
 import { Card, Badge, ProgressBar } from "@/components/ui/card";
 import type { Skill, SkillSelection } from "@/types/hermes";
+import { CenterHeader } from "@/components/center-scaffold";
 
 export function SkillsCenter() {
   const { data: skills } = useSkills();
@@ -13,16 +14,10 @@ export function SkillsCenter() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-hermes-text font-mono tracking-tight">
-            Skills Center
-          </h1>
-          <p className="text-xs text-hermes-muted mt-1">
-            Dynamic skill distribution & intelligent selection
-          </p>
-        </div>
-      </div>
+      <CenterHeader
+        title="Skills Center"
+        subtitle="Distribution dynamique et sélection intelligente des compétences"
+      />
 
       {/* Skill selection */}
       <Card title="Automatic Selection" subtitle="Describe a task to get skill recommendations" className="mb-6">

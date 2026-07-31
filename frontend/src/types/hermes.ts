@@ -1,14 +1,28 @@
 // ── Runtime ──────────────────────────────────────────
+/** GET /api/v1/runtimes renvoie en réalité :
+ *  `{name, runtime_name, version, capabilities[], healthy, status, is_active,
+ *    is_fallback}` — pas `type`, `health` ni `metrics`, et `status` vaut
+ *  `"started"`/`"stopped"` (cycle de vie du runtime), pas `"AVAILABLE"`.
+ *  Les champs absents restent optionnels plutôt que déclarés obligatoires :
+ *  les annoncer requis faisait passer le compilateur alors que la valeur
+ *  était `undefined` à l'exécution. */
 export interface RuntimeInfo {
   name: string;
-  type: string;
   status: RuntimeStatus;
-  health: RuntimeHealth;
-  metrics: RuntimeMetrics;
+  type?: string;
+  runtime_name?: string;
   version?: string;
+  capabilities?: string[];
+  healthy?: boolean;
+  is_active?: boolean;
+  is_fallback?: boolean;
+  health?: RuntimeHealth;
+  metrics?: RuntimeMetrics;
 }
 
-export type RuntimeStatus = "AVAILABLE" | "DEGRADED" | "UNAVAILABLE";
+export type RuntimeStatus =
+  | "AVAILABLE" | "DEGRADED" | "UNAVAILABLE"
+  | "started" | "stopped" | "starting" | "error";
 
 export interface RuntimeHealth {
   status: RuntimeStatus;
@@ -136,6 +150,11 @@ export interface TimelineEvent {
 }
 
 // ── Agent ────────────────────────────────────────────
+/** Forme normalisée par agentsClient (voir `toAgent`) : le backend expose
+ *  `agent_id` / `preferred_runtime` / `preferred_model`. `metrics` et
+ *  `created_at` ne figurent pas dans la réponse de liste — déclarés
+ *  facultatifs plutôt que requis, pour que le compilateur cesse de garantir
+ *  des champs absents à l'exécution. */
 export interface Agent {
   id: string;
   name: string;
@@ -144,9 +163,14 @@ export interface Agent {
   capabilities: string[];
   current_mission?: string;
   current_task?: string;
+  current_task_id?: string;
   runtime?: string;
-  metrics: AgentMetrics;
-  created_at: string;
+  preferred_runtime?: string;
+  preferred_model?: string;
+  success_rate?: number;
+  total_tasks?: number;
+  metrics?: AgentMetrics;
+  created_at?: string;
   last_active_at?: string;
 }
 
@@ -397,6 +421,9 @@ export interface Checkpoint {
 }
 
 // ── System ───────────────────────────────────────────
+/** Forme *normalisée* par systemClient.health(), pas la charge utile brute :
+ *  /api/v1/system/health renvoie des statuts en minuscules sous `detail`, et
+ *  ni version ni uptime. Voir la normalisation dans services/client.ts. */
 export interface SystemHealth {
   status: "HEALTHY" | "DEGRADED" | "UNHEALTHY";
   version: string;
@@ -410,6 +437,10 @@ export interface SubsystemHealth {
   latency_ms?: number;
 }
 
+/** Projection à plat produite par systemClient.statistics(). Le backend
+ *  renvoie `{services: {…}}` par sous-système ; `raw` conserve cette charge
+ *  utile intacte pour les Centers (Validation, Monitoring, Deployment…) qui
+ *  lisent un service précis plutôt que les agrégats. */
 export interface SystemStatistics {
   missions_total: number;
   missions_active: number;
@@ -420,10 +451,11 @@ export interface SystemStatistics {
   runtimes_total: number;
   runtimes_healthy: number;
   memory_entries: number;
-  skills_registered: number;
-  skills_loaded: number;
-  events_total: number;
-  tools_available: number;
+  skills_registered?: number;
+  skills_loaded?: number;
+  events_total?: number;
+  tools_available?: number;
+  raw?: Record<string, unknown>;
 }
 
 export interface WebSocketEvent {

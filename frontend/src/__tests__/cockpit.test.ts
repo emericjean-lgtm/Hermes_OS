@@ -167,7 +167,11 @@ describe("Type Guards (compile-time validated)", () => {
       },
     };
     expect(rt.name).toBe("ollama");
-    expect(rt.health.success_rate).toBe(0.98);
+    // `health` est facultatif : GET /api/v1/runtimes ne le renvoie pas du
+    // tout (il expose `healthy`, `capabilities`, `is_active`…). Le type le
+    // déclarait obligatoire, ce qui laissait passer des lectures qui valaient
+    // `undefined` à l'exécution.
+    expect(rt.health?.success_rate).toBe(0.98);
   });
 
   it("Mission shape is correct", () => {
@@ -206,7 +210,9 @@ describe("Type Guards (compile-time validated)", () => {
       created_at: new Date().toISOString(),
     };
     expect(a.capabilities).toContain("python");
-    expect(a.metrics.tasks_completed).toBe(42);
+    // `metrics` est facultatif : GET /api/v1/agents ne le renvoie pas dans la
+    // liste (il expose `success_rate` et `total_tasks` à plat).
+    expect(a.metrics?.tasks_completed).toBe(42);
   });
 
   it("SystemEvent shape is correct", () => {

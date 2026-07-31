@@ -8,6 +8,7 @@ import {
   useOhMyPiStatus,
 } from "@/hooks/use-api";
 import { Brain, AlertTriangle, Activity } from "lucide-react";
+import { CenterHeader } from "@/components/center-scaffold";
 
 // This Center used to render a fabricated agent — MOCK_STATUS claimed 142 tasks
 // at a 92.3% success rate across a 68/53/21 KlaatCode/OhMyPi/hybrid split — and
@@ -59,20 +60,14 @@ export function CodeIntelligenceCenter() {
   return (
     <div className="animate-fade-in p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-hermes-text font-mono">
-            Code Intelligence
-          </h2>
-          <p className="text-xs text-hermes-muted mt-1">
-            Meta-agent routing between KlaatCode and Oh My Pi — HOS-055
-          </p>
-        </div>
-        <Badge variant="warning">
+      <CenterHeader
+        title="Code Intelligence"
+        subtitle="Routage méta-agent entre KlaatCode et Oh My Pi — HOS-055"
+        right={<><Badge variant="warning">
           <Brain className="w-3 h-3 mr-1" />
           Router not exposed
-        </Badge>
-      </div>
+        </Badge></>}
+      />
 
       {/* The honest statement of what is missing */}
       <Card title="Routing backend" className="mb-6">

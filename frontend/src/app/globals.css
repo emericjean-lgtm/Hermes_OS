@@ -2,19 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════════
+   HERMES OS — CYBERPUNK DESIGN SYSTEM
+   ═══════════════════════════════════════════════════════════════════
+   Deep-space substrate, neon signal accents. The palette is built so
+   that colour carries *meaning*: cyan is the system speaking, magenta
+   is a human decision point, green/amber/red are health, violet is
+   autonomous activity. Nothing is decorative-only.
+   ═══════════════════════════════════════════════════════════════════ */
+
 :root {
-  --hermes-bg: #0a0a0f;
-  --hermes-surface: #111118;
-  --hermes-card: #18181f;
-  --hermes-border: #27272f;
-  --hermes-amber: #f59e0b;
-  --hermes-amber-bright: #fbbf24;
-  --hermes-green: #22c55e;
-  --hermes-red: #ef4444;
+  /* ── Substrate ── */
+  --hermes-bg: #05070d;
+  --hermes-bg-deep: #03040a;
+  --hermes-surface: #090c16;
+  --hermes-card: #0d1120;
+  --hermes-elevated: #131829;
+  --hermes-border: #1e2740;
+  --hermes-border-bright: #2c3a5c;
+
+  /* ── Signal ── */
+  --hermes-cyan: #00e5ff;
+  --hermes-cyan-dim: #0891a8;
+  --hermes-magenta: #ff2d92;
+  --hermes-violet: #a855f7;
+  --hermes-green: #2bff88;
+  --hermes-amber: #ffb020;
+  --hermes-red: #ff3355;
   --hermes-blue: #3b82f6;
-  --hermes-purple: #8b5cf6;
-  --hermes-text: #e4e4e7;
-  --hermes-muted: #71717a;
+
+  /* Legacy aliases — kept so existing markup keeps rendering while the
+     Centers migrate to the cyan/magenta vocabulary. */
+  --hermes-amber-bright: #ffc44d;
+  --hermes-purple: #a855f7;
+
+  /* ── Type ── */
+  --hermes-text: #e6ecf7;
+  --hermes-text-bright: #ffffff;
+  --hermes-muted: #7b88a6;
+  --hermes-dim: #4d5876;
+
+  /* ── Glow envelopes ── */
+  --glow-cyan: 0 0 12px rgba(0, 229, 255, 0.45), 0 0 32px rgba(0, 229, 255, 0.15);
+  --glow-magenta: 0 0 12px rgba(255, 45, 146, 0.45), 0 0 32px rgba(255, 45, 146, 0.15);
+  --glow-green: 0 0 12px rgba(43, 255, 136, 0.4), 0 0 28px rgba(43, 255, 136, 0.12);
+  --glow-red: 0 0 12px rgba(255, 51, 85, 0.45), 0 0 28px rgba(255, 51, 85, 0.15);
+  --glow-amber: 0 0 12px rgba(255, 176, 32, 0.4), 0 0 28px rgba(255, 176, 32, 0.12);
 }
 
 * {
@@ -32,47 +65,324 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--hermes-bg);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--hermes-border);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #3a3a45;
+/* The ambient field: a slow perspective grid plus two drifting nebulae.
+   Fixed and behind everything, so scrolling a Center doesn't drag it. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(0, 229, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 40%, transparent 100%);
 }
 
-/* React Flow overrides */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 15% 0%, rgba(0, 229, 255, 0.07), transparent 60%),
+    radial-gradient(ellipse 50% 45% at 85% 100%, rgba(255, 45, 146, 0.055), transparent 60%);
+  animation: nebula-drift 24s ease-in-out infinite alternate;
+}
+
+/* Everything the app renders sits above the ambient field. */
+#__next,
+body > div {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--hermes-bg-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--hermes-border-bright), var(--hermes-border));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--hermes-cyan-dim), var(--hermes-border-bright));
+}
+
+::selection {
+  background: rgba(0, 229, 255, 0.28);
+  color: var(--hermes-text-bright);
+}
+
+/* ── React Flow overrides ── */
 .react-flow__node {
   font-size: 12px;
 }
 .react-flow__edge-path {
-  stroke: var(--hermes-amber) !important;
+  stroke: var(--hermes-cyan) !important;
   stroke-width: 1.5px !important;
+  filter: drop-shadow(0 0 3px rgba(0, 229, 255, 0.5));
 }
 .react-flow__background {
-  background: var(--hermes-bg) !important;
+  background: transparent !important;
 }
 
-/* Animations */
+/* ═══ KEYFRAMES ═══════════════════════════════════════════════════ */
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.3); }
-  50% { box-shadow: 0 0 12px rgba(245, 158, 11, 0.6); }
+
+@keyframes nebula-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(-2%, 1.5%, 0) scale(1.06); }
 }
-.animate-fade-in { animation: fadeIn 0.5s ease-out; }
-.animate-slide-up { animation: slideUp 0.4s ease-out; }
-.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+/* Sweep of light across a surface — used on button hover and on the
+   loading bar. translate is GPU-cheap; background-position is not. */
+@keyframes shimmer {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+
+/* A live indicator that reads as a transmitting beacon, not a blink. */
+@keyframes pulse-ring {
+  0%   { transform: scale(0.85); opacity: 0.9; }
+  70%  { transform: scale(2.1); opacity: 0; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+@keyframes glow-breathe {
+  0%, 100% { box-shadow: 0 0 6px rgba(0, 229, 255, 0.25); }
+  50%      { box-shadow: 0 0 18px rgba(0, 229, 255, 0.6), 0 0 40px rgba(0, 229, 255, 0.2); }
+}
+
+/* Travels the border of a panel: a single bright segment orbiting. */
+@keyframes border-orbit {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes scan-sweep {
+  0%   { top: -10%; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { top: 110%; opacity: 0; }
+}
+
+@keyframes count-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ═══ UTILITY CLASSES ═════════════════════════════════════════════ */
+
+.animate-fade-in { animation: fadeIn 0.45s ease-out; }
+.animate-slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-count-in { animation: count-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.animate-glow-breathe { animation: glow-breathe 3s ease-in-out infinite; }
+.animate-ticker { animation: ticker 40s linear infinite; }
+
+/* Angular corner cuts — the cyberpunk hallmark. Two sizes so a dense
+   table cell and a hero panel don't get the same 14px bite. */
+.clip-corner {
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+.clip-corner-sm {
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+.clip-notch {
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+/* Glass panel: translucent substrate + inner top highlight, so panels
+   read as lit from above rather than as flat fills. */
+.glass {
+  background: linear-gradient(160deg, rgba(19, 24, 41, 0.88), rgba(9, 12, 22, 0.94));
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.glass-bright {
+  background: linear-gradient(160deg, rgba(28, 35, 58, 0.9), rgba(13, 17, 32, 0.95));
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 10px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* Neon edge — a 1px gradient stroke drawn with a mask so it stays crisp
+   at any border-radius and doesn't eat into the padding box. */
+.neon-edge {
+  position: relative;
+}
+.neon-edge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(140deg, rgba(0, 229, 255, 0.55), rgba(168, 85, 247, 0.18) 40%, transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Same idea, but the bright segment orbits the perimeter. Reserved for
+   panels that are actively doing something. */
+.neon-edge-live::before {
+  background: linear-gradient(
+    90deg,
+    transparent, rgba(0, 229, 255, 0.7), rgba(255, 45, 146, 0.5), transparent
+  );
+  background-size: 200% 100%;
+  animation: border-orbit 3.5s linear infinite;
+}
+
+/* Corner brackets — HUD framing, drawn with two pseudo-elements so no
+   extra DOM nodes are needed per panel. */
+.bracket {
+  position: relative;
+}
+.bracket::before,
+.bracket::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: var(--hermes-cyan);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+.bracket::before {
+  top: -1px; left: -1px;
+  border-top: 1.5px solid;
+  border-left: 1.5px solid;
+}
+.bracket::after {
+  bottom: -1px; right: -1px;
+  border-bottom: 1.5px solid;
+  border-right: 1.5px solid;
+}
+.bracket:hover::before,
+.bracket:hover::after {
+  opacity: 1;
+  width: 18px;
+  height: 18px;
+}
+
+/* A scanline that crosses a panel once per cycle. Opt-in per panel;
+   applying it globally would be motion sickness, not atmosphere. */
+.scanline {
+  position: relative;
+  overflow: hidden;
+}
+.scanline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 28%;
+  background: linear-gradient(180deg, transparent, rgba(0, 229, 255, 0.07), transparent);
+  animation: scan-sweep 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Button light-sweep. The child span carries the gradient; overflow on
+   the parent clips it to the button's shape. */
+.sweep {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.sweep::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+.sweep:hover::after {
+  animation: shimmer 0.75s ease-out;
+}
+
+/* Text that glows in its own colour without a wrapper element. */
+.text-glow-cyan { text-shadow: 0 0 10px rgba(0, 229, 255, 0.65); }
+.text-glow-magenta { text-shadow: 0 0 10px rgba(255, 45, 146, 0.65); }
+.text-glow-green { text-shadow: 0 0 10px rgba(43, 255, 136, 0.6); }
+.text-glow-red { text-shadow: 0 0 10px rgba(255, 51, 85, 0.6); }
+.text-glow-amber { text-shadow: 0 0 10px rgba(255, 176, 32, 0.6); }
+
+.shadow-glow-cyan { box-shadow: var(--glow-cyan); }
+.shadow-glow-magenta { box-shadow: var(--glow-magenta); }
+.shadow-glow-green { box-shadow: var(--glow-green); }
+.shadow-glow-red { box-shadow: var(--glow-red); }
+.shadow-glow-amber { box-shadow: var(--glow-amber); }
+
+/* Gradient display type for hero numbers and titles. */
+.text-gradient-cyan {
+  background: linear-gradient(135deg, #ffffff 0%, var(--hermes-cyan) 55%, var(--hermes-violet) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.text-gradient-signal {
+  background: linear-gradient(135deg, var(--hermes-cyan) 0%, var(--hermes-magenta) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Transmitting beacon: a solid dot with an expanding ring behind it. */
+.beacon {
+  position: relative;
+  display: inline-flex;
+}
+.beacon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Respect the OS setting. Atmosphere is not worth a migraine. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  body::after { animation: none; }
+}

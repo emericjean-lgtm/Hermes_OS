@@ -2,10 +2,11 @@
 
 import { useMissions, useMissionGraph, useCreateMission } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
-import { Card, Badge, ProgressBar } from "@/components/ui/card";
+import { Card, Badge, ProgressBar, Button } from "@/components/ui/card";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Mission, MissionStatus } from "@/types/hermes";
+import { CenterHeader } from "@/components/center-scaffold";
 
 const statusBadge: Record<MissionStatus, keyof typeof statusColors> = {
   CREATED: "default",
@@ -50,22 +51,15 @@ export function MissionCenter() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-hermes-text font-mono tracking-tight">
-            Mission Center
-          </h1>
-          <p className="text-xs text-hermes-muted mt-1">
-            DAG-based autonomous mission orchestration
-          </p>
-        </div>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="px-4 py-2 text-xs font-mono font-medium bg-hermes-amber/10 text-hermes-amber-bright border border-hermes-amber/30 rounded-lg hover:bg-hermes-amber/20 transition-colors"
-        >
-          + New Mission
-        </button>
-      </div>
+      <CenterHeader
+        title="Mission Center"
+        subtitle="Orchestration autonome de missions en DAG"
+        right={
+          <Button variant="primary" onClick={() => setShowCreate(!showCreate)}>
+            + Nouvelle mission
+          </Button>
+        }
+      />
 
       {/* Create form */}
       <AnimatePresence>

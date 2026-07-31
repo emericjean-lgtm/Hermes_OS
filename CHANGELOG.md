@@ -1,3 +1,102 @@
+## Refonte — Interface cyberpunk et alignement des contrats d'API (2026-07-31)
+
+Refonte visuelle complète du Cockpit demandée par l'utilisateur (« design
+cyberpunk moderne, visuellement impressionnant tout en restant
+professionnel »), précédée d'une analyse de l'utilité réelle de chaque
+onglet. L'analyse a fait remonter plusieurs défauts qui n'étaient pas
+cosmétiques.
+
+### Fixed — défauts trouvés pendant l'analyse
+- **312 classes de couleur ne produisaient aucun CSS.** `text-hermes-muted`
+  (207 usages) et `text-hermes-text` (105 usages) étaient employées dans
+  tous les Centers, mais `hermes.text` et `hermes.muted` n'existaient que
+  comme variables CSS — jamais déclarées dans `tailwind.config.ts`. Chaque
+  libellé secondaire héritait donc silencieusement de la couleur du corps
+  de page : l'interface n'avait tout simplement pas de ton secondaire, ce
+  qui explique son aspect plat et monotone.
+- **Le bandeau d'état affichait « UNKNOWN » en permanence.** Le Cockpit
+  interrogeait `GET /api/v1/health`, la sonde de vivacité héritée, qui
+  renvoie `{"status": "ok"}` et rien d'autre — jamais `"HEALTHY"`, aucun
+  sous-système. La sonde agrégée réelle est `/api/v1/system/health` (34
+  services). `systemClient.health()` interroge désormais les deux et
+  normalise la réponse (statuts en minuscules → majuscules, `detail` →
+  `subsystems`, uptime pris sur la sonde racine).
+- **La barre d'état affichait « 0/0 » partout.** `/api/v1/system/statistics`
+  renvoie `{services: {…}}` par sous-système, pas les champs plats
+  (`missions_total`, `agents_active`…) que le type déclarait. Toutes ces
+  lectures valaient `undefined`. Ajout d'une projection explicite vers le
+  type attendu, `raw` conservant la charge utile d'origine.
+- **Le Runtime Center n'a jamais affiché la moindre jauge de ressources.**
+  `runtimeClient.resources` appelait `/runtime/resources/status`, qui
+  n'existe pas (404) ; la route est `/runtime/resources`. Le garde
+  `resources && …` masquait l'échec en n'affichant rien. Les jauges
+  RAM/VRAM/GPU sont maintenant alimentées par de vraies mesures, et une
+  valeur non exposée par le pilote (température) est annoncée comme telle
+  plutôt qu'affichée à zéro.
+- **Dix clés React identiques dans la liste d'agents.** `GET /api/v1/agents`
+  renvoie `agent_id`, `preferred_runtime` et `preferred_model` — pas `id`,
+  `type` ni `runtime`. Chaque agent avait donc `id === undefined`. Ajout de
+  `toAgent()` qui projette la charge utile réelle sur le type `Agent`.
+- **Types alignés sur les réponses réelles.** `RuntimeInfo` déclarait
+  `type`, `health` et `metrics` obligatoires et un `status` limité à
+  `AVAILABLE|DEGRADED|UNAVAILABLE` alors que l'API renvoie `started`. Ces
+  champs sont désormais facultatifs et le cycle de vie réel est couvert ;
+  le badge du Runtime Center ne produit plus `undefined` comme variante.
+- **25 boutons de navigation sans nom accessible.** Les libellés étaient
+  enveloppés dans des couches animées ; ajout de `aria-label` et
+  `aria-current`.
+
+### Changed — refonte visuelle
+- Nouveau système de design dans `globals.css` : substrat bleu-noir
+  profond, palette signal (cyan = le système parle, magenta = point de
+  décision humain, vert/ambre/rouge = santé, violet = activité autonome),
+  grille ambiante en perspective, nébuleuses dérivantes, panneaux
+  *glassmorphism*, bords néon en dégradé masqué, coins biseautés
+  (`clip-corner`), crochets d'angle façon HUD, balayage de scanline,
+  balayage lumineux au survol des boutons, balises « beacon » à anneau
+  pulsé. `prefers-reduced-motion` neutralise toutes les animations.
+- `tailwind.config.ts` : palette complète, ombres de halo, timings
+  d'animation. Les alias `amber-bright` / `purple` sont conservés pour que
+  le balisage antérieur continue de rendre.
+- `ui/card.tsx` et `center-scaffold.tsx` réécrits — ce sont les deux
+  fichiers que les 25 Centers composent, donc la refonte les traverse tous
+  sans réécriture individuelle. Ajout de `Button`, `Beacon`, `PanelLoading`
+  (barre indéterminée) et d'un `ProgressBar` dont la rampe de couleur
+  s'inverse pour les jauges de saturation.
+- Navigation : la liste plate de 25 entrées devient cinq groupes par
+  domaine (Pilotage, Intelligence, Connaissance, Gouvernance, Opérations),
+  avec filtre de recherche, repli de la barre latérale, et indicateur actif
+  animé via `layoutId`. Le shell et les bandeaux se recalent sur la largeur
+  repliée via le store.
+- Les 25 Centers partagent désormais le même `CenterHeader` (12 avaient un
+  en-tête inline divergent, dont 3 — Deployment, Models, Conversation —
+  écrits entièrement avec les couleurs Tailwind par défaut). Les 162
+  classes hors palette (`text-white`, `text-gray-400`, `bg-gray-800`…) ont
+  été remappées sur le vocabulaire Hermes ; il n'en reste aucune.
+- Dashboard reconstruit en écran vitrine : bandeau titre avec jauge de
+  santé globale, tuiles animées en cascade, santé par sous-système, flux
+  d'événements temps réel, missions et agents, compteurs du moteur
+  d'exécution. Chaque panneau expose un bouton « Ouvrir » vers le Center
+  correspondant.
+
+### Verified
+- `tsc --noEmit` : **0 erreur**.
+- `vitest run` : **65/65 tests verts**.
+- `next build` (production) : **compilation réussie**, 14 pages générées.
+- Parcours automatisé des **25 onglets** dans le navigateur : aucun
+  plantage, `<h1>` présent partout, contenu réel rendu.
+- Le Runtime Center, qui plantait à chaque ouverture
+  (`Cannot read properties of undefined (reading 'usage_pct')`), affiche
+  désormais RAM 35,2 % (11,2/31,8 Go) et VRAM 0,0 % (0,0/16,0 Go) mesurées.
+
+### Non traité
+- L'onglet Governance et l'onglet Policy consomment exactement les mêmes
+  hooks (`useApprovals`, `useAuditLog`, `usePolicyRules`,
+  `useApproveAction`, `useRejectAction`) et affichent donc les mêmes
+  données sous deux noms ; Memory, Knowledge et Alexandrie se recouvrent
+  également. Fusionner ces onglets change la structure du produit, pas son
+  apparence — signalé plutôt que décidé unilatéralement.
+
 ## Nettoyage — Dette technique : imports morts, routes héritées, schéma OpenAPI (2026-07-31)
 
 Item #8 de la liste de finalisation.

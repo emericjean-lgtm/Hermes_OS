@@ -7,6 +7,11 @@ interface CockpitStore {
   // Navigation
   activeView: string;
   setActiveView: (view: string) => void;
+  /** Lives in the store rather than in Sidebar's local state because the
+   *  shell and the topbar have to offset by the same width; a local
+   *  useState would leave them pinned at the expanded width. */
+  navCollapsed: boolean;
+  toggleNav: () => void;
 
   // Events
   liveEvents: SystemEvent[];
@@ -34,6 +39,8 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   // Navigation
   activeView: "dashboard",
   setActiveView: (view) => set({ activeView: view }),
+  navCollapsed: false,
+  toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
 
   // Events
   liveEvents: [],

@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { StatusBar } from "@/components/statusbar";
@@ -69,21 +70,37 @@ const views = {
 } satisfies Record<string, React.FC>;
 
 export default function CockpitShell() {
-  const { activeView } = useCockpitStore();
+  const { activeView, navCollapsed } = useCockpitStore();
   const View = views[activeView as keyof typeof views] ?? DashboardView;
 
   return (
-    <div className="min-h-screen bg-hermes-bg text-hermes-text">
+    <div className="min-h-screen text-hermes-text">
       <Sidebar />
       <Topbar />
-      <main className="ml-56 pt-12 pb-7">
-        <div className="p-6 max-w-[1400px]">
+      <motion.main
+        animate={{ marginLeft: navCollapsed ? 68 : 232 }}
+        transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+        className="pt-14 pb-8"
+      >
+        <div className="p-6 max-w-[1500px]">
           {/* A Center that throws must not take the shell with it. */}
           <CenterBoundary viewKey={activeView}>
-            <View />
+            {/* Keyed on the view so switching tabs replays the entrance
+                animation instead of swapping content in place. */}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeView}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <View />
+              </motion.div>
+            </AnimatePresence>
           </CenterBoundary>
         </div>
-      </main>
+      </motion.main>
       <StatusBar />
     </div>
   );

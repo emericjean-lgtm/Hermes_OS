@@ -18,6 +18,7 @@ import {
   Boxes,
   Globe,
 } from "lucide-react";
+import { CenterHeader } from "@/components/center-scaffold";
 
 // ── Component status types ─────────────────────────────────
 
@@ -53,8 +54,8 @@ const CATEGORY_META = [
   { id: "agent", label: "Agents", icon: Users, color: "text-hermes-green", match: ["agent", "collaboration"] },
   { id: "memory", label: "Memory", icon: Database, color: "text-hermes-purple", match: ["memory"] },
   { id: "tools", label: "Tools", icon: Wrench, color: "text-hermes-pink", match: ["tool", "skill"] },
-  { id: "policy", label: "Governance", icon: Shield, color: "text-orange-400", match: ["policy", "security"] },
-  { id: "workspace", label: "Workspace", icon: Boxes, color: "text-emerald-400", match: ["workspace"] },
+  { id: "policy", label: "Governance", icon: Shield, color: "text-hermes-amber", match: ["policy", "security"] },
+  { id: "workspace", label: "Workspace", icon: Boxes, color: "text-hermes-green", match: ["workspace"] },
   { id: "execution", label: "Execution", icon: Server, color: "text-hermes-red", match: ["execution", "autonomous"] },
   { id: "integrations", label: "Integrations", icon: Globe, color: "text-hermes-cyan", match: ["alexandrie", "klaatcode", "ohmypi"] },
   { id: "system", label: "System", icon: Activity, color: "text-hermes-muted", match: ["event", "system", "evolution", "conversation", "explainability", "model_intelligence"] },
@@ -136,21 +137,28 @@ export function SystemCenter() {
   return (
     <div className="animate-fade-in p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-hermes-text font-mono">System</h2>
-          <p className="text-xs text-hermes-muted mt-1">Global integration monitoring — {health.total_components} components registered</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {health.status === "healthy" ? (
-            <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" />System Healthy</Badge>
+      <CenterHeader
+        title="System"
+        subtitle={`Supervision de l'intégration globale — ${health.total_components} composants enregistrés`}
+        right={
+          health.status === "healthy" ? (
+            <Badge variant="success">
+              <CheckCircle className="w-3 h-3" />
+              Système sain
+            </Badge>
           ) : health.status === "degraded" ? (
-            <Badge variant="warning"><AlertTriangle className="w-3 h-3 mr-1" />Degraded</Badge>
+            <Badge variant="warning">
+              <AlertTriangle className="w-3 h-3" />
+              Dégradé
+            </Badge>
           ) : (
-            <Badge variant="danger"><AlertTriangle className="w-3 h-3 mr-1" />Unhealthy</Badge>
-          )}
-        </div>
-      </div>
+            <Badge variant="danger">
+              <AlertTriangle className="w-3 h-3" />
+              Défaillant
+            </Badge>
+          )
+        }
+      />
 
       {/* Health Overview */}
       <div className="grid grid-cols-4 gap-3 mb-6">
@@ -291,7 +299,7 @@ export function SystemCenter() {
             { layer: "Mission", items: "Graph · Planner · Execution", color: "bg-hermes-green/10 border-hermes-green/30 text-hermes-green" },
             { layer: "Agents", items: "Supervisor · Collaboration · KC · OMP · CI", color: "bg-hermes-purple/10 border-hermes-purple/30 text-hermes-purple" },
             { layer: "Memory", items: "Unified Memory · Knowledge Graph", color: "bg-hermes-pink/10 border-hermes-pink/30 text-hermes-pink" },
-            { layer: "Tools & Policy", items: "MCP · Skills · Policy · Workspace", color: "bg-orange-400/10 border-orange-400/30 text-orange-400" },
+            { layer: "Tools & Policy", items: "MCP · Skills · Policy · Workspace", color: "bg-hermes-amber/10 border-hermes-amber/30 text-hermes-amber" },
           ].map((item) => (
             <div key={item.layer} className={`p-3 rounded-lg border ${item.color}`}>
               <div className="text-xs font-mono font-bold">{item.layer}</div>

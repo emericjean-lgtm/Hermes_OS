@@ -16,6 +16,7 @@ import {
 } from "@/hooks/use-api";
 import { Card, Badge } from "@/components/ui/card";
 import type { SearchResult, Experience, KnowledgeNode, AlexandrieMergeResult } from "@/types/hermes";
+import { CenterHeader } from "@/components/center-scaffold";
 
 /** The headline number for one memory store.
  *
@@ -55,16 +56,10 @@ export function MemoryCenter() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-hermes-text font-mono tracking-tight">
-            Memory Center
-          </h1>
-          <p className="text-xs text-hermes-muted mt-1">
-            Unified memory, knowledge graph & retrieval
-          </p>
-        </div>
-      </div>
+      <CenterHeader
+        title="Memory Center"
+        subtitle="Mémoire unifiée, graphe de connaissances et récupération"
+      />
 
       {/* Stats.
           /api/v1/memory/statistics returns one nested object per store —
