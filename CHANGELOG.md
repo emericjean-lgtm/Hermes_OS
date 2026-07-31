@@ -1,3 +1,50 @@
+## Correction — /api/v1/runtimes annonce le vrai runtime Ollama (2026-07-31)
+
+Item #4 de la liste de finalisation. Portée volontairement limitée à
+l'étiquette rapportée, sur choix explicite de l'utilisateur (voir la
+section "Non traité" ci-dessous) : ce correctif ne fait pas transiter
+l'inférence réelle par ce registre.
+
+### Fixed
+- `GET /api/v1/runtimes` annonçait `active: "stub"` (un runtime factice qui
+  se contente d'un écho) alors que 100% de l'inférence réelle — chat
+  Hermes, agents, missions — passe par `OllamaClient` construit
+  directement dans `agent_registry.py`, `response_generator.py` et
+  `task_executor.py`, un chemin totalement séparé qui ne touche jamais ce
+  registre. Cause : `backend/main.py` appelait
+  `init_runtime_registry_in_holder(default_runtime="stub")` au démarrage,
+  en dur. `RuntimeOrchestrator`, qui recopie ce même registre à l'amorçage
+  (`registry_seeding.py`), héritait donc lui aussi de "stub" comme unique
+  runtime connu.
+- Le démarrage utilise maintenant `default_runtime="ollama"`
+  (`backend/main.py`). `backend/sds/runtime.py` construit la configuration
+  du runtime Ollama à partir des mêmes sources que tous les autres points
+  d'appel réels — `Settings.ollama_api_url` et le rôle `standard` de
+  `config/models.yaml` — au lieu d'un modèle/endpoint codés en dur
+  séparément (`qwen3.5:9b` / `127.0.0.1:11434` figuraient déjà comme
+  valeurs de repli si la config ne charge pas). Vérifié en conditions
+  réelles : `GET /api/v1/runtimes` renvoie désormais
+  `{"active": "ollama", "runtimes": [{"name": "ollama", "runtime_name":
+  "hermes-ollama", "model": "qwen3.5:9b", ...}]}`.
+
+### Non traité (portée explicitement limitée, décision utilisateur)
+- `RuntimeOrchestrator.select()` reste non consulté par le chemin
+  d'inférence réel : `agent_registry.py`, `response_generator.py` et
+  `task_executor.py` continuent de construire leur propre `OllamaClient`
+  plutôt que de passer par le registre/RuntimeOrchestrator. Rebrancher ces
+  trois points d'appel toucherait exactement le code du chat Hermes tout
+  juste stabilisé (bug "ne répond pas aux questions simples" corrigé plus
+  tôt dans cette même session) — refonte d'architecture à part entière,
+  proposée comme item séparé plutôt que glissée sous ce correctif.
+
+### Verified
+- Suite runtime + intégration ciblée (RAL, RuntimeRegistry, RuntimeOrchestrator,
+  RuntimeSelector, SDS, R-002, assembly) : **251/251 verts**.
+- `GET /api/v1/runtimes` vérifié manuellement contre l'app réellement
+  assemblée : `active: "ollama"`, modèle et endpoint corrects.
+- Suite complète (hors les 2 fichiers KTransformers déjà cassés à la
+  collection — item #5) : **3358 réussis, 3 ignorés, 0 échec** (11 min 29 s).
+
 ## Correction — Mémoire épisodique alimentée par /api/v1/missions (2026-07-31)
 
 Item #3 de la liste de finalisation.

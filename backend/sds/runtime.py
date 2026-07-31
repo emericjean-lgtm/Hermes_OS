@@ -268,6 +268,7 @@ async def init_runtime_registry_in_holder(default_runtime: str = "stub") -> Runt
     from backend.ral.adapters.stub_runtime import StubRuntime
     from backend.ral.runtime_config import RuntimeConfig
     from backend.connectors.ollama_client import OllamaClient
+    from backend.core.config import get_settings, load_models_config
 
     factory = get_runtime_factory()
     bus = get_holder().bus
@@ -290,9 +291,18 @@ async def init_runtime_registry_in_holder(default_runtime: str = "stub") -> Runt
     if default_runtime == "stub":
         runtime = factory.create("stub")
     elif default_runtime == "ollama":
+        # Read from the same sources every other real Ollama call site uses
+        # (Settings, config/models.yaml's "standard" role) rather than a
+        # second, independent hardcoded model/endpoint that could silently
+        # drift from them.
+        settings = get_settings()
+        try:
+            standard_model = load_models_config()["roles"]["standard"]["model"]
+        except (FileNotFoundError, KeyError):
+            standard_model = "qwen3.5:9b"
         default_config = RuntimeConfig(
-            model="qwen3.5:9b",
-            endpoint="http://127.0.0.1:11434",
+            model=standard_model,
+            endpoint=settings.ollama_api_url,
             timeout_seconds=120,
         )
         runtime = factory.create("ollama", config=default_config)

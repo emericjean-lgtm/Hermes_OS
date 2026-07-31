@@ -136,7 +136,14 @@ def create_app() -> FastAPI:
         )
 
         # --- Runtime registry and factory (HOS-008) ---
-        runtime_holder = await init_runtime_registry_in_holder(default_runtime="stub")
+        # "stub" until now: /api/v1/runtimes reported a fake echo runtime as
+        # active while 100% of real inference (chat, agents, missions) went
+        # through Ollama directly via a separate code path that never
+        # touched this registry. This makes the reported status match
+        # reality; it does not yet route real inference through this
+        # registry/RuntimeOrchestrator — that remains a separate, larger
+        # rewiring (see the item flagged as such in CHANGELOG.md).
+        runtime_holder = await init_runtime_registry_in_holder(default_runtime="ollama")
         _app.state.runtime_holder = runtime_holder
         _app.state.runtime_registry = get_runtime_registry()
 
