@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import threading
 
 import pytest
 
+from backend.connectors.ollama_client import StreamChunk
+from backend.core.config import load_models_config
+from backend.core.router import ModelRouter
 from backend.mission.graph_executor import GraphExecutor
 from backend.mission.mission_models import MissionStatus
 from backend.mission.planner.complexity_estimator import ComplexityEstimator
@@ -22,6 +26,20 @@ from backend.mission.planner.runtime_recommender import RuntimeRecommender
 from backend.mission.planner.task_decomposer import TaskDecomposer
 from backend.mission.planner.template_library import TemplateLibrary
 from backend.mission.planner.validation_engine import ValidationEngine
+
+
+class _FakeOllamaChat:
+    """Minimal ``OllamaClientProtocol`` double: only ``chat_events``, the
+    one method ``TaskDecomposer``'s LLM path calls. No network I/O."""
+
+    def __init__(self, content: str) -> None:
+        self._content = content
+        self.last_call: dict | None = None
+
+    async def chat_events(self, model, messages, *, temperature=None,
+                          top_p=None, num_ctx=None, think=None):
+        self.last_call = {"model": model, "messages": messages, "think": think}
+        yield StreamChunk("content", self._content)
 
 
 # ── Fixtures ─────────────────────────────────────────────────
@@ -131,6 +149,130 @@ class TestTaskDecomposer:
     def test_classify_analysis_task(self, decomposer):
         cat = decomposer._classify_task("analyze the performance bottlenecks and evaluate options")
         assert cat == TaskCategory.ANALYSIS
+
+
+# ── LLM-driven Decomposition Tests ──────────────────────────
+#
+# TaskDecomposer() with no client (every test above) never touches the
+# network — this class is what actually exercises the LLM path, against a
+# fake chat client, including the real async/sync bridge (a genuine
+# background thread + event loop, only the socket is faked).
+
+class TestLLMTaskDecomposer:
+    def _decomposer(self, content: str) -> tuple[TaskDecomposer, _FakeOllamaChat]:
+        fake = _FakeOllamaChat(content)
+        models_config = load_models_config()
+        decomposer = TaskDecomposer(
+            ollama_client=fake, router=ModelRouter(models_config),
+            models_config=models_config,
+        )
+        return decomposer, fake
+
+    def test_llm_path_off_by_default(self):
+        """The isolation every other test in this file relies on: a bare
+        TaskDecomposer() must never attempt LLM decomposition."""
+        assert TaskDecomposer()._ollama is None
+
+    def test_llm_decomposition_parses_json_array(self):
+        content = json.dumps([
+            {"title": "Design schema", "description": "Plan tables",
+             "category": "design", "depends_on": []},
+            {"title": "Implement models", "description": "Write ORM models",
+             "category": "implementation", "depends_on": [0]},
+        ])
+        decomposer, fake = self._decomposer(content)
+        request = PlanningRequest(user_request="Build a database layer", objective="DB layer")
+        breakdowns = decomposer.decompose(request)
+
+        # 2 LLM tasks + 1 auto-appended final validation task.
+        assert len(breakdowns) == 3
+        assert breakdowns[0].title == "Design schema"
+        assert breakdowns[0].category == TaskCategory.DESIGN
+        assert breakdowns[1].title == "Implement models"
+        assert breakdowns[1].depends_on == [breakdowns[0].task_id]
+        assert breakdowns[2].title == "Validation finale"
+        assert fake.last_call is not None
+        assert fake.last_call["model"]  # a real tag, resolved via ModelRouter
+
+    def test_llm_decomposition_tolerates_markdown_fence(self):
+        content = "```json\n" + json.dumps([
+            {"title": "Do the thing", "description": "", "category": "implementation", "depends_on": []},
+        ]) + "\n```"
+        decomposer, _ = self._decomposer(content)
+        breakdowns = decomposer.decompose(PlanningRequest(user_request="Do a thing"))
+        assert breakdowns[0].title == "Do the thing"
+
+    def test_llm_decomposition_falls_back_on_malformed_json(self):
+        decomposer, _ = self._decomposer("not json at all, sorry")
+        request = PlanningRequest(user_request="Create an authentication system")
+        breakdowns = decomposer.decompose(request)
+        # Degrades to the rule-based auth pattern instead of raising or
+        # producing an empty plan.
+        assert len(breakdowns) >= 5
+        assert any("auth" in b.title.lower() for b in breakdowns)
+
+    def test_llm_decomposition_unknown_category_falls_back_to_classifier(self):
+        content = json.dumps([
+            {"title": "Encrypt sensitive data",
+             "description": "Use AES to prevent a security vulnerability",
+             "category": "not_a_real_category", "depends_on": []},
+        ])
+        decomposer, _ = self._decomposer(content)
+        breakdowns = decomposer.decompose(PlanningRequest(user_request="Secure the payloads"))
+        # An unrecognised category lands on CUSTOM, then gets resolved by
+        # the same keyword classifier the rule-based path already used.
+        assert breakdowns[0].category == TaskCategory.SECURITY
+
+    def test_llm_decomposition_drops_out_of_range_dependency_indices(self):
+        content = json.dumps([
+            {"title": "A", "description": "", "category": "analysis", "depends_on": [5]},
+            {"title": "B", "description": "", "category": "design", "depends_on": [0, 99]},
+        ])
+        decomposer, _ = self._decomposer(content)
+        breakdowns = decomposer.decompose(PlanningRequest(user_request="Something"))
+        assert breakdowns[0].depends_on == []
+        assert breakdowns[1].depends_on == [breakdowns[0].task_id]
+
+    def test_llm_decomposition_empty_request_skips_llm_call(self):
+        decomposer, fake = self._decomposer(json.dumps([{"title": "Should not be used"}]))
+        breakdowns = decomposer.decompose(PlanningRequest())
+        assert fake.last_call is None
+        assert len(breakdowns) >= 1  # generic fallback + validation task
+
+    def test_close_without_llm_is_a_safe_noop(self):
+        TaskDecomposer().close()
+
+    def test_close_shuts_down_bridge_and_client(self):
+        decomposer, _ = self._decomposer(json.dumps([
+            {"title": "A", "description": "", "category": "analysis", "depends_on": []},
+        ]))
+        decomposer.decompose(PlanningRequest(user_request="Trigger the bridge"))
+        decomposer.close()  # must not raise, even though the fake has no aclose()
+
+    def test_mission_planner_close_forwards_to_decomposer(self):
+        calls: list[bool] = []
+
+        class _StubDecomposer(TaskDecomposer):
+            def close(self) -> None:
+                calls.append(True)
+
+        MissionPlanner(decomposer=_StubDecomposer()).close()
+        assert calls == [True]
+
+    def test_full_pipeline_with_llm_decomposition(self, graph_executor):
+        content = json.dumps([
+            {"title": "Design schema", "description": "Plan tables",
+             "category": "design", "depends_on": []},
+            {"title": "Implement models", "description": "Write ORM models",
+             "category": "implementation", "depends_on": [0]},
+        ])
+        decomposer, _ = self._decomposer(content)
+        planner = MissionPlanner(graph_executor=graph_executor, decomposer=decomposer)
+        request = PlanningRequest(user_request="Build a database layer", objective="DB layer")
+        result = planner.plan(request)
+        assert result.current_stage == PlanningStage.COMPLETED
+        assert result.validation.valid
+        assert any(b.title == "Design schema" for b in result.task_breakdowns)
 
 
 # ── Dependency Builder Tests ────────────────────────────────

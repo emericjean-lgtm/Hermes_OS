@@ -6,12 +6,46 @@ Runtime Intelligence Layer, Discovery Engine, and Orchestrator.
 
 from __future__ import annotations
 
+from typing import Any
+
 from backend.mission.planner.planner_models import (
     ComplexityEstimate,
     RuntimeRecommendation,
     TaskBreakdown,
     TaskCategory,
 )
+
+# Complexity level → roles in config/models.yaml, ordered from primary
+# choice to fallback. Role *names* rather than tags: the tags they resolve
+# to have already changed once this deployment's lifetime (phi4:14b ->
+# phi4-reasoning:14b-q4_K_M, qwen3:8b -> qwen3.5:9b) while the roles stayed
+# stable, so resolving through config/models.yaml at call time is what
+# keeps this mapping from re-drifting into naming models nobody installed
+# — exactly the defect this replaced (see CHANGELOG).
+_TIER_ROLES: dict[str, list[str]] = {
+    "critical": ["code", "reasoning_escalation", "advanced_analysis"],
+    "high": ["orchestrator", "reasoning", "security"],
+    "medium": ["standard", "double_check"],
+    "low": ["swift", "double_check"],
+}
+
+
+def _build_tier_mapping() -> dict[str, list[str]]:
+    try:
+        from backend.core.config import load_models_config
+
+        roles: dict[str, dict[str, Any]] = load_models_config().get("roles") or {}
+    except Exception:
+        # A missing/unreadable config/models.yaml must not take the whole
+        # module down at import time.
+        return {}
+
+    mapping: dict[str, list[str]] = {}
+    for level, role_names in _TIER_ROLES.items():
+        tags = [roles[r]["model"] for r in role_names if r in roles]
+        if tags:
+            mapping[level] = tags
+    return mapping
 
 
 class RuntimeRecommender:
@@ -37,13 +71,11 @@ class RuntimeRecommender:
         TaskCategory.CUSTOM: "general_chat",
     }
 
-    # Complexity → model tier mapping
-    _TIER_MAPPING: dict[str, list[str]] = {
-        "critical": ["qwen3:30b-coder", "deepseek-r1:32b", "phi4:14b"],
-        "high": ["qwen3:14b", "deepseek-r1:14b", "gemma3:12b"],
-        "medium": ["qwen3:8b", "codellama:13b", "llama3.2:3b"],
-        "low": ["qwen3:4b", "qwen3:1.7b"],
-    }
+    # Complexity → model tier mapping, resolved from config/models.yaml —
+    # see _build_tier_mapping. Six of these six tags were never installed
+    # in any deployment of this project before this fix (qwen3:30b-coder,
+    # phi4:14b, qwen3:14b, gemma3:12b, codellama:13b, llama3.2:3b).
+    _TIER_MAPPING: dict[str, list[str]] = _build_tier_mapping()
 
     def recommend(
         self,
@@ -62,8 +94,8 @@ class RuntimeRecommender:
         profile = self._CATEGORY_PROFILE.get(task.category, "general_chat")
 
         # Select model tier based on complexity
-        tier = self._TIER_MAPPING.get(estimate.complexity_level, self._TIER_MAPPING["medium"])
-        primary = tier[0] if tier else "qwen3:8b"
+        tier = self._TIER_MAPPING.get(estimate.complexity_level) or self._TIER_MAPPING.get("medium") or []
+        primary = tier[0] if tier else "qwen3.5:9b"
         alternatives = tier[1:] if len(tier) > 1 else []
         fallback = tier[1] if len(tier) > 1 else primary
 

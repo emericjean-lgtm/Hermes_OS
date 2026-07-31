@@ -45,9 +45,10 @@ class MissionPlanner:
         self,
         graph_executor: Optional[GraphExecutor] = None,
         on_event: Optional[Callable] = None,
+        decomposer: Optional[TaskDecomposer] = None,
     ) -> None:
         self._lock = threading.Lock()
-        self._decomposer = TaskDecomposer()
+        self._decomposer = decomposer if decomposer is not None else TaskDecomposer()
         self._dep_builder = DependencyBuilder()
         self._complexity_estimator = ComplexityEstimator()
         self._runtime_recommender = RuntimeRecommender()
@@ -307,3 +308,14 @@ class MissionPlanner:
     def _emit(self, event_type: str, data: dict, severity: str = "info") -> None:
         if self._on_event:
             self._on_event(event_type, data, severity=severity)
+
+    def close(self) -> None:
+        """Release the decomposer's Ollama client/bridge, if any.
+
+        Found by the bootstrap's shutdown probe (backend/core/bootstrap/
+        bootstrap.py), which calls the first of shutdown/stop/close/flush/
+        save/persist a service defines.
+        """
+        close_fn = getattr(self._decomposer, "close", None)
+        if callable(close_fn):
+            close_fn()

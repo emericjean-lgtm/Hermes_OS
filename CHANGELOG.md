@@ -1,3 +1,77 @@
+## Mission Planner — décomposition réellement pilotée par le LLM (2026-07-31)
+
+Troisième et dernier des trois défauts d'« IA factice » remontés par la
+vérification précédente (voir l'entrée « Vérification de l'IA locale »
+ci-dessous), et le plus risqué : la
+décomposition d'une demande de mission ne faisait jamais appel à Ollama.
+`TaskDecomposer.decompose()` cherchait cinq mots-clés anglais fixes
+(`"authentication"`, `"database"`, `"api"`, `"frontend"`, `"deployment"`)
+comme sous-chaînes littérales dans la requête, et retombait sinon sur un
+gabarit générique à 5 étapes ; une demande en français ou simplement
+formulée autrement que le mot-clé exact ne recevait jamais qu'un plan
+générique, quel que soit son contenu réel.
+
+### Fixed
+- **`TaskDecomposer` interroge maintenant le rôle `planning` d'Ollama**
+  (`config/models.yaml` : `orchestrator`/`standard`, raisonnement activé)
+  pour produire une liste de tâches JSON adaptée à la demande réelle, dans
+  la langue de la demande — au lieu de cinq gabarits anglais fixes. La
+  réponse est parsée de façon tolérante (tolère une clôture markdown, une
+  phrase parasite avant/après le tableau JSON) et ne lève jamais : une
+  réponse imparsable, un timeout ou Ollama injoignable retombent sur la
+  décomposition par mots-clés d'origine, qui reste le comportement exact
+  de tous les appels qui ne fournissent pas de client Ollama (donc de
+  tous les tests existants — zéro appel réseau, zéro changement de
+  comportement pour eux).
+- **`RuntimeRecommender._TIER_MAPPING` recommandait des modèles jamais
+  installés.** Six tags fixes (`qwen3:30b-coder`, `phi4:14b`, `qwen3:14b`,
+  `gemma3:12b`, `codellama:13b`, `llama3.2:3b`) — le même défaut que celui
+  corrigé dans le Models Center, trouvé en marge de ce chantier
+  car ce fichier appartient au même pipeline de planification. La table
+  est désormais résolue depuis `config/models.yaml` par nom de rôle
+  (`code`, `orchestrator`, `reasoning`, `standard`, `swift`…) plutôt que
+  par tag figé, pour ne pas se dérégler à nouveau au prochain changement
+  de tag (`phi4:14b` → `phi4-reasoning:14b-q4_K_M` a déjà eu lieu une fois
+  pendant la vie de ce déploiement).
+
+### Added
+- Pont synchrone/asynchrone dédié dans `TaskDecomposer` (même schéma que
+  `RealTaskExecutor` : une boucle asyncio dans un thread daemon dédié),
+  nécessaire car `decompose()` est appelé de façon synchrone depuis
+  l'intérieur même de la boucle d'événements FastAPI (`POST
+  /api/v1/missions` est `async def` et appelle le planner directement,
+  sans `await` ni threadpool) — `asyncio.run()` y lèverait une erreur.
+- `MissionPlanner.close()` et `TaskDecomposer.close()`, trouvés par la
+  sonde d'arrêt du bootstrap, pour libérer le client Ollama et arrêter le
+  thread de la boucle à l'extinction.
+
+### Verified
+- `pytest tests/architecture/test_mission_planner.py` : **58/58** (47
+  tests existants inchangés + 11 nouveaux, dont 4 couvrant explicitement
+  la dégradation propre : JSON invalide, clôture markdown, catégorie
+  inconnue, indices de dépendance hors bornes). Exécution : 0,5s — la
+  suite reste hermétique, aucun test n'injecte de client Ollama sauf ceux
+  qui testent explicitement le chemin LLM avec un faux client.
+- Suite complète (`backend/tests` + `tests`) : **3323 passed, 3 skipped,
+  0 failed** (+11 par rapport à avant ce correctif — exactement les
+  nouveaux tests du chemin LLM).
+- Vérification bout-en-bout avec Ollama réel : mission créée via
+  `POST /api/v1/missions` avec la description « Ajouter un système de
+  cache Redis pour accélérer les requêtes API fréquentes ». Résultat :
+  6 tâches réelles et spécifiques en français (« Analyser les requêtes
+  API fréquentes », « Concevoir la stratégie de cache », « Configurer le
+  serveur Redis », « Intégrer le cache dans les endpoints », « Tester le
+  cache », « Documenter la configuration ») plus la tâche de validation
+  finale ajoutée automatiquement, avec un graphe de dépendances cohérent
+  — confirmé visuellement dans le Mission Center. Avant ce correctif, la
+  même description (qui contient la sous-chaîne « api ») aurait produit
+  le gabarit anglais fixe de 5 tâches API sans aucun rapport avec Redis.
+
+### Non corrigé — gap documenté
+- La sélection d'agent/outil/compétence dans `DecisionEngine`
+  (Autonomous Center) reste heuristique — voir l'entrée précédente.
+  Aucun changement de périmètre depuis.
+
 ## Vérification de l'IA locale — Autonomous Center et Models Center (2026-07-31)
 
 Suite à la refonte visuelle, l'utilisateur a demandé de vérifier que les

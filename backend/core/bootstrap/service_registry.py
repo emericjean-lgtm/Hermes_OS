@@ -286,11 +286,36 @@ def _bind_mission_routes(c: Any, svc: Any) -> list[Any]:
 
 
 def _make_mission_planner(c: Any) -> Any:
+    from backend.connectors.ollama_client import OllamaClient
+    from backend.core.config import get_settings, load_models_config
+    from backend.core.router import ModelRouter
     from backend.mission.planner.mission_planner import MissionPlanner
+    from backend.mission.planner.task_decomposer import TaskDecomposer
+
+    # Built the same way get_agent_registry() and RealTaskExecutor._default_chat
+    # build theirs (backend/core/agent_registry.py, backend/execution/
+    # task_executor.py) — this planner talks to whatever endpoint the rest
+    # of Hermes talks to, never a hardcoded one. Giving TaskDecomposer both
+    # a client and a router is what turns on LLM-driven decomposition; every
+    # other caller (including every existing test) constructs TaskDecomposer()
+    # with neither, which keeps the original keyword-matching behaviour.
+    settings = get_settings()
+    models_config = load_models_config()
+    ollama_client = OllamaClient(
+        settings.ollama_api_url,
+        keep_alive=getattr(settings, "ollama_keep_alive", "10m"),
+        default_num_ctx=getattr(settings, "ollama_num_ctx", 8192),
+    )
+    decomposer = TaskDecomposer(
+        ollama_client=ollama_client,
+        router=ModelRouter(models_config),
+        models_config=models_config,
+    )
 
     return MissionPlanner(
         graph_executor=c.get("mission_executor"),
         on_event=_dispatcher(c, "mission_planner"),
+        decomposer=decomposer,
     )
 
 
