@@ -84,7 +84,11 @@ async def _default_chat(*, messages: list[dict[str, Any]], model: str) -> Any:
     from backend.core.config import get_settings
 
     settings = get_settings()
-    client = OllamaClient(base_url=settings.ollama_api_url, timeout=120)
+    client = OllamaClient(
+        base_url=settings.ollama_api_url,
+        timeout=120,
+        default_num_ctx=settings.ollama_num_ctx,
+    )
     try:
         return await client.chat(messages, model=model)
     finally:

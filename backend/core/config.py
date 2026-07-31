@@ -12,6 +12,9 @@ import yaml
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# backend/core/config.py -> backend/core -> backend -> repo root.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -45,6 +48,12 @@ class Settings(BaseSettings):
         return value
 
     ollama_keep_alive: str = "10m"
+    # Floor applied whenever a caller doesn't pass num_ctx explicitly (see
+    # backend/connectors/ollama_client.py DEFAULT_NUM_CTX). Ollama's own
+    # default (4096, sometimes 2048 per-Modelfile) silently truncates
+    # longer prompts from the front — confirmed via scripts/validation/
+    # bench_context.py's needle-in-a-haystack probe.
+    ollama_num_ctx: int = 8192
 
     backend_host: str = "0.0.0.0"
     backend_port: int = 8000
@@ -68,7 +77,18 @@ class Settings(BaseSettings):
     # strictly-sequential behaviour.
     workflow_max_parallel: int = 4
 
-    allowed_paths: str = ""
+    # Hard whitelist Aegis enforces for every file_read/file_write/git_*
+    # action (§17.1) — AegisEngine._is_within_whitelist() denies everything
+    # when this is empty, which is the *safe* failure mode for an unknown
+    # deployment but a silent trap for this one: with no ALLOWED_PATHS in
+    # .env, /files and /git/* 403 even against Hermes's own repository,
+    # breaking the KlaatCode/OhMyPi pipelines that operate on it. Defaulting
+    # to the project's own root fixes that self-hosted case out of the box;
+    # anyone who sets ALLOWED_PATHS in .env still fully overrides this
+    # (pydantic-settings: env var beats class default), so a deployment
+    # that intentionally wants a narrower or different whitelist is
+    # unaffected.
+    allowed_paths: str = str(_PROJECT_ROOT)
     max_file_size_mb: int = 50
 
     telegram_bot_token: str = ""

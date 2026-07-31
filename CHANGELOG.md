@@ -1,3 +1,51 @@
+## Correction — Fenêtre de contexte Ollama et whitelist ALLOWED_PATHS (2026-07-31)
+
+Item #2 de la liste de finalisation : deux défauts de configuration qui
+cassaient des fonctionnalités entières en silence, sans jamais lever
+d'erreur.
+
+### Fixed
+- **`num_ctx` jamais transmis à Ollama** : aucun des 20+ points d'appel de
+  `OllamaClient.chat_events()`/`chat_stream()` (conversation, agents,
+  exécution de tâches, MCP…) ne passait `num_ctx`. Résultat : chaque requête
+  utilisait le défaut d'Ollama (4096, parfois 2048 selon le Modelfile), qui
+  tronque silencieusement les prompts trop longs *par le début* — sans
+  erreur, sans avertissement. Confirmé empiriquement par
+  `scripts/validation/bench_context.py` (sonde "aiguille dans la botte de
+  foin") : un fait placé en tête d'un document de ~6000 mots devenait
+  irrécupérable à `num_ctx=4096` par pure troncature, `prompt_eval_count`
+  plafonnant à ~2050 tokens bien avant la fin du prompt réel.
+  `backend/connectors/ollama_client.py` applique maintenant un plancher
+  `DEFAULT_NUM_CTX=8192` chaque fois qu'un appelant ne fixe pas `num_ctx`
+  explicitement — un seul point de correction couvre tous les appelants.
+  Rendu configurable via `OLLAMA_NUM_CTX` (`Settings.ollama_num_ctx`,
+  `backend/core/config.py`) et branché sur les constructions
+  `OllamaClient` qui lisent déjà `Settings` (`agent_registry.py`,
+  `task_executor.py`, `response_generator.py` — ce dernier alimente
+  directement le chat Hermes).
+- **`ALLOWED_PATHS` vide par défaut** : sans fichier `.env` (le cas sur
+  cette machine), `Settings.allowed_paths` valait `""`, et
+  `AegisEngine._is_within_whitelist()` refuse tout quand la liste est vide
+  (§17.1 — échec sûr par défaut, mais piège silencieux ici) : `/files` et
+  `/git/*` renvoyaient 403 même sur le dépôt du projet lui-même, cassant
+  les pipelines KlaatCode/OhMyPi qui opèrent dessus. `allowed_paths` vaut
+  maintenant par défaut la racine du projet
+  (`Path(__file__).resolve().parents[2]`) ; toute valeur `ALLOWED_PATHS`
+  définie dans `.env` continue de la remplacer entièrement (variable
+  d'environnement prioritaire sur le défaut de classe en
+  pydantic-settings), donc aucun déploiement ayant déjà configuré sa
+  propre whitelist n'est affecté.
+
+### Verified
+- Tests ciblés (sandbox, fichiers, git, client Ollama, always-loaded,
+  thinking stream, runtime Ollama) : **127/127 verts**.
+- Suite de fumée + exécution réelle (non-régression du fix précédent) :
+  **158/158 verts**.
+- Suite complète (`backend/tests` + `tests`, hors les 2 fichiers
+  KTransformers déjà cassés à la collection avant ce changement — item #5
+  de la liste de finalisation) : **3357 réussis, 3 ignorés, 0 échec**
+  (11 min 32 s) — identique au dernier baseline vérifié.
+
 ## Correction — Blocage de la boucle événementielle sous test réel (2026-07-31)
 
 Root-cause des 5 échecs de tests non élucidés lors du dernier commit P-002.

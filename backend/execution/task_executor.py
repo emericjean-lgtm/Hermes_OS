@@ -288,6 +288,7 @@ class RealTaskExecutor:
             settings.ollama_api_url,
             keep_alive=getattr(settings, "ollama_keep_alive", "10m"),
             timeout=self._timeout_s,
+            default_num_ctx=getattr(settings, "ollama_num_ctx", 8192),
         )
         try:
             return await client.chat(messages, model=model)

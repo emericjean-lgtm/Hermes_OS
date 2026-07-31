@@ -46,6 +46,20 @@ _CONNECTION_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeou
 DEFAULT_MAX_ATTEMPTS = 3
 _BACKOFF_BASE_SECONDS = 0.5
 
+# Ollama's own default is 4096 (some Modelfiles ship 2048), and a prompt
+# longer than the active window is silently truncated from the *front* —
+# no error, no warning, just the earliest context gone. bench_context.py's
+# needle-in-a-haystack probe confirmed this concretely: a fact placed near
+# the top of a ~6k-word document was unretrievable at num_ctx=4096 purely
+# from truncation, not model capability (prompt_eval_count stopped growing
+# at ~2050 tokens, well short of the actual prompt). None of this codebase's
+# 20+ chat_events()/chat_stream() call sites ever passed num_ctx, so every
+# one of them was silently getting Ollama's low default. 8192 is the
+# empirically-confirmed floor at which realistic conversation/task prompts
+# stop truncating; callers with a specific, larger need can still override
+# by passing num_ctx explicitly.
+DEFAULT_NUM_CTX = 8192
+
 
 def _backoff_delay(attempt: int) -> float:
     """0.5s, then 1s — exponential, capped. Ollama loading a model is the
@@ -129,16 +143,22 @@ class OllamaClient:
         timeout: float = 120.0,
         always_loaded_models: set[str] | None = None,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        default_num_ctx: int = DEFAULT_NUM_CTX,
     ) -> None:
         """`always_loaded_models` holds the Ollama tags that should never be
         evicted for idleness — config/models.yaml's `always_loaded: true`
         roles (swift, embedding). They get keep_alive: -1 instead of the
         global expiry, so the routing/classification pre-pass doesn't pay a
-        cold load on every request after an idle gap (§22)."""
+        cold load on every request after an idle gap (§22).
+
+        `default_num_ctx` is applied in chat_events() whenever a caller
+        does not pass num_ctx explicitly — see DEFAULT_NUM_CTX for why that
+        matters."""
         self._base_url = base_url.rstrip("/")
         self._keep_alive = keep_alive
         self._always_loaded = always_loaded_models or set()
         self._max_attempts = max(1, max_attempts)
+        self._default_num_ctx = default_num_ctx
         self._client = httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
 
     def _keep_alive_for(self, model: str) -> Any:
@@ -201,8 +221,12 @@ class OllamaClient:
             options["temperature"] = temperature
         if top_p is not None:
             options["top_p"] = top_p
-        if num_ctx is not None:
-            options["num_ctx"] = num_ctx
+        # Always set, never omitted: an omitted num_ctx falls back to
+        # Ollama's own default (4096, sometimes 2048 per-Modelfile), which
+        # silently truncates long prompts from the front — see
+        # DEFAULT_NUM_CTX. num_ctx=None here means "use this client's
+        # configured default", not "let Ollama decide".
+        options["num_ctx"] = num_ctx if num_ctx is not None else self._default_num_ctx
 
         payload: dict[str, Any] = {
             "model": model,

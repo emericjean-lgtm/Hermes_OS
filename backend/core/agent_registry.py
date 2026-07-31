@@ -85,6 +85,7 @@ def get_agent_registry() -> AgentRegistry:
         settings.ollama_api_url,
         keep_alive=settings.ollama_keep_alive,
         always_loaded_models=always_loaded_models(models_config),
+        default_num_ctx=settings.ollama_num_ctx,
     )
     router = ModelRouter(models_config)
     return AgentRegistry(ollama_client, router, models_config)
