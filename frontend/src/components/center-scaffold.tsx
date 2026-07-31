@@ -281,6 +281,51 @@ export function DataTable<T>({
   );
 }
 
+/** Onglets internes à un Center.
+ *
+ *  Introduit en fusionnant les Centers redondants : Governance et Policy
+ *  interrogeaient exactement les mêmes endpoints, et Memory contenait déjà
+ *  tout ce qu'affichaient Knowledge Graph et Alexandrie. Plutôt que de
+ *  supprimer des écrans (et donc des fonctionnalités), leur contenu devient
+ *  un onglet du Center qui les englobe. */
+export function CenterTabs<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { id: T; label: string; badge?: React.ReactNode }[];
+  active: T;
+  onChange: (id: T) => void;
+}) {
+  return (
+    <div className="relative flex items-center gap-1 mb-5 p-1 rounded-lg glass border border-hermes-border w-fit">
+      {tabs.map((t) => {
+        const on = t.id === active;
+        return (
+          <button
+            key={t.id}
+            onClick={() => onChange(t.id)}
+            aria-current={on ? "page" : undefined}
+            className={`sweep relative px-4 py-1.5 rounded-md text-[11px] font-mono font-semibold
+              uppercase tracking-wider transition-colors duration-200 flex items-center gap-2
+              ${on ? "text-hermes-cyan" : "text-hermes-muted hover:text-hermes-text"}`}
+          >
+            {on && (
+              <motion.span
+                layoutId="center-tab-active"
+                transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute inset-0 rounded-md bg-hermes-cyan/10 border border-hermes-cyan/40 shadow-glow-cyan"
+              />
+            )}
+            <span className="relative">{t.label}</span>
+            {t.badge != null && <span className="relative">{t.badge}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Pastille d'état live, alimentée par le flux WebSocket quand il est branché. */
 export function LiveBadge({ connected }: { connected: boolean }) {
   return (

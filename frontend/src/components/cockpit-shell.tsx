@@ -11,6 +11,9 @@ import { MissionCenter } from "@/features/missions/mission-center";
 import { AgentCenter } from "@/features/agents/agent-center";
 import { RuntimeCenter } from "@/features/runtime/runtime-center";
 import { MemoryCenter } from "@/features/memory/memory-center";
+// KnowledgeGraphCenter et AlexandrieCenter ne sont plus des vues de premier
+// niveau : leur contenu est devenu un onglet du Memory Center, qui affichait
+// déjà les mêmes données. Voir features/memory/memory-center.tsx.
 import { SkillsCenter } from "@/features/skills/skills-center";
 import { ToolsCenter } from "@/features/tools/tools-center";
 import { GovernanceCenter } from "@/features/governance/governance-center";
@@ -26,11 +29,8 @@ import ModelIntelligenceCenter from "@/features/models/model-intelligence-center
 import { HealthCenter } from "@/features/health/health-center";
 import { MonitoringCenter } from "@/features/monitoring/monitoring-center";
 import { WorkspaceCenter } from "@/features/workspace/workspace-center";
-import { KnowledgeGraphCenter } from "@/features/knowledge/knowledge-graph-center";
 import { ExecutionCenter } from "@/features/execution/execution-center";
-import { PolicyCenter } from "@/features/policy/policy-center";
 import { ValidationCenter } from "@/features/validation/validation-center";
-import { AlexandrieCenter } from "@/features/alexandrie/alexandrie-center";
 
 /** Every id offered by the sidebar must resolve to a Center here.
  *
@@ -58,15 +58,21 @@ const views = {
   security: SecurityCenter,
   system: SystemCenter,
   deployment: DeploymentCenter,
-  // P-001 : huit capacités backend qui n'avaient aucun écran.
+  // P-001 : capacités backend qui n'avaient aucun écran.
   health: HealthCenter,
   monitoring: MonitoringCenter,
   workspace: WorkspaceCenter,
-  knowledge: KnowledgeGraphCenter,
   execution: ExecutionCenter,
-  policy: PolicyCenter,
   validation: ValidationCenter,
-  alexandrie: AlexandrieCenter,
+  // `policy`, `knowledge` et `alexandrie` ont été fusionnés : Policy
+  // interrogeait exactement les mêmes endpoints que Governance, et Memory
+  // affichait déjà l'intégralité de Knowledge Graph et d'Alexandrie. Les
+  // anciens identifiants restent acceptés pour qu'un lien ou un état
+  // persistant pointant dessus n'atterrisse pas silencieusement sur le
+  // Dashboard.
+  policy: GovernanceCenter,
+  knowledge: MemoryCenter,
+  alexandrie: MemoryCenter,
 } satisfies Record<string, React.FC>;
 
 export default function CockpitShell() {

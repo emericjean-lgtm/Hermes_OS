@@ -1,3 +1,57 @@
+## Refonte — Fusion des Centers redondants (2026-07-31)
+
+Suite directe de la refonte précédente, qui avait signalé sans les traiter
+trois recouvrements. Décision de l'utilisateur : fusionner. Le principe
+retenu est de ne perdre aucune fonctionnalité — chaque écran supprimé
+devient un onglet de celui qui l'englobe, en gardant la meilleure des deux
+implémentations panneau par panneau.
+
+### Changed
+- **Governance + Policy → Governance Center.** Les deux écrans consommaient
+  exactement les mêmes hooks (`usePolicyRules`, `useApprovals`,
+  `useAuditLog`, `useApproveAction`, `useRejectAction`) et donc les trois
+  mêmes endpoints : ils affichaient les mêmes données sous deux noms, avec
+  deux mises en page qui divergeaient à chaque évolution. Le Center unifié
+  garde l'architecture de Policy (briques du scaffold, recherche, filtres
+  par catégorie, remontée d'erreur de décision) et le rendu de Governance
+  (journal d'audit en colonnes horodatées plutôt qu'en JSON brut, règles
+  avec état activé/désactivé et description, métadonnées de demande
+  d'approbation). Trois onglets : Approbations, Règles, Audit.
+- **Knowledge Graph + Alexandrie → Memory Center.** Memory appelait déjà
+  les sept hooks d'Alexandrie *et* le graphe de connaissances : les deux
+  autres écrans n'affichaient rien qu'il ne montrait pas. Trois onglets :
+  Mémoire (statistiques par magasin, recherche hybride, expériences),
+  Graphe (nœuds et arêtes filtrables, repris de Knowledge Graph) et
+  Alexandrie (corpus, synchronisation, historique — avec la bannière
+  « service injoignable » et la gestion d'erreur de synchro d'Alexandrie
+  Center, qui distingue « corpus vide » de « service qui ne répond pas »).
+- La navigation passe de 25 à 22 entrées. Les identifiants `policy`,
+  `knowledge` et `alexandrie` restent résolus dans `cockpit-shell.tsx` vers
+  leur Center d'accueil, pour qu'un état persistant ou un lien pointant
+  dessus n'atterrisse pas silencieusement sur le Dashboard.
+
+### Added
+- `CenterTabs` dans `center-scaffold.tsx` : onglets internes à un Center,
+  avec indicateur actif animé (`layoutId`) et pastille de comptage
+  optionnelle.
+
+### Removed
+- `features/policy/policy-center.tsx`,
+  `features/knowledge/knowledge-graph-center.tsx`,
+  `features/alexandrie/alexandrie-center.tsx` — leur contenu vit désormais
+  dans les Centers ci-dessus. Trois imports d'icônes devenus inutilisés
+  retirés de la barre latérale.
+
+### Verified
+- `tsc --noEmit` : **0 erreur**. `vitest run` : **65/65**.
+  `next build` : **compilation réussie**, 14 pages.
+- Vérification navigateur des deux Centers fusionnés : Governance affiche
+  10 règles réelles réparties en 4 catégories, avec filtres opérants et les
+  trois badges (catégorie / état / décision) issus de la fusion ; Memory
+  bascule correctement entre ses trois onglets, et l'onglet Alexandrie
+  affiche l'erreur de connexion réelle (port 8200 refusé) au lieu de
+  compteurs à zéro trompeurs.
+
 ## Refonte — Interface cyberpunk et alignement des contrats d'API (2026-07-31)
 
 Refonte visuelle complète du Cockpit demandée par l'utilisateur (« design

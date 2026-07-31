@@ -6,8 +6,8 @@ import { useCockpitStore } from "@/hooks/use-store";
 import {
   LayoutDashboard, MessageSquare, Brain, Target, Users, Zap, Code2,
   Database, Sparkles, Wrench, Scale, Radio, FlaskConical, Dna,
-  ShieldCheck, LayoutGrid, Rocket, Play, FolderTree, Network,
-  Library, ScrollText, CheckCircle2, LineChart, HeartPulse,
+  ShieldCheck, LayoutGrid, Rocket, Play, FolderTree,
+  CheckCircle2, LineChart, HeartPulse,
   ChevronLeft, ChevronRight, Search,
 } from "lucide-react";
 
@@ -46,19 +46,20 @@ const groups: {
   {
     label: "Connaissance",
     accent: "magenta",
+    // Knowledge Graph et Alexandrie sont devenus des onglets du Memory
+    // Center, qui affichait déjà exactement les mêmes données.
     items: [
       { id: "memory", label: "Memory", icon: Database },
-      { id: "knowledge", label: "Knowledge", icon: Network },
-      { id: "alexandrie", label: "Alexandrie", icon: Library },
       { id: "workspace", label: "Workspace", icon: FolderTree },
     ],
   },
   {
     label: "Gouvernance",
     accent: "amber",
+    // Policy interrogeait les trois mêmes endpoints que Governance : les
+    // deux écrans sont fusionnés en onglets d'un seul Center.
     items: [
       { id: "governance", label: "Governance", icon: Scale },
-      { id: "policy", label: "Policy", icon: ScrollText },
       { id: "security", label: "Security", icon: ShieldCheck },
       { id: "validation", label: "Validation", icon: CheckCircle2 },
       { id: "evolution", label: "Evolution", icon: FlaskConical },

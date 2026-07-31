@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   useMemorySearch,
   useKnowledgeGraph,
@@ -14,9 +14,34 @@ import {
   useAlexandrieDocuments,
   useAlexandrieGraph,
 } from "@/hooks/use-api";
-import { Card, Badge } from "@/components/ui/card";
-import type { SearchResult, Experience, KnowledgeNode, AlexandrieMergeResult } from "@/types/hermes";
-import { CenterHeader } from "@/components/center-scaffold";
+import { Badge, Button, Beacon } from "@/components/ui/card";
+import {
+  AsyncPanel,
+  CenterHeader,
+  CenterTabs,
+  DataTable,
+  StatGrid,
+  Toolbar,
+} from "@/components/center-scaffold";
+import type { Experience } from "@/types/hermes";
+
+/* ═══════════════════════════════════════════════════════════════════
+   Memory Center — fusion de Memory, Knowledge Graph et Alexandrie.
+
+   Les trois écrans se recouvraient : Memory appelait déjà les sept
+   hooks d'Alexandrie *et* le graphe de connaissances, donc Knowledge
+   Graph et Alexandrie n'affichaient rien qu'il ne montrait pas. Trois
+   entrées de menu servaient les mêmes endpoints avec trois mises en
+   page différentes.
+
+   Ils deviennent trois onglets d'un seul Center. Chaque onglet reprend
+   la meilleure implémentation existante : le graphe garde la recherche
+   et les tableaux filtrables de Knowledge Graph, Alexandrie garde la
+   bannière « service injoignable » et la gestion d'erreur de synchro
+   d'Alexandrie Center.
+   ═══════════════════════════════════════════════════════════════════ */
+
+type Tab = "memory" | "graph" | "alexandrie";
 
 /** The headline number for one memory store.
  *
@@ -38,280 +63,462 @@ function headlineCount(value: unknown): number {
 }
 
 export function MemoryCenter() {
+  const [tab, setTab] = useState<Tab>("memory");
+
+  // ── Mémoire ──
   const [query, setQuery] = useState("");
-  const [alexQuery, setAlexQuery] = useState("");
-  const { data: results } = useMemorySearch(query);
-  const { data: graph } = useKnowledgeGraph();
+  const { data: results, isLoading: searching } = useMemorySearch(query);
   const { data: experiences } = useExperiences();
   const { data: stats } = useMemoryStatistics();
 
-  // Alexandrie
-  const { data: alexStatus } = useAlexandrieStatus();
-  const { data: alexHealth } = useAlexandrieHealth();
-  const { data: alexSearchResults } = useAlexandrieSearch(alexQuery);
-  const { data: alexSyncHistory } = useAlexandrieSyncHistory();
-  const { data: alexDocuments } = useAlexandrieDocuments();
-  const { data: alexGraph } = useAlexandrieGraph();
+  // ── Graphe ──
+  const memGraph = useKnowledgeGraph();
+  const [nodeSearch, setNodeSearch] = useState("");
+  const [nodeFilter, setNodeFilter] = useState("Tous");
+
+  // ── Alexandrie ──
+  const alexHealth = useAlexandrieHealth();
+  const alexStatus = useAlexandrieStatus();
+  const alexDocs = useAlexandrieDocuments();
+  const alexGraph = useAlexandrieGraph();
+  const alexHistory = useAlexandrieSyncHistory();
   const alexSync = useAlexandrieSync();
+  const [alexQuery, setAlexQuery] = useState("");
+  const [docSearch, setDocSearch] = useState("");
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const alexResults = useAlexandrieSearch(alexQuery);
+
+  const nodes = memGraph.data?.nodes ?? [];
+  const edges = memGraph.data?.edges ?? [];
+  const nodeTypes = useMemo(() => {
+    const set = new Set(nodes.map((n) => n.type).filter(Boolean));
+    return ["Tous", ...Array.from(set).slice(0, 6)];
+  }, [nodes]);
+
+  const visibleNodes = nodes.filter((n) => {
+    const hay = `${n.label ?? ""} ${n.id} ${n.type ?? ""}`.toLowerCase();
+    if (nodeSearch && !hay.includes(nodeSearch.toLowerCase())) return false;
+    return nodeFilter === "Tous" || n.type === nodeFilter;
+  });
+
+  const alexEdges = (alexGraph.data?.edges ?? []) as Record<string, unknown>[];
+  const docs = alexDocs.data?.documents ?? [];
+  const visibleDocs = docs.filter(
+    (d) => !docSearch || JSON.stringify(d).toLowerCase().includes(docSearch.toLowerCase()),
+  );
+  const alexOffline = alexHealth.data && !alexHealth.data.healthy;
 
   return (
     <div className="animate-fade-in">
       <CenterHeader
         title="Memory Center"
-        subtitle="Mémoire unifiée, graphe de connaissances et récupération"
+        subtitle="Mémoire unifiée, graphe de connaissances et corpus Alexandrie"
+        right={
+          alexHealth.isLoading ? (
+            <Badge>Vérification…</Badge>
+          ) : (
+            <Badge variant={alexHealth.data?.healthy ? "success" : "danger"}>
+              {alexHealth.data?.healthy && <Beacon tone="green" />}
+              Alexandrie {alexHealth.data?.healthy ? "connectée" : "hors ligne"}
+            </Badge>
+          )
+        }
       />
 
-      {/* Stats.
-          /api/v1/memory/statistics returns one nested object per store —
-          working: {active_memories, active_missions}, episodic: {total, ...},
-          semantic: {total, categories}, and so on. This rendered `val`
-          directly, which throws "Objects are not valid as a React child" and,
-          because the crash escaped the Center, blanked the whole Cockpit
-          (R-004). Each tile now shows that store's headline count. */}
-      {stats && (
-        <div className="grid grid-cols-5 gap-3 mb-6">
-          {Object.entries(stats).slice(0, 5).map(([key, val]) => (
-            <div key={key} className="bg-hermes-card border border-hermes-border rounded-lg p-3 text-center">
-              <div className="text-xl font-bold font-mono text-hermes-amber-bright">
-                {headlineCount(val)}
-              </div>
-              <div className="text-[10px] text-hermes-muted font-mono uppercase">{key}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <CenterTabs
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { id: "memory", label: "Mémoire" },
+          {
+            id: "graph",
+            label: "Graphe",
+            badge: nodes.length > 0 ? <Badge>{nodes.length}</Badge> : null,
+          },
+          {
+            id: "alexandrie",
+            label: "Alexandrie",
+            badge: docs.length > 0 ? <Badge>{docs.length}</Badge> : null,
+          },
+        ]}
+      />
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search memory (hybrid: graph + embeddings + keyword)..."
-            className="w-full bg-hermes-card border border-hermes-border rounded-lg px-4 py-3 text-sm text-hermes-text font-mono focus:border-hermes-amber outline-none placeholder:text-hermes-muted"
+      {/* ═══ MÉMOIRE ═══════════════════════════════════════════════ */}
+      {tab === "memory" && (
+        <>
+          {/* /api/v1/memory/statistics renvoie un objet imbriqué par magasin —
+              working: {active_memories, …}, episodic: {total, …}. Ce panneau
+              rendait `val` directement, ce qui lève « Objects are not valid as
+              a React child » et, l'erreur s'échappant du Center, blanchissait
+              tout le Cockpit (R-004). Chaque tuile montre le compte principal. */}
+          {stats && (
+            <StatGrid
+              columns={5}
+              stats={Object.entries(stats)
+                .slice(0, 5)
+                .map(([key, val]) => ({ label: key, value: headlineCount(val) }))}
+            />
+          )}
+
+          <Toolbar
+            search={query}
+            onSearch={setQuery}
+            placeholder="Recherche hybride en mémoire (graphe + embeddings + mots-clés)…"
           />
-        </div>
 
-        {results && results.length > 0 && (
-          <div className="mt-3 flex flex-col gap-2 max-h-[300px] overflow-y-auto">
-            {results.map((r, i) => (
-              <div key={i} className="bg-hermes-card border border-hermes-border rounded-lg p-3 flex items-start gap-3">
-                <Badge variant={r.score > 0.7 ? "success" : r.score > 0.4 ? "warning" : "default"}>
-                  {(r.score * 100).toFixed(0)}%
-                </Badge>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-hermes-text truncate">
-                    {r.entry?.content?.slice(0, 120) || "—"}
-                  </div>
-                  <div className="text-[10px] text-hermes-muted mt-1">
-                    {r.justification}
-                  </div>
+          {query && (
+            <div className="mb-4">
+              <AsyncPanel
+                title="Résultats de recherche"
+                subtitle={`requête : ${query}`}
+                isLoading={searching}
+                isError={false}
+                isEmpty={!results || results.length === 0}
+                emptyLabel="Aucun résultat pour cette requête."
+              >
+                <div className="flex flex-col gap-2 max-h-[320px] overflow-y-auto">
+                  {results?.map((r, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-3 p-3 rounded-lg bg-hermes-bg-deep/50
+                        border border-hermes-border/50 hover:border-hermes-cyan/30 transition-colors"
+                    >
+                      <Badge
+                        variant={r.score > 0.7 ? "success" : r.score > 0.4 ? "warning" : "default"}
+                      >
+                        {(r.score * 100).toFixed(0)}%
+                      </Badge>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] text-hermes-text truncate">
+                          {r.entry?.content?.slice(0, 140) || "—"}
+                        </div>
+                        {r.justification && (
+                          <div className="text-[10px] text-hermes-dim mt-1">{r.justification}</div>
+                        )}
+                      </div>
+                      {r.entry?.type && <Badge>{r.entry.type}</Badge>}
+                    </div>
+                  ))}
                 </div>
-                <Badge>{r.entry?.type}</Badge>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        {/* Knowledge Graph */}
-        <Card title="Knowledge Graph" subtitle={graph ? `${graph.nodes.length} nodes, ${graph.edges.length} edges` : "Loading..."}>
-          {graph ? (
-            <div className="h-[250px] overflow-y-auto">
-              <div className="flex flex-wrap gap-2">
-                {graph.nodes.slice(0, 30).map((node) => (
-                  <NodeChip key={node.id} node={node} />
-                ))}
-              </div>
-              {graph.nodes.length > 30 && (
-                <p className="text-[10px] text-hermes-muted mt-2 text-center">
-                  +{graph.nodes.length - 30} more nodes
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-[250px] text-xs text-hermes-muted">
-              No graph data
+              </AsyncPanel>
             </div>
           )}
-        </Card>
 
-        {/* Experiences */}
-        <Card title="Experiences" subtitle={experiences ? `${experiences.length} lessons learned` : "Loading..."}>
-          <div className="flex flex-col gap-2 max-h-[250px] overflow-y-auto">
-            {experiences?.slice(0, 10).map((exp) => (
-              <ExperienceCard key={exp.id} experience={exp} />
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      {/* Alexandrie Integration */}
-      <div className="mt-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <h2 className="text-sm font-bold text-hermes-text font-mono tracking-tight">
-              📚 Alexandrie Document Integration
-            </h2>
-            {alexHealth && (
-              <Badge variant={alexHealth.healthy ? "success" : "warning"}>
-                {alexHealth.healthy ? "CONNECTED" : "OFFLINE"}
-              </Badge>
-            )}
-          </div>
-          <button
-            onClick={() => alexSync.mutate({ incremental: true })}
-            disabled={alexSync.isPending}
-            className="px-3 py-1.5 text-[11px] font-mono bg-hermes-amber/10 text-hermes-amber-bright border border-hermes-amber/30 rounded-md hover:bg-hermes-amber/20 transition-colors disabled:opacity-50"
+          <AsyncPanel
+            title="Expériences"
+            subtitle={`${experiences?.length ?? 0} leçon(s) retenue(s) — /api/v1/memory/experiences`}
+            isLoading={!experiences}
+            isError={false}
+            isEmpty={!experiences || experiences.length === 0}
+            emptyLabel="Aucune expérience enregistrée : aucune mission n'a encore produit de leçon."
           >
-            {alexSync.isPending ? "Syncing..." : "Sync Now"}
-          </button>
-        </div>
-
-        {/* Alexandrie Status Cards */}
-        {alexStatus && (
-          <div className="grid grid-cols-5 gap-3 mb-4">
-            <StatusCard label="Synced" value={alexStatus.documents_synced} />
-            <StatusCard label="Indexed" value={alexStatus.documents_indexed} />
-            <StatusCard label="Graph Edges" value={alexStatus.graph_edges} />
-            <StatusCard label="Cache" value={`${alexStatus.cache?.entries || 0}`} />
-            <StatusCard label="Circuit" value={alexStatus.circuit_breaker?.open ? "OPEN" : "CLOSED"} state={alexStatus.circuit_breaker?.open ? "warning" : "success"} />
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-4">
-          {/* Alexandrie Hybrid Search */}
-          <Card title="Hybrid Search (Alexandrie + Hermes)" subtitle={alexSearchResults ? `${alexSearchResults.total} results` : "Enter a query"}>
-            <div className="mb-3">
-              <input
-                type="text"
-                value={alexQuery}
-                onChange={(e) => setAlexQuery(e.target.value)}
-                placeholder="Search documents across Alexandrie & Hermes..."
-                className="w-full bg-hermes-bg border border-hermes-border rounded-md px-3 py-2 text-xs text-hermes-text font-mono focus:border-hermes-amber outline-none placeholder:text-hermes-muted"
-              />
+            <div className="grid grid-cols-2 gap-2 max-h-[380px] overflow-y-auto">
+              {experiences?.slice(0, 20).map((exp) => (
+                <ExperienceCard key={exp.id} experience={exp} />
+              ))}
             </div>
-            {alexSearchResults?.results && alexSearchResults.results.length > 0 && (
-              <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto">
-                {alexSearchResults.results.slice(0, 8).map((r, i) => (
-                  <div key={i} className="bg-hermes-bg rounded-md p-2 border border-hermes-border/50 flex items-start gap-2">
-                    <Badge variant={r.source === "alexandrie" ? "default" : "warning"}>
-                      {r.source}
-                    </Badge>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-hermes-text truncate">{r.title}</div>
-                      <div className="text-[10px] text-hermes-muted mt-0.5 line-clamp-2">{r.content.slice(0, 150)}</div>
+          </AsyncPanel>
+        </>
+      )}
+
+      {/* ═══ GRAPHE ════════════════════════════════════════════════ */}
+      {tab === "graph" && (
+        <>
+          <StatGrid
+            columns={4}
+            stats={[
+              { label: "Nœuds mémoire", value: nodes.length },
+              { label: "Arêtes mémoire", value: edges.length },
+              { label: "Arêtes Alexandrie", value: alexEdges.length },
+              { label: "Types distincts", value: Math.max(nodeTypes.length - 1, 0) },
+            ]}
+          />
+
+          <Toolbar
+            search={nodeSearch}
+            onSearch={setNodeSearch}
+            placeholder="Rechercher un nœud par libellé, identifiant ou type…"
+            filters={nodeTypes}
+            activeFilter={nodeFilter}
+            onFilter={setNodeFilter}
+          />
+
+          <AsyncPanel
+            title="Nœuds du graphe de mémoire"
+            subtitle={`${visibleNodes.length} affiché(s) sur ${nodes.length} — /api/v1/memory/graph`}
+            isLoading={memGraph.isLoading}
+            isError={memGraph.isError}
+            error={memGraph.error}
+            isEmpty={visibleNodes.length === 0}
+            emptyLabel={
+              nodes.length === 0
+                ? "Le graphe de mémoire est vide : aucune mission n'y a encore écrit."
+                : "Aucun nœud ne correspond à ce filtre."
+            }
+          >
+            <DataTable
+              rows={visibleNodes.slice(0, 200)}
+              rowKey={(n) => n.id}
+              columns={[
+                { header: "Libellé", cell: (n) => n.label || n.id.slice(0, 24) },
+                { header: "Type", cell: (n) => <Badge>{n.type || "—"}</Badge> },
+                {
+                  header: "Propriétés",
+                  cell: (n) => (
+                    <span className="text-hermes-muted">
+                      {Object.keys(n.properties ?? {}).length} champ(s)
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          </AsyncPanel>
+
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <AsyncPanel
+              title="Arêtes de mémoire"
+              subtitle="Relations entre nœuds"
+              isLoading={memGraph.isLoading}
+              isError={memGraph.isError}
+              error={memGraph.error}
+              isEmpty={edges.length === 0}
+              emptyLabel="Aucune relation enregistrée."
+            >
+              <DataTable
+                rows={edges.slice(0, 100)}
+                rowKey={(e, i) => `${e.from}-${e.to}-${i}`}
+                columns={[
+                  { header: "De", cell: (e) => e.from.slice(0, 18) },
+                  { header: "Vers", cell: (e) => e.to.slice(0, 18) },
+                  { header: "Type", cell: (e) => e.type },
+                ]}
+              />
+            </AsyncPanel>
+
+            <AsyncPanel
+              title="Graphe documentaire Alexandrie"
+              subtitle="/api/v1/alexandrie/graph"
+              isLoading={alexGraph.isLoading}
+              isError={alexGraph.isError}
+              error={alexGraph.error}
+              isEmpty={alexEdges.length === 0}
+              emptyLabel="Aucune arête documentaire : Alexandrie n'a pas encore indexé de corpus."
+            >
+              <DataTable
+                rows={alexEdges.slice(0, 100)}
+                rowKey={(_e, i) => String(i)}
+                columns={[{ header: "Arête", cell: (e) => JSON.stringify(e).slice(0, 80) }]}
+              />
+            </AsyncPanel>
+          </div>
+        </>
+      )}
+
+      {/* ═══ ALEXANDRIE ════════════════════════════════════════════ */}
+      {tab === "alexandrie" && (
+        <>
+          {alexOffline && (
+            <div className="mb-4 flex items-start gap-2.5 px-3 py-2.5 rounded-lg glass border border-hermes-red/40">
+              <span className="text-hermes-red text-glow-red font-mono">⚠</span>
+              <div className="text-[11px] font-mono text-hermes-text">
+                Alexandrie est injoignable —{" "}
+                <span className="text-hermes-muted">
+                  {String(alexHealth.data?.error ?? "aucun détail").slice(0, 160)}
+                </span>
+                . Les compteurs ci-dessous sont vides parce que le service ne répond
+                pas, pas parce que le corpus est vide.
+              </div>
+            </div>
+          )}
+
+          <StatGrid
+            columns={5}
+            stats={[
+              { label: "Documents", value: alexDocs.data?.total ?? 0 },
+              { label: "Synchronisés", value: alexStatus.data?.documents_synced ?? 0 },
+              { label: "Indexés", value: alexStatus.data?.documents_indexed ?? 0 },
+              { label: "Arêtes", value: alexEdges.length },
+              {
+                label: "Service",
+                value: alexHealth.data?.healthy ? "en ligne" : "hors ligne",
+                tone: alexHealth.data?.healthy ? "ok" : "bad",
+              },
+            ]}
+          />
+
+          <Toolbar
+            search={docSearch}
+            onSearch={setDocSearch}
+            placeholder="Filtrer les documents chargés…"
+            actions={
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setSyncError(null);
+                  alexSync.mutate(
+                    { incremental: true },
+                    {
+                      onError: (e) =>
+                        setSyncError(
+                          e instanceof Error ? e.message : "Synchronisation refusée",
+                        ),
+                    },
+                  );
+                }}
+                disabled={alexSync.isPending}
+              >
+                {alexSync.isPending ? "Synchronisation…" : "Synchroniser"}
+              </Button>
+            }
+          />
+
+          {syncError && (
+            <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-lg glass border border-hermes-red/40">
+              <span className="text-hermes-red text-glow-red font-mono">⚠</span>
+              <span className="text-hermes-red text-[11px] font-mono">{syncError}</span>
+            </div>
+          )}
+
+          <div className="mb-4">
+            <input
+              type="text"
+              value={alexQuery}
+              onChange={(e) => setAlexQuery(e.target.value)}
+              placeholder="Recherche hybride dans le corpus (Alexandrie + Hermes)…"
+              className="w-full glass rounded-lg border border-hermes-border px-3 py-2 text-sm
+                text-hermes-text font-mono placeholder:text-hermes-dim
+                focus:outline-none focus:border-hermes-cyan/60 focus:shadow-glow-cyan transition-all"
+            />
+          </div>
+
+          {alexQuery && (
+            <div className="mb-4">
+              <AsyncPanel
+                title="Résultats de recherche"
+                subtitle={`requête : ${alexQuery}`}
+                isLoading={alexResults.isLoading}
+                isError={alexResults.isError}
+                error={alexResults.error}
+                isEmpty={(alexResults.data?.results ?? []).length === 0}
+                emptyLabel="Aucun résultat pour cette requête."
+              >
+                <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto">
+                  {(alexResults.data?.results ?? []).slice(0, 12).map((r, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2.5 p-2.5 rounded-lg bg-hermes-bg-deep/50
+                        border border-hermes-border/50"
+                    >
+                      <Badge variant={r.source === "alexandrie" ? "info" : "warning"}>
+                        {r.source}
+                      </Badge>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] text-hermes-text truncate">{r.title}</div>
+                        <div className="text-[10px] text-hermes-dim mt-0.5 line-clamp-2">
+                          {r.content?.slice(0, 150)}
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-hermes-cyan font-mono shrink-0">
+                        {(r.score * 100).toFixed(0)}%
+                      </span>
                     </div>
-                    <span className="text-[10px] text-hermes-amber font-mono">{(r.score * 100).toFixed(0)}%</span>
+                  ))}
+                </div>
+              </AsyncPanel>
+            </div>
+          )}
+
+          <AsyncPanel
+            title="Documents"
+            subtitle={`${visibleDocs.length} affiché(s) sur ${docs.length}`}
+            isLoading={alexDocs.isLoading}
+            isError={alexDocs.isError}
+            error={alexDocs.error}
+            isEmpty={visibleDocs.length === 0}
+            emptyLabel={
+              alexOffline
+                ? "Service injoignable : impossible de lister le corpus."
+                : "Aucun document indexé. Lancez une synchronisation."
+            }
+          >
+            <DataTable
+              rows={visibleDocs.slice(0, 100)}
+              rowKey={(d, i) => (d as { id?: string }).id ?? String(i)}
+              columns={[
+                { header: "Titre", cell: (d) => (d as { title?: string }).title ?? "—" },
+                {
+                  header: "Identifiant",
+                  cell: (d) => (
+                    <span className="text-hermes-muted">
+                      {String((d as { id?: string }).id ?? "—").slice(0, 24)}
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          </AsyncPanel>
+
+          <div className="mt-4">
+            <AsyncPanel
+              title="Historique de synchronisation"
+              subtitle={
+                alexStatus.data?.last_sync_at
+                  ? `dernière : ${new Date(alexStatus.data.last_sync_at).toLocaleString()}`
+                  : "/api/v1/alexandrie/sync/history"
+              }
+              isLoading={alexHistory.isLoading}
+              isError={alexHistory.isError}
+              error={alexHistory.error}
+              isEmpty={(alexHistory.data?.events ?? []).length === 0}
+              emptyLabel="Aucune synchronisation enregistrée."
+            >
+              <div className="flex flex-col gap-1 max-h-[240px] overflow-y-auto">
+                {(alexHistory.data?.events ?? []).slice(0, 30).map((evt, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[10px] font-mono py-1">
+                    <span className="text-hermes-dim w-16 shrink-0">
+                      {evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString() : "—"}
+                    </span>
+                    <Badge
+                      variant={
+                        evt.status === "synced" ? "success"
+                        : evt.status === "failed" ? "danger"
+                        : "default"
+                      }
+                    >
+                      {evt.status}
+                    </Badge>
+                    <span className="text-hermes-text truncate">{evt.type}</span>
                   </div>
                 ))}
               </div>
-            )}
-          </Card>
-
-          {/* Alexandrie Sync History */}
-          <Card title="Sync History" subtitle={alexStatus?.last_sync_at ? `Last: ${new Date(alexStatus.last_sync_at).toLocaleString()}` : "No sync yet"}>
-            <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto">
-              {alexSyncHistory?.events?.slice(0, 10).map((evt, i) => (
-                <div key={i} className="flex items-center gap-2 text-[10px] font-mono">
-                  <span className="text-hermes-muted w-16 shrink-0">
-                    {new Date(evt.timestamp).toLocaleTimeString()}
-                  </span>
-                  <Badge variant={evt.status === "synced" ? "success" : evt.status === "failed" ? "danger" : "default"}>
-                    {evt.status}
-                  </Badge>
-                  <span className="text-hermes-text truncate">{evt.type}</span>
-                </div>
-              ))}
-              {(!alexSyncHistory?.events || alexSyncHistory.events.length === 0) && (
-                <div className="text-[10px] text-hermes-muted text-center py-4">No sync events yet</div>
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* Alexandrie Document Graph */}
-        {alexGraph && alexGraph.total > 0 && (
-          <div className="mt-4">
-            <Card title="Document Relations" subtitle={`${alexGraph.total} edges`}>
-              <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto">
-                {alexGraph.edges.slice(0, 20).map((edge, i) => (
-                  <span key={i} className="px-2 py-0.5 rounded text-[10px] font-mono bg-hermes-bg border border-hermes-border/50 text-hermes-muted">
-                    {edge.relation}: {edge.source.slice(0, 12)}→{edge.target.slice(0, 12)}
-                  </span>
-                ))}
-              </div>
-            </Card>
+            </AsyncPanel>
           </div>
-        )}
-
-        {/* Synced Documents List */}
-        {alexDocuments && alexDocuments.total > 0 && (
-          <div className="mt-4">
-            <Card title={`Synced Documents (${alexDocuments.total})`} subtitle="From Alexandrie">
-              <div className="flex flex-wrap gap-1.5 max-h-[80px] overflow-y-auto">
-                {alexDocuments.documents.slice(0, 15).map((doc) => (
-                  <span key={doc.id} className="px-2 py-0.5 rounded text-[10px] font-mono bg-hermes-amber/10 border border-hermes-amber/20 text-hermes-amber-bright">
-                    {doc.title.slice(0, 40)}
-                  </span>
-                ))}
-              </div>
-            </Card>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }
 
-function StatusCard({ label, value, state }: { label: string; value: string | number; state?: "success" | "warning" | "danger" }) {
-  const colors = {
-    success: "text-hermes-green",
-    warning: "text-hermes-amber-bright",
-    danger: "text-hermes-red",
-  };
-  const textColor = state ? colors[state] : "text-hermes-amber-bright";
-  return (
-    <div className="bg-hermes-card border border-hermes-border rounded-lg p-3 text-center">
-      <div className={`text-xl font-bold font-mono ${textColor}`}>{value}</div>
-      <div className="text-[10px] text-hermes-muted font-mono uppercase">{label}</div>
-    </div>
-  );
-}
-
-function NodeChip({ node }: { node: KnowledgeNode }) {
-  const colors: Record<string, string> = {
-    MISSION: "bg-hermes-purple/20 border-hermes-purple/30 text-hermes-purple",
-    AGENT: "bg-hermes-blue/20 border-hermes-blue/30 text-hermes-blue",
-    RUNTIME: "bg-hermes-green/20 border-hermes-green/30 text-hermes-green",
-    SKILL: "bg-hermes-amber/20 border-hermes-amber/30 text-hermes-amber",
-    TOOL: "bg-hermes-red/20 border-hermes-red/30 text-hermes-red",
-  };
-
-  return (
-    <span className={`px-2 py-1 rounded text-[10px] font-mono border ${colors[node.type] || "bg-hermes-border/20 border-hermes-border text-hermes-muted"}`}>
-      {node.label.slice(0, 30)}
-    </span>
-  );
-}
+/* ── Sous-composants ────────────────────────────────────────────── */
 
 function ExperienceCard({ experience }: { experience: Experience }) {
   return (
-    <div className="bg-hermes-bg rounded-lg p-3 border border-hermes-border/50">
-      <div className="flex items-center gap-2 mb-1">
+    <div
+      className="p-3 rounded-lg bg-hermes-bg-deep/50 border border-hermes-border/50
+        hover:border-hermes-cyan/30 transition-colors"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
         <Badge variant={experience.success ? "success" : "danger"}>
-          {experience.success ? "SUCCESS" : "FAILURE"}
+          {experience.success ? "SUCCÈS" : "ÉCHEC"}
         </Badge>
-        <span className="text-[10px] text-hermes-muted font-mono">
+        <span className="text-[10px] text-hermes-dim font-mono truncate flex-1">
           {experience.pattern}
         </span>
         <Badge>{(experience.confidence * 100).toFixed(0)}%</Badge>
       </div>
-      <ul className="text-[10px] text-hermes-muted list-disc list-inside">
+      <ul className="text-[10px] text-hermes-muted list-disc list-inside space-y-0.5">
         {experience.learnings?.slice(0, 3).map((l, i) => (
-          <li key={i}>{l}</li>
+          <li key={i} className="truncate">{l}</li>
         ))}
       </ul>
     </div>
