@@ -35,6 +35,7 @@ router = APIRouter(prefix="/missions", tags=["missions"])
 
 _executor: Optional[GraphExecutor] = None
 _planner: Optional[Any] = None
+_memory_manager: Optional[Any] = None
 _missions: dict[str, Mission] = {}
 
 #: Safety valve on the DAG walk. execute_step() runs every currently-ready node,
@@ -59,6 +60,58 @@ def set_mission_planner(planner: Any) -> None:
     """
     global _planner
     _planner = planner
+
+
+def set_memory_manager(mm: Any) -> None:
+    """Inject the memory manager so terminal missions write an episode.
+
+    Same injection pattern as set_mission_planner(), for the same reason:
+    /autonomous fed episodic memory from mission one (AutonomousMemoryLoop)
+    while /missions never did, so a mission run through this router left
+    episodic.total unmoved no matter how many missions completed here —
+    both surfaces share one execution engine since R-002 P1, but recording
+    the outcome was never wired for this one."""
+    global _memory_manager
+    _memory_manager = mm
+
+
+def _record_episode(mission: Mission) -> None:
+    """Best-effort write-back once a mission reaches a terminal status.
+
+    Mirrors AutonomousMemoryLoop.process_report()'s episodic write: never
+    raises past this point, since a learning write must not fail (or
+    retroactively un-complete) a mission that already finished."""
+    if _memory_manager is None:
+        return
+
+    from backend.memory.memory_models import EpisodicMemory
+
+    duration = 0.0
+    if mission.started_at is not None and mission.completed_at is not None:
+        duration = (mission.completed_at - mission.started_at).total_seconds()
+
+    agents_used = sorted({n.preferred_agent for n in mission.nodes if n.preferred_agent})
+    runtimes_used = sorted({n.preferred_runtime for n in mission.nodes if n.preferred_runtime})
+
+    try:
+        _memory_manager.record_episode(EpisodicMemory(
+            mission_id=mission.mission_id,
+            mission_title=mission.title,
+            mission_type=mission.type.value,
+            success=mission.status == MissionStatus.COMPLETED,
+            total_nodes=mission.total_nodes(),
+            completed_nodes=mission.completed_nodes(),
+            failed_nodes=mission.failed_nodes(),
+            duration_seconds=duration,
+            agents_used=agents_used,
+            runtimes_used=runtimes_used,
+            tags=list(mission.context.tags),
+        ))
+    except Exception:
+        logger.warning(
+            "episodic write-back failed for mission %s", mission.mission_id,
+            exc_info=True,
+        )
 
 
 def _plan_nodes(mission: Mission, payload: dict) -> tuple[list[MissionNode], list[MissionEdge]]:
@@ -231,6 +284,9 @@ async def start_mission(mission_id: str):
         logger.warning("mission %s hit the %d-pass ceiling", mission_id,
                        MAX_EXECUTION_PASSES)
 
+    if mission.status in terminal:
+        _record_episode(mission)
+
     return {
         "mission_id": mission_id,
         "status": mission.status.value,
@@ -246,6 +302,8 @@ async def cancel_mission(mission_id: str):
         return {"error": "Mission or executor not found"}
 
     _executor.cancel_mission(mission)
+    if mission.status == MissionStatus.CANCELLED:
+        _record_episode(mission)
     return {"mission_id": mission_id, "status": mission.status.value}
 
 

@@ -1,3 +1,35 @@
+## Correction — Mémoire épisodique alimentée par /api/v1/missions (2026-07-31)
+
+Item #3 de la liste de finalisation.
+
+### Fixed
+- `/api/v1/autonomous` alimentait la mémoire épisodique dès sa première
+  mission (`AutonomousMemoryLoop`, RC3 P2) ; `/api/v1/missions` ne l'a
+  jamais fait, alors que les deux surfaces partagent le même moteur
+  d'exécution depuis R-002 P1. `episodic.total` (`GET
+  /api/v1/memory/statistics`) restait donc figé quel que soit le nombre de
+  missions terminées via ce routeur. `backend/mission/routes.py` écrit
+  désormais un `EpisodicMemory` (succès/échec, nœuds, durée, agents et
+  runtimes utilisés) chaque fois qu'une mission atteint un état terminal
+  via `/start` (`completed`/`failed`) ou `/cancel` (`cancelled`) —
+  écriture best-effort, non bloquante, sur le même modèle que
+  `AutonomousMemoryLoop.process_report()`. Le gestionnaire de mémoire est
+  injecté depuis la racine de composition
+  (`backend/core/bootstrap/service_registry.py`, `mission_planner` déclare
+  désormais `memory_manager` comme dépendance et `_bind_planner_routes`
+  l'injecte au même endroit que le planificateur de mission).
+
+### Added
+- `tests/integration/test_r002_integration.py::test_mission_completion_writes_an_episode` —
+  vérifie que `episodic.total` progresse et que l'épisode enregistré
+  reflète la mission réelle après un cycle complet via `/api/v1/missions`.
+
+### Verified
+- Suite R-002 + missions/mémoire/assembly ciblée : **454/454 verts**.
+- Suite complète (`backend/tests` + `tests`, hors les 2 fichiers
+  KTransformers déjà cassés à la collection — item #5) : **3358 réussis
+  (dont le nouveau test), 3 ignorés, 0 échec** (11 min 23 s).
+
 ## Correction — Fenêtre de contexte Ollama et whitelist ALLOWED_PATHS (2026-07-31)
 
 Item #2 de la liste de finalisation : deux défauts de configuration qui

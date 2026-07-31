@@ -296,7 +296,7 @@ def _make_mission_planner(c: Any) -> Any:
 
 def _bind_planner_routes(c: Any, svc: Any) -> list[Any]:
     from backend.mission.planner.routes import create_planner_routes
-    from backend.mission.routes import set_mission_planner
+    from backend.mission.routes import set_memory_manager, set_mission_planner
 
     # The /missions router needs the planner to turn a described goal into a
     # DAG, but route binders run inline as each service is built and the planner
@@ -304,6 +304,10 @@ def _bind_planner_routes(c: Any, svc: Any) -> list[Any]:
     # keeps the ordering correct and avoids a mission_executor ↔ mission_planner
     # dependency cycle (R-002 P1).
     set_mission_planner(svc)
+    # Same injection, same reason, for episodic write-back: /autonomous fed
+    # episodic memory from mission one (AutonomousMemoryLoop), /missions
+    # never did, even though both share one execution engine (R-002 P1).
+    set_memory_manager(c.get("memory_manager"))
     return [create_planner_routes(svc)]
 
 
@@ -764,7 +768,11 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         name="Intelligent Mission Planner",
         category=ComponentCategory.MISSION,
         factory=_make_mission_planner,
-        dependencies=("mission_executor", "event_dispatcher"),
+        # memory_manager isn't a planning dependency — it rides along here
+        # because _bind_planner_routes is the injection point that already
+        # reaches into backend.mission.routes' module state after both
+        # mission_executor and this service exist (see its docstring).
+        dependencies=("mission_executor", "event_dispatcher", "memory_manager"),
         route_binder=_bind_planner_routes,
         produced_events=("mission.created",),
         description="Mission decomposition and planning (HOS-042)",

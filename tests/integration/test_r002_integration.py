@@ -225,6 +225,28 @@ def test_execution_is_recorded_by_the_task_executor(client, fast_engine, contain
     assert after["simulated"] is False
 
 
+def test_mission_completion_writes_an_episode(client, fast_engine, container):
+    """/missions used to leave episodic.total unmoved no matter how many
+    missions completed through it — only /autonomous fed episodic memory
+    (RC3 P2 fixed that surface; this is the same gap on the other one)."""
+    memory_manager = container.get("memory_manager")
+    before = memory_manager.stats()["episodic"]["total"]
+
+    mid = client.post("/api/v1/missions", json={
+        "title": "R-002 episodic write-back",
+        "description": "Analyse the authentication module",
+    }).json()["mission_id"]
+    client.post(f"/api/v1/missions/{mid}/start")
+
+    after = memory_manager.stats()["episodic"]["total"]
+    assert after > before, "mission completed but no episode was recorded"
+
+    episode = memory_manager.get_episode(mid)
+    assert episode is not None
+    assert episode.success is True
+    assert episode.total_nodes > 0
+
+
 def test_autonomous_surface_uses_the_same_engine(client, fast_engine, container):
     """Both surfaces must move the one shared counter."""
     executor = container.get("task_executor")
