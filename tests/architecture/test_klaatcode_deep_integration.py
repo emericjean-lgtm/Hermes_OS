@@ -13,15 +13,11 @@ from __future__ import annotations
 
 import pytest
 
-from backend.execution.execution_models import TaskExecution, ValidationOutcome
 from backend.integrations.klaatcode import (
     CodeGraphAdapter,
-    CodeRelation,
     CostGuardAdapter,
-    DiagnosticIssue,
     DiagnosticsAdapter,
     DiagnosticsReport,
-    PatchValidationResult,
     RuntimeRecommendation,
     TaskCostEstimate,
 )
@@ -29,7 +25,6 @@ from backend.memory.knowledge_graph import KnowledgeGraph
 from backend.memory.memory_manager import MemoryManager
 from backend.workspace.workspace_manager import WorkspaceManager
 from backend.agents.specialized.klaatcode import (
-    KlaatCodeAgent,
     KlaatCodeTaskType,
     create_klaatcode_agent,
 )

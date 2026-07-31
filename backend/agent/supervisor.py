@@ -14,22 +14,20 @@ Integrates:
 - RuntimeDecisionEngine (HOS-015) — optional callback
 - RuntimeRouter (HOS-010) — future
 
-No concrete agent (Coder, QA, Freebuff, etc.) is imported here.
+No concrete agent (Coder, QA, etc.) is imported here.
 """
 from __future__ import annotations
 
 import threading
 import time
 import uuid
-from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional
 
-from backend.agent.execution_graph import ExecutionGraph, NodeStatus
+from backend.agent.execution_graph import NodeStatus
 from backend.agent.lifecycle import (
     AgentContext,
-    AgentInstance,
     AgentLifecycleManager,
     AgentLifecycleError,
     AgentState,
@@ -37,7 +35,6 @@ from backend.agent.lifecycle import (
 from backend.agent.task_planner import (
     PlannedTask,
     PlanningError,
-    PlanningStrategy,
     TaskMission,
     TaskPlan,
     TaskPlanner,

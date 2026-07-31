@@ -16,11 +16,8 @@ from backend.memory.memory_manager import MemoryManager
 from backend.workspace.workspace_manager import WorkspaceManager
 from backend.integrations.ohmypi import (
     LSPBridgeAdapter, LSPSymbol, LSPDiagnostic, CodeStructure,
-    DebugAdapter, DebugSession, DebugBreakpoint, StackFrame,
-    ASTAdapter, ASTNode, ASTAnalysis,
-    OhMyPiWorkspaceAdapter,
-    OhMyPiRuntimeAdapter, OhMyPiRuntimeInfo,
-    OhMyPiMemoryAdapter, OhMyPiExperience,
+    DebugAdapter, ASTAdapter, OhMyPiWorkspaceAdapter,
+    OhMyPiRuntimeAdapter, OhMyPiMemoryAdapter, OhMyPiExperience,
 )
 
 

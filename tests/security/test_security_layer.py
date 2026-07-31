@@ -6,7 +6,6 @@ EventBus, thread safety, and API routes.
 """
 
 import threading
-import pytest
 
 from backend.security.security_models import (
     AgentTrustScore,
@@ -35,7 +34,6 @@ from backend.security.routes import (
     handle_get_status,
     handle_get_policies,
     handle_get_events,
-    handle_get_threats,
     get_engine,
 )
 

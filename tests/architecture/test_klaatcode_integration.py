@@ -9,17 +9,15 @@ Run with: python3 -m pytest tests/architecture/test_klaatcode_integration.py -v
 from __future__ import annotations
 
 import threading
-import time
-from datetime import datetime, timezone
 
 import pytest
 
 from backend.runtime.events.event_bus import RuntimeEventBus
-from backend.runtime.events.event_models import RuntimeEventModel, RuntimeEventSeverity
-from backend.tools.mcp.mcp_models import MCPServer, MCPTool, MCPStatus
+from backend.runtime.events.event_models import RuntimeEventModel
+from backend.tools.mcp.mcp_models import MCPServer, MCPTool
 from backend.tools.tool_models import (
-    ToolDefinition, ToolRequest, ToolResult, ToolType, ToolCategory,
-    ToolPermission, ExecutionStatus,
+    ToolDefinition, ToolRequest, ToolType, ToolCategory,
+    ToolPermission,
 )
 from backend.tools.tool_policy import ToolPolicy, PolicyVerdict
 from backend.tools.tool_sandbox import ToolSandbox, SandboxConfig

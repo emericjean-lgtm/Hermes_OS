@@ -6,8 +6,7 @@ Import/export missions as JSON and YAML with versioning.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from backend.mission.mission_models import (
     Mission,

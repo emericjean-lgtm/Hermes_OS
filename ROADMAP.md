@@ -82,7 +82,6 @@ jamais appelés en production. Le composition root les appelle désormais.
 |---|---|---|
 | M-9 | `pytest.ini` : `testpaths = backend/tests tests` (la CI n'exécute que 24 % des tests) | 🟠 Majeure |
 | M-1 | Modèles Pydantic sur les 19 corps `dict = Body(...)` (500 → 422) | 🟠 Majeure |
-| M-4/M-5 | Porter ou retirer `test_ktransformers_integration.py` ; supprimer les 5 modules KT morts | 🟠 Majeure |
 | M-7 | Consolider les 6 duplications (`agent`/`agents`, `evolution`/`self_evolution`, 2 registries…) | 🟠 Majeure |
 | M-13 | Borner `mcp<2` dans `requirements.txt` (la 1.26 a introduit la protection DNS-rebinding) | 🟠 Majeure |
 | M-8 | Persister et borner `mission/routes.py::_missions` (dict module-level sans verrou) | 🟠 Majeure |

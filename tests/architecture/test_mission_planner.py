@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
 
 from backend.mission.graph_executor import GraphExecutor
-from backend.mission.mission_models import MissionStatus, NodeStatus
+from backend.mission.mission_models import MissionStatus
 from backend.mission.planner.complexity_estimator import ComplexityEstimator
 from backend.mission.planner.dependency_builder import DependencyBuilder
 from backend.mission.planner.mission_planner import MissionPlanner
@@ -18,7 +17,6 @@ from backend.mission.planner.planner_models import (
     RiskLevel,
     TaskBreakdown,
     TaskCategory,
-    ValidationReport,
 )
 from backend.mission.planner.runtime_recommender import RuntimeRecommender
 from backend.mission.planner.task_decomposer import TaskDecomposer

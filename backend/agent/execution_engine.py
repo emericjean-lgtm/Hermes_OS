@@ -30,29 +30,23 @@ from backend.agent.execution_graph import (
     ExecutionGraphError,
     GraphExecutionPlan,
     NodeStatus,
-    NodeType,
 )
 from backend.agent.lifecycle import (
     AgentContext,
-    AgentInstance,
-    AgentLifecycleError,
     AgentLifecycleManager,
     AgentState,
 )
 from backend.agent.supervisor import (
     MissionContext,
-    MissionInstance,
     MissionState,
     MultiAgentSupervisor,
     SupervisorError,
-    SupervisorEvent,
 )
 from backend.agent.task_planner import (
     PlannedTask,
     PlanningError,
     PlanningStrategy,
     TaskMission,
-    TaskPlan,
     TaskPlanner,
 )
 from backend.ral.runtime_decision import (
@@ -60,13 +54,13 @@ from backend.ral.runtime_decision import (
     RuntimeDecisionError,
     RuntimeDecision,
 )
-from backend.ral.runtime_router import RuntimeRouter, RuntimeExecutionError
+from backend.ral.runtime_router import RuntimeRouter
 
 # HermesAgentAdapter is imported lazily (TYPE_CHECKING) because of
 # Python 3.10 compatibility (datetime.UTC).
 import typing as _typing
 if _typing.TYPE_CHECKING:
-    from backend.integrations.hermes_agent import HermesAgentAdapter
+    pass
 
 
 # ======================================================================

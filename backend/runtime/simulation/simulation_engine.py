@@ -13,7 +13,6 @@ from typing import Any, Callable, Optional
 from backend.runtime.simulation.resource_predictor import ResourcePredictor
 from backend.runtime.simulation.risk_analyzer import RiskAnalyzer
 from backend.runtime.simulation.simulation_models import (
-    RiskAssessment,
     RiskLevel,
     SimulatedCandidate,
     SimulationResult,

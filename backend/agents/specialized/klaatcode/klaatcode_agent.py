@@ -29,7 +29,6 @@ from backend.agents.agent_models import (
     AgentMetrics,
     AgentProfile,
     AgentStatus,
-    ExecutionContext,
     ExecutionResult,
     TaskOutcome,
 )
@@ -37,7 +36,6 @@ from backend.agents.agent_models import (
 from .klaatcode_capabilities import (
     KlaatCodeAgentStatus,
     KlaatCodeTaskType,
-    TASK_TO_CAPABILITY,
     TASK_TO_MCP_ACTION,
 )
 from .klaatcode_profile import KlaatCodeProfile

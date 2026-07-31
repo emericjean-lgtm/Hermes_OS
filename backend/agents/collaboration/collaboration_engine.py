@@ -21,7 +21,6 @@ from backend.agents.collaboration.collaboration_models import (
     ConsensusProposal,
     ConflictType,
     Delegation,
-    MessageType,
     Review,
     ReviewStatus,
     SharedContext,

@@ -10,11 +10,6 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from backend.runtime.resources.resource_manager import ResourceManager
-from backend.runtime.resources.resource_models import (
-    ResourceAllocation,
-    ResourceAllocationResult,
-    ResourceType,
-)
 
 router = APIRouter(prefix="/runtime/resources", tags=["runtime-resources"])
 

@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from backend.integrations.alexandrie.alexandrie_models import AlexandrieNode, AlexandrieNodeType, ConflictResolution
+from backend.integrations.alexandrie.alexandrie_models import AlexandrieNode
 from backend.integrations.alexandrie.hermes_alexandrie_adapter import get_alexandrie_adapter
 
 router = APIRouter(prefix="/alexandrie", tags=["alexandrie"])

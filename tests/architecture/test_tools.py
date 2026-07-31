@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import time
 import sys
 import os
 
@@ -11,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from backend.tools.tool_models import (
     ExecutionStatus, HealthStatus, ToolCategory, ToolDefinition,
-    ToolInstance, ToolPermission, ToolRequest, ToolStatus, ToolType,
+    ToolPermission, ToolRequest, ToolStatus, ToolType,
 )
 from backend.tools.tool_registry import ToolRegistry
 from backend.tools.tool_policy import PolicyVerdict, ToolPolicy
@@ -21,7 +20,7 @@ from backend.tools.tool_router import ToolRouter
 from backend.tools.tool_health import ToolHealth
 from backend.tools.tool_memory import ToolMemory
 from backend.tools.mcp import (
-    MCPCall, MCPClient, MCPRegistry, MCPServer, MCPStatus, MCPTool, MCPTransport,
+    MCPClient, MCPRegistry, MCPServer, MCPStatus, MCPTool,
 )
 from backend.tools.connectors.github import GitHubConnector
 from backend.tools.connectors.gitlab import GitLabConnector

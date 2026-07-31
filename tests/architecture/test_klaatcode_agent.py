@@ -11,8 +11,6 @@ Run with: python3 -m pytest tests/architecture/test_klaatcode_agent.py -v
 from __future__ import annotations
 
 import threading
-import time
-from datetime import datetime, timezone
 
 import pytest
 

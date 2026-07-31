@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import threading
-import uuid
 
 import pytest
 
@@ -18,7 +17,6 @@ from backend.agent.execution_graph import (
     CycleError,
     ExecutionGraph,
     ExecutionGraphError,
-    ExecutionGraphValidator,
     GraphExecutionPlan,
     NodeStatus,
     NodeType,

@@ -7,18 +7,17 @@ delegates to all kernel modules without duplicating business logic.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
 import pytest
 
-from backend.agent.execution_graph import AgentNode, NodeStatus, NodeType
-from backend.agent.lifecycle import AgentContext, AgentLifecycleManager
-from backend.agent.supervisor import MissionContext, MissionInstance, MissionState
-from backend.agent.task_planner import PlannedTask, PlanningStrategy, TaskMission, TaskPlanner
-from backend.events.system_event_bus import EventFilter, EventSeverity, SystemEvent, SystemEventBus, SystemEventType
-from backend.memory.unified_memory import MemoryQuery, MemoryScope, UnifiedMemory
-from backend.ral.runtime import RuntimeInterface, RuntimeStatus, CapabilitySet
+from backend.agent.lifecycle import AgentLifecycleManager
+from backend.agent.supervisor import MissionContext, MissionState
+from backend.agent.task_planner import PlannedTask, PlanningStrategy, TaskPlanner
+from backend.events.system_event_bus import SystemEventBus, SystemEventType
+from backend.memory.unified_memory import MemoryQuery, UnifiedMemory
+from backend.ral.runtime import RuntimeInterface, RuntimeStatus
 from backend.ral.runtime_context import ActiveRuntimeContext
 from backend.ral.runtime_registry import RuntimeRegistry
 from backend.ral.runtime_selector import RuntimeSelector
@@ -26,12 +25,10 @@ from backend.ral.runtime_health import RuntimeHealthMonitor
 from backend.ral.runtime_performance import RuntimePerformanceAnalyzer
 from backend.ral.runtime_events import RuntimeEventBus
 from backend.ral.runtime_recovery import RuntimeRecoveryManager
-from backend.ral.runtime_factory import RuntimeLifecycle
-from backend.ral.runtime_decision import RuntimeDecisionEngine, RuntimeDecisionWeights
+from backend.ral.runtime_decision import RuntimeDecisionEngine
 from backend.ral.runtime_router import RuntimeRouter
 from backend.skills.orchestrator import (
     AdaptiveSkillOrchestrator,
-    InMemorySkillRepository,
     SkillBundle,
     SkillDescriptor,
     SkillSelectionStrategy,
@@ -314,7 +311,7 @@ class TestMissionFacade:
         assert retrieved.context.mission_id == mission.context.mission_id
 
     def test_list_missions(self, service: MissionControlService):
-        from backend.agent.supervisor import MissionContext, MissionInstance
+        from backend.agent.supervisor import MissionContext
         ctx1 = MissionContext(mission_id="list-m1", title="M1", objective="Obj 1")
         ctx2 = MissionContext(mission_id="list-m2", title="M2", objective="Obj 2")
         service.create_mission("M1", "Obj 1", _make_tasks(1), mission_id="list-m1")
@@ -595,7 +592,6 @@ class TestSystemFacade:
     def test_health_contains_integrations(self, service: MissionControlService):
         health = service.health()
         assert "hermes_agent" in health.integrations_status
-        assert "freebuff" in health.integrations_status
 
     def test_status(self, service: MissionControlService):
         status = service.status()
@@ -753,7 +749,7 @@ class TestErrorHandling:
 
 
 # ======================================================================
-# Tests — Integration guards (Hermes / Freebuff)
+# Tests — Integration guards (Hermes)
 # ======================================================================
 
 
@@ -775,21 +771,3 @@ class TestIntegrationGuards:
         """Health check without adapter should return 'unavailable'."""
         result = service.hermes_health()
         assert result == "unavailable"
-
-    def test_freebuff_not_available(self, service: MissionControlService):
-        """Without Freebuff adapter injected, operations should raise."""
-        import pytest
-        with pytest.raises(MissionControlError):
-            service.create_freebuff_project("test-project")
-
-    def test_freebuff_sync_graceful(self, service: MissionControlService):
-        """Synchronize without adapter should raise."""
-        import pytest
-        with pytest.raises(MissionControlError):
-            service.synchronize_freebuff_project("pid", _make_tasks(1))
-
-    def test_freebuff_prompt_graceful(self, service: MissionControlService):
-        """Submit prompt without adapter should raise."""
-        import pytest
-        with pytest.raises(MissionControlError):
-            service.submit_freebuff_prompt("pid", "hello")

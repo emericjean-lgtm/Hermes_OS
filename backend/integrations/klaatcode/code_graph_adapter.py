@@ -17,11 +17,10 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from backend.memory.knowledge_graph import KnowledgeGraph
-from backend.memory.memory_models import KnowledgeEdge, KnowledgeNode
+from backend.memory.memory_models import KnowledgeNode
 
 
 # ── Relation constants ──────────────────────────────────────

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Optional
 
 from backend.runtime.recovery.recovery_actions import (
     NotifyAction,

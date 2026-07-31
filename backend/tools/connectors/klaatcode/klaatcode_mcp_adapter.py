@@ -19,18 +19,15 @@ Thread-safe.
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
 from typing import Any, Optional
 
 from backend.runtime.events.event_bus import RuntimeEventBus
 from backend.runtime.events.event_models import RuntimeEventModel, RuntimeEventSeverity
-from backend.tools.mcp.mcp_models import MCPCall, MCPServer, MCPTool
+from backend.tools.mcp.mcp_models import MCPServer, MCPTool
 from backend.tools.tool_models import (
     ToolDefinition,
     ToolPermission,
     ToolRequest,
-    ToolResult,
-    ExecutionStatus,
     ToolType,
     ToolCategory,
 )

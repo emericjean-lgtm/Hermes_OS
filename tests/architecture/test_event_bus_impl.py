@@ -1,11 +1,10 @@
 """HOS-002 sentinel tests — EventBusImpl concrete implementation."""
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 

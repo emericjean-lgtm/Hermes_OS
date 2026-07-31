@@ -8,14 +8,12 @@ Computes dynamic ModelScore for each model.
 from __future__ import annotations
 
 import threading
-from collections import defaultdict
 from typing import Any
 
 from .model_intelligence_models import (
     BenchmarkResult,
     ModelPerformanceRecord,
     ModelProfile,
-    TaskType,
 )
 
 

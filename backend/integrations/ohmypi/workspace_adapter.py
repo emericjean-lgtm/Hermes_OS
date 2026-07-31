@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from backend.workspace.workspace_manager import WorkspaceManager
 from backend.workspace.workspace_models import ArtifactType

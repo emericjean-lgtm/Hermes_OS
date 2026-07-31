@@ -98,7 +98,7 @@ graph TB
 | **Événements** | Bus central pub/sub | 013, 025 |
 | **Services** | Façade MissionControlService | 027 |
 | **API** | REST + WebSocket | 028 |
-| **Intégrations** | HermesAgentAdapter, FreebuffAdapter | 023, 026 |
+| **Intégrations** | HermesAgentAdapter | 023 |
 
 > 📖 [ARCHITECTURE.md](ARCHITECTURE.md) — Documentation complète avec tous les diagrammes Mermaid.
 
@@ -154,7 +154,6 @@ Tous les endpoints REST sous `/api/v1/`, WebSocket à `/ws/events`.
 | **Skills** | `GET /skills`, `POST /skills/{select,recommend}`, `GET /skills/statistics` |
 | **Events** | `GET /events`, `GET /events/{statistics,export}`, `POST /events/{publish,clear}` |
 | **System** | `GET /{health,status,diagnostics,statistics,version}`, `POST /tick` |
-| **Freebuff** | `GET/POST /freebuff/projects`, `POST /freebuff/sync` |
 | **Hermes** | `GET /hermes/{status,sessions}`, `POST /hermes/{connect,disconnect,task}` |
 | **WebSocket** | `ws://host/ws/events` — streaming temps réel |
 
@@ -167,11 +166,6 @@ Tous les endpoints REST sous `/api/v1/`, WebSocket à `/ws/events`.
 Pont complet entre Hermes OS et [Hermes Agent](https://github.com/NousResearch/hermes-agent) (NousResearch).
 
 Mapping : `RuntimeDecision → ModelRouter`, `UnifiedMemory → EchoAgent`, `TaskPlan → Hermes Tasks`.
-
-### Freebuff (HOS-026)
-
-Pont avec Freebuff pour planification avancée :
-`Mission → FreebuffPrompt → FreebuffResponse → TaskPlan → ExecutionGraph → Supervisor`
 
 ### Futures intégrations prévues
 
@@ -267,7 +261,7 @@ backend/
 ├── memory/           # HOS-021 — Unified Memory
 ├── skills/           # HOS-022 — Skill Orchestrator
 ├── events/           # HOS-025 — System Event Bus
-├── integrations/     # HOS-023, 026 — Hermes Agent, Freebuff
+├── integrations/     # HOS-023 — Hermes Agent
 ├── services/         # HOS-027 — Mission Control Service
 ├── app/              # Legacy Hermes Ollama
 ├── core/             # Legacy

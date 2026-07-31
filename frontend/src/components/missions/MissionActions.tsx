@@ -7,7 +7,6 @@ import {
   useCancelMission,
   useDeleteMission,
   useDuplicateMission,
-  useSyncFreebuff,
 } from "@/hooks/use-missions";
 import {
   Play,
@@ -16,7 +15,6 @@ import {
   XCircle,
   Copy,
   Trash2,
-  BookOpen,
   Loader2,
 } from "lucide-react";
 import type { Mission } from "@/types/mission-control";
@@ -64,7 +62,6 @@ export default function MissionActions({ mission }: MissionActionsProps) {
   const cancel = useCancelMission();
   const del = useDeleteMission();
   const duplicate = useDuplicateMission();
-  const syncFreebuff = useSyncFreebuff();
 
   if (!mission) {
     return (
@@ -138,15 +135,6 @@ export default function MissionActions({ mission }: MissionActionsProps) {
           />
         </>
       ) : null}
-
-      <div className="ml-auto">
-        <ActionButton
-          icon={<BookOpen size={12} />}
-          label="Sync Freebuff"
-          onClick={() => syncFreebuff.mutate(mission.id)}
-          loading={syncFreebuff.isPending}
-        />
-      </div>
     </div>
   );
 }

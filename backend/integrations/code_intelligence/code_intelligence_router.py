@@ -29,7 +29,6 @@ from .code_intelligence_models import (
     RouteReason,
     RoutingDecision,
     SelectionStrategy,
-    TASK_PROVIDER_PREFERENCE,
 )
 
 # ── Scoring weights ──────────────────────────────────────────

@@ -11,8 +11,6 @@ from .mission_executor import MissionExecutor
 from .execution_models import (
     ExecutionMeta,
     ExecutionPriority,
-    ExecutionState,
-    ExecutionTimeline,
     TaskExecution,
     TaskExecutionStatus,
 )

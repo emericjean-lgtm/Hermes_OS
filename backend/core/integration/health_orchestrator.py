@@ -7,7 +7,6 @@ and provides a unified health status for the system.
 from __future__ import annotations
 
 import threading
-from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Callable
 

@@ -7,8 +7,6 @@ of Hermes OS configuration and memory data.
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import threading
 import zipfile
 from datetime import datetime, timezone

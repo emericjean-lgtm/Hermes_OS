@@ -12,7 +12,6 @@ from backend.agents.agent_models import (
     AgentCapability,
     AgentStatus,
     ExecutionResult,
-    TaskOutcome,
 )
 from backend.agents.agent_registry import AgentRegistry
 from backend.agents.agent_supervisor import AgentSupervisor

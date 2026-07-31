@@ -13,7 +13,6 @@ End-to-end scenarios covering:
 # ── Imports ──────────────────────────────────────────────────
 
 import threading
-import pytest
 
 from backend.agents.agent_models import AgentStatus, TaskOutcome
 from backend.agents.specialized.code_intelligence.code_intelligence_agent import (

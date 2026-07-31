@@ -8,13 +8,12 @@ The lifecycle manager implements a strict state machine (:class:`AgentState`)
 and enforces valid transitions at runtime. Every state change emits a
 :class:`LifecycleEvent` that can be consumed by observers.
 
-No concrete agent (Coder, QA, Freebuff, etc.) is imported here.
+No concrete agent (Coder, QA, etc.) is imported here.
 """
 from __future__ import annotations
 
 import threading
 import time
-import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional

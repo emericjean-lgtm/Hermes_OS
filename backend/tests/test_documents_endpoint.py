@@ -7,7 +7,6 @@ caller, so they must not collapse into one generic error.
 """
 from __future__ import annotations
 
-import pytest
 
 from backend.documents.extractor import (
     MissingExtractorDependencyError,

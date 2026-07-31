@@ -147,7 +147,7 @@ Pondéré, explicable, extensible.
 - Mémoire → UnifiedMemory
 - Skills → AdaptiveSkillOrchestrator
 - Événements → SystemEventBus
-- Intégrations → HermesAgentAdapter + FreebuffAdapter
+- Intégrations → HermesAgentAdapter
 - Système → Tous les sous-systèmes combinés
 
 L'API REST (HOS-028) est une couche de validation/délégation au-dessus de cette façade. Aucune logique métier n'y réside.

@@ -6,7 +6,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from .skill_models import LoadState, SkillDefinition, SkillInstance
+from .skill_models import LoadState, SkillInstance
 from .skill_registry import SkillRegistry
 
 

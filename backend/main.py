@@ -236,8 +236,15 @@ def create_app() -> FastAPI:
     )
 
     # ── Legacy Hermes API (unprefixed) ──
+    # deprecated=True marks every route from these 21 modules in the OpenAPI
+    # schema (Swagger UI shows them struck through) without changing behavior
+    # at all — the first, purely-informational step of the deprecation cycle
+    # docs/architecture/API_NAMESPACE_CONSISTENCY.md calls for. The same
+    # routers republished under /api/v1 below (mount_legacy_under_api) are
+    # the current, canonical way to reach these handlers and are deliberately
+    # left undeprecated.
     for module in _LEGACY_ROUTERS:
-        app.include_router(module.router)
+        app.include_router(module.router, deprecated=True)
 
     # ── STEP 3 + 4: every subsystem router, one canonical namespace ──
     # SDS is rebased off its baked-in /api/hermes-os prefix rather than

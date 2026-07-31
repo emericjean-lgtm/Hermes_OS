@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
 
-from .mcp import MCPCall, MCPClient, MCPRegistry, MCPServer, MCPStatus, MCPTool, MCPTransport
+from .mcp import MCPClient, MCPRegistry, MCPServer, MCPTransport
 from .tool_executor import ToolExecutor
 from .tool_health import ToolHealth
 from .tool_memory import ToolMemory

@@ -5,7 +5,6 @@ Runs benchmarks on local models across multiple profiles.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from backend.runtime.discovery.discovery_models import (

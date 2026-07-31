@@ -7,7 +7,7 @@ Exposes Oh My Pi tools as MCP tools. Every call passes through:
 from __future__ import annotations
 
 import threading
-from typing import Any, Optional
+from typing import Any
 
 from backend.tools.tool_models import (
     ToolDefinition, ToolPermission, ToolRequest, ToolType, ToolCategory,

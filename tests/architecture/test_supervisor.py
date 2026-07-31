@@ -7,16 +7,13 @@ tick cycle and statistics without any concrete agent or network call.
 from __future__ import annotations
 
 import threading
-import time
-import uuid
-from typing import Any, Optional
+from typing import Optional
 
 import pytest
 
-from backend.agent.lifecycle import AgentInstance, AgentLifecycleManager, AgentState
+from backend.agent.lifecycle import AgentLifecycleManager
 from backend.agent.supervisor import (
     MissionContext,
-    MissionInstance,
     MissionState,
     MultiAgentSupervisor,
     SupervisorError,

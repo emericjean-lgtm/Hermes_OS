@@ -31,7 +31,6 @@ class HealthResponse(BaseModel):
     runtime_degraded: int = 0
     runtime_unavailable: int = 0
     hermes_agent: str = "unavailable"
-    freebuff: str = "unavailable"
 
 
 class StatusResponse(BaseModel):
@@ -256,28 +255,6 @@ class EventStatisticsResponse(BaseModel):
 # ======================================================================
 # Integrations models
 # ======================================================================
-
-
-class FreebuffProjectCreateRequest(BaseModel):
-    """Request body for POST /api/v1/freebuff/projects."""
-
-    name: str = Field(..., min_length=1)
-    description: str = ""
-    tasks: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class FreebuffSyncRequest(BaseModel):
-    """Request body for POST /api/v1/freebuff/sync."""
-
-    project_id: str
-    tasks: list[dict[str, Any]]
-
-
-class FreebuffProjectResponse(BaseModel):
-    """Freebuff project response."""
-
-    project_id: str
-    name: str
 
 
 class HermesConnectRequest(BaseModel):

@@ -9,10 +9,9 @@ from typing import Any
 
 import pytest
 
-from backend.ral.capabilities import ChatCapability, ChatResponse
-from backend.ral.runtime import CapabilitySet, RuntimeInterface, RuntimeStatus
+from backend.ral.capabilities import ChatResponse
+from backend.ral.runtime import CapabilitySet, RuntimeStatus
 from backend.ral.runtime_context import ActiveRuntimeContext
-from backend.ral.runtime_factory import RuntimeLifecycle
 from backend.ral.runtime_health import (
     RuntimeHealthError,
     RuntimeHealthMonitor,
@@ -20,7 +19,7 @@ from backend.ral.runtime_health import (
     RuntimeMetrics,
 )
 from backend.ral.runtime_registry import RuntimeRegistry
-from backend.ral.runtime_router import RuntimeExecutionError, RuntimeRouter
+from backend.ral.runtime_router import RuntimeRouter
 from backend.ral.runtime_selector import RuntimeSelector
 from backend.sds.runtime import RuntimeHolder
 

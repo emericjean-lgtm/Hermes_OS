@@ -7,13 +7,9 @@ backup/restore, monitoring, health checks, recovery, and logging.
 from __future__ import annotations
 
 import os
-import json
-import tempfile
 import threading
 import time
-from pathlib import Path
 
-import pytest
 
 from backend.config.config_manager import ConfigManager
 from backend.config.config_models import (
@@ -33,7 +29,7 @@ from backend.monitoring.health_monitor import HealthMonitor
 from backend.monitoring.recovery_manager import RecoveryManager
 from backend.logging.production_logger import ProductionLogger
 from installer.system_detector import SystemDetector
-from installer.hardware_profile import HardwareProfile, PROFILES
+from installer.hardware_profile import PROFILES
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -6,7 +6,6 @@ Computes success rates, latency stats, and stability metrics.
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 from backend.runtime.intelligence.decision_memory import DecisionMemory
 from backend.runtime.intelligence.intelligence_models import TaskStatus

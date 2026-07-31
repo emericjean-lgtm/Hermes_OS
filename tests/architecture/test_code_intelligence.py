@@ -15,23 +15,17 @@ from backend.integrations.code_intelligence.code_intelligence_models import (
     CodeIntelligenceTask,
     CodeIntelligenceTaskType,
     CodeProvider,
-    HybridExecutionResult,
-    ProviderExecutionResult,
     ProviderScore,
     RouteReason,
     RoutingDecision,
     SelectionStrategy,
 )
 from backend.integrations.code_intelligence.code_intelligence_router import (
-    FACTOR_WEIGHTS,
     CodeIntelligenceRouter,
 )
 
 from backend.agents.specialized.code_intelligence.capabilities import (
     CI_EVENTS,
-    CICapability,
-    CodeIntelligenceAgentStatus,
-    TASK_TO_CI_CAPABILITY,
 )
 from backend.agents.specialized.code_intelligence.code_intelligence_agent import (
     CITaskRecord,
@@ -42,7 +36,7 @@ from backend.agents.specialized.code_intelligence.profile import (
     CodeIntelligenceProfile,
 )
 
-from backend.runtime.code_intelligence.ci_scorer import CIRuntimeScore, CIRuntimeScorer
+from backend.runtime.code_intelligence.ci_scorer import CIRuntimeScorer
 
 from backend.agents.agent_models import AgentStatus, TaskOutcome
 

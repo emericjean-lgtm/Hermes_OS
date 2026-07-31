@@ -12,7 +12,6 @@ Calculates dynamic trust scores for agents based on:
 from __future__ import annotations
 
 import threading
-from collections import defaultdict
 from typing import Any, Callable
 
 from .security_models import AgentTrustScore, TrustLevel

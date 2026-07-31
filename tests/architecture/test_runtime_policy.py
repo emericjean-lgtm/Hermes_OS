@@ -7,16 +7,13 @@ No concrete backend is contacted; all data is in-memory.
 from __future__ import annotations
 
 import threading
-from typing import Any
 
 import pytest
 
 from backend.ral.adapters.stub_runtime import StubRuntime
-from backend.ral.runtime import CapabilitySet, RuntimeStatus
 from backend.ral.runtime_decision import (
     RuntimeDecisionEngine,
     RuntimeDecisionError,
-    RuntimeDecisionWeights,
 )
 from backend.ral.runtime_events import RuntimeEventBus, RuntimeEvent, RuntimeEventType
 from backend.ral.runtime_factory import RuntimeLifecycle

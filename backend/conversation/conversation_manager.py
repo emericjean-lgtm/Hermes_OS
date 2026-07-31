@@ -7,7 +7,6 @@ with Hermes OS core systems (memory, missions, agents).
 from __future__ import annotations
 
 import threading
-import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable

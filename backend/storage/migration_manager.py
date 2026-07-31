@@ -5,8 +5,6 @@ Manages schema migrations for both SQLite and PostgreSQL backends.
 
 from __future__ import annotations
 
-import os
-import sqlite3
 import threading
 from datetime import datetime, timezone
 from typing import Any

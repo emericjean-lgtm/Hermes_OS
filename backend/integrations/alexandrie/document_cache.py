@@ -12,7 +12,6 @@ from collections import OrderedDict
 from typing import Any, Optional
 
 from backend.integrations.alexandrie.alexandrie_models import (
-    CacheEvictionPolicy,
     DocumentMemoryEntry,
 )
 

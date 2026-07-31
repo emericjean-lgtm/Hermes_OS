@@ -16,9 +16,7 @@ from backend.mission.mission_models import (
     Mission,
     MissionEdge,
     MissionNode,
-    MissionPriority,
     MissionStatus,
-    MissionType,
     NodeStatus,
 )
 

@@ -5,7 +5,7 @@ Estimates VRAM, RAM, duration, and load for a task on a given runtime.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from backend.runtime.simulation.simulation_models import ResourcePrediction
 

@@ -7,7 +7,6 @@ improvement of model scoring weights and detection of underperforming models.
 from __future__ import annotations
 
 import threading
-from collections import defaultdict
 from typing import Any
 
 from .model_intelligence_models import ModelPerformanceRecord

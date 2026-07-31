@@ -9,7 +9,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from .component_registry import ComponentCategory, ComponentInfo, ComponentRegistry, ComponentStatus
+from .component_registry import ComponentCategory, ComponentInfo, ComponentRegistry
 from .dependency_graph import DependencyGraph
 from .health_orchestrator import HealthOrchestrator
 

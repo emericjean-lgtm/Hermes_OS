@@ -6,7 +6,6 @@ Human approval workflow: approve, reject, comment, expire, delegate, multi-appro
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from backend.policy.approval_queue import ApprovalQueue

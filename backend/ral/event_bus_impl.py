@@ -18,7 +18,6 @@ from pathlib import Path
 
 from backend.ral.event_bus import (
     Event,
-    EventBusInterface,
     EventId,
     SubscriptionId,
     Topic,

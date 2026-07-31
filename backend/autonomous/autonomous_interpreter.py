@@ -13,7 +13,7 @@ import random
 import time
 from typing import Any
 
-from .autonomous_models import AutonomousGoal, GOAL_PATTERNS, GoalStatus
+from .autonomous_models import AutonomousGoal, GoalStatus
 
 
 class AutonomousInterpreter:

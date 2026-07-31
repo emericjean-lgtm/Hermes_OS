@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query
 
 from backend.runtime.discovery.discovery_engine import DiscoveryEngine
 from backend.runtime.discovery.model_registry import ModelRegistry
-from backend.runtime.discovery.discovery_models import BenchmarkProfile, DiscoverySource
+from backend.runtime.discovery.discovery_models import DiscoverySource
 
 router = APIRouter(prefix="/runtime/discovery", tags=["runtime-discovery"])
 

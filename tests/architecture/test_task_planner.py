@@ -9,7 +9,7 @@ import threading
 
 import pytest
 
-from backend.agent.execution_graph import ExecutionGraph, CycleError, NodeType
+from backend.agent.execution_graph import ExecutionGraph
 from backend.agent.task_planner import (
     PlannedTask,
     PlanningError,

@@ -26,12 +26,10 @@ from typing import Any
 from backend.connectors.ollama_client import OllamaClientProtocol
 from backend.ral.capabilities import (
     CapabilityInterface,
-    ChatCapability,
     ChatResponse,
-    ChatStreamCapability,
 )
 from backend.ral.event_bus import EventBusInterface, Topic
-from backend.ral.runtime import CapabilitySet, RuntimeInterface, RuntimeStatus
+from backend.ral.runtime import CapabilitySet, RuntimeStatus
 from backend.ral.runtime_config import RuntimeConfig
 
 logger = logging.getLogger(__name__)

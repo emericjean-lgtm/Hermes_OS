@@ -12,7 +12,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from backend.runtime.resources.resource_models import GPUInfo, ResourceStatus
+from backend.runtime.resources.resource_models import GPUInfo
 
 
 class GPUMonitor:

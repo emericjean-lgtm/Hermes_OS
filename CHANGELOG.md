@@ -1,3 +1,168 @@
+## Nettoyage — Dette technique : imports morts, routes héritées, schéma OpenAPI (2026-07-31)
+
+Item #8 de la liste de finalisation.
+
+### Removed
+- **448 imports inutilisés** détectés par `ruff check --select F401` sur
+  tout le dépôt Python (`ruff` installé pour l'occasion — absent du
+  projet). 438 supprimés automatiquement (`--fix`, mécanique et sûr par
+  nature) sur 192 fichiers. Les 10 restants sont volontairement laissés
+  intacts : ce sont des sondes de disponibilité (`try: import whisper /
+  except ImportError` dans `backend/voice/{speech_to_text,text_to_speech}.py`,
+  pareil pour `HermesAgentAdapter` et consorts dans
+  `backend/services/mission_control.py`) où le nom importé n'est jamais
+  référencé par identifiant mais où l'import lui-même fait le travail —
+  ruff refuse lui-même de les toucher et suggère `importlib.util.find_spec`
+  à la place, ce qui est juste mais hors de portée ici.
+- **9 composants frontend morts**, confirmés sans aucune référence
+  (import direct, import dynamique, barrel file, test) nulle part dans le
+  dépôt : `ActivityPanel.tsx`, `components/dashboard/{EventTimeline,
+  HealthCard,HermesCard,MissionList,StatisticsCard}.tsx`,
+  `features/runtime/kt-panel.tsx`, `features/tools/{klaatcode,ohmypi}-panel.tsx`.
+  Écart avec les « 15 composants morts » de l'audit RC1 : une partie a déjà
+  été nettoyée dans les phases intermédiaires (P-001, item #5 pour
+  `FreebuffCard.tsx`) ; 9 restaient réellement orphelins aujourd'hui.
+
+### Fixed
+- **Collision de nom de schéma OpenAPI sur `POST /verification/run`** :
+  `backend/api/routes/verification.py` et `backend/api/routes/workflows.py`
+  déclaraient chacun une classe `RunRequest`, ce que FastAPI résolvait en
+  mangling le nom du premier
+  (`backend__api__routes__verification__RunRequest`) dans le schéma public
+  — pas un schéma manquant comme le laissait penser la liste de
+  finalisation, juste un nom illisible en pratique (Swagger UI, clients
+  générés). Renommé en `VerificationRunRequest`, propre et sans collision.
+  En creusant ce point, découverte que le Validation Center du frontend
+  désactive volontairement son bouton de lancement en croyant, à tort
+  aujourd'hui, que cette charge utile n'est pas documentée dans l'OpenAPI —
+  signalé séparément (tâche de fond) plutôt que câblé ici : au-delà du
+  nettoyage de dette technique, c'est l'activation d'une action mutante
+  (exécution réelle de sous-processus) qui mérite sa propre vérification.
+- **62 routes héritées à la racine, jamais marquées comme telles** :
+  `backend/main.py` montait les 21 routeurs Hermes-Ollama d'origine à la
+  fois à la racine (compatibilité ascendante pure) et sous `/api/v1`
+  (chemin canonique actuel, `mount_legacy_under_api()`), sans aucune
+  distinction visible dans l'OpenAPI. Les montages racine portent
+  désormais `deprecated=True` — Swagger UI les affiche barrés, tout outil
+  lisant `openapi.json` peut filtrer dessus — sans le moindre changement
+  de comportement ; les montages `/api/v1` équivalents restent
+  volontairement non dépréciés puisque ce sont eux la façon actuelle
+  d'atteindre ces handlers. Documenté dans
+  `docs/architecture/API_NAMESPACE_CONSISTENCY.md`. `ROADMAP.md` : l'item
+  M-4/M-5 (déjà traité par ce nettoyage) retiré de la liste « reste à
+  traiter ».
+
+### Verified
+- `python -m compileall backend tests scripts` : aucune erreur de syntaxe
+  sur les 192 fichiers touchés par `ruff --fix`.
+- `tsc --noEmit` sur tout le frontend après les 9 suppressions : 0 erreur.
+- `GET /api/v1/verification/run` (schéma OpenAPI généré) : référence
+  `VerificationRunRequest` sans nom mangled ; `/chat` (racine) porte
+  `deprecated: true`, `/api/v1/chat` non.
+- Suite complète (`backend/tests` + `tests`, aucune exclusion) : **3308
+  réussis, 3 ignorés, 0 échec** (10 min 56 s) — inclut à la fois les
+  correctifs manquants de l'item #5 (voir entrée précédente) et le travail
+  de cet item #8, vérifiés ensemble en conditions réelles.
+
+## Correction — Le commit item #5 n'avait poussé que les suppressions (2026-07-31)
+
+Le commit `01863d9` ("Supprime FreeBuff...") ne contient, en réalité, que les
+5 suppressions de fichiers (`backend/integrations/freebuff/`,
+`docs/integrations/freebuff.md`, `FreebuffCard.tsx`,
+`test_freebuff_adapter.py`) : `git status` affichait bien toutes les
+modifications comme indexées juste avant le commit, mais celui-ci ne les a
+pas embarquées — cause exacte non déterminée (la commande `git add -A --
+<longue liste de chemins>` n'a manifestement pas fait ce qu'elle semblait
+faire). Résultat : `ARCHITECTURE.md`, `CONTRIBUTING.md`,
+`DESIGN_DECISIONS.md`, `README.md`, `backend/agent/{lifecycle,supervisor}.py`,
+`backend/api/{hos_routes,models,router}.py`,
+`backend/services/mission_control.py`, `backend/skills/orchestrator.py`,
+`docs/architecture/mission_control*.md`, les fichiers frontend
+(`MissionActions.tsx`, `MissionForm.tsx`, `use-dashboard.ts`,
+`use-missions.ts`, `mission-control.ts`, `mission-planner.ts`,
+`types/mission-control.ts`) et les mises à jour de tests
+(`test_mission_control_api.py`, `test_mission_control_service.py`) n'ont
+jamais atteint GitHub, alors que le rapport de ce commit affirmait le
+contraire.
+
+Repéré en creusant l'item #8 (une collision de nom de schéma OpenAPI a mené
+à relire `verification.py`, puis par ricochet le git log de la veille).
+Les fichiers étaient toujours corrects dans l'arbre de travail — aucun
+contenu perdu, seulement jamais poussé. Recommité ici avec le reste du
+travail de l'item #8, après une compilation complète (`compileall`) et une
+suite de tests complète en conditions réelles (voir plus bas) pour
+confirmer qu'aucune régression ne s'était glissée entre-temps.
+
+## Nettoyage — Suppression de FreeBuff, purge des prototypes KTransformers morts (2026-07-31)
+
+Item #5 de la liste de finalisation, décision utilisateur : nettoyage complet
+plutôt que suppression partielle.
+
+### Removed
+- **FreeBuff** : intégration entièrement retirée. `backend/integrations/freebuff/`
+  (983 lignes) était un simulateur pur — `submit_prompt(simulate=True)`
+  renvoyait un texte codé en dur, `simulate=False` renvoyait un *autre* texte
+  codé en dur, `connect()` ne contactait jamais rien (« In a real scenario:
+  validate API key, ping health endpoint »). Aucun client réel pour ce
+  service n'existe nulle part ailleurs dans le dépôt. Retiré : le module et
+  son test dédié (44 tests), sa doc (`docs/integrations/freebuff.md`), les
+  trois routes REST (`GET/POST /freebuff/projects`, `POST /freebuff/sync`)
+  et leurs modèles Pydantic, la façade `MissionControlService` (import
+  protégé, paramètre constructeur, trois méthodes, entrées santé/diagnostic),
+  les 6 tests qui ne couvraient que le mode « adaptateur absent », et les
+  références frontend mortes (`FreebuffCard.tsx` — jamais importé nulle
+  part —, le bouton « Sync Freebuff » et l'option de planner « Freebuff »
+  sur la page Mission Center, dont les appels réseau échouaient déjà en 404
+  puisque toute cette couche HOS-028 n'est jamais montée par `main.py`).
+  Documentation vivante (`ARCHITECTURE.md`, `README.md`, `CONTRIBUTING.md`,
+  `DESIGN_DECISIONS.md`, `docs/architecture/mission_control*.md`) mise à jour
+  en conséquence. `CHANGELOG.md` et l'entrée historique HOS-026 de
+  `ROADMAP.md` restent inchangés : ce sont des journaux, pas une
+  description de l'état courant.
+- **KTransformers, génération HOS-052 (prototype)** : 5 fichiers
+  (`kt_cache.py`, `kt_loader.py`, `kt_model_manager.py`, `kt_optimizer.py`,
+  `kt_scheduler.py`) n'étaient importés par rien de vivant — confirmé par
+  recherche exhaustive sur tout le dépôt — et deux d'entre eux
+  n'importaient même plus (`KTCacheStats`, `KTQuantization.Q3_K` retirés de
+  `kt_models.py` depuis). `tests/architecture/test_ktransformers.py` et
+  `test_ktransformers_integration.py` testaient cette génération intermédiaire
+  (HOS-052B, `KTKernelWrapper` et consorts) : ni l'un ni l'autre n'existe
+  dans le code actuel — c'est ce qui causait les deux erreurs de collection
+  laissées en suspens depuis le commit précédent (item #5 de la liste de
+  finalisation). Correspond exactement aux items M-4/M-5 déjà notés au
+  ROADMAP, retiré de la liste « reste à traiter ».
+
+### Kept as-is (décision utilisateur)
+- **KTransformers, génération HOS-052C (courante)** — `hermes_adapter.py`,
+  `kt_models.py`, `kt_runtime.py`, `kt_routes.py`, `integrations/` :
+  branchée dans `service_registry.py`, 13 routes REST réelles, 73/73 tests
+  verts sur un noyau simulé en l'absence du paquet `kt_kernel` réel.
+  Fonctionnelle telle quelle ; la finir « pour de vrai » est une question
+  matérielle/dépendance (installer `kt-kernel` + AMX/AVX512 ou GPU), pas de
+  branchement.
+- **vLLM / llama.cpp** — confirmé absents de tout le dépôt (aucun adaptateur
+  sous `backend/ral/adapters/`, aucune entrée dans `config/*.yaml`) ; déjà
+  correctement documentés comme travail futur (`RuntimeUnavailableError`
+  explicite plutôt qu'un faux succès). Rien à retirer.
+
+### Verified
+- Import direct de tous les modules backend touchés : OK.
+- `tests/architecture/test_ktransformers_final.py` (génération vivante) :
+  **73/73 verts**.
+- `tests/architecture` collecte proprement sans exclusion (`--ignore`) pour
+  la première fois : **1634 tests collectés**.
+- `tsc --noEmit` sur tout le frontend : **0 erreur**.
+- Suite complète (`backend/tests` + `tests`, plus aucun fichier à exclure) :
+  **3308 réussis, 3 ignorés, 0 échec** (11 min 37 s) — écart de -50 tests
+  par rapport au dernier baseline (3358), expliqué exactement par les tests
+  FreeBuff retirés (44 + 6).
+- Vérification manuelle dans le navigateur de la page Mission Center :
+  aucune erreur console liée aux fichiers modifiés ; les erreurs observées
+  (GovernanceCenter, SkillsCenter, RuntimeCenter, boutons de la page
+  `/missions` non réactifs) sont préexistantes et sans rapport avec ce
+  nettoyage — confirmé via `git diff` (le fichier hébergeant ces boutons
+  n'a pas été touché) — et signalées séparément.
+
 ## Correction — /api/v1/runtimes annonce le vrai runtime Ollama (2026-07-31)
 
 Item #4 de la liste de finalisation. Portée volontairement limitée à

@@ -14,7 +14,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from .evolution_models import EvolutionProposal, EvolutionStatus, RiskLevel
+from .evolution_models import EvolutionProposal, RiskLevel
 
 
 class ValidationVerdict(str, Enum):

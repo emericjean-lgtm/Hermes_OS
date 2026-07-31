@@ -8,7 +8,6 @@ from fastapi import APIRouter, Body
 
 from backend.agents.collaboration.collaboration_engine import CollaborationEngine
 from backend.agents.collaboration.collaboration_models import (
-    ConflictType,
     ConsensusMode,
 )
 

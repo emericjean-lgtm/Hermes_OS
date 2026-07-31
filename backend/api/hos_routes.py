@@ -10,48 +10,24 @@ serialisation.
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any, Optional
 
-from fastapi import Depends, HTTPException, Query, Request
+from fastapi import HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from backend.services.mission_control import (
     MissionControlError,
     MissionControlService,
-    MissionControlStatus,
 )
 
 from .models import (
-    APIError,
-    DiagnosticsResponse,
-    EventQueryRequest,
-    EventResponse,
-    EventStatisticsResponse,
     ExecutionStartRequest,
-    ExecutionStatusResponse,
-    FreebuffProjectCreateRequest,
-    FreebuffProjectResponse,
-    FreebuffSyncRequest,
-    HealthResponse,
     HermesConnectRequest,
     HermesTaskRequest,
-    MemoryEntryResponse,
-    MemorySearchResponse,
     MemoryStoreRequest,
     MissionCreateRequest,
-    MissionListResponse,
-    MissionResponse,
-    RuntimeDecisionResponse,
-    RuntimeInfoResponse,
-    RuntimeListResponse,
-    SkillResponse,
-    SkillSelectionResponse,
     SkillSelectRequest,
-    StatisticsResponse,
-    StatusResponse,
-    VersionResponse,
 )
 
 
@@ -674,55 +650,6 @@ async def clear_events(request: Request) -> JSONResponse:
 
 
 # ======================================================================
-# FREEBUFF HANDLERS
-# ======================================================================
-
-
-async def list_freebuff_projects(request: Request) -> JSONResponse:
-    return JSONResponse({"projects": [], "total": 0})
-
-
-async def create_freebuff_project(
-    request: Request,
-    body: FreebuffProjectCreateRequest,
-) -> JSONResponse:
-    svc = _get_service(request)
-    from backend.agent.task_planner import PlannedTask
-    tasks = []
-    for t in body.tasks:
-        tasks.append(PlannedTask(
-            id=t.get("id", f"fb_{time.time_ns()}"),
-            title=t.get("title", "fb_task"),
-            runtime_capability=t.get("runtime_capability", "chat"),
-        ))
-    try:
-        project = svc.create_freebuff_project(body.name, description=body.description, tasks=tasks if tasks else None)
-        return JSONResponse(project, status_code=201)
-    except MissionControlError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-async def sync_freebuff_project(
-    request: Request,
-    body: FreebuffSyncRequest,
-) -> JSONResponse:
-    svc = _get_service(request)
-    from backend.agent.task_planner import PlannedTask
-    tasks = []
-    for t in body.tasks:
-        tasks.append(PlannedTask(
-            id=t.get("id", f"fb_{time.time_ns()}"),
-            title=t.get("title", "fb_task"),
-            runtime_capability=t.get("runtime_capability", "chat"),
-        ))
-    try:
-        result = svc.synchronize_freebuff_project(body.project_id, tasks)
-        return JSONResponse({"status": "synced", "details": result})
-    except MissionControlError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-# ======================================================================
 # HERMES AGENT HANDLERS
 # ======================================================================
 
@@ -781,7 +708,6 @@ async def health_check(request: Request) -> JSONResponse:
         "runtime_degraded": health.runtime_status.get("degraded", 0),
         "runtime_unavailable": health.runtime_status.get("unavailable", 0),
         "hermes_agent": health.integrations_status.get("hermes_agent", "unavailable"),
-        "freebuff": health.integrations_status.get("freebuff", "unavailable"),
     })
 
 

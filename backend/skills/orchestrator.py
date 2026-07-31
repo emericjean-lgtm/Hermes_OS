@@ -6,15 +6,13 @@ avoiding the overhead of loading dozens of SKILL.md files unnecessarily.
 The orchestrator uses a configurable :class:`SkillSelectionStrategy` and
 respects token budgets, dependency chains and capability matching.
 
-No concrete agent (Hermes, Freebuff, MCP) is imported here.
+No concrete agent (Hermes, MCP) is imported here.
 """
 from __future__ import annotations
 
 import threading
 import time
-import uuid
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from collections.abc import Callable

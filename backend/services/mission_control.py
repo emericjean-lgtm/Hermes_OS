@@ -8,7 +8,7 @@ Designed to be consumed by:
 - Next.js frontend
 - REST / WebSocket / GraphQL APIs
 - MCP, CLI, SDK adapters
-- Freebuff, Alexandrie, Homelable integrations
+- Alexandrie, Homelable integrations
 """
 
 from __future__ import annotations
@@ -20,61 +20,44 @@ from enum import Enum
 from typing import Any, Optional
 
 # ── HOS-010 / HOS-015 Runtime ────────────────────────────────────────
-from backend.ral.runtime import RuntimeInterface, RuntimeStatus
-from backend.ral.runtime_context import ActiveRuntimeContext
 from backend.ral.runtime_registry import RuntimeRegistry
 from backend.ral.runtime_selector import RuntimeSelector
-from backend.ral.runtime_decision import RuntimeDecision, RuntimeDecisionEngine, RuntimeDecisionError
-from backend.ral.runtime_router import RuntimeRouter, RuntimeExecutionError
+from backend.ral.runtime_decision import RuntimeDecision, RuntimeDecisionEngine
+from backend.ral.runtime_router import RuntimeRouter
 from backend.ral.runtime_health import RuntimeHealthMonitor, RuntimeHealthStatus
 from backend.ral.runtime_performance import RuntimePerformanceAnalyzer, RuntimePerformanceMetrics
-from backend.ral.runtime_recovery import RuntimeRecoveryManager, CircuitState
+from backend.ral.runtime_recovery import RuntimeRecoveryManager
 
 # ── HOS-017 / HOS-018 / HOS-019 / HOS-020 Agent ─────────────────────
-from backend.agent.execution_graph import ExecutionGraph, GraphExecutionPlan, NodeStatus
-from backend.agent.task_planner import PlannedTask, PlanningError, PlanningStrategy, TaskMission, TaskPlan, TaskPlanner
-from backend.agent.lifecycle import AgentContext, AgentInstance, AgentLifecycleManager, AgentState
+from backend.agent.task_planner import PlannedTask, PlanningStrategy, TaskPlanner
+from backend.agent.lifecycle import AgentLifecycleManager, AgentState
 from backend.agent.supervisor import (
     MissionContext,
     MissionInstance,
     MissionState,
     MultiAgentSupervisor,
-    SupervisorError,
-    SupervisorEvent,
-    SupervisorStatistics,
 )
 from backend.agent.execution_engine import (
     ExecutionContext,
     ExecutionEngine,
-    ExecutionEngineError,
-    ExecutionEvent,
     ExecutionResult,
-    ExecutionScheduler,
-    ExecutionState,
-    ExecutionStatistics,
 )
 
 # ── HOS-021 Memory ──────────────────────────────────────────────────
 from backend.memory.unified_memory import (
     MemoryEntry,
-    MemoryEvent,
     MemoryQuery,
     MemoryResult,
     MemoryScope,
     MemoryStatistics,
     UnifiedMemory,
-    UnifiedMemoryError,
 )
 
 # ── HOS-022 Skills ──────────────────────────────────────────────────
 from backend.skills.orchestrator import (
     AdaptiveSkillOrchestrator,
-    SkillBundle,
     SkillDescriptor,
-    SkillError,
-    SkillEvent,
     SkillSelection,
-    SkillSelectionStrategy,
     SkillStatistics,
 )
 
@@ -104,22 +87,6 @@ try:
     _HERMES_AVAILABLE = True
 except ImportError:
     _HERMES_AVAILABLE = False
-
-# ── HOS-026 Freebuff ────────────────────────────────────────────────
-try:
-    from backend.integrations.freebuff import (
-        FreebuffAdapter,
-        FreebuffConfiguration,
-        FreebuffStatus,
-        FreebuffError,
-        FreebuffProject,
-        FreebuffPrompt,
-        FreebuffResponse,
-        FreebuffCapabilities,
-    )
-    _FREEBUFF_AVAILABLE = True
-except ImportError:
-    _FREEBUFF_AVAILABLE = False
 
 
 # ======================================================================
@@ -257,7 +224,6 @@ class MissionControlService:
         skills: Adaptive skill orchestrator.
         event_bus: System event bus.
         hermes_adapter: Optional Hermes Agent adapter.
-        freebuff_adapter: Optional Freebuff adapter.
         planner: Optional task planner (created with default strategy if not provided).
         config: Service configuration.
     """
@@ -279,7 +245,6 @@ class MissionControlService:
         event_bus: SystemEventBus,
         *,
         hermes_adapter: Any = None,
-        freebuff_adapter: Any = None,
         planner: Optional[TaskPlanner] = None,
         config: Optional[MissionControlConfiguration] = None,
     ) -> None:
@@ -297,7 +262,6 @@ class MissionControlService:
         self._skills = skills
         self._bus = event_bus
         self._hermes = hermes_adapter
-        self._freebuff = freebuff_adapter
         self._planner = planner or TaskPlanner(strategy=config.default_planning_strategy if config else PlanningStrategy.BALANCED)
         self._config = config or MissionControlConfiguration()
         # perf_counter, not time(): uptime must not jump when the wall clock is
@@ -1063,88 +1027,6 @@ class MissionControlService:
         return self._hermes.list_sessions()
 
     # ==================================================================
-    # INTEGRATION FACADE (Freebuff)
-    # ==================================================================
-
-    def create_freebuff_project(
-        self,
-        name: str,
-        *,
-        description: str = "",
-        tasks: Optional[list[PlannedTask]] = None,
-    ) -> dict[str, Any]:
-        """Create a Freebuff project from a mission.
-
-        Args:
-            name: Project name.
-            description: Project description.
-            tasks: Optional list of planned tasks.
-
-        Returns:
-            Project dict.
-
-        Raises:
-            MissionControlError: If Freebuff adapter is not available.
-        """
-        if not _FREEBUFF_AVAILABLE or self._freebuff is None:
-            raise MissionControlError("Freebuff adapter is not available.")
-        project = self._freebuff.create_project(name, description=description, tasks=tasks)
-        self._publish(SystemEventType.INTEGRATION, "mission_control.create_freebuff_project", payload={
-            "name": name,
-        })
-        return {
-            "project_id": project.project_id if hasattr(project, "project_id") else project.id,
-            "name": project.name if hasattr(project, "name") else name,
-        }
-
-    def synchronize_freebuff_project(
-        self,
-        project_id: str,
-        tasks: list[PlannedTask],
-    ) -> dict[str, Any]:
-        """Synchronize a Freebuff project with a Hermes OS plan.
-
-        Args:
-            project_id: Freebuff project id.
-            tasks: Planned tasks to sync.
-
-        Returns:
-            Sync result dict.
-        """
-        if not _FREEBUFF_AVAILABLE or self._freebuff is None:
-            raise MissionControlError("Freebuff adapter is not available.")
-        result = self._freebuff.synchronize_project(project_id, tasks)
-        self._publish(SystemEventType.INTEGRATION, "mission_control.synchronize_freebuff_project", payload={
-            "project_id": project_id,
-        })
-        return result
-
-    def submit_freebuff_prompt(
-        self,
-        project_id: str,
-        prompt_text: str,
-        *,
-        context: Optional[dict[str, Any]] = None,
-    ) -> str:
-        """Submit a prompt to Freebuff.
-
-        Args:
-            project_id: Freebuff project id.
-            prompt_text: Prompt text.
-            context: Optional context.
-
-        Returns:
-            Response text.
-        """
-        if not _FREEBUFF_AVAILABLE or self._freebuff is None:
-            raise MissionControlError("Freebuff adapter is not available.")
-        response = self._freebuff.submit_prompt(project_id, prompt_text, context=context)
-        self._publish(SystemEventType.INTEGRATION, "mission_control.submit_freebuff_prompt", payload={
-            "project_id": project_id,
-        })
-        return response
-
-    # ==================================================================
     # SYSTEM FACADE
     # ==================================================================
 
@@ -1186,14 +1068,6 @@ class MissionControlService:
                 integrations["hermes_agent"] = "error"
         else:
             integrations["hermes_agent"] = "not_configured"
-
-        if _FREEBUFF_AVAILABLE and self._freebuff is not None:
-            try:
-                integrations["freebuff"] = self._freebuff.health()
-            except Exception:
-                integrations["freebuff"] = "error"
-        else:
-            integrations["freebuff"] = "not_configured"
 
         # ── Aggregate ──
         bus_ok = True
@@ -1250,7 +1124,6 @@ class MissionControlService:
             },
             "integrations": {
                 "hermes_agent": "available" if (_HERMES_AVAILABLE and self._hermes is not None) else "unavailable",
-                "freebuff": "available" if (_FREEBUFF_AVAILABLE and self._freebuff is not None) else "unavailable",
             },
         }
 

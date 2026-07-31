@@ -17,7 +17,6 @@ from backend.ral.runtime import RuntimeInterface
 from backend.ral.runtime_context import ActiveRuntimeContext
 from backend.ral.runtime_factory import RuntimeFactory, RuntimeLifecycle
 from backend.ral.runtime_registry import RuntimeRegistry
-from backend.ral.runtime_selector import RuntimeSelector, RuntimeSelectionError
 from backend.sds.dependencies import (
     get_eventbus,
     get_runtime_context_dep,

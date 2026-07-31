@@ -6,7 +6,6 @@ Automatically constructs dependencies between tasks and builds the DAG.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Optional
 
 from backend.mission.planner.planner_models import (
     TaskBreakdown,

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import pytest
 
-from backend.connectors.ollama_client import StreamChunk
 from backend.core.router import ModelRouter
 
 CONFIG = {

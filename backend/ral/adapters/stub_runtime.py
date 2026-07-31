@@ -19,11 +19,10 @@ from typing import Any
 
 from backend.ral.capabilities import (
     CapabilityInterface,
-    ChatCapability,
     ChatResponse,
 )
 from backend.ral.event_bus import EventBusInterface, Topic
-from backend.ral.runtime import CapabilitySet, RuntimeInterface, RuntimeStatus
+from backend.ral.runtime import CapabilitySet, RuntimeStatus
 
 logger = logging.getLogger(__name__)
 

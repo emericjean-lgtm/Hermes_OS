@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, __file__.rsplit("scripts", 1)[0])
 from scripts.validation.bench_models import (  # noqa: E402
-    _get, _post, load_model, resident_models, unload_all, vram_in_use,
+    _get, _post, load_model, resident_models, unload_all,
 )
 
 NEEDLE = "ZX-9137"

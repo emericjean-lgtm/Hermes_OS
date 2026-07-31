@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import threading
 
-import pytest
 
 from backend.model_intelligence.model_autonomous_adapter import (
     AutonomousModelDecision,

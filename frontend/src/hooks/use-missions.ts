@@ -131,13 +131,3 @@ export function useDuplicateMission() {
     },
   });
 }
-
-export function useSyncFreebuff() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (missionId: string) => MissionPlanner.syncWithFreebuff(missionId),
-    onSuccess: (_, missionId) => {
-      queryClient.invalidateQueries({ queryKey: missionKeys.detail(missionId) });
-    },
-  });
-}

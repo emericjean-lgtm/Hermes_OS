@@ -10,11 +10,9 @@ import threading
 from typing import Any
 
 from .model_intelligence_models import (
-    BenchmarkResult,
     ModelPerformanceRecord,
     ModelProfile,
     TaskContext,
-    TaskType,
 )
 
 

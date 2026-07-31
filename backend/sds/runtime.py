@@ -16,7 +16,6 @@ It also owns the module-level :class:`RuntimeRegistry` and
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 from datetime import datetime, timezone
@@ -147,7 +146,6 @@ class RuntimeHolder:
     """
 
     def __init__(self) -> None:
-        from backend.ral.runtime import RuntimeInterface
 
         self._runtime: Optional[RuntimeInterface] = None
         self._lock = threading.Lock()

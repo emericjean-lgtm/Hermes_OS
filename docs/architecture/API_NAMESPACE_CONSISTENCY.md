@@ -65,7 +65,16 @@ Le composition root le monte sous `/api/v1`. Ne jamais ajouter de routeur à
 
 ## Ce qui reste hors du namespace
 
-Rien, fonctionnellement. Les 62 chemins encore servis à la racine ont tous leur
+Rien, fonctionnellement. Les chemins encore servis à la racine ont tous leur
 équivalent sous `/api/v1` ; ils subsistent uniquement pour la compatibilité
 ascendante. `test_every_legacy_route_is_reachable_under_api_v1` échoue si une
 capacité redevient joignable *uniquement* hors du namespace.
+
+Depuis le nettoyage de dette technique du 2026-07-31, ces montages racine
+portent `deprecated=True` (`backend/main.py`, `app.include_router(module.router,
+deprecated=True)`) : Swagger UI les affiche barrés, et tout outil qui lit
+`openapi.json` peut filtrer sur `deprecated`. Comportement identique,
+signal explicite en plus — premier pas d'un cycle de dépréciation sans
+casser personne. Les mêmes routeurs republiés sous `/api/v1` par
+`mount_legacy_under_api()` restent volontairement non dépréciés : c'est la
+façon actuelle et canonique de les atteindre.

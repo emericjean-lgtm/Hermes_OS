@@ -10,8 +10,7 @@ import logging
 import os
 import sqlite3
 import threading
-from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from backend.config.config_models import DatabaseConfig, StorageBackend
 

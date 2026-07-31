@@ -9,7 +9,7 @@ from typing import Optional
 from .dependency_resolver import SkillDependencyResolver
 from .skill_cache import SkillCache
 from .skill_loader import SkillLoader
-from .skill_models import SkillDistribution, SkillSelection
+from .skill_models import SkillDistribution
 from .skill_profiler import SkillProfiler
 from .skill_registry import SkillRegistry
 from .skill_selector import SkillSelector

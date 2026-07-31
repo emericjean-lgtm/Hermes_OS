@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from backend.mission.dependency_resolver import DependencyResolver
 from backend.mission.mission_graph import MissionGraph

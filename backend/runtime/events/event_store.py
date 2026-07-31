@@ -10,9 +10,9 @@ import json
 import sqlite3
 import threading
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from backend.runtime.events.event_models import RuntimeEventModel, RuntimeEventSeverity
 

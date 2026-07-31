@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 import threading
-import time
 import pytest
 
 from backend.execution.execution_models import (
     ExecutionMeta,
-    ExecutionPriority,
     ExecutionState,
-    ExecutionTimeline,
     TaskExecution,
     TaskExecutionStatus,
     ValidationOutcome,
     CheckpointType,
-    SchedulerStrategy,
 )
 from backend.execution.execution_state import ExecutionStateMachine
-from backend.execution.task_scheduler import TaskScheduler, SchedulePlan
-from backend.execution.agent_coordinator import AgentCoordinator, AgentAssignment
+from backend.execution.task_scheduler import TaskScheduler
+from backend.execution.agent_coordinator import AgentCoordinator
 from backend.execution.validation_engine import ValidationEngine
 from backend.execution.feedback_loop import FeedbackLoop, ExecutionReport
 from backend.execution.optimization_engine import OptimizationEngine

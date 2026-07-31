@@ -15,7 +15,6 @@ from backend.skills.skill_models import (
     SkillCategory,
     SkillDefinition,
     SkillDomain,
-    SkillStatus,
 )
 from backend.skills.skill_registry import SkillRegistry
 from backend.skills.skill_selector import SkillSelector

@@ -15,7 +15,7 @@ from backend.ral.event_bus import EventBusInterface
 from backend.ral.event_bus_impl import EventBusImpl
 from backend.sds.dependencies import get_eventbus
 from backend.sds.routes import SDS_ROUTER
-from backend.sds.runtime import EventBusHolder, get_holder, init_eventbus_in_holder
+from backend.sds.runtime import get_holder, init_eventbus_in_holder
 
 
 # ------------------------------------------------------------------

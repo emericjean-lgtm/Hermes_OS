@@ -17,16 +17,10 @@ from typing import Optional
 
 from backend.tools.mcp.mcp_models import (
     MCPServer,
-    MCPStatus,
-    MCPTool,
     MCPTransport,
 )
 from backend.tools.tool_models import (
-    ToolCategory,
     ToolDefinition,
-    ToolPermission,
-    ToolStatus,
-    ToolType,
 )
 
 logger = logging.getLogger("hermes_os.klaatcode.registration")
@@ -53,7 +47,7 @@ def register_klaatcode(
     """
     # Import adapter lazily to avoid circular imports at module level
     from .klaatcode_client import KlaatCodeClient
-    from .klaatcode_mcp_adapter import KlaatCodeMCPAdapter, KLATCODE_MCP_TOOLS
+    from .klaatcode_mcp_adapter import KlaatCodeMCPAdapter
     from backend.tools.tool_policy import ToolPolicy
     from backend.tools.tool_sandbox import ToolSandbox
 

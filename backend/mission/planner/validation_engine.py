@@ -6,10 +6,7 @@ Validates mission plans for coherence, completeness, and correctness.
 from __future__ import annotations
 
 from backend.mission.planner.planner_models import (
-    ComplexityEstimate,
     PlanningResult,
-    RuntimeRecommendation,
-    TaskBreakdown,
     ValidationReport,
 )
 

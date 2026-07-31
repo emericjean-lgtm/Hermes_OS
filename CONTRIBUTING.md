@@ -31,9 +31,8 @@ backend/
 ├── memory/            # HOS-021
 ├── skills/            # HOS-022
 ├── events/            # HOS-025
-├── integrations/      # HOS-023, HOS-026
-│   ├── hermes_agent/  # Hermes Agent adapter
-│   └── freebuff/      # Freebuff adapter
+├── integrations/      # HOS-023
+│   └── hermes_agent/  # Hermes Agent adapter
 ├── services/          # HOS-027
 └── api/               # HOS-028
 ```

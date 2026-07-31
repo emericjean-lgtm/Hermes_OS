@@ -17,7 +17,7 @@ graph TB
 
     subgraph "Components"
         LAYOUT[Layout: Sidebar + Topbar + StatusBar]
-        DASH[HealthCard / StatisticsCard / RuntimeTable / MissionList / EventTimeline / FreebuffCard / HermesCard]
+        DASH[HealthCard / StatisticsCard / RuntimeTable / MissionList / EventTimeline / HermesCard]
     end
 
     subgraph "State & Data"
@@ -97,11 +97,6 @@ graph TB
 - Code couleur par sévérité
 - Reconnexion automatique
 
-### FreebuffCard
-- Statut connexion
-- Nombre de projets
-- Dernière synchronisation
-
 ### HermesCard
 - Statut connexion
 - Sessions actives
@@ -150,7 +145,7 @@ Tous les types TypeScript (`src/types/mission-control.ts`) correspondent exactem
 - `RuntimeInfo`, `RuntimeHealthInfo`, `RuntimeMetrics`
 - `Mission`, `ExecutionStatus`
 - `MemoryEntry`, `SkillInfo`, `SystemEvent`
-- `FreebuffProject`, `HermesAgentStatus`
+- `HermesAgentStatus`
 
 ---
 

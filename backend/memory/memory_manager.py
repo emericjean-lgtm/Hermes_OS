@@ -8,7 +8,7 @@ knowledge graph, embeddings, retrieval, and experience learning.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from backend.memory.document_memory import DocumentMemoryStore
 from backend.memory.embedding_index import EmbeddingIndex

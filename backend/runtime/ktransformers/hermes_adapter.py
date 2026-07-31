@@ -41,7 +41,6 @@ from backend.runtime.ktransformers.kt_models import (
     KTFallbackReason,
     KTInferenceRequest,
     KTInferenceResult,
-    KTLoadConfig,
     KTModelConfig,
     KTModelInfo,
     KTModelStatus,

@@ -64,22 +64,17 @@ flowchart LR
 - Filtrage par type, source, sévérité
 - Export JSON
 
-### 8. Freebuff
-
-- Projets Freebuff liés
-- Synchronisation mission ↔ Freebuff
-
-### 9. Infrastructure
+### 8. Infrastructure
 
 - Métriques système (uptime, CPU, mémoire)
 - Diagnostics complets
 
-### 10. Logs
+### 9. Logs
 
 - Logs d'audit structurés
 - Filtrage par agent, session, type
 
-### 11. Settings
+### 10. Settings
 
 - Configuration du MissionControlService
 - Stratégies de planification

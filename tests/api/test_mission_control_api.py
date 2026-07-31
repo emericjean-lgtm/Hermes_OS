@@ -6,18 +6,14 @@ Uses the same minimal stubs as HOS-027 tests.
 
 from __future__ import annotations
 
-import json
-import threading
-import time
 from typing import Any, Optional
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.agent.execution_graph import AgentNode, NodeStatus, NodeType
-from backend.agent.lifecycle import AgentContext, AgentLifecycleManager
-from backend.agent.task_planner import PlannedTask, PlanningStrategy, TaskPlanner
+from backend.agent.lifecycle import AgentLifecycleManager
+from backend.agent.task_planner import PlanningStrategy, TaskPlanner
 from backend.events.system_event_bus import SystemEventBus
 from backend.memory.unified_memory import UnifiedMemory
 from backend.ral.runtime import RuntimeInterface, RuntimeStatus
@@ -28,24 +24,19 @@ from backend.ral.runtime_health import RuntimeHealthMonitor
 from backend.ral.runtime_performance import RuntimePerformanceAnalyzer
 from backend.ral.runtime_events import RuntimeEventBus
 from backend.ral.runtime_recovery import RuntimeRecoveryManager
-from backend.ral.runtime_decision import RuntimeDecisionEngine, RuntimeDecisionWeights
+from backend.ral.runtime_decision import RuntimeDecisionEngine
 from backend.ral.runtime_router import RuntimeRouter
 from backend.skills.orchestrator import (
     AdaptiveSkillOrchestrator,
-    InMemorySkillRepository,
     SkillBundle,
     SkillDescriptor,
     SkillSelectionStrategy,
 )
 from backend.services.mission_control import (
     MissionControlConfiguration,
-    MissionControlError,
-    MissionControlHealth,
     MissionControlService,
-    MissionControlStatistics,
-    MissionControlStatus,
 )
-from backend.api.router import MissionControlRouter, MissionControlAPI
+from backend.api.router import MissionControlAPI
 
 
 # ======================================================================
@@ -554,24 +545,6 @@ class TestEventsEndpoints:
 
 
 # ======================================================================
-# Tests — Freebuff endpoints
-# ======================================================================
-
-
-class TestFreebuffEndpoints:
-    """Test /api/v1/freebuff endpoints."""
-
-    def test_list_projects(self, client: TestClient):
-        resp = client.get("/api/v1/freebuff/projects")
-        assert resp.status_code == 200
-
-    def test_create_project_unavailable(self, client: TestClient):
-        resp = client.post("/api/v1/freebuff/projects", json={"name": "Test"})
-        # Should return 503 because no Freebuff adapter injected
-        assert resp.status_code == 503
-
-
-# ======================================================================
 # Tests — Hermes endpoints
 # ======================================================================
 
@@ -740,7 +713,6 @@ class TestRouteRegistration:
             ("/api/v1/skills/statistics", "GET", [200]),
             ("/api/v1/events/statistics", "GET", [200]),
             ("/api/v1/hermes/status", "GET", [200]),
-            ("/api/v1/freebuff/projects", "GET", [200]),
         ]
         for path, method, expected_codes in kvs:
             if method == "GET":
@@ -778,8 +750,6 @@ class TestRouteRegistration:
             "/api/v1/statistics",
             "/api/v1/version",
             "/api/v1/tick",
-            "/api/v1/freebuff/projects",
-            "/api/v1/freebuff/sync",
             "/api/v1/hermes/status",
             "/api/v1/hermes/connect",
             "/api/v1/hermes/disconnect",
@@ -815,9 +785,4 @@ class TestErrorResponses:
     def test_422_format(self, client: TestClient):
         resp = client.post("/api/v1/missions", json={"invalid": True})
         assert resp.status_code == 422
-        assert "detail" in resp.json()
-
-    def test_503_for_integration(self, client: TestClient):
-        resp = client.post("/api/v1/freebuff/projects", json={"name": "Test"})
-        assert resp.status_code == 503
         assert "detail" in resp.json()

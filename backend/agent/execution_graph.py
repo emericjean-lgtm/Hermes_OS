@@ -12,9 +12,7 @@ No concrete agent (Coder, QA, Documentation, etc.) is imported here.
 """
 from __future__ import annotations
 
-import json
 import threading
-import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum

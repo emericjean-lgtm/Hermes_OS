@@ -10,7 +10,7 @@ import re
 import threading
 from datetime import datetime, timezone
 from pathlib import PurePath
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from backend.workspace.artifact_manager import ArtifactManager
 from backend.workspace.git_workspace import GitWorkspace

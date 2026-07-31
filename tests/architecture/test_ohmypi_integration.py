@@ -16,14 +16,13 @@ import pytest
 from backend.tools.connectors.oh_my_pi import (
     OhMyPiClient, OhMyPiMCPAdapter, OhMyPiAction, OhMyPiStatus,
     OhMyPiRequest, OhMyPiResponse, OhMyPiCapability,
-    LSPEditResult, DebugSession, CodeExecutionResult,
 )
 from backend.tools.tool_policy import ToolPolicy
 from backend.tools.tool_sandbox import ToolSandbox, SandboxConfig
 from backend.tools.tool_models import ToolPermission
 from backend.agents.agent_models import AgentCapability, AgentStatus, TaskOutcome
 from backend.agents.specialized.ohmypi import (
-    OhMyPiAgent, OhMyPiProfile, OHMYPI_EVENTS,
+    OhMyPiAgent, OHMYPI_EVENTS,
     OhMyPiTaskType, create_ohmypi_agent,
 )
 from backend.workspace.workspace_manager import WorkspaceManager

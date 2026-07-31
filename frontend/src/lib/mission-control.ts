@@ -18,7 +18,6 @@ import type {
   SkillSelection,
   SystemEvent,
   EventStatistics,
-  FreebuffProject,
   HermesAgentStatus,
 } from "@/types/mission-control";
 
@@ -144,11 +143,6 @@ export const MissionControlClient = {
 
   eventStatistics: (): Promise<EventStatistics> =>
     request("/events/statistics"),
-
-  // ─── Freebuff ──────────────────────────────────────────────
-
-  listFreebuffProjects: (): Promise<FreebuffProject[]> =>
-    request("/freebuff/projects"),
 
   // ─── Hermes Agent ──────────────────────────────────────────
 

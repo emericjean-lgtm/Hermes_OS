@@ -29,9 +29,7 @@ from .security_models import (
     PermissionAction,
     ResourceType,
     SECURITY_EVENTS,
-    SecurityEvent,
     ThreatLevel,
-    TrustLevel,
 )
 from .threat_detector import ThreatDetector
 

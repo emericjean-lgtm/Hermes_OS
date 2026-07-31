@@ -15,7 +15,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.sds.dependencies import get_runtime_factory_dep, get_runtime_registry_dep
 from backend.sds.routes import SDS_ROUTER
 import backend.sds.runtime as _sds_runtime
 

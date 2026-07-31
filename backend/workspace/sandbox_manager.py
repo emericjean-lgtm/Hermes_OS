@@ -7,7 +7,6 @@ Supports read-only mode, network control, tool restrictions, temp storage, and a
 from __future__ import annotations
 
 import os
-import tempfile
 import threading
 from typing import Callable, Optional
 

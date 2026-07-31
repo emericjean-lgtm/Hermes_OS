@@ -10,7 +10,6 @@ Redis Streams, Kafka etc. via EventSubscriber or adapters.
 
 from __future__ import annotations
 
-import copy
 import json
 import threading
 import time

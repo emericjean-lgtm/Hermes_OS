@@ -15,7 +15,6 @@ from backend.memory.memory_manager import MemoryManager
 from backend.memory.memory_models import (
     DocumentMemory,
     EpisodicMemory,
-    KnowledgeEdge,
     KnowledgeNode,
     ProceduralMemory,
     SemanticMemory,

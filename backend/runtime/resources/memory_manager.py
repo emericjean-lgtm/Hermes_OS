@@ -5,7 +5,6 @@ Tracks system RAM usage via /proc/meminfo (Linux) or psutil.
 
 from __future__ import annotations
 
-import os
 import threading
 from datetime import datetime, timezone
 from typing import Optional

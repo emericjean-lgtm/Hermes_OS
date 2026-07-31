@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import APIRouter, Body, Query
 
 from .conversation_manager import ConversationManager
-from .conversation_models import ConversationStatus
 
 # Global manager singleton
 _manager: ConversationManager | None = None

@@ -8,7 +8,6 @@ and full mission simulation (100+ tests).
 import random
 import threading
 
-import pytest
 
 from backend.autonomous.autonomous_models import (
     AUTONOMOUS_EVENTS,

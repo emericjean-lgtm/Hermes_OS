@@ -7,7 +7,6 @@ Thread-safe.
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
 from typing import Optional
 
 from backend.runtime.discovery.discovery_models import (

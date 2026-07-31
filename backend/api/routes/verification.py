@@ -32,7 +32,7 @@ class RunnerInfo(BaseModel):
     description: str
 
 
-class RunRequest(BaseModel):
+class VerificationRunRequest(BaseModel):
     repo_path: str
     runner: str
     timeout: int | None = None
@@ -61,7 +61,7 @@ async def list_runners() -> list[RunnerInfo]:
 
 
 @router.post("/verification/run")
-async def run_verification(request: RunRequest) -> RunResponse:
+async def run_verification(request: VerificationRunRequest) -> RunResponse:
     try:
         result = verification.run(
             _aegis(),

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -38,17 +37,13 @@ from backend.integrations.code_intelligence.code_intelligence_models import (
     CodeIntelligenceTask,
     CodeIntelligenceTaskType,
     CodeProvider,
-    HybridExecutionResult,
-    ProviderExecutionResult,
-    RouteReason,
-    RoutingDecision,
     SelectionStrategy,
 )
 from backend.integrations.code_intelligence.code_intelligence_router import (
     CodeIntelligenceRouter,
 )
 
-from .capabilities import CI_EVENTS, CICapability, CodeIntelligenceAgentStatus
+from .capabilities import CI_EVENTS, CodeIntelligenceAgentStatus
 from .profile import CodeIntelligenceProfile
 
 

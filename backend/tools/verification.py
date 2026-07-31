@@ -35,7 +35,6 @@ from pathlib import Path
 import yaml
 
 from backend.agents.aegis import AegisAgent
-from backend.core.config import get_settings
 from backend.security.aegis_engine import ActionRequest, Verdict
 
 _CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "verification.yaml"

@@ -12,7 +12,6 @@ from typing import Any, Optional
 
 from backend.runtime.ktransformers.hermes_adapter import HermesKTAdapter
 from backend.runtime.ktransformers.kt_models import (
-    KTBackend,
     KTBenchmarkResult,
     KTModelInfo,
     KTModelStatus,

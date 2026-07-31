@@ -21,7 +21,6 @@ export const queryKeys = {
   skills: ["mc", "skills"] as const,
   events: (limit?: number) => ["mc", "events", limit] as const,
   eventStats: ["mc", "event-stats"] as const,
-  freebuff: ["mc", "freebuff"] as const,
   hermes: ["mc", "hermes"] as const,
 };
 
@@ -29,7 +28,7 @@ export const queryKeys = {
 
 const REFRESH_FAST = 5_000;   // 5s — santé, statut
 const REFRESH_NORMAL = 15_000; // 15s — runtimes, missions
-const REFRESH_SLOW = 30_000;   // 30s — skills, freebuff, hermes
+const REFRESH_SLOW = 30_000;   // 30s — skills, hermes
 const REFRESH_STALE = 60_000;  // 1min — memory, events
 
 // ─── Hooks ───────────────────────────────────────────────────
@@ -119,14 +118,6 @@ export function useEventStatistics() {
     queryKey: queryKeys.eventStats,
     queryFn: MissionControlClient.eventStatistics,
     staleTime: REFRESH_NORMAL,
-  });
-}
-
-export function useFreebuffProjects() {
-  return useQuery({
-    queryKey: queryKeys.freebuff,
-    queryFn: MissionControlClient.listFreebuffProjects,
-    staleTime: REFRESH_SLOW,
   });
 }
 

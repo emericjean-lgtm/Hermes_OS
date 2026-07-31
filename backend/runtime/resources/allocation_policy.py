@@ -7,7 +7,6 @@ Defines allocation strategies:
 
 from __future__ import annotations
 
-import math
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -16,7 +15,6 @@ from backend.runtime.resources.resource_models import (
     ResourceAllocation,
     ResourceAllocationResult,
     ResourceSnapshot,
-    ResourceStatus,
     ResourceType,
 )
 

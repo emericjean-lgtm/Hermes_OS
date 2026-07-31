@@ -6,7 +6,6 @@ Final orchestration layer combining all runtime decisions.
 from __future__ import annotations
 
 import threading
-from collections import defaultdict
 from typing import Any, Callable, Optional
 
 from backend.runtime.orchestrator.decision_models import (

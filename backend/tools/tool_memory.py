@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from .tool_models import ExecutionStatus, ToolDefinition, ToolRequest, ToolResult
 

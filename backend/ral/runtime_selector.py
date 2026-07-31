@@ -14,7 +14,7 @@ layered on top of this foundation in later PRs.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from backend.ral.runtime import RuntimeInterface
 from backend.ral.runtime_factory import RuntimeLifecycle

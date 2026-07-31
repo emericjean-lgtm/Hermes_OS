@@ -13,7 +13,6 @@ from typing import Any
 from .evolution_models import (
     EvolutionExperiment,
     EvolutionProposal,
-    EvolutionStatus,
     EvolutionType,
 )
 

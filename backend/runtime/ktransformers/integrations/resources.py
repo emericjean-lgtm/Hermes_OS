@@ -9,7 +9,7 @@ from __future__ import annotations
 import threading
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from backend.runtime.ktransformers.hermes_adapter import HermesKTAdapter
 from backend.runtime.ktransformers.kt_models import KTBackend, KTModelInfo

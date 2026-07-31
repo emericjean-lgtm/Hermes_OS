@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 import os
-import tempfile
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.ral.adapters.stub_runtime import StubRuntime, StubChatCapability
 from backend.ral.capabilities import ChatCapability, ChatResponse
-from backend.ral.event_bus import EventBusInterface, Topic
-from backend.ral.runtime import CapabilitySet, RuntimeInterface, RuntimeStatus
+from backend.ral.event_bus import Topic
+from backend.ral.runtime import RuntimeInterface, RuntimeStatus
 
 
 # ------------------------------------------------------------------
@@ -201,7 +200,6 @@ def test_runtime_endpoint_returns_info(tmp_path, reset_eventbus):  # noqa: F811
 
     from fastapi import FastAPI
 
-    from backend.ral.event_bus_impl import EventBusImpl
     from backend.sds.routes import SDS_ROUTER
     from backend.sds.runtime import (
         get_holder,

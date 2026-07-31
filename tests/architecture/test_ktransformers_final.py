@@ -6,11 +6,8 @@ All tests run without requiring kt-kernel installed (uses simulated fallback).
 
 from __future__ import annotations
 
-import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import pytest
 
 from backend.runtime.ktransformers.hermes_adapter import HermesKTAdapter, _detect_best_backend
 from backend.runtime.ktransformers.integrations.discovery import (
@@ -30,7 +27,6 @@ from backend.runtime.ktransformers.kt_models import (
     KTBackend,
     KTFallbackReason,
     KTInferenceRequest,
-    KTLoadConfig,
     KTModelConfig,
     KTModelInfo,
     KTModelStatus,

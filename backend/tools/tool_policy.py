@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from enum import Enum
 
-from .tool_models import ExecutionStatus, ToolDefinition, ToolPermission, ToolRequest, ToolResult
+from .tool_models import ToolDefinition, ToolPermission, ToolRequest
 
 
 class PolicyVerdict(str, Enum):

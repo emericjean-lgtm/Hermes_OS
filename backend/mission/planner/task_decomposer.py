@@ -5,7 +5,6 @@ Breaks down a high-level user request into a structured task hierarchy.
 
 from __future__ import annotations
 
-from uuid import uuid4
 
 from backend.mission.planner.planner_models import (
     PlanningRequest,

@@ -19,15 +19,14 @@ from enum import Enum
 from typing import Any, Optional
 
 # ── Hermes OS abstractions (adapted FROM) ────────────────────────────
-from backend.ral.capabilities import ChatCapability, ChatResponse, CapabilityInterface
+from backend.ral.capabilities import ChatResponse, CapabilityInterface
 from backend.ral.runtime import CapabilitySet, RuntimeInterface, RuntimeStatus
 
 # ── Hermes Agent code (adapted TO) ───────────────────────────────────
 from backend.agents.base_agent import BaseAgent
-from backend.connectors.ollama_client import OllamaClientProtocol, OllamaUnavailableError
+from backend.connectors.ollama_client import OllamaClientProtocol
 from backend.core.router import ModelRouter, RoutingDecision
 from backend.memory.unified_memory import (
-    MemoryEntry,
     MemoryQuery,
     MemoryScope,
     UnifiedMemory,
@@ -35,8 +34,6 @@ from backend.memory.unified_memory import (
 from backend.skills.orchestrator import (
     AdaptiveSkillOrchestrator,
     SkillDescriptor,
-    SkillSelection,
-    SkillSelectionStrategy,
 )
 
 # EchoAgent is imported lazily (TYPE_CHECKING) because it depends on

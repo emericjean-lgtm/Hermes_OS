@@ -10,7 +10,6 @@ sous ``/api/v1``, **sans qu'aucune implémentation existante n'ait été masqué
 
 from __future__ import annotations
 
-import json
 import pathlib
 import re
 

@@ -24,12 +24,9 @@ from typing import Any, Optional
 
 from .klaatcode_models import (
     KlaatCodeAction,
-    KlaatCodeDiagnostic,
-    KlaatCodeProject,
     KlaatCodeRequest,
     KlaatCodeResponse,
     KlaatCodeStatus,
-    DiagnosticSeverity,
 )
 
 

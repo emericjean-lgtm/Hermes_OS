@@ -25,10 +25,8 @@ from backend.agent.execution_graph import (
     AgentNode,
     ExecutionGraph,
     NodeStatus,
-    NodeType,
 )
 from backend.agent.lifecycle import (
-    AgentContext,
     AgentLifecycleManager,
 )
 from backend.agent.supervisor import (
@@ -43,7 +41,6 @@ from backend.agent.task_planner import (
 from backend.ral.runtime_decision import (
     RuntimeDecision,
     RuntimeDecisionEngine,
-    RuntimeDecisionScore,
 )
 from backend.ral.runtime_router import RuntimeRouter
 

@@ -6,7 +6,6 @@ Journals all governance decisions: who, what, when, why, result, duration.
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from backend.policy.policy_models import AuditAction, AuditEntry

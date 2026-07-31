@@ -5,7 +5,6 @@ scheduler, API, EventBus, thread safety (70+ tests).
 """
 
 import threading
-import pytest
 
 from backend.evolution.evolution_models import (
     EVOLUTION_EVENTS,
@@ -30,9 +29,7 @@ from backend.evolution.routes import (
     handle_analyze,
     handle_simulate,
     handle_approve,
-    handle_apply,
     handle_get_reports,
-    get_engine,
 )
 
 

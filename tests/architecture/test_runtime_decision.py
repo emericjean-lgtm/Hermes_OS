@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from backend.ral.adapters.stub_runtime import StubRuntime
-from backend.ral.runtime import CapabilitySet, RuntimeInterface, RuntimeStatus
+from backend.ral.runtime import RuntimeInterface
 from backend.ral.runtime_decision import (
     RuntimeDecision,
     RuntimeDecisionEngine,

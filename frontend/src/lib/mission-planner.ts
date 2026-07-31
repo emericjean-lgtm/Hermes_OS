@@ -8,7 +8,6 @@ import type {
   CreateMissionRequest,
   MissionPlan,
   MissionActionResponse,
-  FreebuffSyncResult,
   ExecutionGraphData,
   GraphNode,
   GraphEdge,
@@ -84,14 +83,6 @@ export const MissionPlanner = {
 
   getMissionGraph: (id: string): Promise<ExecutionGraphData> =>
     request(`/missions/${id}/graph`),
-
-  // ─── Freebuff Integration ─────────────────────────────────
-
-  syncWithFreebuff: (missionId: string): Promise<FreebuffSyncResult> =>
-    request(`/freebuff/sync`, {
-      method: "POST",
-      body: JSON.stringify({ mission_id: missionId }),
-    }),
 
   // ─── Utilitaires ──────────────────────────────────────────
 

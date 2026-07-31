@@ -13,7 +13,7 @@ const missionSchema = z.object({
   objective: z.string().max(500).optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
   strategy: z.enum(["SEQUENTIAL", "BALANCED", "PARALLEL", "CONSERVATIVE"]),
-  planner: z.enum(["LOCAL", "FREEBUFF"]),
+  planner: z.enum(["LOCAL"]),
   runtime: z.string().optional(),
 });
 
@@ -35,11 +35,6 @@ const STRATEGY_OPTIONS = [
   { value: "BALANCED", label: "Balanced", desc: "Parallel groups where possible" },
   { value: "PARALLEL", label: "Parallel", desc: "Maximum parallelism" },
   { value: "CONSERVATIVE", label: "Conservative", desc: "Minimal resource usage" },
-] as const;
-
-const PLANNER_OPTIONS = [
-  { value: "LOCAL", label: "Local", desc: "Hermes OS local planner" },
-  { value: "FREEBUFF", label: "Freebuff", desc: "Advanced planning via Freebuff" },
 ] as const;
 
 export default function MissionForm({ onSuccess }: MissionFormProps) {
@@ -131,30 +126,6 @@ export default function MissionForm({ onSuccess }: MissionFormProps) {
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
-        </div>
-      </div>
-
-      {/* Planner */}
-      <div>
-        <label className="block text-xs font-medium text-[var(--color-text-muted)] mb-1">Planner</label>
-        <div className="grid grid-cols-2 gap-2">
-          {PLANNER_OPTIONS.map((p) => (
-            <label
-              key={p.value}
-              className="flex cursor-pointer items-center gap-2 rounded-md border border-white/10 bg-[var(--color-bg-base)] p-3 transition-colors has-checked:border-[var(--color-accent)] has-checked:bg-[var(--color-accent)]/5 hover:border-white/20"
-            >
-              <input
-                type="radio"
-                value={p.value}
-                {...register("planner")}
-                className="accent-[var(--color-accent)]"
-              />
-              <div>
-                <span className="text-xs font-medium text-[var(--color-text-primary)]">{p.label}</span>
-                <p className="text-[10px] text-[var(--color-text-muted)]">{p.desc}</p>
-              </div>
-            </label>
-          ))}
         </div>
       </div>
 

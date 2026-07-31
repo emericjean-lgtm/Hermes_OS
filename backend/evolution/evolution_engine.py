@@ -19,7 +19,6 @@ from .evolution_models import (
     EvolutionReport,
     EvolutionStatus,
     EvolutionType,
-    OptimizationPattern,
     SystemMetrics,
 )
 from .evolution_simulator import EvolutionSimulator

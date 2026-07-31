@@ -26,8 +26,6 @@ export type SystemEventTypeValue =
   | "RUNTIME" | "AGENT" | "MISSION" | "EXECUTION"
   | "MEMORY" | "SKILL" | "SYSTEM" | "OBSERVABILITY" | "INTEGRATION";
 
-export type FreebuffConnectionMode = "API" | "TERMINAL" | "CLI" | "MCP";
-
 export type IntegrationStatus =
   | "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "ERROR";
 
@@ -104,7 +102,6 @@ export interface StatisticsResponse {
   };
   integrations: {
     hermes_agent: boolean;
-    freebuff: boolean;
   };
 }
 
@@ -228,17 +225,6 @@ export interface EventStatistics {
   avg_latency_ms: number;
 }
 
-// ─── Freebuff ─────────────────────────────────────────────────
-
-export interface FreebuffProject {
-  id: string;
-  name: string;
-  description?: string;
-  status: string;
-  last_sync?: string;
-  mission_ids?: string[];
-}
-
 // ─── Hermes Agent ─────────────────────────────────────────────
 
 export interface HermesAgentStatus {
@@ -264,7 +250,7 @@ export interface TimelineEvent {
 
 export type PlanningStrategy = "SEQUENTIAL" | "BALANCED" | "PARALLEL" | "CONSERVATIVE";
 
-export type PlannerType = "LOCAL" | "FREEBUFF";
+export type PlannerType = "LOCAL";
 
 export interface CreateMissionRequest {
   title: string;
@@ -316,14 +302,6 @@ export interface MissionActionResponse {
   success: boolean;
   mission: Mission;
   message?: string;
-}
-
-export interface FreebuffSyncResult {
-  project_id: string;
-  prompt: string;
-  response: string;
-  plan: MissionPlan;
-  synced_at: string;
 }
 
 export const MISSION_STATUS_COLORS: Record<string, string> = {

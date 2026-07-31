@@ -10,7 +10,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Body, Query
 
 from .security_engine import SecurityEngine
-from .security_models import ResourceType, ThreatLevel, TrustLevel
+from .security_models import ResourceType, ThreatLevel
 
 # Global engine instance (singleton pattern)
 _engine: SecurityEngine | None = None

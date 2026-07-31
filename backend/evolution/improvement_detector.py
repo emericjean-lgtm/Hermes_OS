@@ -16,7 +16,6 @@ from typing import Any
 
 from .evolution_models import (
     EvolutionProposal,
-    EvolutionStatus,
     EvolutionType,
     OptimizationPattern,
     RiskLevel,

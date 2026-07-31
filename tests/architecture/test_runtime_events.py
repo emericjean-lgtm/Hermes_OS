@@ -11,7 +11,6 @@ from typing import Any
 
 import pytest
 
-from backend.ral.runtime import CapabilitySet
 from backend.ral.runtime_events import (
     RuntimeEvent,
     RuntimeEventBus,

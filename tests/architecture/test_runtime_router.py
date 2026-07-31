@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from backend.ral.capabilities import ChatCapability, ChatResponse, ToolResult, ToolsCapability
-from backend.ral.runtime import CapabilitySet, RuntimeInterface, RuntimeStatus
+from backend.ral.capabilities import ChatResponse, ToolResult
+from backend.ral.runtime import CapabilitySet, RuntimeStatus
 from backend.ral.runtime_context import ActiveRuntimeContext
 from backend.ral.runtime_registry import RuntimeRegistry
 from backend.ral.runtime_router import RuntimeExecutionError, RuntimeRouter

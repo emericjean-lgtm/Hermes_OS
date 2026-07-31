@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -20,7 +19,7 @@ from backend.agents.agent_models import (
     AgentStatus, ExecutionResult, TaskOutcome,
 )
 from .ohmypi_capabilities import (
-    OhMyPiTaskType, TASK_TO_CAPABILITY, TASK_TO_MCP_ACTION,
+    OhMyPiTaskType, TASK_TO_MCP_ACTION,
 )
 from .ohmypi_profile import OhMyPiProfile
 

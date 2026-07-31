@@ -7,9 +7,7 @@ All tests work **without** an actual Ollama server by injecting a
 from __future__ import annotations
 
 import os
-import tempfile
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
 from typing import Any
 
 import pytest

@@ -14,7 +14,6 @@ Usage::
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Any, Optional
 
@@ -197,20 +196,6 @@ class MissionControlRouter:
         self.router.add_api_route(
             "/events/clear", hos_routes.clear_events, methods=["POST"],
             summary="Clear event history",
-        )
-
-        # ── Freebuff integration routes ──
-        self.router.add_api_route(
-            "/freebuff/projects", hos_routes.list_freebuff_projects, methods=["GET"],
-            summary="List Freebuff projects",
-        )
-        self.router.add_api_route(
-            "/freebuff/projects", hos_routes.create_freebuff_project, methods=["POST"],
-            summary="Create a Freebuff project",
-        )
-        self.router.add_api_route(
-            "/freebuff/sync", hos_routes.sync_freebuff_project, methods=["POST"],
-            summary="Synchronise Freebuff project",
         )
 
         # ── Hermes Agent integration routes ──

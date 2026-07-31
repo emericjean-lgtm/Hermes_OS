@@ -12,7 +12,6 @@ import pytest
 from backend.ral.adapters.hermes_ollama import HermesOllamaRuntime
 from backend.ral.adapters.stub_runtime import StubRuntime
 from backend.ral.capabilities import ChatResponse
-from backend.ral.event_bus import EventBusInterface
 from backend.ral.runtime import RuntimeInterface, RuntimeStatus
 from backend.ral.runtime_config import RuntimeConfig
 from backend.ral.runtime_factory import RuntimeFactory, RuntimeLifecycle

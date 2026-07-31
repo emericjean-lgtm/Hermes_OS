@@ -6,10 +6,8 @@ Alexandrie is not running during tests (CI-safe).
 
 from __future__ import annotations
 
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import pytest
 
 from backend.integrations.alexandrie.alexandrie_client import AlexandrieClient
 from backend.integrations.alexandrie.alexandrie_models import (

@@ -62,9 +62,8 @@ graph TB
         OPENAI[OpenAI / etc.]
     end
 
-    subgraph "Integrations (HOS-023/026)"
+    subgraph "Integrations (HOS-023)"
         HA[HermesAgentAdapter]
-        FB[FreebuffAdapter]
     end
 
     HTTP --> API
@@ -595,7 +594,6 @@ flowchart TB
     SK --> AOS[AdaptiveSkillOrchestrator]
     O --> SEB[SystemEventBus]
     I --> HA[HermesAgentAdapter]
-    I --> FB[FreebuffAdapter]
     S --> ALL[All subsystems]
 ```
 
@@ -611,7 +609,6 @@ Toutes les routes sous `/api/v1/` :
 | Memory | `GET/POST /memory`, `GET/PATCH /memory/{entry_id}`, `GET /memory/{search,statistics}` |
 | Skills | `GET /skills`, `POST /skills/{select,recommend}`, `GET /skills/statistics`, `POST /skills/bundles/{id}/load` |
 | Events | `GET /events`, `GET /events/{statistics,export}`, `POST /events/{publish,clear}` |
-| Freebuff | `GET/POST /freebuff/projects`, `POST /freebuff/sync` |
 | Hermes | `GET /hermes/{status,sessions}`, `POST /hermes/{connect,disconnect,task}` |
 | System | `GET /{health,status,diagnostics,statistics,version}`, `POST /tick` |
 | WebSocket | `ws://host/ws/events` — streaming SystemEvent |
@@ -635,14 +632,6 @@ flowchart LR
 ```
 
 Mapping : `RuntimeDecision → ModelRouter`, `UnifiedMemory → EchoAgent.remember()`, `TaskPlan → Hermes Tasks`.
-
-### 9.2 FreebuffAdapter (HOS-026)
-
-Pont entre Hermes OS et Freebuff pour la planification avancée :
-
-```
-Mission → FreebuffPrompt → FreebuffResponse → TaskPlan → ExecutionGraph → Supervisor
-```
 
 ---
 
@@ -730,9 +719,6 @@ graph TD
     HOS024 --> HOS010
     HOS024 --> HOS015
     HOS025[SystemEventBus] --> HOS013
-    HOS026[FreebuffAdapter] --> HOS018
-    HOS026 --> HOS021
-    HOS026 --> HOS025
     HOS027[MissionControl] --> HOS020
     HOS027 --> HOS024
     HOS027 --> HOS015
