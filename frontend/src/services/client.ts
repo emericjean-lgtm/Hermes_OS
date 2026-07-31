@@ -43,6 +43,29 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
+/** Pull the array out of a `{ key: [...] , total: n }` envelope.
+ *
+ *  Most Hermes list endpoints wrap their payload — `/agents` returns
+ *  `{agents, total}`, `/tools` returns `{tools, count, stats}` and so on — but
+ *  these client methods were typed as returning a bare array. Nothing caught it
+ *  because the Cockpit could not reach the backend at all (the shipped
+ *  `.env.local.example` omitted the `/api/v1` prefix and CORS only allowed port
+ *  3000), so every call failed and the components fell back to `[]`. With
+ *  connectivity restored the Dashboard crashed outright on
+ *  `missions.filter is not a function`.
+ *
+ *  Tolerates a bare array too, so an endpoint that is already unwrapped — or is
+ *  changed to be — keeps working.
+ */
+function unwrap<T>(payload: unknown, key: string): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === "object") {
+    const inner = (payload as Record<string, unknown>)[key];
+    if (Array.isArray(inner)) return inner as T[];
+  }
+  return [];
+}
+
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -58,13 +81,14 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
 // ── System ──────────────────────────────────────────
 export const systemClient = {
   health: () => fetchJSON<SystemHealth>("/health"),
-  statistics: () => fetchJSON<SystemStatistics>("/statistics"),
-  version: () => fetchJSON<{ version: string }>("/version"),
+  statistics: () => // /statistics does not exist (404); the route is /system/statistics.
+    fetchJSON<SystemStatistics>("/system/statistics"),
+  // GET /version n'existe pas (404) : méthode retirée (P-002 §7).
 };
 
 // ── Missions ─────────────────────────────────────────
 export const missionsClient = {
-  list: () => fetchJSON<Mission[]>("/missions"),
+  list: () => fetchJSON<unknown>("/missions").then((d) => unwrap<Mission>(d, "missions")),
   get: (id: string) => fetchJSON<Mission>(`/missions/${id}`),
   create: (data: Partial<Mission>) =>
     fetchJSON<Mission>("/missions", { method: "POST", body: JSON.stringify(data) }),
@@ -81,7 +105,7 @@ export const missionsClient = {
 
 // ── Agents ───────────────────────────────────────────
 export const agentsClient = {
-  list: () => fetchJSON<Agent[]>("/agents"),
+  list: () => fetchJSON<unknown>("/agents").then((d) => unwrap<Agent>(d, "agents")),
   get: (id: string) => fetchJSON<Agent>(`/agents/${id}`),
   create: (data: Partial<Agent>) =>
     fetchJSON<Agent>("/agents", { method: "POST", body: JSON.stringify(data) }),
@@ -95,7 +119,11 @@ export const agentsClient = {
 export const collaborationClient = {
   messages: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params) : "";
-    return fetchJSON<CollaborationMessage[]>(`/collaboration/messages${qs}`);
+    // {messages, total} envelope. Typed as a bare array, this crashed the Agent
+    // Center on `messages.slice is not a function` — and because the crash
+    // escaped the Center, it took the whole Cockpit shell down with it (R-004).
+    return fetchJSON<unknown>(`/collaboration/messages${qs}`)
+      .then((d) => unwrap<CollaborationMessage>(d, "messages"));
   },
   sendMessage: (data: Partial<CollaborationMessage>) =>
     fetchJSON<CollaborationMessage>("/collaboration/messages", {
@@ -114,13 +142,14 @@ export const collaborationClient = {
     }),
   history: (mission_id?: string) => {
     const qs = mission_id ? "?mission_id=" + mission_id : "";
-    return fetchJSON<CollaborationMessage[]>(`/collaboration/history${qs}`);
+    return fetchJSON<unknown>(`/collaboration/history${qs}`)
+      .then((d) => unwrap<CollaborationMessage>(d, "messages"));
   },
 };
 
 // ── Runtime ──────────────────────────────────────────
 export const runtimeClient = {
-  list: () => fetchJSON<RuntimeInfo[]>("/runtimes"),
+  list: () => fetchJSON<unknown>("/runtimes").then((d) => unwrap<RuntimeInfo>(d, "runtimes")),
   get: (name: string) => fetchJSON<RuntimeInfo>(`/runtimes/${name}`),
   health: () => fetchJSON<Record<string, { status: string; latency_ms: number }>>("/runtimes/health"),
   metrics: () => fetchJSON<Record<string, unknown>>("/runtimes/metrics"),
@@ -131,11 +160,8 @@ export const runtimeClient = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  select: (data: { task: Record<string, unknown> }) =>
-    fetchJSON<RuntimeDecision>("/runtime/select", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+  // POST /runtime/select n'existe pas côté backend (404). La méthode a été
+  // retirée plutôt que laissée à pointer dans le vide (P-002 §7).
 };
 
 // ── Memory ───────────────────────────────────────────
@@ -143,17 +169,17 @@ export const memoryClient = {
   search: (q: string, mode: "hybrid" | "graph" | "keyword" = "hybrid") =>
     fetchJSON<SearchResult[]>(`/memory/search?q=${encodeURIComponent(q)}&mode=${mode}`),
   searchAdvanced: (data: Record<string, unknown>) =>
-    fetchJSON<SearchResult[]>("/memory/search", {
+    fetchJSON<unknown>("/memory/search", {
       method: "POST",
       body: JSON.stringify(data),
-    }),
+    }).then((d) => unwrap<SearchResult>(d, "results")),
   graph: (node_id?: string, depth?: number) => {
     const qs = new URLSearchParams();
     if (node_id) qs.set("node_id", node_id);
     if (depth) qs.set("depth", String(depth));
     return fetchJSON<KnowledgeGraph>(`/memory/graph?${qs}`);
   },
-  experiences: () => fetchJSON<Experience[]>("/memory/experiences"),
+  experiences: () => fetchJSON<unknown>("/memory/experiences").then((d) => unwrap<Experience>(d, "recommendations")),
   index: (data: Record<string, unknown>) =>
     fetchJSON<MemoryEntry>("/memory/index", {
       method: "POST",
@@ -166,14 +192,16 @@ export const memoryClient = {
 export const skillsClient = {
   list: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params) : "";
-    return fetchJSON<Skill[]>(`/skills${qs}`);
+    // {skills, count, stats} envelope — the last of the query-string list
+    // methods that a literal-path contract check could not reach (R-004).
+    return fetchJSON<unknown>(`/skills${qs}`).then((d) => unwrap<Skill>(d, "skills"));
   },
   get: (id: string) => fetchJSON<Skill>(`/skills/${id}`),
   select: (data: { task_description: string; domain?: string }) =>
-    fetchJSON<SkillSelection[]>("/skills/select", {
+    fetchJSON<unknown>("/skills/select", {
       method: "POST",
       body: JSON.stringify(data),
-    }),
+    }).then((d) => unwrap<SkillSelection>(d, "selections")),
   load: (data: { skill_id: string; agent_id: string }) =>
     fetchJSON<Skill>("/skills/load", { method: "POST", body: JSON.stringify(data) }),
   unload: (data: { skill_id: string; agent_id: string }) =>
@@ -186,8 +214,15 @@ export const skillsClient = {
 };
 
 // ── Tools ────────────────────────────────────────────
+export interface ToolHealthSummary {
+  total: number;
+  healthy: number;
+  degraded_or_unhealthy: number;
+  avg_latency_ms: number;
+}
+
 export const toolsClient = {
-  list: () => fetchJSON<ToolDefinition[]>("/tools"),
+  list: () => fetchJSON<unknown>("/tools").then((d) => unwrap<ToolDefinition>(d, "tools")),
   get: (id: string) => fetchJSON<ToolDefinition>(`/tools/${id}`),
   register: (data: Partial<ToolDefinition>) =>
     fetchJSON<ToolDefinition>("/tools/register", {
@@ -204,9 +239,12 @@ export const toolsClient = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  health: () => fetchJSON<ToolHealth[]>("/tools/health"),
+  // An aggregate, not a per-tool list: the endpoint returns
+  // {total, healthy, degraded_or_unhealthy, avg_latency_ms}. Typing it as
+  // ToolHealth[] made tools-center call .map() on an object (R-003).
+  health: () => fetchJSON<ToolHealthSummary>("/tools/health"),
   metrics: () => fetchJSON<Record<string, number>>("/tools/metrics"),
-  mcpServers: () => fetchJSON<MCPServer[]>("/mcp/servers"),
+  mcpServers: () => fetchJSON<unknown>("/mcp/servers").then((d) => unwrap<MCPServer>(d, "servers")),
   mcpConnect: (data: { server_name: string; transport: string; endpoint: string }) =>
     fetchJSON<MCPServer>("/mcp/connect", { method: "POST", body: JSON.stringify(data) }),
   mcpDisconnect: (data: { server_name: string }) =>
@@ -218,13 +256,13 @@ export const toolsClient = {
 
 // ── Governance ───────────────────────────────────────
 export const governanceClient = {
-  rules: () => fetchJSON<PolicyRule[]>("/policy/rules"),
+  rules: () => fetchJSON<unknown>("/policy/rules").then((d) => unwrap<PolicyRule>(d, "rules")),
   evaluate: (data: { operation: string; agent_id?: string; mission_id?: string }) =>
     fetchJSON<{ verdict: string; reason: string; rule_id?: string }>("/policy/evaluate", {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  approvals: () => fetchJSON<ApprovalRequest[]>("/approval"),
+  approvals: () => fetchJSON<unknown>("/approval").then((d) => unwrap<ApprovalRequest>(d, "approvals")),
   approve: (id: string, comment?: string) =>
     fetchJSON<ApprovalRequest>(`/approval/${id}/approve`, {
       method: "POST",
@@ -237,7 +275,10 @@ export const governanceClient = {
     }),
   audit: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params) : "";
-    return fetchJSON<AuditEntry[]>(`/audit${qs}`);
+    // {entries, total} envelope. Typed as a bare array, `auditLog.slice(0, 30)`
+    // in the Governance Center threw and took the whole shell down (R-004).
+    return fetchJSON<unknown>(`/audit${qs}`)
+      .then((d) => unwrap<AuditEntry>(d, "entries"));
   },
 };
 
@@ -264,7 +305,10 @@ export const executionClient = {
 export const eventsClient = {
   list: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params) : "";
-    return fetchJSON<SystemEvent[]>(`/events${qs}`);
+    // /api/v1/events does not exist — it 404s. The event log lives at
+    // /api/v1/runtime/events and answers {events, total, runtime_id} (R-004).
+    return fetchJSON<unknown>(`/runtime/events${qs}`)
+      .then((d) => unwrap<SystemEvent>(d, "events"));
   },
 };
 
@@ -325,7 +369,10 @@ export const alexandrieClient = {
 
 // ── Oh My Pi ──────────────────────────────────────────
 export const ohmypiClient = {
-  status: () => fetchJSON<OhMyPiStatus>("/ohmypi/status"),
+  // The endpoint wraps the payload in a "status" envelope, exactly like
+  // /klaatcode/status does. This was typed as the bare inner object, so
+  // every field read off it was undefined at runtime (R-002 P3).
+  status: () => fetchJSON<{ status: OhMyPiStatus }>("/ohmypi/status"),
   capabilities: () =>
     fetchJSON<{ capabilities: OhMyPiCapability[]; count: number }>(
       "/ohmypi/capabilities"
@@ -369,4 +416,379 @@ export const klaatcodeClient = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+};
+
+// ── Evolution (R-001: real endpoints, no client-side mocks) ─────────
+//
+// The Evolution Center used to render module-level MOCK_PROPOSALS /
+// MOCK_REPORTS constants, so its counters were fabricated in the browser no
+// matter what the backend said. These call the real /api/v1/evolution routes.
+
+export interface EvolutionProposalDTO {
+  proposal_id: string;
+  evolution_type: string;
+  target_component: string;
+  description: string;
+  expected_gain: number;
+  risk_level: string;
+  confidence: number;
+  status: string;
+}
+
+export interface EvolutionReportDTO {
+  report_id: string;
+  improvements_found: number;
+  applied_changes: string[];
+  rejected_changes: string[];
+  total_gain_percent: number;
+}
+
+export const evolutionClient = {
+  status: () => fetchJSON<Record<string, unknown>>("/evolution/status"),
+  proposals: (status?: string) =>
+    fetchJSON<EvolutionProposalDTO[]>(
+      status ? `/evolution/proposals?status=${encodeURIComponent(status)}` : "/evolution/proposals",
+    ),
+  reports: (limit = 10) => fetchJSON<EvolutionReportDTO[]>(`/evolution/reports?limit=${limit}`),
+  approve: (id: string) =>
+    fetchJSON<Record<string, unknown>>(`/evolution/approve/${id}`, { method: "POST" }),
+  apply: (id: string) =>
+    fetchJSON<Record<string, unknown>>(`/evolution/apply/${id}`, { method: "POST" }),
+  // POST /evolution/simulate/{id} existe côté backend et n'avait aucun appelant.
+  simulate: (id: string) =>
+    fetchJSON<Record<string, unknown>>(`/evolution/simulate/${id}`, { method: "POST" }),
+  analyze: () =>
+    fetchJSON<Record<string, unknown>>("/evolution/analyze", { method: "POST" }),
+};
+
+// ── Security & System (RC3: these Centers had no data source at all) ──
+//
+// security-center.tsx imported only useState and rendered MOCK_STATUS /
+// MOCK_TRUST_SCORES — 42 permissions, trust scores of 94.2/88.5/82.1 — all
+// invented in the browser while /api/v1/security/status returned real values.
+// system-center.tsx was the same.
+
+export interface SecurityStatusDTO {
+  permissions: { total_permissions: number; total_policies: number; history_entries?: number };
+  trust: {
+    total_agents: number;
+    average_score: number;
+    by_level: Record<string, number>;
+    total_violations?: number;
+    total_approvals?: number;
+  };
+  threats?: Record<string, unknown>;
+  isolation?: Record<string, unknown>;
+}
+
+export const securityClient = {
+  status: () => fetchJSON<SecurityStatusDTO>("/security/status"),
+  policies: () => fetchJSON<Record<string, unknown>[]>("/security/policies"),
+  threats: (limit = 50) => fetchJSON<Record<string, unknown>[]>(`/security/threats?limit=${limit}`),
+  events: (limit = 100) => fetchJSON<Record<string, unknown>[]>(`/security/events?limit=${limit}`),
+  trust: (agentId: string) => fetchJSON<Record<string, unknown>>(`/security/trust/${agentId}`),
+};
+
+export interface SubsystemHealthDTO {
+  status: string;
+  services: number;
+  by_status: Record<string, number>;
+  unhealthy: string[];
+  silent: string[];
+  detail: Record<string, { status: string; detail?: string }>;
+}
+
+export const subsystemClient = {
+  health: () => fetchJSON<SubsystemHealthDTO>("/system/health"),
+  ready: () => fetchJSON<Record<string, unknown>>("/system/ready"),
+  statistics: () => fetchJSON<Record<string, unknown>>("/system/statistics"),
+  assembly: () => fetchJSON<Record<string, unknown>>("/system/assembly"),
+  dependencies: () => fetchJSON<Record<string, unknown>>("/system/dependencies"),
+};
+
+// ── Autonomous (HOS-063) ──────────────────────────────────
+// The Autonomous Center rendered module-level MOCK_GOAL / MOCK_SESSION /
+// MOCK_DECISIONS / MOCK_TIMELINE constants — a fabricated goal, a fabricated
+// session on a "ktransformers" runtime and four invented decisions — while this
+// API was fully working and doing real inference. There was no client at all
+// for the most capable surface Hermes has (R-002 P3).
+
+export interface AutonomousGoalDTO {
+  goal_id: string;
+  user_request: string;
+  interpreted_goal: string;
+  status: string;
+  domain: string;
+  language: string;
+  complexity: number;
+  priority: string;
+  estimated_duration_s: number;
+  created_at: string;
+}
+
+export interface AutonomousDecisionDTO {
+  decision_id: string;
+  decision_type: string;
+  reason: string;
+  confidence: number;
+  alternatives_count: number;
+  selected: string;
+  context: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface AutonomousReportDTO {
+  goal_id: string;
+  user_request: string;
+  interpreted_goal: string;
+  execution_summary: string;
+  results: Record<string, unknown>;
+  improvements: string[];
+  lessons: string[];
+  decisions: AutonomousDecisionDTO[];
+  total_duration_ms: number;
+  agents_used: string[];
+  runtimes_used: string[];
+  tools_used: string[];
+  success: boolean;
+}
+
+export interface AutonomousTimelineDTO {
+  goal_id: string;
+  status: string;
+  timeline: { event: string; timestamp: number; decisions: string[] }[];
+}
+
+export interface AutonomousStatusDTO {
+  total_goals: number;
+  active: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  total_executions: number;
+  active_sessions: number;
+  interpreter: { history: number };
+  decisions: {
+    total_decisions: number;
+    by_type: Record<string, number>;
+    avg_confidence: number;
+  };
+  guard: {
+    total_blocked: number;
+    security_connected: boolean;
+    policy_connected: boolean;
+  };
+  memory_loop: { missions: number; success_rate: number; total_lessons: number };
+}
+
+export const autonomousClient = {
+  status: () => fetchJSON<AutonomousStatusDTO>("/autonomous/status"),
+  start: (userRequest: string, context?: Record<string, unknown>) =>
+    fetchJSON<AutonomousGoalDTO>("/autonomous/start", {
+      method: "POST",
+      body: JSON.stringify({ user_request: userRequest, context: context ?? {} }),
+    }),
+  goal: (goalId: string) =>
+    fetchJSON<AutonomousGoalDTO>(`/autonomous/${goalId}`),
+  report: (goalId: string) =>
+    fetchJSON<AutonomousReportDTO>(`/autonomous/${goalId}/report`),
+  timeline: (goalId: string) =>
+    fetchJSON<AutonomousTimelineDTO>(`/autonomous/${goalId}/timeline`),
+  pause: (goalId: string) =>
+    fetchJSON<{ success: boolean; goal_id: string }>(`/autonomous/${goalId}/pause`, {
+      method: "POST",
+    }),
+  resume: (goalId: string) =>
+    fetchJSON<{ success: boolean; goal_id: string }>(`/autonomous/${goalId}/resume`, {
+      method: "POST",
+    }),
+  cancel: (goalId: string) =>
+    fetchJSON<{ success: boolean; goal_id: string }>(`/autonomous/${goalId}/cancel`, {
+      method: "POST",
+    }),
+};
+
+// ── Model Intelligence (HOS-060) ──────────────────────────
+// model-intelligence-center.tsx rendered MOCK_MODELS and MOCK_DECISIONS while
+// these endpoints served six real models and real routing decisions.
+
+export interface ModelIntelligenceDTO {
+  success: boolean;
+  data: {
+    total_models: number;
+    total_runs: number;
+    average_success_rate: number;
+    models: Record<string, unknown>[];
+  };
+}
+
+export interface ModelRankingEntryDTO {
+  model_id: string;
+  name: string;
+  score: number;
+  parameters_b: number;
+  vram_mb: number;
+  tps: number;
+  success_rate: number;
+  tags: string[];
+}
+
+export interface ModelDecisionDTO {
+  model_id: string;
+  model_name: string;
+  runtime: string;
+  quantization: string;
+  confidence: number;
+  reason: string;
+  estimated_latency_ms: number;
+  estimated_tps: number;
+  estimated_vram_mb: number;
+  alternatives: { model_id: string; name: string; score: number; reason: string }[];
+}
+
+export const modelIntelligenceClient = {
+  models: () => fetchJSON<ModelIntelligenceDTO>("/models"),
+  ranking: () =>
+    fetchJSON<{ success: boolean; models: ModelRankingEntryDTO[] }>("/models/ranking"),
+  performance: () => fetchJSON<ModelIntelligenceDTO>("/models/performance"),
+  history: (limit = 50) =>
+    fetchJSON<Record<string, unknown>>(`/models/history?limit=${limit}`),
+  benchmarks: () => fetchJSON<Record<string, unknown>>("/models/benchmarks"),
+  recommend: (payload: { task_type: string; description: string }) =>
+    fetchJSON<{ success: boolean; decision: ModelDecisionDTO }>("/models/recommend", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+};
+
+// ── Conversation (HOS-062) ────────────────────────────────
+// conversation-center.tsx held a module-level `mockSessionId` built from
+// Math.random(), a generateMockResponse() that keyword-matched the user's text
+// to canned French replies with invented confidence scores, and fake 800–1400 ms
+// delays to look like thinking. /api/v1/conversation performs real intent
+// classification and real approval gating (R-002 P3).
+
+export interface ConversationIntentDTO {
+  type: string;
+  confidence: number;
+  domain: string;
+}
+
+export interface ConversationReplyDTO {
+  success: boolean;
+  session_id: string;
+  message: { role: string; content: string; timestamp: string };
+  intent: ConversationIntentDTO | null;
+  requires_approval: boolean;
+  approval_request: { action: string; risk: string; description: string } | null;
+  suggested_actions?: { label: string; action: string }[];
+  status: string;
+}
+
+export interface ConversationSessionDTO {
+  success: boolean;
+  session_id: string;
+  messages: {
+    role: string;
+    content: string;
+    timestamp: string;
+    agent_id?: string;
+    mission_id?: string;
+  }[];
+}
+
+export const conversationClient = {
+  start: (userRequest?: string) =>
+    fetchJSON<{ success: boolean; session_id: string; status: string }>(
+      "/conversation/start",
+      { method: "POST", body: JSON.stringify({ user_request: userRequest ?? "" }) },
+    ),
+  sessions: () =>
+    fetchJSON<{ success: boolean; sessions: unknown[]; total: number }>(
+      "/conversation/sessions",
+    ),
+  session: (sessionId: string) =>
+    fetchJSON<ConversationSessionDTO>(`/conversation/${sessionId}`),
+  message: (sessionId: string, message: string) =>
+    fetchJSON<ConversationReplyDTO>("/conversation/message", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, message }),
+    }),
+  approve: (sessionId: string) =>
+    fetchJSON<ConversationReplyDTO>(`/conversation/${sessionId}/approve`, {
+      method: "POST",
+    }),
+  cancel: (sessionId: string) =>
+    fetchJSON<ConversationReplyDTO>(`/conversation/${sessionId}/cancel`, {
+      method: "POST",
+    }),
+};
+
+// ── Workspace (P-001) ─────────────────────────────────────
+// Le backend expose la création, le verrouillage, la libération et la
+// suppression d'espaces de travail depuis HOS-047 ; aucun écran ne les
+// atteignait.
+
+export interface WorkspaceDTO {
+  workspace_id: string;
+  mission_id?: string;
+  agent_id?: string;
+  status?: string;
+  path?: string;
+  locked?: boolean;
+  created_at?: string;
+}
+
+export const workspaceClient = {
+  list: () =>
+    fetchJSON<unknown>("/workspace").then((d) => unwrap<WorkspaceDTO>(d, "workspaces")),
+  get: (id: string) => fetchJSON<WorkspaceDTO>(`/workspace/${id}`),
+  status: (id: string) => fetchJSON<Record<string, unknown>>(`/workspace/${id}/status`),
+  artifacts: (id: string) =>
+    fetchJSON<unknown>(`/workspace/${id}/artifacts`).then((d) =>
+      unwrap<Record<string, unknown>>(d, "artifacts")),
+  create: (data: Record<string, unknown>) =>
+    fetchJSON<WorkspaceDTO>("/workspace", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  lock: (id: string) =>
+    fetchJSON<Record<string, unknown>>(`/workspace/${id}/lock`, { method: "POST" }),
+  release: (id: string) =>
+    fetchJSON<Record<string, unknown>>(`/workspace/${id}/release`, { method: "POST" }),
+  remove: (id: string) =>
+    fetchJSON<Record<string, unknown>>(`/workspace/${id}`, { method: "DELETE" }),
+};
+
+// ── Verification ──────────────────────────────────────────
+// Ces routes vivaient hors de /api/v1 et exigeaient une base secondaire.
+// P-002 les republie sous le namespace canonique : le client n'a plus qu'une
+// seule racine, comme tous les autres.
+
+export interface VerificationRunnerDTO {
+  name: string;
+  kind: string;
+  description: string;
+}
+
+export const verificationClient = {
+  runners: () =>
+    fetchJSON<unknown>("/verification/runners").then((d) =>
+      Array.isArray(d) ? (d as VerificationRunnerDTO[]) : []),
+};
+
+// ── Monitoring (P-001) ────────────────────────────────────
+
+export const monitoringClient = {
+  resources: () => fetchJSON<ResourceStatus>("/runtime/resources"),
+  allocations: () =>
+    fetchJSON<unknown>("/runtime/resources/allocations").then((d) =>
+      unwrap<Record<string, unknown>>(d, "allocations")),
+  runtimeEvents: (limit = 50) =>
+    fetchJSON<unknown>(`/runtime/events?limit=${limit}`).then((d) =>
+      unwrap<Record<string, unknown>>(d, "events")),
+  intelligenceScores: () => fetchJSON<Record<string, unknown>>("/runtime/intelligence/scores"),
+  recommendations: () =>
+    fetchJSON<Record<string, unknown>>("/runtime/intelligence/recommendations"),
+  executionStatistics: () => fetchJSON<Record<string, unknown>>("/execution/statistics"),
 };

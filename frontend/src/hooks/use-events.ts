@@ -31,7 +31,7 @@ export function useEvents(options?: UseEventsOptions) {
     if (closedRef.current) return;
     setConnectionState("connecting");
 
-    const url = `${WS_URL.replace(/\/$/, "")}/api/hermes-os/ws/events`;
+    const url = `${WS_URL.replace(/\/$/, "")}/api/v1/runtime/events/ws`;
     const socket = new WebSocket(url);
     socketRef.current = socket;
 

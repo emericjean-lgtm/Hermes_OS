@@ -6,8 +6,10 @@ Integrates with AgentSupervisor (HOS-043) and Mission Graph (HOS-041).
 
 from __future__ import annotations
 
+import re
 import threading
 from datetime import datetime, timezone
+from pathlib import PurePath
 from typing import Any, Callable, Optional
 
 from backend.workspace.artifact_manager import ArtifactManager
@@ -24,6 +26,34 @@ from backend.workspace.workspace_models import (
     WorkspaceStatus,
 )
 from backend.workspace.workspace_policy import WorkspacePolicyEngine
+
+#: Characters allowed in a directory name derived from caller-supplied ids.
+#: Everything else — separators, dots, drive colons, NULs — is replaced.
+_UNSAFE_COMPONENT = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _safe_path_component(value: str, *, fallback: str) -> str:
+    """Reduce a caller-supplied id to a single, contained directory name.
+
+    Workspace paths were built as ``f"{base}/{mission_id}/{agent_id}"``, and both
+    ids come from the HTTP body. A ``mission_id`` of ``../../PWNED`` therefore
+    produced a ``work_dir`` resolving to ``…/AppData/Local/PWNED/atk`` — outside
+    the workspace base, which is the one thing this layer exists to guarantee.
+    Nothing materialised ``work_dir`` yet, so the escape was latent rather than
+    exploitable, but the containment boundary was built wrong and any future
+    consumer would have inherited it.
+
+    Sanitising rather than rejecting keeps ``create()`` total: callers already
+    treat it as non-failing, and a mission id is an opaque label whose only
+    requirement here is that it names exactly one directory inside the base.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    # Take the last path segment first, so "a/b/../c" cannot contribute depth.
+    leaf = PurePath(value.replace("\\", "/")).name
+    cleaned = _UNSAFE_COMPONENT.sub("_", leaf).strip("._")
+    # "..", "." and the empty string must never survive as a component.
+    return cleaned or fallback
 
 
 class WorkspaceManager:
@@ -73,13 +103,18 @@ class WorkspaceManager:
         max_disk_mb: int = 1024,
         max_duration_seconds: float = 3600.0,
     ) -> Workspace:
-        """Create a new workspace for an agent."""
+        """Create a new workspace for an agent.
+
+        ``mission_id`` and ``agent_id`` are caller-supplied and reach the
+        workspace path, so both are sanitised before interpolation — see
+        :func:`_safe_path_component`.
+        """
         ws = Workspace(
             mission_id=mission_id,
             agent_id=agent_id,
             node_id=node_id,
             root_path=self._base_path,
-            work_dir=f"{self._base_path}/{mission_id}/{agent_id}",
+            work_dir=self._work_dir_for(mission_id, agent_id),
             repository=repository,
             max_disk_mb=max_disk_mb,
             max_duration_seconds=max_duration_seconds,
@@ -96,6 +131,12 @@ class WorkspaceManager:
                 "mission_id": mission_id,
             }, severity="info")
         return ws
+
+    def _work_dir_for(self, mission_id: str, agent_id: str) -> str:
+        """Build the work directory, guaranteed to sit directly under the base."""
+        mission = _safe_path_component(mission_id, fallback="unknown-mission")
+        agent = _safe_path_component(agent_id, fallback="unknown-agent")
+        return f"{self._base_path}/{mission}/{agent}"
 
     def open(self, workspace_id: str) -> bool:
         """Open a workspace for work."""

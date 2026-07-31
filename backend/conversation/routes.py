@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import APIRouter, Body, Query
+
 from .conversation_manager import ConversationManager
 from .conversation_models import ConversationStatus
 
@@ -16,6 +18,13 @@ def _get_manager() -> ConversationManager:
     if _manager is None:
         _manager = ConversationManager()
     return _manager
+
+
+def create_conversation_routes(manager: ConversationManager) -> APIRouter:
+    """Bind the container-owned manager to these routes (HOS-066B)."""
+    global _manager
+    _manager = manager
+    return router
 
 
 # In-memory route handlers (no framework dependency)
@@ -135,6 +144,50 @@ def handle_list_sessions(limit: int = 20) -> dict[str, Any]:
         "sessions": sessions,
         "total": len(sessions),
     }
+
+
+# ── HTTP surface ─────────────────────────────────────────────
+# Paths mirror get_routes() below. "/sessions" precedes "/{session_id}" so the
+# literal segment wins the match.
+
+router = APIRouter(prefix="/conversation", tags=["conversation"])
+
+
+@router.post("/start")
+async def start_session(payload: dict = Body(default_factory=dict)) -> dict[str, Any]:
+    return handle_start_session(payload.get("user_id", "anonymous"))
+
+
+@router.post("/message")
+async def send_message(payload: dict = Body(...)) -> dict[str, Any]:
+    return handle_send_message(payload.get("session_id", ""), payload.get("message", ""))
+
+
+@router.get("/sessions")
+async def list_sessions(limit: int = Query(20, ge=1, le=200)) -> dict[str, Any]:
+    return handle_list_sessions(limit)
+
+
+@router.get("/{session_id}")
+async def get_history(
+    session_id: str, limit: int = Query(50, ge=1, le=500)
+) -> dict[str, Any]:
+    return handle_get_history(session_id, limit)
+
+
+@router.get("/{session_id}/context")
+async def get_context(session_id: str) -> dict[str, Any]:
+    return handle_get_context(session_id)
+
+
+@router.post("/{session_id}/approve")
+async def approve(session_id: str) -> dict[str, Any]:
+    return handle_approve(session_id)
+
+
+@router.post("/{session_id}/cancel")
+async def cancel(session_id: str) -> dict[str, Any]:
+    return handle_cancel(session_id)
 
 
 def get_routes() -> dict[str, Any]:

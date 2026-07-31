@@ -27,7 +27,7 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   "http://localhost:8000";
 
-const API_PREFIX = "/api/hermes-os";
+const API_PREFIX = "/api/v1";
 
 class MissionControlClientError extends Error {
   constructor(

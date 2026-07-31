@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { Card, Badge } from "@/components/ui/card";
 import {
+  useKlaatCodeCapabilities,
+  useKlaatCodeStatus,
+} from "@/hooks/use-api";
+import {
   Activity,
   Code2,
   Play,
@@ -83,67 +87,6 @@ const CAPABILITY_COLORS: Record<string, string> = {
   validate_changes: "text-emerald-400",
 };
 
-// ── Mock data for development ─────────────────────────────
-
-const MOCK_CAPABILITIES: KlaatCodeCapability[] = [
-  {
-    name: "analyze_project",
-    description: "Analyze a code project structure, language, framework, and dependencies",
-    inputs: ["path"],
-    outputs: ["project"],
-    requires_git: true,
-    requires_project: true,
-  },
-  {
-    name: "inspect_code",
-    description: "Inspect a specific file or symbol within the project",
-    inputs: ["file", "symbol"],
-    outputs: ["file_info"],
-    requires_git: false,
-    requires_project: true,
-  },
-  {
-    name: "generate_code_plan",
-    description: "Generate a code plan from a natural-language prompt",
-    inputs: ["prompt"],
-    outputs: ["plan"],
-    requires_git: false,
-    requires_project: true,
-  },
-  {
-    name: "edit_file",
-    description: "Edit a file in the workspace (policy-gated write operation)",
-    inputs: ["file", "content"],
-    outputs: ["result"],
-    requires_git: false,
-    requires_project: true,
-  },
-  {
-    name: "search_code",
-    description: "Search across the codebase using KlaatCode's Knowledge Graph",
-    inputs: ["query"],
-    outputs: ["results"],
-    requires_git: false,
-    requires_project: true,
-  },
-  {
-    name: "run_diagnostics",
-    description: "Run linter/typechecker diagnostics on a file",
-    inputs: ["file"],
-    outputs: ["diagnostics"],
-    requires_git: false,
-    requires_project: true,
-  },
-  {
-    name: "validate_changes",
-    description: "Validate recent changes for correctness and style",
-    inputs: ["file"],
-    outputs: ["validation"],
-    requires_git: false,
-    requires_project: true,
-  },
-];
-
 // ── Component ─────────────────────────────────────────────
 
 export function KlaatCodePanel({
@@ -161,7 +104,13 @@ export function KlaatCodePanel({
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const capabilities = MOCK_CAPABILITIES;
+  // Live, from /api/v1/klaatcode/*. This panel used to render a module-level
+  // MOCK_CAPABILITIES array of seven hand-written tools, so it showed the same
+  // list whether or not the agent was installed (RC3 P8).
+  const capQuery = useKlaatCodeCapabilities();
+  const statusQuery = useKlaatCodeStatus();
+  const capabilities: KlaatCodeCapability[] = capQuery.data?.capabilities ?? [];
+  const status = statusQuery.data?.status;
 
   const handleExecute = async () => {
     if (!selectedAction) return;
@@ -215,15 +164,53 @@ export function KlaatCodePanel({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="success">
-            <Activity className="w-3 h-3 mr-1" />
-            MCP Connected
-          </Badge>
+          {/* This badge used to be a hard-coded variant="success" "MCP
+              Connected", shown even when nothing was bound (RC3 P8). */}
+          {statusQuery.isLoading ? (
+            <Badge variant="default">Checking…</Badge>
+          ) : statusQuery.isError ? (
+            <Badge variant="danger">Status unavailable</Badge>
+          ) : (
+            <Badge variant={status?.server_bound ? "success" : "warning"}>
+              <Activity className="w-3 h-3 mr-1" />
+              {status?.server_bound
+                ? "MCP Connected"
+                : status?.installed
+                  ? "Installed, MCP unbound"
+                  : "Not installed"}
+            </Badge>
+          )}
+          {status?.version && (
+            <span className="text-[10px] text-hermes-muted font-mono">
+              v{status.version}
+            </span>
+          )}
         </div>
       </div>
 
       {/* Capability grid */}
-      <Card title="MCP Tools" className="mb-4">
+      <Card
+        title={`MCP Tools${capabilities.length ? ` (${capabilities.length})` : ""}`}
+        className="mb-4"
+      >
+        {capQuery.isLoading && (
+          <div className="text-xs text-hermes-muted font-mono py-2">
+            Loading capabilities…
+          </div>
+        )}
+        {capQuery.isError && (
+          <div className="text-xs text-hermes-red font-mono py-2">
+            Could not reach /klaatcode/capabilities —{" "}
+            {capQuery.error instanceof Error
+              ? capQuery.error.message
+              : "unknown error"}
+          </div>
+        )}
+        {!capQuery.isLoading && !capQuery.isError && capabilities.length === 0 && (
+          <div className="text-xs text-hermes-muted font-mono py-2">
+            The agent reports no capabilities.
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-2">
           {capabilities.map((cap) => {
             const isSelected = selectedAction === cap.name;

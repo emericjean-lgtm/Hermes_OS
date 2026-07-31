@@ -10,7 +10,9 @@ export function ToolsCenter() {
   const { data: mcpServers } = useMCPServers();
   const executeTool = useExecuteTool();
 
-  const healthMap = new Map((toolHealth || []).map((h) => [h.tool_id, h]));
+  // /tools/health reports fleet totals, not per-tool rows. This used to
+  // build a Map by calling .map() on that object, which throws (R-003).
+  const healthMap = new Map<string, ToolHealth>();
 
   return (
     <div className="animate-fade-in">
@@ -49,22 +51,33 @@ export function ToolsCenter() {
         </Card>
       </div>
 
-      {/* Tool Health Overview */}
-      {toolHealth && toolHealth.length > 0 && (
+      {/* Tool Health Overview.
+          /api/v1/tools/health reports fleet totals — it has never returned a
+          per-tool row. This block used to slice and map over it as if it were a
+          list of tools, which throws on an object; it showed nothing only
+          because the Cockpit could not reach the backend at all (R-003). */}
+      {toolHealth && (
         <Card title="Health Overview">
           <div className="grid grid-cols-4 gap-3">
-            {toolHealth.slice(0, 8).map((h) => (
-              <div key={h.tool_id} className="bg-hermes-bg rounded-lg p-3 text-center">
-                <div className="text-xs text-hermes-text font-mono mb-1 truncate">{h.tool_id}</div>
-                <Badge variant={h.status === "AVAILABLE" ? "success" : h.status === "ERROR" ? "danger" : "warning"}>
-                  {h.status}
-                </Badge>
-                <div className="text-[10px] text-hermes-muted mt-1 font-mono">
-                  {h.latency_ms}ms · {(h.success_rate * 100).toFixed(0)}%
+            {[
+              { label: "Tools", value: toolHealth.total },
+              { label: "Healthy", value: toolHealth.healthy },
+              { label: "Degraded", value: toolHealth.degraded_or_unhealthy },
+              { label: "Avg latency", value: `${toolHealth.avg_latency_ms.toFixed(0)}ms` },
+            ].map((s) => (
+              <div key={s.label} className="bg-hermes-bg rounded-lg p-3 text-center">
+                <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">
+                  {s.label}
+                </div>
+                <div className="text-sm font-bold text-hermes-text font-mono">
+                  {s.value}
                 </div>
               </div>
             ))}
           </div>
+          <p className="text-[10px] text-hermes-muted font-mono mt-2">
+            Per-tool health is not exposed by this endpoint.
+          </p>
         </Card>
       )}
     </div>

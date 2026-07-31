@@ -5,7 +5,9 @@ REST API endpoints for security management.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
+
+from fastapi import APIRouter, Body, Query
 
 from .security_engine import SecurityEngine
 from .security_models import ResourceType, ThreatLevel, TrustLevel
@@ -19,6 +21,18 @@ def get_engine() -> SecurityEngine:
     if _engine is None:
         _engine = SecurityEngine()
     return _engine
+
+
+def create_security_routes(engine: SecurityEngine) -> APIRouter:
+    """Bind the container-owned engine to these routes (HOS-066B).
+
+    Seeds the module singleton so ``get_engine()`` and the HTTP layer share one
+    instance — without this, the lazy fallback above would build a *second*
+    engine with no ``on_event``, and its events would go nowhere.
+    """
+    global _engine
+    _engine = engine
+    return router
 
 
 # ── API Handler Functions ────────────────────────────────────
@@ -99,6 +113,63 @@ def handle_mitigate_threat(data: dict) -> dict:
         data["threat_id"], data.get("action", "auto_mitigate")
     )
     return {"success": ok}
+
+
+# ── HTTP surface ─────────────────────────────────────────────
+#
+# Thin delegation to the handlers above: the paths and methods are exactly
+# those declared in SECURITY_ROUTES below, which was the module's intended
+# contract but had no APIRouter to make it reachable.
+
+router = APIRouter(prefix="/security", tags=["security"])
+
+
+@router.get("/status")
+async def get_status() -> dict[str, Any]:
+    return handle_get_status()
+
+
+@router.get("/policies")
+async def get_policies() -> list[dict]:
+    return handle_get_policies()
+
+
+@router.post("/check")
+async def check_access(payload: dict = Body(...)) -> dict[str, Any]:
+    return handle_check_access(payload)
+
+
+@router.get("/events")
+async def get_events(limit: int = Query(100, ge=1, le=1000)) -> list[dict]:
+    return handle_get_events(limit)
+
+
+@router.get("/trust/{agent_id}")
+async def get_trust(agent_id: str) -> dict:
+    return handle_get_trust(agent_id)
+
+
+@router.post("/permissions/grant")
+async def grant_permission(payload: dict = Body(...)) -> dict:
+    return handle_grant_permission(payload)
+
+
+@router.post("/permissions/revoke")
+async def revoke_permission(payload: dict = Body(...)) -> dict:
+    return handle_revoke_permission(payload)
+
+
+@router.get("/threats")
+async def get_threats(
+    level: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+) -> list[dict]:
+    return handle_get_threats(level, limit)
+
+
+@router.post("/threats/mitigate")
+async def mitigate_threat(payload: dict = Body(...)) -> dict:
+    return handle_mitigate_threat(payload)
 
 
 # ── API endpoint list for integration ────────────────────────

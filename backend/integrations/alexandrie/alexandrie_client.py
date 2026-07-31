@@ -48,17 +48,25 @@ class AlexandrieClient:
     def __init__(self, config: Optional[AlexandrieConfig] = None) -> None:
         self.config = config or AlexandrieConfig()
         self._session = self._build_session() if _REQUESTS_AVAILABLE else None
+        # Separate session for health probes, deliberately without the retry
+        # adapter: retrying a reachability check 4 times with exponential
+        # backoff made health_check() take ~22s whenever Alexandrie was down
+        # (3 retries x backoff 1/2/4s + 5s connect each). A health check's job
+        # is to answer *quickly* whether the service is up, its result is
+        # already cached for health_check_interval_seconds, and a negative
+        # answer is already handled by callers.
+        self._health_session = self._build_session(with_retries=False) if _REQUESTS_AVAILABLE else None
         self._lock = threading.Lock()
         self._last_health: Optional[dict[str, Any]] = None
         self._health_at: float = 0.0
 
-    def _build_session(self):
+    def _build_session(self, with_retries: bool = True):
         if not _REQUESTS_AVAILABLE:
             return None
         session = requests.Session()
         retry = Retry(
-            total=self.config.max_retries,
-            backoff_factor=self.config.retry_backoff_base,
+            total=self.config.max_retries if with_retries else 0,
+            backoff_factor=self.config.retry_backoff_base if with_retries else 0,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET", "HEAD"],
             raise_on_status=False,
@@ -89,14 +97,14 @@ class AlexandrieClient:
         if not force and self._last_health and (now - self._health_at) < self.config.health_check_interval_seconds:
             return self._last_health
 
-        if not self._session:
+        if not self._health_session:
             result = {"healthy": False, "error": "requests library not installed"}
             self._last_health = result
             self._health_at = now
             return result
 
         try:
-            resp = self._session.get(
+            resp = self._health_session.get(
                 f"{self.config.base_url.rstrip('/')}/api/stats",
                 timeout=(self.config.connect_timeout, self.config.timeout_seconds),
             )

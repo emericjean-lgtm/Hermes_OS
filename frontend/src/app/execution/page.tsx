@@ -1,6 +1,6 @@
 "use client";
 
-import { Group, Panel, Separator } from "react-resizable-panels";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { DashboardProvider } from "@/store/dashboard-store";
 import ExecutionOverview from "@/components/execution/ExecutionOverview";
@@ -28,39 +28,39 @@ export default function ExecutionPage() {
 
           <ExecutionControls />
 
-          <Group orientation="vertical" style={{ minHeight: 700 }}>
+          <PanelGroup direction="vertical" style={{ minHeight: 700 }}>
             {/* Top row: Overview + Graph */}
             <Panel defaultSize={40} minSize={25}>
-              <Group orientation="horizontal">
+              <PanelGroup direction="horizontal">
                 <Panel defaultSize={33} minSize={20}>
                   <ExecutionOverview />
                 </Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={67} minSize={35}>
                   <LiveGraph />
                 </Panel>
-              </Group>
+              </PanelGroup>
             </Panel>
 
-            <Separator className="h-2 rounded-md transition-colors hover:bg-white/10" />
+            <PanelResizeHandle className="h-2 rounded-md transition-colors hover:bg-white/10" />
 
             {/* Bottom row: Tasks + Timeline + Charts */}
             <Panel defaultSize={60} minSize={30}>
-              <Group orientation="horizontal">
+              <PanelGroup direction="horizontal">
                 <Panel defaultSize={40} minSize={25}>
                   <TaskTable />
                 </Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={30} minSize={20}>
                   <ExecutionTimeline />
                 </Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={30} minSize={20}>
                   <PerformanceCharts />
                 </Panel>
-              </Group>
+              </PanelGroup>
             </Panel>
-          </Group>
+          </PanelGroup>
         </div>
       </DashboardLayout>
     </DashboardProvider>

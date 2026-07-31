@@ -17,6 +17,25 @@ import {
 import { Card, Badge } from "@/components/ui/card";
 import type { SearchResult, Experience, KnowledgeNode, AlexandrieMergeResult } from "@/types/hermes";
 
+/** The headline number for one memory store.
+ *
+ *  Each store reports a different shape: `{total}`, `{total_documents}`,
+ *  `{total_procedures}`, `{total_nodes}` or `{active_memories, ...}`. Prefer an
+ *  explicit total, else fall back to the first numeric field, else 0 — never
+ *  return the object itself, which is what crashed this Center.
+ */
+function headlineCount(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (!value || typeof value !== "object") return 0;
+  const o = value as Record<string, unknown>;
+  for (const key of ["total", "total_documents", "total_procedures",
+                     "total_nodes", "active_memories", "count"]) {
+    if (typeof o[key] === "number") return o[key] as number;
+  }
+  const first = Object.values(o).find((v) => typeof v === "number");
+  return typeof first === "number" ? first : 0;
+}
+
 export function MemoryCenter() {
   const [query, setQuery] = useState("");
   const [alexQuery, setAlexQuery] = useState("");
@@ -47,12 +66,20 @@ export function MemoryCenter() {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats.
+          /api/v1/memory/statistics returns one nested object per store —
+          working: {active_memories, active_missions}, episodic: {total, ...},
+          semantic: {total, categories}, and so on. This rendered `val`
+          directly, which throws "Objects are not valid as a React child" and,
+          because the crash escaped the Center, blanked the whole Cockpit
+          (R-004). Each tile now shows that store's headline count. */}
       {stats && (
         <div className="grid grid-cols-5 gap-3 mb-6">
           {Object.entries(stats).slice(0, 5).map(([key, val]) => (
             <div key={key} className="bg-hermes-card border border-hermes-border rounded-lg p-3 text-center">
-              <div className="text-xl font-bold font-mono text-hermes-amber-bright">{val}</div>
+              <div className="text-xl font-bold font-mono text-hermes-amber-bright">
+                {headlineCount(val)}
+              </div>
               <div className="text-[10px] text-hermes-muted font-mono uppercase">{key}</div>
             </div>
           ))}

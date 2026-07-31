@@ -49,7 +49,16 @@ def create_document(body: dict):
         is_public=body.get("is_public", False),
     )
     if node is None:
-        raise HTTPException(status_code=500, detail="Failed to create document")
+        # 503 and not 500: the adapter returns None only when its circuit
+        # breaker is open or the upstream call to Alexandrie failed — never for
+        # invalid input. Reporting an internal error for an offline optional
+        # integration tells the Cockpit that Hermes is broken when it is not,
+        # and hides the one fact an operator needs.
+        raise HTTPException(
+            status_code=503,
+            detail="Alexandrie is unavailable; document not created. Retry once "
+                   "the integration reports healthy (GET /api/v1/alexandrie/health).",
+        )
     return _node_to_dict(node)
 
 

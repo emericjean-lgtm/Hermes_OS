@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import APIRouter, Body, Query
+
 from .decision_explainer import DecisionExplainer
 from .explanation_models import DecisionType
 
@@ -15,6 +17,13 @@ def _get_explainer() -> DecisionExplainer:
     if _explainer is None:
         _explainer = DecisionExplainer()
     return _explainer
+
+
+def create_explainability_routes(explainer: DecisionExplainer) -> APIRouter:
+    """Bind the container-owned explainer to these routes (HOS-066B)."""
+    global _explainer
+    _explainer = explainer
+    return router
 
 
 def handle_explain(
@@ -79,3 +88,33 @@ def handle_list_explanations(limit: int = 20) -> dict[str, Any]:
         "explanations": explainer.get_history(limit),
         "total": limit,
     }
+
+
+# ── HTTP surface ─────────────────────────────────────────────
+# Thin delegation to the handlers above. "/explanations" is a literal segment
+# so it is declared before the "/{decision_id}" capture.
+
+router = APIRouter(prefix="/explainability", tags=["explainability"])
+
+
+@router.post("/explain")
+async def explain(payload: dict = Body(...)) -> dict[str, Any]:
+    return handle_explain(
+        decision_type=payload.get("decision_type", ""),
+        decision=payload.get("decision", ""),
+        reason=payload.get("reason", ""),
+        confidence=float(payload.get("confidence", 0.0)),
+        alternatives=payload.get("alternatives"),
+        risk_level=payload.get("risk_level", "low"),
+        affected=payload.get("affected"),
+    )
+
+
+@router.get("/explanations")
+async def list_explanations(limit: int = Query(20, ge=1, le=200)) -> dict[str, Any]:
+    return handle_list_explanations(limit)
+
+
+@router.get("/{decision_id}")
+async def get_explanation(decision_id: str) -> dict[str, Any]:
+    return handle_get_explanation(decision_id)

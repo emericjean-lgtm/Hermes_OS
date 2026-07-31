@@ -6,6 +6,7 @@ detects regressions, and discovers new models.
 
 from __future__ import annotations
 
+import logging
 import random
 import threading
 import time
@@ -19,6 +20,8 @@ from .model_intelligence_models import (
 )
 from .model_profiler import ModelProfiler
 from .performance_analyzer import PerformanceAnalyzer
+
+logger = logging.getLogger(__name__)
 
 
 class BenchmarkScheduler:
@@ -133,8 +136,8 @@ class BenchmarkScheduler:
         while self._running:
             try:
                 self.run_full_benchmark()
-            except Exception as e:
-                print(f"Benchmark error: {e}")
+            except Exception:
+                logger.warning("Benchmark run failed", exc_info=True)
             time.sleep(interval_h * 3600)
 
     def _simulate_latency(self, profile: ModelProfile) -> float:

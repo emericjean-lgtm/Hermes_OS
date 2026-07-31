@@ -20,12 +20,17 @@ import asyncio
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from backend.ral.event_bus import EventBusInterface
 from backend.ral.event_bus_impl import EventBusImpl
 from backend.ral.runtime_factory import RuntimeFactory, RuntimeLifecycle
 from backend.ral.runtime_registry import RuntimeRegistry
+
+if TYPE_CHECKING:
+    # Imported for annotations only; RuntimeHolder.__init__ still imports it
+    # lazily at call time to keep the module-level import graph acyclic.
+    from backend.ral.runtime import RuntimeInterface
 
 logger = logging.getLogger("hermes_os.sds.runtime")
 

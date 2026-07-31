@@ -6,6 +6,7 @@ for both SQLite (dev) and PostgreSQL (production).
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import threading
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.config.config_models import DatabaseConfig, StorageBackend
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
@@ -43,8 +46,8 @@ class DatabaseManager:
                     self._init_postgresql()
                 self._initialized = True
                 return True
-            except Exception as e:
-                print(f"Database initialization failed: {e}")
+            except Exception:
+                logger.error("Database initialization failed", exc_info=True)
                 return False
 
     def get_connection(self) -> Any:

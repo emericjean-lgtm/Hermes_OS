@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Card, Badge } from "@/components/ui/card";
+import { useSecurityStatus, useSecurityThreats } from "@/hooks/use-api";
 import {
   Shield,
   ShieldAlert,
@@ -36,31 +37,6 @@ interface AgentTrustData {
 
 // ── Mock data ────────────────────────────────────────────
 
-const MOCK_STATUS: SecurityStatus = {
-  permissions: { total_permissions: 42, total_policies: 15 },
-  trust: {
-    total_agents: 8, average_score: 72.3,
-    by_level: { verified: 2, high: 3, medium: 2, low: 1, unknown: 0 },
-    total_violations: 5,
-  },
-  threats: {
-    total_threats: 12, mitigated: 10, unmitigated: 2,
-    by_level: { critical: 0, high: 1, medium: 5, low: 6, none: 0 },
-  },
-  isolation: { total_profiles: 6, active_sessions: 3, total_violations: 2 },
-};
-
-const MOCK_TRUST_SCORES: AgentTrustData[] = [
-  { agent_id: "agent.supervisor", score: 94.2, level: "verified", success_rate: 98.1, policy_violations: 0, human_approvals: 12 },
-  { agent_id: "agent.klaatcode", score: 88.5, level: "verified", success_rate: 94.3, policy_violations: 0, human_approvals: 8 },
-  { agent_id: "agent.ohmypi", score: 82.1, level: "high", success_rate: 90.6, policy_violations: 1, human_approvals: 6 },
-  { agent_id: "agent.code_intel", score: 76.4, level: "high", success_rate: 88.2, policy_violations: 1, human_approvals: 4 },
-  { agent_id: "mission.planner", score: 71.8, level: "high", success_rate: 85.0, policy_violations: 2, human_approvals: 3 },
-  { agent_id: "runtime.orchestrator", score: 68.3, level: "medium", success_rate: 82.5, policy_violations: 0, human_approvals: 1 },
-  { agent_id: "execution.engine", score: 55.2, level: "medium", success_rate: 78.0, policy_violations: 1, human_approvals: 0 },
-  { agent_id: "agent.unknown_dev", score: 22.0, level: "low", success_rate: 45.0, policy_violations: 3, human_approvals: 0 },
-];
-
 const trustColor = (level: string) => {
   switch (level) {
     case "verified": return "text-emerald-400";
@@ -83,7 +59,49 @@ const trustBadge = (level: string) => {
 
 export function SecurityCenter() {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
-  const s = MOCK_STATUS;
+
+  // Real data from /api/v1/security/*. This Center previously imported only
+  // useState and rendered MOCK_STATUS / MOCK_TRUST_SCORES — 42 permissions, a
+  // 72.3% average trust score, four agents with invented scores — none of which
+  // came from the SecurityEngine that was already serving real values (RC3 P1).
+  const { data: status, isLoading, isError, error } = useSecurityStatus();
+  const { data: threatList } = useSecurityThreats();
+
+  const empty: SecurityStatus = {
+    permissions: { total_permissions: 0, total_policies: 0 },
+    trust: { total_agents: 0, average_score: 0, by_level: {}, total_violations: 0 },
+    threats: { total_threats: 0, mitigated: 0, unmitigated: 0, by_level: {} },
+    isolation: { total_profiles: 0, active_sessions: 0, total_violations: 0 },
+  };
+  const s = (status as SecurityStatus | undefined) ?? empty;
+  const threats = Array.isArray(threatList) ? threatList : [];
+  // /security/status reports trust in aggregate (counts per level); a
+  // per-agent table needs /security/trust/{id} per agent, which the Center
+  // has no agent list for yet. Render the aggregate rather than invent rows.
+  const trustRows: AgentTrustData[] = [];
+
+  if (isLoading) {
+    return (
+      <div className="animate-fade-in p-6 text-xs text-hermes-muted">
+        Loading security state…
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="animate-fade-in p-6">
+        <Card title="Security" className="p-4 border-hermes-red/40">
+          <div className="flex items-center gap-2 text-hermes-red text-sm">
+            <ShieldAlert size={16} />
+            <span>Could not reach the Security Engine</span>
+          </div>
+          <p className="mt-2 text-[11px] text-hermes-muted">
+            {error instanceof Error ? error.message : "unknown error"}
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in p-6">
@@ -136,7 +154,7 @@ export function SecurityCenter() {
               </tr>
             </thead>
             <tbody>
-              {MOCK_TRUST_SCORES.map((agent) => (
+              {trustRows.map((agent) => (
                 <tr
                   key={agent.agent_id}
                   onClick={() => setSelectedAgent(selectedAgent === agent.agent_id ? null : agent.agent_id)}

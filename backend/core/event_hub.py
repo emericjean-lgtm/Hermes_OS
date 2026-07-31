@@ -31,17 +31,44 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
+from backend.core.event_topics import BASELINE_TOPICS
+
 logger = logging.getLogger(__name__)
 
-# §24.2's five, plus one this module has to be able to say about itself.
-EVENT_TYPES = frozenset({
-    "system.metrics",
-    "chat.token",
-    "agent.message",
-    "task.update",
-    "validation.request",
-    "stream.dropped",
-})
+# §24.2's five and the one this module says about itself, plus every topic the
+# RAL, runtime, security and subsystem layers declare — see
+# backend/core/event_topics.py for why the two are kept together.
+#
+# A mutable set, not a frozenset, and that is deliberate: `backend.api.routes.ws`
+# does `from backend.core.event_hub import EVENT_TYPES` at import time, so
+# rebinding this name would leave that reference pointing at the old value.
+# Mutating in place is what makes register_event_types() visible everywhere.
+EVENT_TYPES: set[str] = set(BASELINE_TOPICS)
+
+
+def _is_well_formed(event_type: object) -> bool:
+    """A publishable topic is a non-empty dotted string, e.g. ``task.update``."""
+    return (
+        isinstance(event_type, str)
+        and "." in event_type
+        and not event_type.startswith(".")
+        and not event_type.endswith(".")
+        and " " not in event_type
+    )
+
+
+def register_event_types(*names: str) -> set[str]:
+    """Declare additional publishable topics; returns the ones newly added.
+
+    Called at startup by the bootstrap with the topics re-derived from the live
+    enums, so the allow-list cannot drift behind its producers the way it did
+    before HOS-066B (six entries against 44 real topics, silently dropping 26).
+    """
+    added = {n for n in names if n and n not in EVENT_TYPES}
+    EVENT_TYPES.update(added)
+    if added:
+        logger.debug("registered %d additional event types", len(added))
+    return added
 
 # Roughly ten seconds of metrics at the §24.2 cadence, plus room for a
 # burst of agent traffic. Large enough that a brief hiccup costs nothing,
@@ -73,6 +100,9 @@ class EventHub:
     def __init__(self, queue_size: int = DEFAULT_QUEUE_SIZE) -> None:
         self._subscribers: set[_Subscriber] = set()
         self._queue_size = queue_size
+        # Topics already reported as unknown, so drift is logged once rather
+        # than on every publish (a hot topic would otherwise flood the log).
+        self._unknown_seen: set[str] = set()
 
     @property
     def subscriber_count(self) -> int:
@@ -94,11 +124,38 @@ class EventHub:
             logger.exception("event fan-out failed for %r", event_type)
 
     def _publish(self, event_type: str, payload: dict[str, Any]) -> None:
-        if event_type not in EVENT_TYPES:
-            # Loud, because an unknown type means a producer and this list
-            # have drifted — but still not fatal to the caller.
-            logger.warning("unknown event type %r, not published", event_type)
+        if not _is_well_formed(event_type):
+            # A topic that is not a dotted string is a programming error, not
+            # drift. Refusing it is safe: no subscriber could match it anyway.
+            logger.warning("malformed event type %r, not published", event_type)
             return
+
+        if event_type not in EVENT_TYPES:
+            # Delivered anyway, and here is why the publish side is permissive
+            # while the subscribe side (see backend/api/routes/ws.py) stays
+            # strict.
+            #
+            # An allow-list on the publish path trades "catch a producer typo"
+            # against "silently destroy real events". That trade has now gone
+            # wrong twice: the RC1 audit found 26 of 28 RAL topics being dropped
+            # with only a log line, and the RC2 audit found 8 more afterwards —
+            # emitted as `AUTONOMOUS_EVENTS["goal_received"]` and as a variable
+            # holding a conditional, neither of which any scan of string
+            # literals can see. Staleness is structural and recurring; a typo is
+            # caught by the tests and by the topic showing up in the stream.
+            #
+            # So: warn once per unknown topic (drift stays visible) and deliver.
+            # Subscribers filtering by type are unaffected — an unknown topic
+            # matches no filter — so this can only ever reach a client that
+            # asked for everything.
+            if event_type not in self._unknown_seen:
+                self._unknown_seen.add(event_type)
+                logger.warning(
+                    "event type %r is not in EVENT_TYPES; delivering anyway. "
+                    "Add it to backend/core/event_topics.py so clients can "
+                    "filter on it.",
+                    event_type,
+                )
 
         event = Event(event_type, payload)
         for subscriber in list(self._subscribers):

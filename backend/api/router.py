@@ -13,6 +13,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Optional
@@ -276,6 +277,12 @@ class MissionControlRouter:
             await websocket.accept()
             bus = self._service._bus  # noqa: SLF001
 
+            # The loop serving this connection. Events are published from
+            # threadpool workers and background schedulers, which have no
+            # running loop of their own, so it has to be captured here rather
+            # than looked up at publish time.
+            loop = asyncio.get_running_loop()
+
             # Parse optional source filter
             sources_raw = websocket.query_params.get("sources", "")
             source_filter: Optional[set[str]] = None
@@ -296,18 +303,32 @@ class MissionControlRouter:
                     }
                     await websocket.send_json(payload)
                 except Exception:
-                    pass
+                    # A client that has gone away must not break the publisher;
+                    # the disconnect is handled by the receive loop below.
+                    logger.debug("WebSocket send failed", exc_info=True)
 
             def _handler(event: Any) -> None:
+                """Called by the bus, possibly from a worker thread.
+
+                ``get_event_loop()`` + ``ensure_future`` was wrong on both
+                counts here: off the main thread the lookup raises (and was
+                swallowed, so the event silently vanished), and ensure_future is
+                not thread-safe even on the right thread.
+                """
                 if source_filter and event.source not in source_filter:
                     return
-                import asyncio
+                if loop.is_closed():
+                    return
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.ensure_future(send_event(event))
+                    if asyncio.get_running_loop() is loop:
+                        loop.create_task(send_event(event))
+                        return
                 except RuntimeError:
-                    pass
+                    pass  # no running loop in this thread — expected
+                try:
+                    asyncio.run_coroutine_threadsafe(send_event(event), loop)
+                except RuntimeError:
+                    logger.debug("could not schedule WebSocket send", exc_info=True)
 
             bus.subscribe(_handler)
 

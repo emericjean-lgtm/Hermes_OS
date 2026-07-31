@@ -166,8 +166,21 @@ class GraphExecutor:
         parallel_groups = self._resolver.get_parallel_groups(mission)
         return {
             "mission_id": mission.mission_id,
+            # The measured fields are included so the Cockpit can show what a
+            # node actually did. They were written by the node executor and
+            # dropped here, leaving the graph view unable to distinguish a node
+            # that ran for 16 s from one that never ran (R-002 P1).
             "nodes": [
-                {"id": n.node_id, "title": n.title, "status": n.status.value, "type": n.type}
+                {
+                    "id": n.node_id,
+                    "title": n.title,
+                    "status": n.status.value,
+                    "type": n.type,
+                    "duration_ms": round(n.actual_duration_ms, 1),
+                    "runtime": n.preferred_runtime,
+                    "result_summary": n.result_summary,
+                    "depends_on": list(n.depends_on),
+                }
                 for n in mission.nodes
             ],
             "edges": [

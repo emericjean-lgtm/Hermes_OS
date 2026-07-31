@@ -3,6 +3,13 @@
 import { useState } from "react";
 import { Card, Badge } from "@/components/ui/card";
 import {
+  useEvolutionAction,
+  useEvolutionAnalyze,
+  useEvolutionProposals,
+  useEvolutionReports,
+} from "@/hooks/use-api";
+import { ConfirmAction } from "@/components/confirm-action";
+import {
   Activity,
   TrendingUp,
   Lightbulb,
@@ -36,23 +43,6 @@ interface EvolutionReport {
   total_gain_percent: number;
 }
 
-// ── Mock Data ────────────────────────────────────────────
-
-const MOCK_PROPOSALS: EvolutionProposal[] = [
-  { proposal_id: "p1", evolution_type: "runtime_optimization", target_component: "runtime.orchestrator", description: "Reduce runtime latency: 520ms avg → target 300ms", expected_gain: 25, risk_level: "medium", confidence: 0.75, status: "simulated" },
-  { proposal_id: "p2", evolution_type: "skill_improvement", target_component: "skills.distribution", description: "Remove 3 unused skills (60% unused ratio)", expected_gain: 12, risk_level: "low", confidence: 0.88, status: "approved" },
-  { proposal_id: "p3", evolution_type: "model_switch", target_component: "runtime.orchestrator", description: "Switch to better model: score 0.65 → 0.85", expected_gain: 30, risk_level: "high", confidence: 0.62, status: "detected" },
-  { proposal_id: "p4", evolution_type: "workflow_optimization", target_component: "execution.engine", description: "Optimize workflow: 40% repeat rate detected", expected_gain: 15, risk_level: "medium", confidence: 0.65, status: "detected" },
-  { proposal_id: "p5", evolution_type: "memory_optimization", target_component: "memory.unified", description: "Improve KG hit rate: 45% → target 70%", expected_gain: 20, risk_level: "low", confidence: 0.72, status: "applied" },
-  { proposal_id: "p6", evolution_type: "agent_improvement", target_component: "agent.supervisor", description: "Agent success rate: 55% → target 80%", expected_gain: 28, risk_level: "medium", confidence: 0.68, status: "simulated" },
-  { proposal_id: "p7", evolution_type: "architecture_improvement", target_component: "core.integration", description: "Redesign integration layer for parallel dispatch", expected_gain: 35, risk_level: "high", confidence: 0.45, status: "detected" },
-  { proposal_id: "p8", evolution_type: "runtime_optimization", target_component: "runtime.ktransformers", description: "KTransformers cache optimization", expected_gain: 18, risk_level: "low", confidence: 0.82, status: "applied" },
-];
-
-const MOCK_REPORTS: EvolutionReport[] = [
-  { report_id: "r1", improvements_found: 8, applied_changes: ["KG hit rate optimization", "KTC cache tuning"], rejected_changes: ["Architecture redesign"], total_gain_percent: 38 },
-  { report_id: "r2", improvements_found: 5, applied_changes: ["Skill cleanup"], rejected_changes: [], total_gain_percent: 12 },
-];
 
 const evolutionTypeColor = (type: string) => {
   const colors: Record<string, string> = {
@@ -81,12 +71,58 @@ const statusBadge = (status: string) => {
 export function EvolutionCenter() {
   const [selectedProposal, setSelectedProposal] = useState<string | null>(null);
 
+  // Real data from /api/v1/evolution/*. This Center used to render module-level
+  // MOCK_PROPOSALS / MOCK_REPORTS, so its counters were fabricated in the
+  // browser regardless of what the backend reported (R-001 STEP 10).
+  const { data: proposalsData, isLoading, isError, error } = useEvolutionProposals();
+  const { data: reportsData } = useEvolutionReports();
+  // simulate / approve / apply existent côté backend et n'avaient aucun
+  // déclencheur dans le Cockpit. Chacun passe par une confirmation (P-002).
+  const evolutionAction = useEvolutionAction();
+  const analyze = useEvolutionAnalyze();
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const proposals: EvolutionProposal[] = proposalsData ?? [];
+  const reports: EvolutionReport[] = reportsData ?? [];
+
   const stats = {
-    total: MOCK_PROPOSALS.length,
-    applied: MOCK_PROPOSALS.filter(p => p.status === "applied").length,
-    detected: MOCK_PROPOSALS.filter(p => p.status === "detected").length,
-    totalGain: MOCK_PROPOSALS.filter(p => p.status === "applied").reduce((s, p) => s + p.expected_gain, 0),
+    total: proposals.length,
+    applied: proposals.filter(p => p.status === "applied").length,
+    detected: proposals.filter(p => p.status === "detected").length,
+    totalGain: proposals
+      .filter(p => p.status === "applied")
+      .reduce((sum, p) => sum + p.expected_gain, 0),
   };
+
+  // Loading, empty and failed must be distinguishable — rendering zeros for all
+  // three is what made a disconnected backend look like an idle system.
+  if (isLoading) {
+    return (
+      <div className="animate-fade-in p-6 text-xs text-hermes-muted">
+        Loading evolution proposals…
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="animate-fade-in p-6">
+      {actionError && (
+        <div className="mb-3 px-3 py-2 rounded-lg bg-hermes-red/10 border border-hermes-red/30 text-hermes-red text-xs font-mono">
+          {actionError}
+        </div>
+      )}
+        <Card title="Evolution Engine" className="p-4 border-hermes-red/40">
+          <div className="flex items-center gap-2 text-hermes-red text-sm">
+            <AlertTriangle size={16} />
+            <span>Could not reach the Evolution Engine</span>
+          </div>
+          <p className="mt-2 text-[11px] text-hermes-muted">
+            {error instanceof Error ? error.message : "unknown error"}
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in p-6">
@@ -110,7 +146,7 @@ export function EvolutionCenter() {
           { icon: TrendingUp, label: "Applied", value: stats.applied, sub: "optimizations", color: "text-hermes-green" },
           { icon: AlertTriangle, label: "Pending", value: stats.detected, sub: "to review", color: "text-hermes-amber" },
           { icon: Target, label: "Total Gain", value: `${stats.totalGain}%`, sub: "estimated", color: "text-hermes-purple" },
-          { icon: Zap, label: "Avg Conf", value: `${(MOCK_PROPOSALS.reduce((s, p) => s + p.confidence, 0) / stats.total * 100).toFixed(0)}%`, sub: "confidence", color: "text-emerald-400" },
+          { icon: Zap, label: "Avg Conf", value: stats.total ? `${(proposals.reduce((sum, p) => sum + p.confidence, 0) / stats.total * 100).toFixed(0)}%` : "—", sub: "confidence", color: "text-emerald-400" },
         ].map((stat) => (
           <div key={stat.label} className="bg-hermes-card border border-hermes-border rounded-lg p-3">
             <stat.icon className={`w-4 h-4 mb-1 ${stat.color}`} />
@@ -134,10 +170,11 @@ export function EvolutionCenter() {
                 <th className="pb-2 pr-4">Risk</th>
                 <th className="pb-2 pr-4">Conf</th>
                 <th className="pb-2 pr-4">Status</th>
+                <th className="pb-2 pr-4">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {MOCK_PROPOSALS.map((p) => (
+              {proposals.map((p) => (
                 <tr
                   key={p.proposal_id}
                   onClick={() => setSelectedProposal(selectedProposal === p.proposal_id ? null : p.proposal_id)}
@@ -156,6 +193,40 @@ export function EvolutionCenter() {
                   <td className="py-2 pr-4">{statusBadge(p.risk_level)}</td>
                   <td className="py-2 pr-4 text-xs font-mono">{(p.confidence * 100).toFixed(0)}%</td>
                   <td className="py-2 pr-4">{statusBadge(p.status)}</td>
+                  <td className="py-2 pr-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex gap-1 flex-wrap">
+                      {(["simulate", "approve", "apply"] as const).map((verb) => (
+                        <ConfirmAction
+                          key={verb}
+                          label={
+                            verb === "simulate" ? "Simuler"
+                              : verb === "approve" ? "Approuver" : "Appliquer"
+                          }
+                          severity={verb === "apply" ? "destructive" : "impactful"}
+                          description={
+                            verb === "simulate"
+                              ? "Exécute la proposition à blanc et mesure son effet."
+                              : verb === "approve"
+                                ? "Marque la proposition comme approuvée."
+                                : "Applique la modification au système. Irréversible."
+                          }
+                          target={`${p.evolution_type} — ${p.target_component}`}
+                          pending={evolutionAction.isPending}
+                          onConfirm={() => {
+                            setActionError(null);
+                            evolutionAction.mutate(
+                              { id: p.proposal_id, action: verb },
+                              {
+                                onError: (err) =>
+                                  setActionError(
+                                    err instanceof Error ? err.message : "Action refusée"),
+                              },
+                            );
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -205,7 +276,7 @@ export function EvolutionCenter() {
 
         <Card title="Recent Reports">
           <div className="space-y-3">
-            {MOCK_REPORTS.map((r) => (
+            {reports.map((r) => (
               <div key={r.report_id} className="p-3 rounded-lg border border-hermes-border/50">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[10px] font-mono text-hermes-text">{r.report_id}</span>

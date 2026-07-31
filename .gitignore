@@ -16,6 +16,8 @@ frontend/out/
 data/db/*
 data/logs/*
 data/snapshots/*
+# Base du bus d'événements : état d'exécution, pas du code source.
+data/eventbus/
 !data/db/.gitkeep
 !data/logs/.gitkeep
 !data/snapshots/.gitkeep

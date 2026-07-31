@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -32,6 +33,9 @@ class AgentCoordinator:
     - Cost (token/runtime cost optimization)
     """
 
+    #: Past assignments retained for release_agent()/get_assignment() lookups.
+    MAX_RETAINED_ASSIGNMENTS = 2000
+
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._agents: dict[str, dict[str, Any]] = {}        # agent_id → capabilities
@@ -39,7 +43,9 @@ class AgentCoordinator:
         self._skills: dict[str, dict[str, Any]] = {}        # skill_id → metadata
         self._tools: dict[str, dict[str, Any]] = {}         # tool_id → metadata
         self._agent_loads: dict[str, int] = {}              # concurrent tasks per agent
-        self._assignments: dict[str, AgentAssignment] = {}  # task_id → assignment
+        # task_id → assignment. Bounded: one entry per task executed, and
+        # nothing pruned it, so this grew for the process lifetime (RC3 P5).
+        self._assignments: OrderedDict[str, AgentAssignment] = OrderedDict()
 
     def register_agent(self, agent_id: str, capabilities: list[str],
                        preferred_runtime: str = "auto") -> None:
@@ -92,6 +98,9 @@ class AgentCoordinator:
             )
 
             self._assignments[task.task_id] = assignment
+            self._assignments.move_to_end(task.task_id)
+            while len(self._assignments) > self.MAX_RETAINED_ASSIGNMENTS:
+                self._assignments.popitem(last=False)
             if agent_id in self._agent_loads:
                 self._agent_loads[agent_id] += 1
 

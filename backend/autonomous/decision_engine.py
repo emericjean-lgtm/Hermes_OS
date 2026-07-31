@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import random
 import time
+from collections import deque
+from itertools import islice
 from typing import Any
 
 from .autonomous_models import AutonomousDecision, DecisionType
@@ -27,8 +29,12 @@ class DecisionEngine:
     their choices into AutonomousDecision objects.
     """
 
+    #: Decisions retained for get_decisions()/stats(). Four are recorded per
+    #: mission and nothing ever pruned them (RC3 P5).
+    MAX_RETAINED_DECISIONS = 2000
+
     def __init__(self) -> None:
-        self._decisions: list[AutonomousDecision] = []
+        self._decisions: deque[AutonomousDecision] = deque(maxlen=self.MAX_RETAINED_DECISIONS)
         self._agent_supervisor: Any = None
         self._runtime_orchestrator: Any = None
         self._skill_distributor: Any = None
@@ -116,10 +122,13 @@ class DecisionEngine:
         return decision
 
     def get_decisions(self, limit: int = 50) -> list[AutonomousDecision]:
-        return self._decisions[-limit:]
+        if limit <= 0:
+            return []
+        start = max(len(self._decisions) - limit, 0)
+        return list(islice(self._decisions, start, None))
 
     def stats(self) -> dict[str, Any]:
-        decisions = self._decisions
+        decisions = list(self._decisions)
         return {
             "total_decisions": len(decisions),
             "by_type": {t.value: sum(1 for d in decisions if d.decision_type == t) for t in DecisionType},

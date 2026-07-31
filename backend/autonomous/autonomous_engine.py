@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from .autonomous_models import AutonomousReport
 from .autonomous_orchestrator import AutonomousOrchestrator
 
 
@@ -23,8 +22,19 @@ class AutonomousEngine:
     all subsystems (interpreter, decision engine, guard, memory loop).
     """
 
-    def __init__(self, on_event: Callable | None = None) -> None:
-        self._orchestrator = AutonomousOrchestrator(on_event=on_event)
+    def __init__(self, on_event: Callable | None = None,
+                 mission_executor: Any = None) -> None:
+        """
+        Args:
+            mission_executor: the shared task-execution pipeline. Passed straight
+                through to the orchestrator so the autonomous surface and the
+                ``/missions`` DAG run on one engine instead of each building its
+                own — the duplication R-002 P1 removes. When ``None`` the
+                orchestrator still builds its own, which keeps direct
+                construction working in tests.
+        """
+        self._orchestrator = AutonomousOrchestrator(
+            on_event=on_event, mission_executor=mission_executor)
 
     @property
     def orchestrator(self) -> AutonomousOrchestrator:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from fastapi import APIRouter, Body, HTTPException, Query
+
 from .mcp import MCPCall, MCPClient, MCPRegistry, MCPServer, MCPStatus, MCPTool, MCPTransport
 from .tool_executor import ToolExecutor
 from .tool_health import ToolHealth
@@ -12,6 +14,7 @@ from .tool_models import (
     ExecutionStatus,
     ToolCategory,
     ToolDefinition,
+    ToolInstance,
     ToolPermission,
     ToolRequest,
     ToolStatus,
@@ -212,3 +215,97 @@ def _mcp_server_to_dict(s: MCPServer) -> dict:
         "capabilities": s.capabilities, "status": s.status.value,
         "error": s.error,
     }
+
+
+# ── HTTP surface ─────────────────────────────────────────────
+# Thin delegation to the handlers above (HOS-066B). The registry, policy,
+# sandbox, executor, router, health, memory and MCP client are the module-level
+# instances built at the top of this file.
+
+router = APIRouter(prefix="/tools", tags=["tools"])
+mcp_router = APIRouter(prefix="/mcp", tags=["mcp"])
+
+
+def create_tool_routes(registry: ToolRegistry) -> APIRouter:
+    """Bind the container-owned tool registry to these routes."""
+    global _registry
+    _registry = registry
+    return router
+
+
+@router.get("")
+async def get_tools(
+    tool_type: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
+) -> dict:
+    return handle_get_tools(tool_type, category, status, tag)
+
+
+@router.get("/health")
+async def get_health() -> dict:
+    return handle_get_health()
+
+
+@router.get("/metrics")
+async def get_metrics() -> dict:
+    return handle_get_metrics()
+
+
+@router.post("/register")
+async def register_tool(payload: dict = Body(...)) -> dict:
+    return handle_post_register(payload)
+
+
+@router.post("/execute")
+async def execute_tool(payload: dict = Body(...)) -> dict:
+    return handle_post_execute(
+        tool_id=payload.get("tool_id", ""),
+        action=payload.get("action", ""),
+        parameters=payload.get("parameters", {}),
+        agent_id=payload.get("agent_id", ""),
+        mission_id=payload.get("mission_id", ""),
+        permission=payload.get("permission", "read"),
+    )
+
+
+@router.post("/select")
+async def select_tool(payload: dict = Body(default_factory=dict)) -> dict:
+    return handle_post_select(
+        action=payload.get("action", ""),
+        context=payload.get("context"),
+        permission=payload.get("permission", "read"),
+        preferred_type=payload.get("preferred_type"),
+    )
+
+
+@router.get("/{tool_id}")
+async def get_tool(tool_id: str) -> dict:
+    result = handle_get_tool(tool_id)
+    if result is None:
+        raise HTTPException(404, f"tool {tool_id!r} not found")
+    return result
+
+
+# MCP server management lives on its own prefix: the frontend calls
+# /mcp/servers, /mcp/connect and /mcp/disconnect, not /tools/mcp/*.
+
+@mcp_router.get("/servers")
+async def get_mcp_servers() -> dict:
+    return handle_get_mcp_servers()
+
+
+@mcp_router.post("/connect")
+async def mcp_connect(payload: dict = Body(...)) -> dict:
+    return handle_post_mcp_connect(
+        name=payload.get("name", ""),
+        host=payload.get("host", "localhost"),
+        port=int(payload.get("port", 0)),
+        transport=payload.get("transport", "http"),
+    )
+
+
+@mcp_router.post("/disconnect")
+async def mcp_disconnect(payload: dict = Body(...)) -> dict:
+    return handle_post_mcp_disconnect(payload.get("server_id", ""))

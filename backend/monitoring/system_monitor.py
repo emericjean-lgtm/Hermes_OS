@@ -7,6 +7,7 @@ with periodic sampling and alerting.
 from __future__ import annotations
 
 import os
+import shutil
 import threading
 import time
 from collections import defaultdict, deque
@@ -147,21 +148,22 @@ class SystemMonitor:
             pass
         return 0.0
 
+    # shutil.disk_usage rather than os.statvfs: statvfs does not exist on
+    # Windows, so the attribute lookup raised AttributeError — which the
+    # OSError handler below did not catch — and took collect_once() down
+    # with it. disk_usage reports the same totals on every platform.
     def _get_disk_percent(self) -> float:
         try:
-            stat = os.statvfs(".")
-            total = stat.f_frsize * stat.f_blocks
-            free = stat.f_frsize * stat.f_bfree
-            if total > 0:
-                return 100.0 * (total - free) / total
+            usage = shutil.disk_usage(".")
+            if usage.total > 0:
+                return 100.0 * usage.used / usage.total
         except OSError:
             pass
         return 0.0
 
     def _get_disk_free_gb(self) -> float:
         try:
-            stat = os.statvfs(".")
-            return stat.f_frsize * stat.f_bfree / (1024**3)
+            return shutil.disk_usage(".").free / (1024**3)
         except OSError:
             return 0.0
 

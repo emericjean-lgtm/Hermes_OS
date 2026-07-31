@@ -1,9 +1,30 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useRuntimeEvents } from "@/hooks/use-runtimes";
-import { useRuntimeEventStream } from "@/hooks/use-runtime-events";
+import {
+  useRuntimeEvents as useRuntimeEventStream,
+  type RuntimeEvent as StreamRuntimeEvent,
+} from "@/hooks/use-runtime-events";
 import { Activity, CheckCircle, XCircle, AlertTriangle, RotateCcw, Zap, Wifi, WifiOff } from "lucide-react";
 import type { RuntimeEvent } from "@/types/mission-control";
+
+/** The WebSocket stream and the REST endpoint describe the same event with
+ *  different field names (`runtime_id`/`event_type`/lowercase severity vs
+ *  `runtime`/`type`/uppercase). Normalise the stream shape onto the REST one
+ *  so both sources can be merged and rendered by the same code below. */
+function normaliseStreamEvent(ev: StreamRuntimeEvent): RuntimeEvent {
+  const severity = ev.severity?.toUpperCase();
+  return {
+    id: ev.id,
+    type: ev.event_type,
+    runtime: ev.runtime_id,
+    timestamp: ev.timestamp,
+    severity: (severity === "WARNING" || severity === "ERROR" || severity === "CRITICAL"
+      ? severity
+      : "INFO") as RuntimeEvent["severity"],
+    message: typeof ev.payload?.message === "string" ? ev.payload.message : ev.event_type,
+  };
+}
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   "runtime.selected": <Zap size={12} className="text-[var(--color-accent)]" />,
@@ -21,13 +42,19 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 
 export default function RuntimeEvents() {
   const { data: restEvents } = useRuntimeEvents();
-  const { events: wsEvents, connectionState } = useRuntimeEventStream();
+  const { events: rawWsEvents, isConnected } = useRuntimeEventStream();
   const [filter, setFilter] = useState("");
   const [source, setSource] = useState<"all" | "rest" | "realtime">("all");
 
+  const connectionState = isConnected ? "connected" : "disconnected";
+  const wsEvents = useMemo(
+    () => rawWsEvents.map(normaliseStreamEvent),
+    [rawWsEvents],
+  );
+
   // Merge REST polling + WebSocket events, deduplicate by id
   const mergedEvents = useMemo(() => {
-    const rest = restEvents ?? [];
+    const rest: RuntimeEvent[] = restEvents ?? [];
     const combined = source === "realtime" ? wsEvents : source === "rest" ? rest : [...wsEvents, ...rest];
     const seen = new Set<string>();
     return combined.filter((ev) => {
@@ -56,9 +83,13 @@ export default function RuntimeEvents() {
           <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Runtime Events</h3>
           <span className="text-[10px] text-[var(--color-text-muted)]">({mergedEvents.length})</span>
           {connectionState === "connected" ? (
-            <Wifi size={12} className="text-[var(--color-success)]" title="Live" />
+            <span title="Live" className="inline-flex">
+              <Wifi size={12} className="text-[var(--color-success)]" />
+            </span>
           ) : (
-            <WifiOff size={12} className="text-[var(--color-text-muted)]" title={connectionState} />
+            <span title={connectionState} className="inline-flex">
+              <WifiOff size={12} className="text-[var(--color-text-muted)]" />
+            </span>
           )}
         </div>
         <div className="flex items-center gap-2">

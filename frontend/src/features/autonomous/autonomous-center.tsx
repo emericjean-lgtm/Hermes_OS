@@ -3,244 +3,340 @@
 import { useState } from "react";
 import { Card, Badge } from "@/components/ui/card";
 import {
+  useAutonomousAction,
+  useAutonomousReport,
+  useAutonomousStatus,
+  useAutonomousTimeline,
+  useStartAutonomousGoal,
+} from "@/hooks/use-api";
+import {
   BrainCircuit,
-  Target,
   Play,
   Pause,
   XCircle,
   CheckCircle,
-  Activity,
-  Users,
-  Server,
-  Wrench,
-  Zap,
-  BarChart3,
-  Lightbulb,
+  AlertCircle,
 } from "lucide-react";
 
-// ── Types ────────────────────────────────────────────────
+// This Center used to render four module-level constants — MOCK_GOAL,
+// MOCK_SESSION, MOCK_DECISIONS and MOCK_TIMELINE — describing a fabricated
+// mission on a "ktransformers" runtime, plus a "Pipeline Flow" card with five
+// hard-coded green ticks (Security Validation ✓, Policy Check ✓, ...) that were
+// true regardless of what the system had done. Meanwhile /api/v1/autonomous
+// executed real missions against Ollama. Everything below is now live
+// (R-002 P3).
 
-interface AutonomousGoal {
-  goal_id: string;
-  user_request: string;
-  interpreted_goal: string;
-  status: string;
-  domain: string;
-  language: string;
-  complexity: number;
-}
-
-interface AutonomousSession {
-  session_id: string;
-  goal_id: string;
-  active_agents: string[];
-  runtime: string;
-  status: string;
-}
-
-// ── Mock Data ────────────────────────────────────────────
-
-const MOCK_GOAL: AutonomousGoal = {
-  goal_id: "goal_1700000000_123",
-  user_request: "Create a web application for managing maintenance operations",
-  interpreted_goal: "Interpreted goal: Create a web application for managing maintenance operations. Domain: web. Analysis complete.",
-  status: "completed",
-  domain: "web",
-  language: "python",
-  complexity: 0.72,
-};
-
-const MOCK_SESSION: AutonomousSession = {
-  session_id: "session_goal_1700000000_123",
-  goal_id: "goal_1700000000_123",
-  active_agents: ["klaatcode", "ohmypi"],
-  runtime: "ktransformers",
-  status: "completed",
-};
-
-const MOCK_DECISIONS = [
-  { type: "agent_selection", selected: "code_intelligence", confidence: 0.90, reason: "Meta-agent best for routing" },
-  { type: "runtime_selection", selected: "ktransformers", confidence: 0.85, reason: "High-performance inference" },
-  { type: "tool_selection", selected: "mcp_klaatcode", confidence: 0.88, reason: "Code analysis tools" },
-  { type: "skill_selection", selected: "code_analysis", confidence: 0.88, reason: "Analysis fit" },
-];
-
-const MOCK_TIMELINE = [
-  { event: "Goal received", status: "done", time: "0s" },
-  { event: "Analyzing request", status: "done", time: "0.5s" },
-  { event: "Planning mission", status: "done", time: "1.2s" },
-  { event: "Agents selected", status: "done", time: "1.5s" },
-  { event: "Executing", status: "done", time: "3.0s" },
-  { event: "Validating", status: "done", time: "4.5s" },
-  { event: "Learning", status: "done", time: "4.8s" },
-  { event: "Completed", status: "done", time: "5.0s" },
-];
-
-const statusBadge = (status: string) => {
+const statusBadge = (status: string | undefined) => {
   const v: Record<string, "success" | "warning" | "danger" | "default"> = {
     completed: "success", executing: "warning", analyzing: "default",
     planning: "default", failed: "danger", cancelled: "danger", paused: "warning",
   };
-  return <Badge variant={v[status] || "default"}>{status}</Badge>;
+  return <Badge variant={v[status ?? ""] || "default"}>{status ?? "unknown"}</Badge>;
 };
-
-// ── Component ────────────────────────────────────────────
 
 export function AutonomousCenter() {
   const [request, setRequest] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  const goal = MOCK_GOAL;
-  const session = MOCK_SESSION;
+  const [goalId, setGoalId] = useState<string | undefined>(undefined);
+
+  const status = useAutonomousStatus();
+  const start = useStartAutonomousGoal();
+  const action = useAutonomousAction();
+  const report = useAutonomousReport(goalId);
+  const timeline = useAutonomousTimeline(goalId);
+
+  const goal = start.data;
+  const rep = report.data;
+  const busy = start.isPending;
+
+  const execute = () => {
+    const text = request.trim();
+    if (!text) return;
+    start.mutate(text, { onSuccess: (g) => setGoalId(g.goal_id) });
+  };
 
   return (
     <div className="animate-fade-in p-6">
-      {/* Header */}
+      {/* Header — the badge reflects the engine's real counters */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-hermes-text font-mono">Autonomous OS</h2>
           <p className="text-xs text-hermes-muted mt-1">Final Agentic Core — HOS-063</p>
         </div>
-        <Badge variant="success"><BrainCircuit className="w-3 h-3 mr-1" />Core Active</Badge>
+        {status.isLoading ? (
+          <Badge variant="default">Checking core…</Badge>
+        ) : status.isError ? (
+          <Badge variant="danger">
+            <AlertCircle className="w-3 h-3 mr-1" />
+            Core unreachable
+          </Badge>
+        ) : (
+          <Badge variant="success">
+            <BrainCircuit className="w-3 h-3 mr-1" />
+            {status.data?.total_goals ?? 0} goal(s) · {status.data?.active ?? 0} active
+          </Badge>
+        )}
       </div>
 
-      {/* Goal Input */}
+      {/* Goal Input — now actually starts a mission */}
       <Card title="Goal Input" className="mb-6">
         <div className="flex gap-3">
           <input
             type="text"
             value={request}
             onChange={(e) => setRequest(e.target.value)}
-            placeholder="Describe your goal... e.g., 'Create a web app for managing maintenance'"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") execute();
+            }}
+            placeholder="Describe your goal... e.g., 'Analyse the authentication module'"
             className="flex-1 bg-hermes-bg border border-hermes-border rounded-lg px-4 py-2.5 text-sm text-hermes-text font-mono focus:outline-none focus:border-hermes-amber/50 placeholder:text-hermes-muted/50"
           />
           <button
-            onClick={() => setIsRunning(true)}
-            disabled={!request.trim() || isRunning}
+            onClick={execute}
+            disabled={!request.trim() || busy}
             className="px-4 py-2.5 bg-hermes-amber/10 text-hermes-amber-bright border border-hermes-amber/30 rounded-lg hover:bg-hermes-amber/20 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             <Play className="w-4 h-4" />
-            Execute
+            {busy ? "Running…" : "Execute"}
           </button>
         </div>
+        {busy && (
+          <div className="text-[10px] text-hermes-muted font-mono mt-2">
+            Real inference in progress — this takes as long as the model takes.
+          </div>
+        )}
+        {start.isError && (
+          <div className="text-[10px] text-hermes-red font-mono mt-2">
+            {start.error instanceof Error ? start.error.message : "Failed to start goal"}
+          </div>
+        )}
       </Card>
 
-      {/* Pipeline Status */}
-      <div className="grid grid-cols-8 gap-1 mb-6">
-        {["Receive", "Analyze", "Plan", "Select", "Execute", "Validate", "Learn", "Report"].map((step, i) => (
-          <div key={step} className="text-center">
-            <div className={`w-7 h-7 mx-auto rounded-full flex items-center justify-center text-[9px] font-bold font-mono ${
-              i < 6 ? "bg-hermes-green/20 text-hermes-green" :
-              i < 7 ? "bg-hermes-amber/20 text-hermes-amber" :
-              "bg-hermes-blue/20 text-hermes-blue"
-            }`}>{i + 1}</div>
-            <div className="text-[7px] font-mono text-hermes-muted mt-1">{step}</div>
+      {/* Engine counters — every number below comes from /autonomous/status */}
+      <div className="grid grid-cols-6 gap-2 mb-6">
+        {[
+          { label: "Goals", value: status.data?.total_goals },
+          { label: "Active", value: status.data?.active },
+          { label: "Completed", value: status.data?.completed },
+          { label: "Failed", value: status.data?.failed },
+          { label: "Executions", value: status.data?.total_executions },
+          { label: "Decisions", value: status.data?.decisions?.total_decisions },
+        ].map((s) => (
+          <div key={s.label} className="bg-hermes-card border border-hermes-border rounded-lg p-2 text-center">
+            <div className="text-[9px] text-hermes-muted font-mono uppercase">{s.label}</div>
+            <div className="text-sm font-bold font-mono text-hermes-text mt-0.5">
+              {status.isLoading ? "…" : (s.value ?? "—")}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Current Goal */}
-      <Card title="Current Goal" className="mb-6">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">User Request</div>
-            <div className="text-xs text-hermes-text font-mono bg-hermes-bg p-2 rounded-lg border border-hermes-border/50">
-              {goal.user_request}
-            </div>
-            <div className="text-[10px] text-hermes-muted font-mono uppercase mt-3 mb-1">Interpretation</div>
-            <div className="text-[10px] text-hermes-text">{goal.interpreted_goal}</div>
+      {!goalId && (
+        <Card title="Current Goal" className="mb-6">
+          <div className="text-xs text-hermes-muted font-mono py-3">
+            No goal running. Describe one above to start a real mission.
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: "Domain", value: goal.domain, color: "text-hermes-blue" },
-              { label: "Language", value: goal.language, color: "text-hermes-green" },
-              { label: "Complexity", value: `${(goal.complexity * 100).toFixed(0)}%`, color: "text-hermes-amber" },
-              { label: "Status", value: goal.status, color: "text-hermes-purple" },
-            ].map((s) => (
-              <div key={s.label} className="bg-hermes-card/50 border border-hermes-border/50 rounded-lg p-2">
-                <div className="text-[9px] text-hermes-muted font-mono uppercase">{s.label}</div>
-                <div className={`text-sm font-bold font-mono ${s.color}`}>{s.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Card>
+        </Card>
+      )}
 
-      {/* Active Session */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <Card title="Session">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-hermes-muted font-mono">Agents</span>
-              <div className="flex gap-1">
-                {session.active_agents.map((a) => (
-                  <Badge key={a} variant="default" className="text-[9px]">{a}</Badge>
-                ))}
+      {goalId && goal && (
+        <Card title="Current Goal" className="mb-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">User Request</div>
+              <div className="text-xs text-hermes-text font-mono bg-hermes-bg p-2 rounded-lg border border-hermes-border/50">
+                {goal.user_request}
               </div>
+              <div className="text-[10px] text-hermes-muted font-mono uppercase mt-3 mb-1">Interpretation</div>
+              <div className="text-[10px] text-hermes-text">{goal.interpreted_goal}</div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-hermes-muted font-mono">Runtime</span>
-              <span className="text-[10px] font-mono text-hermes-text">{session.runtime}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-hermes-muted font-mono">Status</span>
-              {statusBadge(session.status)}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: "Domain", value: goal.domain, color: "text-hermes-blue" },
+                { label: "Language", value: goal.language, color: "text-hermes-green" },
+                {
+                  label: "Complexity",
+                  value: `${((goal.complexity ?? 0) * 100).toFixed(0)}%`,
+                  color: "text-hermes-amber",
+                },
+                { label: "Status", value: goal.status, color: "text-hermes-purple" },
+              ].map((s) => (
+                <div key={s.label} className="bg-hermes-card/50 border border-hermes-border/50 rounded-lg p-2">
+                  <div className="text-[9px] text-hermes-muted font-mono uppercase">{s.label}</div>
+                  <div className={`text-sm font-bold font-mono ${s.color}`}>{s.value || "—"}</div>
+                </div>
+              ))}
             </div>
           </div>
         </Card>
+      )}
 
-        <Card title="Decisions">
-          <div className="space-y-1.5">
-            {MOCK_DECISIONS.map((d, i) => (
-              <div key={i} className="flex items-center justify-between text-[9px] font-mono">
-                <div className="text-hermes-muted">{d.type.replace(/_/g, ' ')}</div>
-                <div className="flex items-center gap-2">
-                  <span className="text-hermes-text">{d.selected}</span>
-                  <span className="text-hermes-green">{(d.confidence * 100).toFixed(0)}%</span>
+      {/* Execution + decisions, both from the report */}
+      {goalId && (
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <Card title="Execution">
+            {report.isLoading && (
+              <div className="text-[10px] text-hermes-muted font-mono">Loading report…</div>
+            )}
+            {report.isError && (
+              <div className="text-[10px] text-hermes-red font-mono">
+                Report unavailable
+              </div>
+            )}
+            {rep && (
+              <div className="space-y-2">
+                <div className="text-[10px] font-mono text-hermes-text bg-hermes-bg p-2 rounded border border-hermes-border/50">
+                  {rep.execution_summary}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-hermes-muted font-mono">Agents</span>
+                  <div className="flex gap-1 flex-wrap justify-end">
+                    {rep.agents_used.length === 0 ? (
+                      <span className="text-[10px] text-hermes-muted font-mono">none</span>
+                    ) : (
+                      rep.agents_used.map((a) => (
+                        <Badge key={a} variant="default" className="text-[9px]">{a}</Badge>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-hermes-muted font-mono">Runtimes</span>
+                  <span className="text-[10px] font-mono text-hermes-text">
+                    {rep.runtimes_used.join(", ") || "none"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-hermes-muted font-mono">Duration</span>
+                  <span className="text-[10px] font-mono text-hermes-text">
+                    {rep.total_duration_ms.toFixed(0)}ms
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-hermes-muted font-mono">Outcome</span>
+                  {statusBadge(rep.success ? "completed" : "failed")}
                 </div>
               </div>
-            ))}
-          </div>
-        </Card>
-      </div>
+            )}
+          </Card>
 
-      {/* Timeline */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <Card title="Timeline">
-          <div className="space-y-0">
-            {MOCK_TIMELINE.map((t, i) => (
-              <div key={i} className="flex items-center gap-2 py-1.5 border-b border-hermes-border/20 last:border-0">
-                <div className={`w-1.5 h-1.5 rounded-full ${t.status === "done" ? "bg-hermes-green" : "bg-hermes-muted"}`} />
-                <span className="text-[10px] font-mono text-hermes-text flex-1">{t.event}</span>
-                <span className="text-[9px] text-hermes-muted font-mono">{t.time}</span>
+          <Card title={`Decisions${rep ? ` (${rep.decisions.length})` : ""}`}>
+            {report.isLoading && (
+              <div className="text-[10px] text-hermes-muted font-mono">Loading decisions…</div>
+            )}
+            {rep && rep.decisions.length === 0 && (
+              <div className="text-[10px] text-hermes-muted font-mono">
+                The engine recorded no decisions for this goal.
               </div>
-            ))}
-          </div>
-        </Card>
+            )}
+            <div className="space-y-1.5">
+              {rep?.decisions.map((d) => (
+                <div key={d.decision_id} className="text-[9px] font-mono">
+                  <div className="flex items-center justify-between">
+                    <div className="text-hermes-muted">
+                      {d.decision_type.replace(/_/g, " ")}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-hermes-text">{d.selected}</span>
+                      <span className="text-hermes-green">
+                        {(d.confidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-[8px] text-hermes-muted/70 truncate">{d.reason}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
 
-        <Card title="Pipeline Flow">
-          <div className="flex flex-col gap-1.5 text-[10px] font-mono">
-            {["Security Validation ✓", "Policy Check ✓", "Guard Verified ✓", "Memory Update ✓", "Evolution Feed ✓"].map((msg, i) => (
-              <div key={i} className="flex items-center gap-2 text-hermes-green">
-                <CheckCircle className="w-3 h-3" />
-                {msg}
+      {/* Timeline + lessons, both real */}
+      {goalId && (
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <Card title="Timeline">
+            {timeline.isLoading && (
+              <div className="text-[10px] text-hermes-muted font-mono">Loading timeline…</div>
+            )}
+            {timeline.data?.timeline.length === 0 && (
+              <div className="text-[10px] text-hermes-muted font-mono">
+                No timeline entries yet.
               </div>
-            ))}
-          </div>
-        </Card>
-      </div>
+            )}
+            <div className="space-y-0">
+              {timeline.data?.timeline.map((t, i) => (
+                <div key={`${t.event}-${i}`} className="flex items-center gap-2 py-1.5 border-b border-hermes-border/20 last:border-0">
+                  <div className="w-1.5 h-1.5 rounded-full bg-hermes-green" />
+                  <span className="text-[10px] font-mono text-hermes-text flex-1">
+                    {t.event.replace(/_/g, " ")}
+                  </span>
+                  <span className="text-[9px] text-hermes-muted font-mono">
+                    {t.decisions.length} decision(s)
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
 
-      {/* Actions */}
+          <Card title="Learning">
+            {rep && rep.lessons.length === 0 && rep.improvements.length === 0 && (
+              <div className="text-[10px] text-hermes-muted font-mono">
+                No lessons recorded for this goal.
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5 text-[10px] font-mono">
+              {rep?.lessons.map((l, i) => (
+                <div key={`lesson-${i}`} className="flex items-start gap-2 text-hermes-green">
+                  <CheckCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                  <span className="text-hermes-text">{l}</span>
+                </div>
+              ))}
+              {rep?.improvements.map((im, i) => (
+                <div key={`improvement-${i}`} className="flex items-start gap-2 text-hermes-amber">
+                  <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                  <span className="text-hermes-text">{im}</span>
+                </div>
+              ))}
+            </div>
+            {status.data && (
+              <div className="mt-3 pt-2 border-t border-hermes-border/30 text-[9px] font-mono text-hermes-muted">
+                memory loop: {status.data.memory_loop.missions} mission(s),{" "}
+                {status.data.memory_loop.success_rate}% success,{" "}
+                {status.data.memory_loop.total_lessons} lesson(s)
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* Controls — these buttons were inert; they now call the real endpoints */}
       <Card title="Controls">
-        <div className="flex gap-3">
-          <button className="px-4 py-2 bg-hermes-green/10 text-hermes-green border border-hermes-green/30 rounded-lg hover:bg-hermes-green/20 transition-colors flex items-center gap-2 text-xs font-mono">
-            <Play className="w-3 h-3" /> Start
+        <div className="flex gap-3 items-center">
+          <button
+            onClick={() => goalId && action.mutate({ goalId, action: "resume" })}
+            disabled={!goalId || action.isPending}
+            className="px-4 py-2 bg-hermes-green/10 text-hermes-green border border-hermes-green/30 rounded-lg hover:bg-hermes-green/20 transition-colors flex items-center gap-2 text-xs font-mono disabled:opacity-40"
+          >
+            <Play className="w-3 h-3" /> Resume
           </button>
-          <button className="px-4 py-2 bg-hermes-amber/10 text-hermes-amber border border-hermes-amber/30 rounded-lg hover:bg-hermes-amber/20 transition-colors flex items-center gap-2 text-xs font-mono">
+          <button
+            onClick={() => goalId && action.mutate({ goalId, action: "pause" })}
+            disabled={!goalId || action.isPending}
+            className="px-4 py-2 bg-hermes-amber/10 text-hermes-amber border border-hermes-amber/30 rounded-lg hover:bg-hermes-amber/20 transition-colors flex items-center gap-2 text-xs font-mono disabled:opacity-40"
+          >
             <Pause className="w-3 h-3" /> Pause
           </button>
-          <button className="px-4 py-2 bg-hermes-red/10 text-hermes-red border border-hermes-red/30 rounded-lg hover:bg-hermes-red/20 transition-colors flex items-center gap-2 text-xs font-mono">
+          <button
+            onClick={() => goalId && action.mutate({ goalId, action: "cancel" })}
+            disabled={!goalId || action.isPending}
+            className="px-4 py-2 bg-hermes-red/10 text-hermes-red border border-hermes-red/30 rounded-lg hover:bg-hermes-red/20 transition-colors flex items-center gap-2 text-xs font-mono disabled:opacity-40"
+          >
             <XCircle className="w-3 h-3" /> Cancel
           </button>
+          {!goalId && (
+            <span className="text-[10px] text-hermes-muted font-mono">
+              Start a goal to enable controls.
+            </span>
+          )}
         </div>
       </Card>
     </div>

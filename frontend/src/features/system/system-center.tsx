@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Card, Badge } from "@/components/ui/card";
+import { useSubsystemHealth } from "@/hooks/use-api";
 import {
   Activity,
   AlertTriangle,
@@ -41,24 +42,22 @@ interface SystemHealthReport {
   checks_failed: number;
 }
 
-// ── Mock data ─────────────────────────────────────────────
+// ── Presentation metadata ─────────────────────────────────
 
-const MOCK_CATEGORIES = [
-  { id: "runtime", label: "Runtime", icon: Cpu, color: "text-hermes-blue", count: 6 },
-  { id: "mission", label: "Mission", icon: Workflow, color: "text-hermes-amber", count: 2 },
-  { id: "agent", label: "Agents", icon: Users, color: "text-hermes-green", count: 5 },
-  { id: "memory", label: "Memory", icon: Database, color: "text-hermes-purple", count: 1 },
-  { id: "tools", label: "Tools", icon: Wrench, color: "text-hermes-pink", count: 1 },
-  { id: "policy", label: "Governance", icon: Shield, color: "text-orange-400", count: 1 },
-  { id: "workspace", label: "Workspace", icon: Boxes, color: "text-emerald-400", count: 1 },
-  { id: "execution", label: "Execution", icon: Server, color: "text-hermes-red", count: 1 },
-  { id: "integrations", label: "Integrations", icon: Globe, color: "text-hermes-cyan", count: 4 },
-  { id: "system", label: "System", icon: Activity, color: "text-hermes-muted", count: 3 },
-];
-
-const MOCK_WARNINGS = [
-  { component: "runtime.ktransformers", message: "Model cache pruning recommended", severity: "warning" },
-  { component: "memory.unified", message: "Knowledge graph has 1000+ unindexed nodes", severity: "info" },
+// Presentation metadata only. The counts used to be hardcoded here (runtime: 6,
+// agents: 5, integrations: 4 …); they are now derived from the live service
+// registry, so the panel reflects what actually booted.
+const CATEGORY_META = [
+  { id: "runtime", label: "Runtime", icon: Cpu, color: "text-hermes-blue", match: ["runtime", "ktransformers", "model_registry", "recovery"] },
+  { id: "mission", label: "Mission", icon: Workflow, color: "text-hermes-amber", match: ["mission"] },
+  { id: "agent", label: "Agents", icon: Users, color: "text-hermes-green", match: ["agent", "collaboration"] },
+  { id: "memory", label: "Memory", icon: Database, color: "text-hermes-purple", match: ["memory"] },
+  { id: "tools", label: "Tools", icon: Wrench, color: "text-hermes-pink", match: ["tool", "skill"] },
+  { id: "policy", label: "Governance", icon: Shield, color: "text-orange-400", match: ["policy", "security"] },
+  { id: "workspace", label: "Workspace", icon: Boxes, color: "text-emerald-400", match: ["workspace"] },
+  { id: "execution", label: "Execution", icon: Server, color: "text-hermes-red", match: ["execution", "autonomous"] },
+  { id: "integrations", label: "Integrations", icon: Globe, color: "text-hermes-cyan", match: ["alexandrie", "klaatcode", "ohmypi"] },
+  { id: "system", label: "System", icon: Activity, color: "text-hermes-muted", match: ["event", "system", "evolution", "conversation", "explainability", "model_intelligence"] },
 ];
 
 const componentStatus = (status: string) => {
@@ -74,17 +73,65 @@ const componentStatus = (status: string) => {
 
 export function SystemCenter() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Real subsystem health from /api/v1/system/health. Every number below used to
+  // be a constant in this file — healthy_score 91.7, total_components 25,
+  // checks_passed 23, plus two invented warnings and a fabricated degraded
+  // component — while the composition root reported real values (RC3 P1).
+  const { data: live, isLoading, isError, error } = useSubsystemHealth();
+
+  const detail = live?.detail ?? {};
+  const keys = Object.keys(detail);
+  const healthyCount = live?.by_status?.healthy ?? 0;
+  const silent = live?.silent ?? [];
+  const unhealthy = live?.unhealthy ?? [];
+
   const health: SystemHealthReport = {
-    status: "healthy",
-    healthy_score: 91.7,
-    total_components: 25,
+    status: live?.status ?? "unknown",
+    // Measured: the share of subsystems reporting healthy telemetry.
+    healthy_score: keys.length ? Math.round((healthyCount / keys.length) * 1000) / 10 : 0,
+    total_components: live?.services ?? 0,
     components: [],
-    warnings: MOCK_WARNINGS,
-    degraded: ["runtime.ktransformers"],
-    unhealthy: [],
-    checks_passed: 23,
-    checks_failed: 0,
+    // "silent" means the subsystem exposes no telemetry accessor — an absence of
+    // reporting, not a fault. Reported as info rather than dressed up as one.
+    warnings: silent.map((component) => ({
+      component,
+      message: "exposes no telemetry accessor",
+      severity: "info",
+    })),
+    degraded: [],
+    unhealthy,
+    checks_passed: healthyCount,
+    checks_failed: unhealthy.length,
   };
+
+  const categories = CATEGORY_META.map((meta) => ({
+    ...meta,
+    count: keys.filter((k) => meta.match.some((m) => k.includes(m))).length,
+  }));
+
+  if (isLoading) {
+    return (
+      <div className="animate-fade-in p-6 text-xs text-hermes-muted">
+        Loading subsystem health…
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="animate-fade-in p-6">
+        <Card title="System" className="p-4 border-hermes-red/40">
+          <div className="flex items-center gap-2 text-hermes-red text-sm">
+            <AlertTriangle size={16} />
+            <span>Could not reach the composition root</span>
+          </div>
+          <p className="mt-2 text-[11px] text-hermes-muted">
+            {error instanceof Error ? error.message : "unknown error"}
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in p-6">
@@ -92,7 +139,7 @@ export function SystemCenter() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-hermes-text font-mono">System</h2>
-          <p className="text-xs text-hermes-muted mt-1">Global integration monitoring — 25 components registered</p>
+          <p className="text-xs text-hermes-muted mt-1">Global integration monitoring — {health.total_components} components registered</p>
         </div>
         <div className="flex items-center gap-2">
           {health.status === "healthy" ? (
@@ -124,7 +171,7 @@ export function SystemCenter() {
       {/* Categories Grid */}
       <Card title="Component Categories" className="mb-6">
         <div className="grid grid-cols-5 gap-3">
-          {MOCK_CATEGORIES.map((cat) => (
+          {categories.map((cat) => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(selectedCategory === cat.id ? null : cat.id)}

@@ -1,0 +1,97 @@
+{
+ "started_at": "2026-07-30T17:16:27.841407+00:00",
+ "needle": "ZX-9137",
+ "haystack_words": 3000,
+ "models": [
+  {
+   "model": "qwen3:4b",
+   "loaded": true,
+   "load_error": "",
+   "probes": [
+    {
+     "num_ctx": 4096,
+     "target_words": 3000,
+     "ok": true,
+     "prompt_tokens_evaluated": 2050,
+     "context_length_reported": 4096,
+     "vram_bytes": 3178149969,
+     "found_needle": false,
+     "completion_tokens": 1710,
+     "answer_head": "none",
+     "wall_ms": 19531.4
+    },
+    {
+     "num_ctx": 8192,
+     "target_words": 3000,
+     "ok": true,
+     "prompt_tokens_evaluated": 4440,
+     "context_length_reported": 8192,
+     "vram_bytes": 3873366343,
+     "found_needle": true,
+     "completion_tokens": 139,
+     "answer_head": "ZX-9137",
+     "wall_ms": 20414.9
+    },
+    {
+     "num_ctx": 32768,
+     "target_words": 3000,
+     "ok": true,
+     "prompt_tokens_evaluated": 4440,
+     "context_length_reported": 32768,
+     "vram_bytes": 7547576647,
+     "found_needle": true,
+     "completion_tokens": 345,
+     "answer_head": "ZX-9137",
+     "wall_ms": 23272.5
+    }
+   ],
+   "vram_after_unload": 0,
+   "verdict": "configuration: retrieved once num_ctx>=8192"
+  },
+  {
+   "model": "deepseek-r1:14b",
+   "loaded": true,
+   "load_error": "",
+   "probes": [
+    {
+     "num_ctx": 4096,
+     "target_words": 3000,
+     "ok": true,
+     "prompt_tokens_evaluated": 2051,
+     "context_length_reported": 4096,
+     "vram_bytes": 9459613039,
+     "found_needle": false,
+     "completion_tokens": 388,
+     "answer_head": "There is no access token or other specific content stated in this document.",
+     "wall_ms": 16449.0
+    },
+    {
+     "num_ctx": 8192,
+     "target_words": 3000,
+     "ok": true,
+     "prompt_tokens_evaluated": 4433,
+     "context_length_reported": 8192,
+     "vram_bytes": 10383418981,
+     "found_needle": true,
+     "completion_tokens": 265,
+     "answer_head": "ZX-9137",
+     "wall_ms": 46401.7
+    },
+    {
+     "num_ctx": 32768,
+     "target_words": 3000,
+     "ok": true,
+     "prompt_tokens_evaluated": 4433,
+     "context_length_reported": 32768,
+     "vram_bytes": 15126117743,
+     "found_needle": true,
+     "completion_tokens": 365,
+     "answer_head": "ZX-9137",
+     "wall_ms": 49510.4
+    }
+   ],
+   "vram_after_unload": 0,
+   "verdict": "configuration: retrieved once num_ctx>=8192"
+  }
+ ]
+}

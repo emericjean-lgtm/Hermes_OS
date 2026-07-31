@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { DashboardProvider } from "@/store/dashboard-store";
 import RuntimeOverview from "@/components/runtimes/RuntimeOverview";
@@ -27,37 +27,37 @@ export default function RuntimesPage() {
 
           <RuntimeControls runtimeName={selectedName} />
 
-          <Group orientation="vertical" style={{ minHeight: 850 }}>
+          <PanelGroup direction="vertical" style={{ minHeight: 850 }}>
             {/* Row 1: Overview */}
             <Panel defaultSize={14} minSize={10}><RuntimeOverview /></Panel>
-            <Separator className="h-2 rounded-md transition-colors hover:bg-white/10" />
+            <PanelResizeHandle className="h-2 rounded-md transition-colors hover:bg-white/10" />
 
             {/* Row 2: Table + Inspector + Decision Explorer */}
             <Panel defaultSize={32} minSize={20}>
-              <Group orientation="horizontal">
+              <PanelGroup direction="horizontal">
                 <Panel defaultSize={40} minSize={25}><RuntimeTable onSelect={setSelectedName} selectedName={selectedName} /></Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={32} minSize={20}><RuntimeInspector runtimeName={selectedName} /></Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={28} minSize={18}><RuntimeDecisionExplorer /></Panel>
-              </Group>
+              </PanelGroup>
             </Panel>
 
-            <Separator className="h-2 rounded-md transition-colors hover:bg-white/10" />
+            <PanelResizeHandle className="h-2 rounded-md transition-colors hover:bg-white/10" />
 
             {/* Row 3: Health + Performance + Policies + Events */}
             <Panel defaultSize={54} minSize={25}>
-              <Group orientation="horizontal">
+              <PanelGroup direction="horizontal">
                 <Panel defaultSize={25} minSize={18}><RuntimeHealth /></Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={30} minSize={20}><RuntimePerformance /></Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={22} minSize={15}><RuntimePolicies /></Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={23} minSize={15}><RuntimeEvents /></Panel>
-              </Group>
+              </PanelGroup>
             </Panel>
-          </Group>
+          </PanelGroup>
         </div>
       </DashboardLayout>
     </DashboardProvider>

@@ -31,10 +31,14 @@ can only be `.run()` once per instance (see backend/main.py's lifespan),
 so anything that needs a fresh app per call — tests, mainly — needs a
 fresh FastMCP too. A decorator bound at import time can't give you that.
 """
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+
+logger = logging.getLogger("hermes_os.mcp")
 
 from backend.agents.aegis import AegisAgent
 from backend.agents.echo import EchoAgent
@@ -1122,6 +1126,69 @@ def get_tool_registry() -> dict[str, Callable]:
     return {fn.__name__: fn for fn in _ALL_TOOLS}
 
 
+def _transport_security() -> TransportSecuritySettings:
+    """Host/origin allow-list for the streamable-HTTP transport (HOS-066B).
+
+    FastMCP turns DNS-rebinding protection on by default and ships an allow-list
+    of ``127.0.0.1:*``, ``localhost:*`` and ``[::1]:*``. Those patterns match by
+    prefix against ``"<host>:"``, so they require a port — which means a bare
+    ``Host: localhost`` fails, and so does every hostname. In the documented
+    Docker deployment the backend is reached as ``hermes-backend:8000`` and
+    through nginx, so the whole MCP surface answered ``421 Invalid Host header``.
+
+    The protection itself is worth keeping: it is what stops a browser on the
+    user's machine from being used to reach a local-only endpoint. So rather
+    than disable it, the allow-list is widened to the hosts this application is
+    actually served on, and made configurable for deployments we cannot guess:
+
+        HERMES_MCP_ALLOWED_HOSTS=hermes.example.com,10.0.0.5:8000
+        HERMES_MCP_ALLOWED_ORIGINS=https://hermes.example.com
+
+    Setting ``HERMES_MCP_ALLOW_ANY_HOST=1`` disables host checking entirely.
+    That is a deliberate escape hatch for reverse proxies that rewrite Host
+    unpredictably, and it is logged as a warning because it gives up the
+    rebinding protection.
+    """
+    import os
+
+    allow_any = os.environ.get("HERMES_MCP_ALLOW_ANY_HOST", "").strip().lower() in {
+        "1", "true", "yes",
+    }
+    if allow_any:
+        logger.warning(
+            "HERMES_MCP_ALLOW_ANY_HOST is set: MCP DNS-rebinding protection is off"
+        )
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+    # Both the bare form and the ":*" form, because the SDK's matcher needs a
+    # port for the wildcard pattern and a bare Host header carries none.
+    hosts: list[str] = []
+    for name in ("localhost", "127.0.0.1", "[::1]", "0.0.0.0",
+                 # Compose service names from deployment/docker-compose*.yml.
+                 "hermes-backend", "hermes-frontend", "backend", "nginx"):
+        hosts.extend((name, f"{name}:*"))
+
+    origins: list[str] = []
+    for scheme in ("http", "https"):
+        for name in ("localhost", "127.0.0.1", "[::1]", "hermes-backend"):
+            origins.extend((f"{scheme}://{name}", f"{scheme}://{name}:*"))
+
+    for extra in os.environ.get("HERMES_MCP_ALLOWED_HOSTS", "").split(","):
+        extra = extra.strip()
+        if extra:
+            hosts.extend((extra, f"{extra}:*"))
+    for extra in os.environ.get("HERMES_MCP_ALLOWED_ORIGINS", "").split(","):
+        extra = extra.strip()
+        if extra:
+            origins.extend((extra, f"{extra}:*"))
+
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=hosts,
+        allowed_origins=origins,
+    )
+
+
 def create_mcp_server() -> FastMCP:
     """Builds a fresh FastMCP instance with every tool registered. Call
     this once per app instance (see backend/main.py's create_app()) —
@@ -1151,6 +1218,7 @@ def create_mcp_server() -> FastMCP:
         # requests would need to hit /mcp/mcp). "/" makes the
         # streamable-HTTP route sit at the mounted sub-app's own root.
         streamable_http_path="/",
+        transport_security=_transport_security(),
     )
     for fn in _ALL_TOOLS:
         server.add_tool(fn)

@@ -3,7 +3,14 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SystemEvent, EventSeverity } from "@/types/hermes";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws/events";
+// NEXT_PUBLIC_WS_URL is an *origin* — that is how hooks/use-events.ts and
+// lib/events.ts read it, and how .env.local.example documents it. This hook
+// alone treated it as a complete URL and defaulted to a "/ws/events" path the
+// backend does not serve, so setting the documented value pointed the socket at
+// the bare origin and the Cockpit sat on "WS OFF" (R-003). The endpoint is /ws.
+const WS_ORIGIN = (process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000")
+  .replace(/\/$/, "");
+const WS_URL = `${WS_ORIGIN}/ws`;
 
 interface UseWebSocketOptions {
   sources?: string[];
@@ -25,7 +32,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const connect = useCallback(() => {
     if (!enabled) return;

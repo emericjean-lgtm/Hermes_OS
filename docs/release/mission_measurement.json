@@ -1,0 +1,105 @@
+{
+ "at": "2026-07-30T17:29:28.589943+00:00",
+ "surface": "missions",
+ "goal": "Analyse the authentication module and list its entry points",
+ "wall_seconds": 151.0,
+ "detail": {
+  "mission_id": "93931131f4c14605893649acac22158c",
+  "created": {
+   "mission_id": "93931131f4c14605893649acac22158c",
+   "title": "R-004 measured mission",
+   "status": "ready",
+   "nodes": 7,
+   "edges": 6,
+   "planned": true,
+   "validation_issues": []
+  },
+  "start": {
+   "mission_id": "93931131f4c14605893649acac22158c",
+   "status": "completed",
+   "nodes_executed": 7,
+   "progress": {
+    "total": 7,
+    "completed": 7,
+    "failed": 0,
+    "ready": 0,
+    "running": 0,
+    "blocked": 0,
+    "skipped": 0,
+    "pending": 0,
+    "progress_pct": 100.0
+   }
+  }
+ },
+ "resources": {
+  "vram_gib": {
+   "samples": 150,
+   "min": 0.0,
+   "max": 2.96,
+   "mean": 2.84
+  },
+  "ram_mib": {
+   "samples": 150,
+   "min": 7680.12,
+   "max": 12066.1,
+   "mean": 10881.32
+  },
+  "cpu_pct": {
+   "samples": 150,
+   "min": 0.0,
+   "max": 23.2,
+   "mean": 11.25
+  },
+  "models_resident": [
+   "qwen3:4b"
+  ]
+ },
+ "counters_before": {
+  "task_executor_executions": 0,
+  "task_executor_tokens": 0,
+  "task_executor_simulated": false,
+  "scheduler": 0,
+  "validator": 0,
+  "assignments": 0,
+  "events_published": 37,
+  "autonomous": 0,
+  "episodic_total": 0
+ },
+ "counters_after": {
+  "task_executor_executions": 7,
+  "task_executor_tokens": 1633,
+  "task_executor_simulated": false,
+  "scheduler": 7,
+  "validator": 7,
+  "assignments": 7,
+  "events_published": 95,
+  "autonomous": 0,
+  "episodic_total": 0
+ },
+ "counters_moved": {
+  "task_executor_executions": [
+   0,
+   7
+  ],
+  "task_executor_tokens": [
+   0,
+   1633
+  ],
+  "scheduler": [
+   0,
+   7
+  ],
+  "validator": [
+   0,
+   7
+  ],
+  "assignments": [
+   0,
+   7
+  ],
+  "events_published": [
+   37,
+   95
+  ]
+ }
+}

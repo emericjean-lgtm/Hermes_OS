@@ -5,7 +5,9 @@ guard, memory loop, engine facade, API, EventBus, thread safety,
 and full mission simulation (100+ tests).
 """
 
+import random
 import threading
+
 import pytest
 
 from backend.autonomous.autonomous_models import (
@@ -130,6 +132,22 @@ class TestAutonomousInterpreter:
         assert goal.complexity > 0
 
     def test_interpret_high_complexity(self):
+        """A complex request must score above the 0.4 band.
+
+        The RNG is seeded because ``_estimate_complexity`` adds
+        ``random.uniform(-0.1, 0.1)`` to its base score. For this request the
+        base is 0.45 (0.3 + 0.15 for the "complete"/"microservices" keywords;
+        the string is 113 chars, so neither length bonus applies), which means
+        the assertion below failed for any draw under -0.05 — 25% of runs,
+        measured at 24.8% over 4000 draws. It passed or failed purely on where
+        the global random stream happened to be, so any change in test ordering
+        flipped it.
+
+        Seeding rather than widening the assertion keeps the test meaningful:
+        0.4 is the band this request is supposed to clear, and the jitter is an
+        implementation detail of the estimator, not part of the contract.
+        """
+        random.seed(2)  # draw lands at 0.5412, comfortably clear of the band
         interp = AutonomousInterpreter()
         goal = interp.interpret("Create a complete full-stack microservices application with authentication, payments, and real-time notifications")
         assert goal.complexity > 0.4

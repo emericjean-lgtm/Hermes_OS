@@ -1,0 +1,602 @@
+{
+ "api_v1_paths": 188,
+ "legacy_paths": 64,
+ "legacy_endpoints": 74,
+ "duplicated": 5,
+ "safe_to_migrate": 69,
+ "reachable_from_cockpit": 6,
+ "routes": [
+  {
+   "path": "/api/hermes-os/{path:path}",
+   "method": "DELETE",
+   "module": "backend.core.bootstrap.router_registry",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/api/hermes-os/{path:path}",
+   "method": "GET",
+   "module": "backend.core.bootstrap.router_registry",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/api/hermes-os/{path:path}",
+   "method": "PATCH",
+   "module": "backend.core.bootstrap.router_registry",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/api/hermes-os/{path:path}",
+   "method": "POST",
+   "module": "backend.core.bootstrap.router_registry",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/chat",
+   "method": "POST",
+   "module": "backend.api.routes.chat",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/classify",
+   "method": "POST",
+   "module": "backend.api.routes.classify",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/documents/formats",
+   "method": "GET",
+   "module": "backend.api.routes.documents",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/documents/index",
+   "method": "POST",
+   "module": "backend.api.routes.documents",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/evolution/process/{task_id}",
+   "method": "POST",
+   "module": "backend.api.routes.evolution",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/evolution/progression",
+   "method": "GET",
+   "module": "backend.api.routes.evolution",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/files",
+   "method": "GET",
+   "module": "backend.api.routes.files",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/files/apply",
+   "method": "POST",
+   "module": "backend.api.routes.files",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/files/content",
+   "method": "GET",
+   "module": "backend.api.routes.files",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/files/diff",
+   "method": "POST",
+   "module": "backend.api.routes.files",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/git/branch",
+   "method": "POST",
+   "module": "backend.api.routes.git",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/git/branches",
+   "method": "GET",
+   "module": "backend.api.routes.git",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/git/commit",
+   "method": "POST",
+   "module": "backend.api.routes.git",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/git/diff",
+   "method": "GET",
+   "module": "backend.api.routes.git",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/git/log",
+   "method": "GET",
+   "module": "backend.api.routes.git",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/git/pull-request",
+   "method": "POST",
+   "module": "backend.api.routes.git",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/git/push",
+   "method": "POST",
+   "module": "backend.api.routes.git",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/git/revert",
+   "method": "POST",
+   "module": "backend.api.routes.git",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/git/status",
+   "method": "GET",
+   "module": "backend.api.routes.git",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/health",
+   "method": "GET",
+   "module": "backend.main",
+   "duplicate_under_api_v1": true,
+   "referenced_literally_in_frontend": true,
+   "safe_to_migrate": false
+  },
+  {
+   "path": "/logs",
+   "method": "GET",
+   "module": "backend.api.routes.logs",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/logs/latency",
+   "method": "GET",
+   "module": "backend.api.routes.logs",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/logs/{session_id}",
+   "method": "GET",
+   "module": "backend.api.routes.logs",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/memory",
+   "method": "GET",
+   "module": "backend.api.routes.memory",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": true,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/memory",
+   "method": "POST",
+   "module": "backend.api.routes.memory",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": true,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/memory/index",
+   "method": "POST",
+   "module": "backend.api.routes.memory",
+   "duplicate_under_api_v1": true,
+   "referenced_literally_in_frontend": true,
+   "safe_to_migrate": false
+  },
+  {
+   "path": "/memory/permanent",
+   "method": "GET",
+   "module": "backend.api.routes.memory",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/memory/project/{project_id}",
+   "method": "GET",
+   "module": "backend.api.routes.memory",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/memory/search",
+   "method": "GET",
+   "module": "backend.api.routes.memory",
+   "duplicate_under_api_v1": true,
+   "referenced_literally_in_frontend": true,
+   "safe_to_migrate": false
+  },
+  {
+   "path": "/memory/types",
+   "method": "GET",
+   "module": "backend.api.routes.memory",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/memory/{memory_id}",
+   "method": "DELETE",
+   "module": "backend.api.routes.memory",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/messages",
+   "method": "GET",
+   "module": "backend.api.routes.messages",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/projects",
+   "method": "GET",
+   "module": "backend.api.routes.projects",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/projects",
+   "method": "POST",
+   "module": "backend.api.routes.projects",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/projects/{project_id}",
+   "method": "DELETE",
+   "module": "backend.api.routes.projects",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/projects/{project_id}",
+   "method": "GET",
+   "module": "backend.api.routes.projects",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/projects/{project_id}",
+   "method": "PATCH",
+   "module": "backend.api.routes.projects",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/research",
+   "method": "POST",
+   "module": "backend.api.routes.research",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/security/approvals",
+   "method": "GET",
+   "module": "backend.api.routes.security",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/security/approvals/{approval_id}",
+   "method": "POST",
+   "module": "backend.api.routes.security",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/security/evaluate",
+   "method": "POST",
+   "module": "backend.api.routes.security",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/skills",
+   "method": "GET",
+   "module": "backend.api.routes.skills",
+   "duplicate_under_api_v1": true,
+   "referenced_literally_in_frontend": true,
+   "safe_to_migrate": false
+  },
+  {
+   "path": "/skills/search",
+   "method": "GET",
+   "module": "backend.api.routes.skills",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/skills/{skill_id}",
+   "method": "DELETE",
+   "module": "backend.api.routes.skills",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/skills/{skill_id}",
+   "method": "GET",
+   "module": "backend.api.routes.skills",
+   "duplicate_under_api_v1": true,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": false
+  },
+  {
+   "path": "/skills/{skill_id}/index",
+   "method": "POST",
+   "module": "backend.api.routes.skills",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/skills/{skill_id}/use",
+   "method": "POST",
+   "module": "backend.api.routes.skills",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/snapshots",
+   "method": "GET",
+   "module": "backend.api.routes.snapshots",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/snapshots",
+   "method": "POST",
+   "module": "backend.api.routes.snapshots",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/snapshots/{snapshot_id}/preview",
+   "method": "GET",
+   "module": "backend.api.routes.snapshots",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/snapshots/{snapshot_id}/restore",
+   "method": "POST",
+   "module": "backend.api.routes.snapshots",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/system/models",
+   "method": "GET",
+   "module": "backend.api.routes.system",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/system/status",
+   "method": "GET",
+   "module": "backend.api.routes.system",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/tasks",
+   "method": "GET",
+   "module": "backend.api.routes.tasks",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/tasks",
+   "method": "POST",
+   "module": "backend.api.routes.tasks",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/tasks/{task_id}",
+   "method": "DELETE",
+   "module": "backend.api.routes.tasks",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/tasks/{task_id}",
+   "method": "GET",
+   "module": "backend.api.routes.tasks",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/tasks/{task_id}",
+   "method": "PATCH",
+   "module": "backend.api.routes.tasks",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/verification/run",
+   "method": "POST",
+   "module": "backend.api.routes.verification",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/verification/runners",
+   "method": "GET",
+   "module": "backend.api.routes.verification",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/verify",
+   "method": "POST",
+   "module": "backend.api.routes.verify",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/vision/analyze",
+   "method": "POST",
+   "module": "backend.api.routes.vision",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/workflows",
+   "method": "GET",
+   "module": "backend.api.routes.workflows",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/workflows",
+   "method": "POST",
+   "module": "backend.api.routes.workflows",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/workflows/runs/{run_id}",
+   "method": "GET",
+   "module": "backend.api.routes.workflows",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/workflows/{workflow_id}",
+   "method": "DELETE",
+   "module": "backend.api.routes.workflows",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/workflows/{workflow_id}",
+   "method": "GET",
+   "module": "backend.api.routes.workflows",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/workflows/{workflow_id}/run",
+   "method": "POST",
+   "module": "backend.api.routes.workflows",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/workflows/{workflow_id}/simulate",
+   "method": "POST",
+   "module": "backend.api.routes.workflows",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  },
+  {
+   "path": "/write",
+   "method": "POST",
+   "module": "backend.api.routes.write",
+   "duplicate_under_api_v1": false,
+   "referenced_literally_in_frontend": false,
+   "safe_to_migrate": true
+  }
+ ]
+}

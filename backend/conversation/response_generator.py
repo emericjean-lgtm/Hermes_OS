@@ -6,7 +6,10 @@ and Hermes OS system state.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import asyncio
+import concurrent.futures
+import logging
+import threading
 from typing import Any
 
 from .conversation_models import (
@@ -18,12 +21,108 @@ from .conversation_models import (
     MessageRole,
 )
 
+logger = logging.getLogger("hermes_os.conversation.response")
+
+_LOOP: asyncio.AbstractEventLoop | None = None
+_LOOP_LOCK = threading.Lock()
+
+
+def _background_loop() -> asyncio.AbstractEventLoop:
+    """Boucle asyncio dédiée, partagée par toutes les conversations.
+
+    ``handle_message`` est synchrone et peut être appelé depuis le thread d'une
+    requête FastAPI, où une boucle tourne déjà : on ne peut donc pas utiliser
+    ``asyncio.run``. Même approche que ``RealTaskExecutor``.
+    """
+    global _LOOP
+    with _LOOP_LOCK:
+        if _LOOP is None or _LOOP.is_closed():
+            _LOOP = asyncio.new_event_loop()
+            threading.Thread(target=_LOOP.run_forever, daemon=True,
+                             name="hermes-conversation").start()
+        return _LOOP
+
+
+def _run_sync(coro: Any, timeout: float) -> str:
+    """Exécute la coroutine d'inférence et renvoie le texte produit."""
+    future = asyncio.run_coroutine_threadsafe(coro, _background_loop())
+    try:
+        result = future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        logger.warning("inférence de conversation expirée après %.0fs", timeout)
+        return ""
+    return _extract_text(result)
+
+
+def _extract_text(result: Any) -> str:
+    """Le texte de la réponse, quelle que soit la forme rendue par le client."""
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result.strip()
+    if isinstance(result, dict):
+        for key in ("content", "response", "text"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        message = result.get("message")
+        if isinstance(message, dict):
+            value = message.get("content")
+            if isinstance(value, str):
+                return value.strip()
+    for attr in ("content", "response", "text"):
+        value = getattr(result, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+async def _default_chat(*, messages: list[dict[str, Any]], model: str) -> Any:
+    """Client Ollama réel, construit depuis la configuration comme ailleurs."""
+    from backend.connectors.ollama_client import OllamaClient
+    from backend.core.config import get_settings
+
+    settings = get_settings()
+    client = OllamaClient(base_url=settings.ollama_api_url, timeout=120)
+    try:
+        return await client.chat(messages, model=model)
+    finally:
+        close = getattr(client, "aclose", None) or getattr(client, "close", None)
+        if close is not None:
+            result = close()
+            if asyncio.iscoroutine(result):
+                await result
+
 
 class ResponseGenerator:
     """Generates Hermes responses based on intent and context."""
 
-    def __init__(self) -> None:
+    #: Modèle par défaut du chat. Le plus rapide du parc mesuré (123 tps sur
+    #: RX 6800) : une conversation doit répondre, pas faire patienter.
+    DEFAULT_CHAT_MODEL = "qwen3:4b"
+
+    #: Au-delà, on rend la main plutôt que de laisser l'utilisateur attendre.
+    CHAT_TIMEOUT_S = 120.0
+
+    #: Accusés de réception, pas des questions. Quand l'utilisateur valide ou
+    #: annule une action, il doit recevoir une confirmation fiable et constante
+    #: — pas une phrase improvisée par un modèle, qui peut changer de formulation
+    #: voire de langue d'un appel à l'autre.
+    CONTROL_INTENTS = frozenset({IntentType.APPROVAL, IntentType.CANCEL})
+
+    def __init__(self, chat: Any = None, model: str = "") -> None:
+        """
+        Args:
+            chat: ``async (messages, model) -> objet`` effectuant l'inférence
+                réelle. Injecté pour que les tests restent hermétiques ; par
+                défaut, un client Ollama construit depuis ``get_settings()``,
+                exactement comme ``RealTaskExecutor``.
+            model: modèle à interroger. Vide → :attr:`DEFAULT_CHAT_MODEL`.
+        """
         self._templates: dict[str, str] = self._load_templates()
+        self._chat = chat
+        self._model = model or self.DEFAULT_CHAT_MODEL
 
     def generate(self, intent: IntentResult, context: ConversationContext,
                  user_message: str) -> ConversationResponse:
@@ -50,8 +149,24 @@ class ResponseGenerator:
 
     def _build_content(self, intent: IntentType, result: IntentResult,
                        ctx: ConversationContext, user_msg: str) -> str:
+        """Répond réellement à l'utilisateur, en interrogeant le modèle.
+
+        Ce générateur ne faisait que formater un gabarit choisi par mots-clés :
+        « Quelle est la capitale de la France ? » renvoyait « Voici ce que je
+        peux vous dire à ce sujet… », et « Explique-moi un reverse proxy »
+        déclenchait le gabarit de génération de documentation. Aucun modèle
+        n'était consulté, donc aucune question n'obtenait de réponse.
+
+        Le gabarit reste le repli quand le modèle est injoignable — et il est
+        alors annoncé comme tel, pas présenté comme une réponse.
+        """
+        if intent not in self.CONTROL_INTENTS:
+            answer = self._ask_model(user_msg, result, ctx)
+            if answer:
+                return answer
+
         template = self._templates.get(intent.value, self._templates["unknown"])
-        return template.format(
+        rendered = template.format(
             user_message=user_msg[:100],
             domain=result.domain,
             confidence=result.confidence * 100,
@@ -60,6 +175,48 @@ class ResponseGenerator:
             mission=ctx.active_mission_id or "none",
             goal=ctx.active_goal_id or "none",
         )
+        if intent in self.CONTROL_INTENTS:
+            # Pour un accusé de réception, le gabarit est la réponse attendue :
+            # rien n'a échoué, il n'y a donc rien à signaler.
+            return rendered
+        return (
+            f"{rendered}\n\n"
+            "_(Modèle de langage injoignable : réponse générique. "
+            "Vérifiez qu'Ollama tourne pour obtenir une vraie réponse.)_"
+        )
+
+    def _ask_model(self, user_msg: str, result: IntentResult,
+                   ctx: ConversationContext) -> str:
+        """Interroge le modèle. Chaîne vide si l'inférence n'a pas abouti."""
+        messages = [
+            {"role": "system", "content": self._system_prompt(result, ctx)},
+            {"role": "user", "content": user_msg},
+        ]
+        try:
+            return _run_sync(self._chat_fn()(messages=messages, model=self._model),
+                             self.CHAT_TIMEOUT_S)
+        except Exception:
+            logger.warning("inférence de conversation indisponible", exc_info=True)
+            return ""
+
+    def _system_prompt(self, result: IntentResult, ctx: ConversationContext) -> str:
+        """Le contexte réel de Hermes, pour que la réponse soit située."""
+        parts = [
+            "Tu es Hermes, assistant de développement. Réponds directement, "
+            "précisément et dans la langue de l'utilisateur. Pas de préambule.",
+            f"Intention détectée : {result.intent.value} (domaine {result.domain}).",
+        ]
+        if ctx.active_agents:
+            parts.append(f"Agents actifs : {', '.join(ctx.active_agents)}.")
+        if ctx.active_mission_id:
+            parts.append(f"Mission en cours : {ctx.active_mission_id}.")
+        return " ".join(parts)
+
+    def _chat_fn(self) -> Any:
+        if self._chat is not None:
+            return self._chat
+        self._chat = _default_chat
+        return self._chat
 
     def _check_approval(self, intent: IntentType,
                         result: IntentResult) -> tuple[bool, dict[str, Any] | None]:
@@ -76,7 +233,6 @@ class ResponseGenerator:
 
     def _get_suggested_actions(self, intent: IntentType,
                                ctx: ConversationContext) -> list[dict[str, str]]:
-        suggestions: list[dict[str, str]] = []
         base_actions = {
             IntentType.OPTIMIZATION: [
                 {"label": "Lancer optimisation", "action": "start_mission"},

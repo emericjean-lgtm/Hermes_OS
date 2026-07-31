@@ -1,0 +1,1952 @@
+{
+ "total_routes": 276,
+ "tally": {
+  "needs-param": 84,
+  "GET 200": 103,
+  "no-safe-payload": 61,
+  "POST 200": 6,
+  "GET 422": 10,
+  "skipped-inference": 11,
+  "POST 422": 1,
+  "ws ok": 1
+ },
+ "websocket": {
+  "path": "/ws",
+  "outcome": "ok",
+  "note": "connected and sent a frame"
+ },
+ "routes": [
+  {
+   "method": "DELETE",
+   "path": "/api/hermes-os/{path:path}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/hermes-os/{path:path}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "PATCH",
+   "path": "/api/hermes-os/{path:path}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/hermes-os/{path:path}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/agents",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"agents\": [{\"agent_id\": \"855f4556c92a4c4aa18e17738501d6e5\", \"name\": \"aegis\", \"status\": \"ready\", \"capabilities\": [\"security_audit\"], \"prefer"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/agents",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/agents/metrics",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"metrics\": [{\"agent_id\": \"855f4556c92a4c4aa18e17738501d6e5\", \"total_tasks\": 0, \"successful_tasks\": 0, \"failed_tasks\": 0, \"success_rate\": 10"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/agents/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total_agents\": 10, \"ready\": 10, \"busy\": 0, \"failed\": 0, \"available\": 10, \"status_breakdown\": {\"created\": 10, \"starting\": 10, \"ready\": 10, "
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/agents/{agent_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/agents/{agent_id}/pause",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/agents/{agent_id}/start",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/agents/{agent_id}/stop",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/alexandrie/cache/prune",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/cache/stats",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"entries\": 0, \"max_entries\": 1000, \"ttl_seconds\": 300.0, \"hits\": 0, \"misses\": 0, \"hit_rate\": 0.0, \"evictions\": 0}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/documents",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total\": 0, \"documents\": []}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/alexandrie/documents",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/v1/alexandrie/documents/{node_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/documents/{node_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "PUT",
+   "path": "/api/v1/alexandrie/documents/{node_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/events",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total\": 0, \"events\": []}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/graph",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total\": 0, \"edges\": []}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/health",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"healthy\": false, \"error\": \"HTTPConnectionPool(host='localhost', port=8200): Max retries exceeded with url: /api/stats (Caused by NewConnec"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/alexandrie/missions/link",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/alexandrie/missions/relevant",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"documents\": []}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/missions/{mission_id}/documents",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/search",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"string_too_short\", \"loc\": [\"query\", \"q\"], \"msg\": \"String should have at least 2 characters\", \"input\": \"\", \"ctx\": {\"min"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"alexandrie_health\": {\"healthy\": false, \"error\": \"HTTPConnectionPool(host='localhost', port=8200): Max retries exceeded with url: /api/stat"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/alexandrie/sync",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/sync/history",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"events\": []}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/alexandrie/sync/mark-outdated",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/alexandrie/sync/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"last_sync_at\": null, \"documents_synced\": 0}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/approval",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"approvals\": [], \"total\": 0}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/approval/{approval_id}/approve",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/approval/{approval_id}/reject",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/audit",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"entries\": [], \"total\": 0}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/autonomous/start",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/autonomous/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total_goals\": 0, \"active\": 0, \"completed\": 0, \"failed\": 0, \"cancelled\": 0, \"total_executions\": 0, \"active_sessions\": 0, \"interpreter\": {\"h"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/autonomous/{goal_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/autonomous/{goal_id}/cancel",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/autonomous/{goal_id}/pause",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/autonomous/{goal_id}/report",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/autonomous/{goal_id}/resume",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/autonomous/{goal_id}/timeline",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/collaboration/consensus",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/collaboration/consensus/{proposal_id}/vote",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/collaboration/delegate",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/collaboration/delegations",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"delegations\": []}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/collaboration/delegations/{delegation_id}/accept",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/collaboration/delegations/{delegation_id}/complete",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/collaboration/history",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"messages\": {\"total_messages\": 0, \"by_type\": {\"direct\": 0, \"broadcast\": 0, \"group\": 0, \"help_request\": 0, \"help_response\": 0}, \"read_count\""
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/collaboration/messages",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"messages\": [], \"total\": 0}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/collaboration/messages",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/collaboration/messages/broadcast",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/collaboration/messages/conversation/{conversation_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/collaboration/messages/unread",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"query\", \"agent_id\"], \"msg\": \"Field required\", \"input\": null}]}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/collaboration/review",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/collaboration/review/{review_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/conversation/message",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/conversation/sessions",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"success\": true, \"sessions\": [], \"total\": 0}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/conversation/start",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"success\": true, \"session_id\": \"conv_2ec73d334bd6\", \"user_id\": \"anonymous\", \"created_at\": \"2026-07-30T16:38:59.626993+00:00\", \"status\": \"ac"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/conversation/{session_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/conversation/{session_id}/approve",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/conversation/{session_id}/cancel",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/conversation/{session_id}/context",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/evolution/analyze",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/evolution/apply/{proposal_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/evolution/approve/{proposal_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/evolution/proposals",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/evolution/reports",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/evolution/simulate/{proposal_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/evolution/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total_proposals\": 0, \"applied_count\": 0, \"total_gain_percent\": 0.0, \"by_status\": {\"detected\": 0, \"simulated\": 0, \"approved\": 0, \"applied\":"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/execution",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/execution/start",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/execution/statistics",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"active_executions\": 0, \"completed_executions\": 0, \"total_executions\": 0, \"executor_stats\": {\"scheduler\": {\"total\": 0, \"completed\": 0, \"fai"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/execution/{execution_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/execution/{execution_id}/cancel",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/execution/{execution_id}/pause",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/execution/{execution_id}/resume",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/execution/{execution_id}/timeline",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/explainability/explain",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/explainability/explanations",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"success\": true, \"explanations\": [], \"total\": 20}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/explainability/{decision_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/health",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"status\": \"ok\", \"uptime_seconds\": 6.908471, \"eventbus\": {\"persisted\": 2211, \"subscribers\": 1, \"started\": true, \"stopped\": false, \"uptime_se"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/healthz",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"alive\": true}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/klaatcode/analyze",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/klaatcode/capabilities",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"capabilities\": [{\"name\": \"analyze_project\", \"description\": \"Analyze a code project structure, language, framework, and dependencies\", \"inp"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/klaatcode/diagnostics",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/klaatcode/execute",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/klaatcode/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"status\": {\"installed\": true, \"version\": \"2.3.5\", \"tools_count\": 7, \"capabilities\": [\"analyze_project\", \"inspect_code\", \"generate_code_plan"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/mcp/connect",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/mcp/disconnect",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/mcp/servers",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"servers\": [{\"id\": \"02e5352e-df81-4a24-aac2-579decf2cac3\", \"name\": \"klaatcode\", \"transport\": \"stdio\", \"host\": \"localhost\", \"port\": 0, \"vers"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/memory/experiences",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"recommendations\": {\"similar_missions\": 0, \"similar_success_rate\": 0, \"recommended_models\": [], \"best_practices\": [], \"frequent_errors\": []"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/memory/graph",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"nodes\": [], \"edges\": []}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/memory/index",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/memory/search",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"results\": [], \"total\": 0}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/memory/search",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"results\": [], \"total\": 0}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/memory/statistics",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"working\": {\"active_memories\": 0, \"active_missions\": 0}, \"episodic\": {\"total\": 0, \"successful\": 0, \"failed\": 0, \"success_rate\": 0.0}, \"sema"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/missions",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"missions\": [], \"total\": 0}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/missions",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"mission_id\": \"7b9c47082f634778b8477912384b3558\", \"title\": \"sweep probe\", \"status\": \"ready\", \"nodes\": 6, \"edges\": 5, \"planned\": true, \"vali"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/missions/{mission_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/missions/{mission_id}/cancel",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/missions/{mission_id}/graph",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/missions/{mission_id}/progress",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/missions/{mission_id}/start",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/models",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"success\": true, \"data\": {\"total_models\": 6, \"total_runs\": 0, \"average_success_rate\": 0.0, \"models\": [{\"id\": \"llama3.2-3b\", \"name\": \"Llama "
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/models/benchmark",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/models/benchmarks",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/models/history",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"success\": true, \"decisions\": []}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/models/performance",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"success\": true, \"data\": {\"total_models\": 6, \"total_runs\": 0, \"average_success_rate\": 0.0, \"models\": [{\"id\": \"llama3.2-3b\", \"name\": \"Llama "
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/models/ranking",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"success\": true, \"models\": [{\"model_id\": \"llama3.2-3b\", \"name\": \"Llama 3.2 3B\", \"score\": 0.505, \"parameters_b\": 3.0, \"vram_mb\": 2000, \"tps\""
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/models/recommend",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"success\": true, \"decision\": {\"model_id\": \"llama3.2-3b\", \"model_name\": \"Llama 3.2 3B\", \"runtime\": \"ollama\", \"quantization\": \"q5_k_m\", \"conf"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/ohmypi/capabilities",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"capabilities\": [{\"name\": \"lsp_open_file\", \"description\": \"Open file with LSP navigation (goto-def, references, hover)\", \"inputs\": [\"file\"]"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/ohmypi/execute",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/ohmypi/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"status\": {\"installed\": true, \"version\": null, \"tools_count\": 9, \"capabilities\": [\"lsp_open_file\", \"lsp_edit\", \"ast_transform\", \"debug_star"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/planner/plan",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/planner/plan/template/{template_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/planner/results",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"results\": [{\"result_id\": \"426e0cabf4aa46f7bb90597e0423064f\", \"request_id\": \"3ee7fd335766481dbfe92c6bf39889a1\", \"mission_id\": \"\", \"stage\": "
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/planner/results/{result_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/planner/results/{result_id}/build",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/planner/templates",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"templates\": [{\"template_id\": \"web_app\", \"name\": \"Full-Stack Web Application\", \"description\": \"Complete web application with frontend, back"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/policy/evaluate",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"body\", \"operation\"], \"msg\": \"Field required: 'operation'\"}]}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/policy/rules",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"rules\": [{\"id\": \"73d2dfea606d4110a9ba4bf78e22088e\", \"name\": \"git_merge_requires_review\", \"category\": \"operation\", \"decision\": \"review_requ"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/readyz",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"ready\": true}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"name\": \"stub\", \"version\": \"0.1.0\", \"capabilities\": [\"chat\"], \"started\": true}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/discovery/benchmarks",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"benchmarks\": [], \"total\": 0}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/discovery/models",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"models\": [], \"total\": 0}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/discovery/scan",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/discovery/stats",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total_models\": 0, \"total_benchmarks\": 0, \"by_status\": {}, \"by_source\": {\"huggingface\": 0, \"ollama\": 0, \"github\": 0, \"artificial_analysis\":"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/events",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"events\": [], \"total\": 0, \"runtime_id\": null}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/events",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/events/{runtime_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/intelligence/recommendations",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"error\": \"No data for runtime recommendations\"}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/intelligence/scores",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"scores\": [], \"total\": 0}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/intelligence/{runtime_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/ktransformers/benchmark",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/ktransformers/discover",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/ktransformers/events",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total\": 0, \"events\": []}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/ktransformers/infer",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/ktransformers/load",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/ktransformers/models",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total\": 0, \"models\": []}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/ktransformers/models/{model_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/ktransformers/optimize",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/ktransformers/orchestrator/candidates",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total\": 0, \"candidates\": []}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/ktransformers/resources",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/ktransformers/statistics",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total_models\": 0, \"by_backend\": {}, \"by_status\": {}, \"adapter_version\": \"0.6.1 (simulated)\", \"best_backend\": \"cpu\", \"has_cuda\": false, \"ha"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/ktransformers/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"adapter\": {\"cpu_variant\": \"avx2_llamafile\", \"best_backend\": \"cpu\", \"kt_version\": \"0.6.1 (simulated)\", \"is_real\": false, \"has_cuda\": false,"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/ktransformers/unload",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/orchestrator/decision/{decision_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/orchestrator/evaluate",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/orchestrator/history",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"decisions\": [], \"total\": 0}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/recovery/history",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"attempts\": [], \"total\": 0}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/recovery/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"status\": \"healthy\", \"total_incidents\": 0, \"total_attempts\": 0, \"active_attempts\": 0, \"successful_attempts\": 0, \"failed_attempts\": 0, \"poli"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/recovery/{incident_id}/retry",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/resources",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"gpu\": {\"name\": \"AMD Radeon RX 6800\", \"vendor\": \"AMD\", \"vram_total_bytes\": 17163091968, \"vram_used_bytes\": 0, \"vram_free_bytes\": 1716309196"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/resources/allocations",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"allocations\": [], \"total_allocated_bytes\": 0, \"count\": 0}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/resources/release",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/resources/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"gpu_available\": true, \"gpu_name\": \"AMD Radeon RX 6800\", \"vram_usage_pct\": 0.0, \"ram_usage_pct\": 41.9, \"gpu_temperature\": null, \"active_ale"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/simulation/history",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"error\": \"Simulation not found\"}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtime/simulation/run",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtime/simulation/{simulation_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtimes",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"runtimes\": [{\"name\": \"stub\", \"runtime_name\": \"stub\", \"version\": \"0.1.0\", \"capabilities\": [\"chat\"], \"healthy\": true, \"status\": \"started\", \""
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtimes/types",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"types\": [\"ollama\", \"stub\"]}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/runtimes/{name}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/runtimes/{name}/select",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/security/check",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/security/events",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/security/permissions/grant",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/security/permissions/revoke",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/security/policies",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/security/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"permissions\": {\"total_permissions\": 0, \"total_policies\": 0, \"history_entries\": 0}, \"trust\": {\"total_agents\": 0, \"average_score\": 0.0, \"by_"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/security/threats",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/security/threats/mitigate",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/security/trust/{agent_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/skills",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"skills\": [], \"count\": 0, \"stats\": {\"total\": 0, \"by_category\": {}, \"by_domain\": {}, \"by_status\": {}, \"unique_tags\": 0}}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/skills/cache",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"size\": 0, \"max_size\": 50, \"strategy\": \"lru\", \"hit_rate\": 0.0, \"entries\": {}}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/skills/distribute",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/skills/load",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/skills/select",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"selections\": [], \"count\": 0}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/skills/statistics",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"registry\": {\"total\": 0, \"by_category\": {}, \"by_domain\": {}, \"by_status\": {}, \"unique_tags\": 0}, \"cache\": {\"size\": 0, \"max_size\": 50, \"stra"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/skills/unload",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/skills/{skill_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/system/assembly",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"bootstrap\": {\"complete\": true, \"completion_percent\": 100.0, \"services_expected\": 34, \"services_built\": 34, \"built\": [\"event_hub\", \"system_"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/system/dependencies",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"summary\": {\"total_components\": 34, \"total_edges\": 29, \"components\": [\"agent_supervisor\", \"alexandrie\", \"autonomous_engine\", \"collaboration"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/system/health",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"status\": \"healthy\", \"services\": 34, \"by_status\": {\"unknown\": 11, \"healthy\": 23}, \"unhealthy\": [], \"silent\": [\"event_hub\", \"runtime_discove"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/system/ready",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"ready\": true, \"completion_percent\": 100.0, \"services_built\": 34, \"services_expected\": 34, \"blocking\": {}}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/system/statistics",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"services\": {\"system_event_bus\": {\"value\": {\"total_published\": 38, \"total_consumed\": 0, \"subscriber_count\": 0, \"avg_latency_ms\": 0.0, \"even"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/tools",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"tools\": [{\"id\": \"db19ffa9-fc39-4bcb-a2fa-9f3b3563edd1\", \"name\": \"klaatcode.analyze_project\", \"tool_type\": \"custom\", \"category\": \"system\", "
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/tools/execute",
+   "status": null,
+   "outcome": "skipped",
+   "reason": "would run a model; benchmarks must not share the GPU"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/tools/health",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"total\": 0, \"healthy\": 0, \"degraded_or_unhealthy\": 0, \"avg_latency_ms\": 0.0}"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/tools/metrics",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"registry\": {\"total\": 16, \"by_type\": {\"custom\": 16}, \"by_category\": {\"system\": 16}, \"by_status\": {\"available\": 16}, \"unique_tags\": 9}, \"exe"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/tools/register",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/tools/select",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/tools/{tool_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workspace",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"workspaces\": [], \"total\": 0}"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workspace",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/v1/workspace/{workspace_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workspace/{workspace_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workspace/{workspace_id}/artifacts",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workspace/{workspace_id}/lock",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workspace/{workspace_id}/release",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workspace/{workspace_id}/status",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/chat",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/classify",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/docs",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <link type=\"text/c"
+  },
+  {
+   "method": "GET",
+   "path": "/docs/oauth2-redirect",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "\n    <!doctype html>\n    <html lang=\"en-US\">\n    <head>\n        <title>Swagger UI: OAuth2 Redirect</title>\n    </head>\n    <body>\n    <scrip"
+  },
+  {
+   "method": "GET",
+   "path": "/documents/formats",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"supported\": [\".c\", \".cfg\", \".cpp\", \".cs\", \".css\", \".csv\", \".docx\", \".env\", \".go\", \".h\", \".hpp\", \".htm\", \".html\", \".ini\", \".java\", \".js\", \""
+  },
+  {
+   "method": "POST",
+   "path": "/documents/index",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/evolution/process/{task_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/evolution/progression",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"tasks_total\": 4, \"tasks_terminal\": 0, \"tasks_succeeded\": 0, \"success_rate\": null, \"skills_total\": 0, \"skills_validated\": 0, \"skills_in_rev"
+  },
+  {
+   "method": "GET",
+   "path": "/files",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"query\", \"path\"], \"msg\": \"Field required\", \"input\": null}]}"
+  },
+  {
+   "method": "POST",
+   "path": "/files/apply",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/files/content",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"query\", \"path\"], \"msg\": \"Field required\", \"input\": null}]}"
+  },
+  {
+   "method": "POST",
+   "path": "/files/diff",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/git/branch",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/git/branches",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"query\", \"repo_path\"], \"msg\": \"Field required\", \"input\": null}]}"
+  },
+  {
+   "method": "POST",
+   "path": "/git/commit",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/git/diff",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"query\", \"repo_path\"], \"msg\": \"Field required\", \"input\": null}]}"
+  },
+  {
+   "method": "GET",
+   "path": "/git/log",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"query\", \"repo_path\"], \"msg\": \"Field required\", \"input\": null}]}"
+  },
+  {
+   "method": "POST",
+   "path": "/git/pull-request",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/git/push",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/git/revert",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/git/status",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"query\", \"repo_path\"], \"msg\": \"Field required\", \"input\": null}]}"
+  },
+  {
+   "method": "GET",
+   "path": "/health",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"status\": \"ok\"}"
+  },
+  {
+   "method": "GET",
+   "path": "/logs",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "GET",
+   "path": "/logs/latency",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"samples\": 0, \"duration_ms\": null, \"tokens_per_second\": null}"
+  },
+  {
+   "method": "GET",
+   "path": "/logs/{session_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/memory",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "POST",
+   "path": "/memory",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/memory/index",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/memory/permanent",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "GET",
+   "path": "/memory/project/{project_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/memory/search",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"query\", \"query\"], \"msg\": \"Field required\", \"input\": null}]}"
+  },
+  {
+   "method": "GET",
+   "path": "/memory/types",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"project\": [\"architecture\", \"roadmap\", \"decision\", \"documentation\"], \"permanent\": [\"preference\", \"habit\", \"rule\", \"history\"]}"
+  },
+  {
+   "method": "DELETE",
+   "path": "/memory/{memory_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/messages",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[{\"id\": \"951b6ab8-7a60-4f3c-be51-a62859838567\", \"from\": \"ta\", \"to\": \"workflow:wf-par\", \"type\": \"TASK_RESULT\", \"payload\": {\"node_id\": \"a\", \"r"
+  },
+  {
+   "method": "GET",
+   "path": "/openapi.json",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"openapi\": \"3.1.0\", \"info\": {\"title\": \"Hermes OS\", \"version\": \"1.0.0-rc1\"}, \"paths\": {\"/chat\": {\"post\": {\"summary\": \"Chat\", \"operationId\": "
+  },
+  {
+   "method": "GET",
+   "path": "/projects",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "POST",
+   "path": "/projects",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "DELETE",
+   "path": "/projects/{project_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/projects/{project_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "PATCH",
+   "path": "/projects/{project_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/redoc",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <title>Hermes OS - ReDoc</title>\n    <!-- needed for adaptive design -->\n    <meta charset=\"u"
+  },
+  {
+   "method": "POST",
+   "path": "/research",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/security/approvals",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "POST",
+   "path": "/security/approvals/{approval_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/security/evaluate",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/skills",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[]"
+  },
+  {
+   "method": "GET",
+   "path": "/skills/search",
+   "status": 422,
+   "outcome": "error",
+   "body_head": "{\"detail\": [{\"type\": \"missing\", \"loc\": [\"query\", \"query\"], \"msg\": \"Field required\", \"input\": null}]}"
+  },
+  {
+   "method": "DELETE",
+   "path": "/skills/{skill_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/skills/{skill_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/skills/{skill_id}/index",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/skills/{skill_id}/use",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/snapshots",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[{\"id\": \"20260730T051552Z-6a9d9037\", \"created_at\": \"2026-07-30T05:15:52.673169+00:00\", \"reason\": \"\", \"task_count\": 4, \"run_count\": 0, \"conte"
+  },
+  {
+   "method": "POST",
+   "path": "/snapshots",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/snapshots/{snapshot_id}/preview",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/snapshots/{snapshot_id}/restore",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/system/models",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"roles\": [{\"role\": \"embedding\", \"model\": \"nomic-embed-text\", \"tier\": \"turbo\", \"vram_gb\": 0.3, \"always_loaded\": true, \"loaded\": false}, {\"ro"
+  },
+  {
+   "method": "GET",
+   "path": "/system/status",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "{\"enabled_agents\": [\"aegis\", \"atlas\", \"echo\", \"hermes_eyes\", \"hermes_prime\", \"hermes_scribe\", \"hermes_swift\", \"kronos\", \"minerva\", \"veritas\""
+  },
+  {
+   "method": "GET",
+   "path": "/tasks",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[{\"id\": \"53fbc74f-0363-40fc-95bc-1162e79caa88\", \"project_id\": null, \"title\": \"x\", \"description\": \"\", \"objective\": \"\", \"status\": \"todo\", \"pri"
+  },
+  {
+   "method": "POST",
+   "path": "/tasks",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "DELETE",
+   "path": "/tasks/{task_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/tasks/{task_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "PATCH",
+   "path": "/tasks/{task_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/verification/run",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/verification/runners",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[{\"name\": \"npm_build\", \"kind\": \"build\", \"description\": \"Build the JS/TS project.\"}, {\"name\": \"ruff\", \"kind\": \"lint\", \"description\": \"Lint Py"
+  },
+  {
+   "method": "POST",
+   "path": "/verify",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "POST",
+   "path": "/vision/analyze",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/workflows",
+   "status": 200,
+   "outcome": "ok",
+   "body_head": "[{\"id\": \"full-code-review\", \"name\": \"Full Code Review\", \"description\": \"Minerva researches context for the review, Veritas reviews it, a hum"
+  },
+  {
+   "method": "POST",
+   "path": "/workflows",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  },
+  {
+   "method": "GET",
+   "path": "/workflows/runs/{run_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "DELETE",
+   "path": "/workflows/{workflow_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "GET",
+   "path": "/workflows/{workflow_id}",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/workflows/{workflow_id}/run",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/workflows/{workflow_id}/simulate",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "requires a path parameter"
+  },
+  {
+   "method": "POST",
+   "path": "/write",
+   "status": null,
+   "outcome": "not exercised",
+   "reason": "mutating verb without a safe payload"
+  }
+ ]
+}

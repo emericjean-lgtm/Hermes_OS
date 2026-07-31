@@ -18,8 +18,14 @@ class SkillProfiler:
         self._profiles: dict[str, SkillProfile] = {}
 
     def start_profile(self, skill_id: str) -> float:
-        """Record start time, returns timestamp."""
-        return time.monotonic()
+        """Record start time, returns timestamp.
+
+        perf_counter rather than monotonic: both are monotonic, but on Windows
+        monotonic resolves to 15.6 ms, so every skill load faster than that was
+        profiled as 0 ms — which silently flattened the load-time averages the
+        selector ranks skills by. perf_counter resolves to ~100 ns.
+        """
+        return time.perf_counter()
 
     def end_profile(
         self,
@@ -31,7 +37,7 @@ class SkillProfiler:
         success: bool = True,
     ) -> SkillProfile:
         """Complete a profile sample."""
-        elapsed_ms = (time.monotonic() - start_time) * 1000
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         with self._lock:
             profile = self._profiles.get(skill_id)

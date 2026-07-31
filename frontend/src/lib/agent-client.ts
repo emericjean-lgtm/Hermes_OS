@@ -12,7 +12,7 @@ import type {
   HermesAgentStatus,
 } from "@/types/mission-control";
 
-const API_PREFIX = "/api/hermes-os";
+const API_PREFIX = "/api/v1";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const API_URL =

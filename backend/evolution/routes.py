@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
+
+from fastapi import APIRouter, Body, Query
 
 from .evolution_engine import EvolutionEngine
 from .evolution_models import EvolutionStatus
@@ -15,6 +17,13 @@ def get_engine() -> EvolutionEngine:
     if _engine is None:
         _engine = EvolutionEngine()
     return _engine
+
+
+def create_evolution_routes(engine: EvolutionEngine) -> APIRouter:
+    """Bind the container-owned engine to these routes (HOS-066B)."""
+    global _engine
+    _engine = engine
+    return router
 
 
 def handle_get_status() -> dict[str, Any]:
@@ -81,6 +90,47 @@ def handle_get_reports(limit: int = 10) -> list[dict]:
         }
         for r in engine.get_reports(limit=limit)
     ]
+
+
+# ── HTTP surface ─────────────────────────────────────────────
+# Paths mirror EVOLUTION_ROUTES below.
+
+router = APIRouter(prefix="/evolution", tags=["evolution"])
+
+
+@router.get("/status")
+async def get_status() -> dict[str, Any]:
+    return handle_get_status()
+
+
+@router.get("/proposals")
+async def get_proposals(status: Optional[str] = Query(None)) -> list[dict]:
+    return handle_get_proposals(status)
+
+
+@router.post("/analyze")
+async def analyze(payload: dict = Body(default_factory=dict)) -> list[dict]:
+    return handle_analyze(payload)
+
+
+@router.post("/simulate/{proposal_id}")
+async def simulate(proposal_id: str) -> dict:
+    return handle_simulate(proposal_id)
+
+
+@router.post("/approve/{proposal_id}")
+async def approve(proposal_id: str) -> dict:
+    return handle_approve(proposal_id)
+
+
+@router.post("/apply/{proposal_id}")
+async def apply_proposal(proposal_id: str) -> dict:
+    return handle_apply(proposal_id)
+
+
+@router.get("/reports")
+async def get_reports(limit: int = Query(10, ge=1, le=200)) -> list[dict]:
+    return handle_get_reports(limit)
 
 
 EVOLUTION_ROUTES = [

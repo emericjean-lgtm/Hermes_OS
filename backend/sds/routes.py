@@ -87,8 +87,6 @@ async def readiness() -> dict:
 @SDS_ROUTER.get("/runtime")
 async def runtime_info() -> dict:
     """Return metadata about the currently active runtime adapter."""
-    from backend.sds.runtime import get_runtime_holder
-
     holder = get_runtime_holder()
     try:
         rt = holder.runtime

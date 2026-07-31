@@ -341,6 +341,49 @@ class TestToolMemory:
 
 # ── TestMCP ──────────────────────────────────────────────────
 
+# ── R-001: MCP now performs real transport ────────────────────────────
+#
+# connect()/call() used to set CONNECTED and return a canned {"status": "ok"}
+# without emitting a packet, so these tests passed against a fabrication. They
+# now assert the real contract, driven through MCPClient's injectable opener so
+# they stay hermetic (no socket, no live server).
+
+
+class _FakeHTTPResponse:
+    def __init__(self, payload: str) -> None:
+        self._payload = payload.encode("utf-8")
+
+    def read(self) -> bytes:
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> bool:
+        return False
+
+
+def _answering_opener(result: dict | None = None):
+    """An opener that answers every JSON-RPC request successfully."""
+    import json as _json
+
+    def _open(_request, timeout=None):  # noqa: ANN001 - urlopen signature
+        return _FakeHTTPResponse(_json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": result if result is not None else {
+                "serverInfo": {"name": "fake", "version": "9.9.9"},
+                "capabilities": {"tools": {}},
+            },
+        }))
+
+    return _open
+
+
+def _refusing_opener(_request, timeout=None):  # noqa: ANN001
+    raise ConnectionRefusedError("connection refused")
+
+
 class TestMCP:
 
     def test_register_server(self):
@@ -354,10 +397,23 @@ class TestMCP:
         reg = MCPRegistry()
         server = MCPServer(name="test")
         reg.register_server(server)
-        client = MCPClient(reg)
+        client = MCPClient(reg, opener=_answering_opener())
         assert client.connect(server) is True
         assert server.status == MCPStatus.CONNECTED
+        assert server.connected_at is not None
+        assert server.version == "9.9.9", "serverInfo must come from the handshake"
         assert client.disconnect(server.id) is True
+
+    def test_connect_fails_when_the_server_does_not_answer(self):
+        """The behaviour R-001 added: no packet, no connection."""
+        reg = MCPRegistry()
+        server = MCPServer(name="dead")
+        reg.register_server(server)
+        client = MCPClient(reg, opener=_refusing_opener)
+        assert client.connect(server) is False
+        assert server.status == MCPStatus.ERROR
+        assert server.error
+        assert server.connected_at is None
 
     def test_register_tool(self):
         reg = MCPRegistry()
@@ -371,11 +427,23 @@ class TestMCP:
         reg = MCPRegistry()
         server = MCPServer(name="test")
         reg.register_server(server)
-        client = MCPClient(reg)
+        client = MCPClient(reg, opener=_answering_opener({"content": "hello"}))
         client.connect(server)
         tool = MCPTool(server_id=server.id, name="echo")
         call = client.call(tool, server, {"msg": "hello"})
         assert call.success is True
+        assert call.result == {"content": "hello"}, "the result must come from the server"
+        assert call.duration_ms > 0
+
+    def test_call_fails_when_the_transport_fails(self):
+        reg = MCPRegistry()
+        server = MCPServer(name="test", status=MCPStatus.CONNECTED)
+        reg.register_server(server)
+        client = MCPClient(reg, opener=_refusing_opener)
+        tool = MCPTool(server_id=server.id, name="echo")
+        call = client.call(tool, server, {})
+        assert call.success is False
+        assert "ConnectionRefusedError" in call.error
 
     def test_call_disconnected(self):
         reg = MCPRegistry()
@@ -391,7 +459,7 @@ class TestMCP:
         reg = MCPRegistry()
         server = MCPServer(name="test")
         reg.register_server(server)
-        client = MCPClient(reg)
+        client = MCPClient(reg, opener=_answering_opener())
         client.connect(server)
         stats = client.stats()
         assert stats["connected_servers"] == 1
@@ -504,14 +572,20 @@ class TestRoutes:
         assert "servers" in result
 
     def test_mcp_connect(self):
-        result = handle_post_mcp_connect("test-server")
-        assert result["connected"] is True
+        """With no MCP server on the given host, connect must report failure.
+
+        Previously this asserted connected is True against a fabrication, which
+        is exactly what R-001 removed: the Tools Center showed servers as
+        connected that had never been contacted.
+        """
+        result = handle_post_mcp_connect("test-server", host="127.0.0.1", port=59999)
+        assert result["connected"] is False
+        assert result["server"]["error"]
 
     def test_mcp_disconnect(self):
-        from backend.tools.routes import _mcp_registry, _mcp_client
-        server = MCPServer(name="disc-test")
+        from backend.tools.routes import _mcp_registry
+        server = MCPServer(name="disc-test", status=MCPStatus.CONNECTED)
         _mcp_registry.register_server(server)
-        _mcp_client.connect(server)
         result = handle_post_mcp_disconnect(server.id)
         assert result["disconnected"] is True
 

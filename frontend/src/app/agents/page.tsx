@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { DashboardProvider } from "@/store/dashboard-store";
 import AgentOverview from "@/components/agents/AgentOverview";
@@ -36,50 +36,50 @@ export default function AgentsPage() {
           <AgentControls agent={selected ?? null} />
 
           {/* Resizable panels */}
-          <Group orientation="vertical" style={{ minHeight: 800 }}>
+          <PanelGroup direction="vertical" style={{ minHeight: 800 }}>
             {/* Row 1: Overview */}
             <Panel defaultSize={15} minSize={10}>
               <AgentOverview />
             </Panel>
 
-            <Separator className="h-2 rounded-md transition-colors hover:bg-white/10" />
+            <PanelResizeHandle className="h-2 rounded-md transition-colors hover:bg-white/10" />
 
             {/* Row 2: Table + Inspector + Hermes */}
             <Panel defaultSize={35} minSize={20}>
-              <Group orientation="horizontal">
+              <PanelGroup direction="horizontal">
                 <Panel defaultSize={45} minSize={25}>
                   <AgentTable onSelect={setSelectedId} selectedId={selectedId} />
                 </Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={35} minSize={20}>
                   <AgentInspector agentId={selectedId} />
                 </Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={20} minSize={15}>
                   <AgentHermesCard />
                 </Panel>
-              </Group>
+              </PanelGroup>
             </Panel>
 
-            <Separator className="h-2 rounded-md transition-colors hover:bg-white/10" />
+            <PanelResizeHandle className="h-2 rounded-md transition-colors hover:bg-white/10" />
 
             {/* Row 3: Graph + Timeline + Performance */}
             <Panel defaultSize={50} minSize={25}>
-              <Group orientation="horizontal">
+              <PanelGroup direction="horizontal">
                 <Panel defaultSize={40} minSize={25}>
                   <AgentGraph />
                 </Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={28} minSize={18}>
                   <AgentTimeline />
                 </Panel>
-                <Separator className="w-2 rounded-md transition-colors hover:bg-white/10" />
+                <PanelResizeHandle className="w-2 rounded-md transition-colors hover:bg-white/10" />
                 <Panel defaultSize={32} minSize={18}>
                   <AgentPerformance />
                 </Panel>
-              </Group>
+              </PanelGroup>
             </Panel>
-          </Group>
+          </PanelGroup>
         </div>
       </DashboardLayout>
     </DashboardProvider>

@@ -245,12 +245,20 @@ class EventBusImpl:
         until: datetime | None = None,
         topic_pattern: Topic | TopicPattern | None = None,
     ) -> AsyncIterator[Event]:
-        """Yield historical events within *since* .. *until* (or now)."""
+        """Yield historical events in the half-open window ``[since, until)``.
+
+        *until* is exclusive on purpose. With both bounds inclusive an event
+        whose ``occurred_at`` fell exactly on the boundary was replayed by two
+        adjacent windows, so paging through history duplicated it. Exact
+        collisions are not hypothetical: on Windows ``datetime.now()`` is
+        coarse enough that a caller's cutoff and the very next ``publish()``
+        routinely share a timestamp.
+        """
         clause = "WHERE occurred_at >= ?"
         params: list[str] = [since.isoformat()]
 
         if until is not None:
-            clause += " AND occurred_at <= ?"
+            clause += " AND occurred_at < ?"
             params.append(until.isoformat())
 
         clause += " ORDER BY occurred_at ASC"

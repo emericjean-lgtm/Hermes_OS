@@ -2,7 +2,7 @@
   "name": "hermes-os",
   "version": "0.1.0",
   "private": true,
-  "description": "Hermes Ollama (Hermes OS) — assistant IA local multi-agents : backend Python FastAPI + frontend Next.js 16. Voir CAHIER_DES_CHARGES_HERMES_OLLAMA.md pour la spécification complète.",
+  "description": "Hermes Ollama (Hermes OS) — assistant IA local multi-agents : backend Python FastAPI + frontend Next.js 15. Voir CAHIER_DES_CHARGES_HERMES_OLLAMA.md pour la spécification complète.",
   "type": "module",
   "engines": {
     "node": ">=18.18.0",

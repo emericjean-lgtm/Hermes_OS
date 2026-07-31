@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections import deque
+from typing import Optional
 
 from .skill_models import DependencyGraph
 from .skill_registry import SkillRegistry

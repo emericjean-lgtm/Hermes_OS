@@ -78,3 +78,39 @@ async def reset_eventbus():
             pass
     # Re-reset after teardown
     _HOLDER = None  # type: ignore[assignment]
+
+
+# ── R-001: keep the unit suite hermetic ───────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _no_live_inference(monkeypatch):
+    """Replace only the outbound inference call, for every test in this package.
+
+    R-001 wired ``MissionExecutor`` to a real runtime. That is right for
+    production and wrong for a unit suite: without this fixture every
+    ``execute_task`` test issues a live LLM request, and this file alone went
+    from ~1s to ~16min.
+
+    Everything except the socket stays production code — the executor, its
+    telemetry, the artifact write, the validator, the retry policy and the
+    scheduler. Real-execution coverage lives in
+    ``tests/integration/test_real_execution.py``.
+    """
+    from tests.support import fake_inference
+
+    fake_inference.install(monkeypatch)
+
+
+# ── R-002 P5: an agent with no adapter must not report success ────────
+
+@pytest.fixture(autouse=True)
+def _bind_stub_mcp_adapters(monkeypatch):
+    """Give the specialised agents an adapter when a test does not supply one.
+
+    See :mod:`tests.support.stub_agents` for why. In short: these tests assert
+    that execution succeeds, and an agent with nothing bound to it has not
+    executed anything — the production code now says so.
+    """
+    from tests.support import stub_agents
+
+    stub_agents.install(monkeypatch)

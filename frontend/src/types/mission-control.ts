@@ -534,7 +534,9 @@ export interface RuntimeEvent {
   type: string;
   runtime: string;
   timestamp: string;
-  severity: "INFO" | "WARNING" | "ERROR";
+  /** Mirrors backend RuntimeEventSeverity (backend/runtime/events/event_models.py),
+   *  which also emits DEBUG and CRITICAL — both were missing here. */
+  severity: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
   message: string;
 }
 

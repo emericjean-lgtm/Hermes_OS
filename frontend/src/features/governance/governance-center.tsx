@@ -99,10 +99,13 @@ export function GovernanceCenter() {
 }
 
 function RuleCard({ rule }: { rule: PolicyRule }) {
-  const actionColors: Record<string, keyof typeof statusColors> = {
-    ALLOW: "success",
-    DENY: "danger",
-    REVIEW_REQUIRED: "warning",
+  // /api/v1/policy/rules envoie `decision` en minuscules ("allow", "deny",
+  // "review_required"). Ce composant lisait `rule.action` en majuscules — un
+  // champ que l'endpoint n'a jamais renvoyé, donc un badge toujours vide (P-001).
+  const decisionColors: Record<string, keyof typeof statusColors> = {
+    allow: "success",
+    deny: "danger",
+    review_required: "warning",
   };
   const statusColors = { success: "success", danger: "danger", warning: "warning" } as const;
 
@@ -116,8 +119,8 @@ function RuleCard({ rule }: { rule: PolicyRule }) {
         <Badge variant={rule.enabled ? "success" : "default"}>
           {rule.enabled ? "ON" : "OFF"}
         </Badge>
-        <Badge variant={actionColors[rule.action]}>
-          {rule.action}
+        <Badge variant={decisionColors[rule.decision] ?? "default"}>
+          {rule.decision}
         </Badge>
       </div>
     </div>

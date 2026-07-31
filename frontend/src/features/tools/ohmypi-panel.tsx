@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Card, Badge } from "@/components/ui/card";
+import { useOhMyPiCapabilities } from "@/hooks/use-api";
+import type { OhMyPiCapability } from "@/types/hermes";
 import {
   Activity,
   Code2,
@@ -36,12 +38,11 @@ interface OhMyPiStatus {
   };
 }
 
-interface OhMyPiCapability {
-  name: string;
-  description: string;
-  category: string;
-  requires_workspace: boolean;
-  requires_sandbox: boolean;
+/** Presentational grouping derived from the capability name (`lsp_edit` → lsp).
+ *  Derived, not fetched: the API sends no category and we do not invent one. */
+function capabilityCategory(name: string): string {
+  const prefix = name.split("_")[0];
+  return { debug: "dap", execute: "execution", code: "search" }[prefix] ?? prefix;
 }
 
 interface OhMyPiExecutionResult {
@@ -81,74 +82,6 @@ const CAPABILITY_COLORS: Record<string, string> = {
   git: "text-emerald-400",
 };
 
-// ── Mock capabilities ─────────────────────────────────────
-
-const MOCK_CAPABILITIES: OhMyPiCapability[] = [
-  {
-    name: "lsp_open_file",
-    description: "Open a file for LSP analysis — get diagnostics, symbols, and references",
-    category: "lsp",
-    requires_workspace: true,
-    requires_sandbox: true,
-  },
-  {
-    name: "lsp_edit",
-    description: "Edit a file with LSP-aware precision — policy-gated write operation",
-    category: "edit",
-    requires_workspace: true,
-    requires_sandbox: true,
-  },
-  {
-    name: "ast_transform",
-    description: "Transform code using tree-sitter AST — safe structural changes",
-    category: "ast",
-    requires_workspace: true,
-    requires_sandbox: true,
-  },
-  {
-    name: "debug_start",
-    description: "Start a DAP debug session with breakpoints",
-    category: "dap",
-    requires_workspace: false,
-    requires_sandbox: false,
-  },
-  {
-    name: "debug_step",
-    description: "Step through execution — step over, into, out, continue",
-    category: "dap",
-    requires_workspace: false,
-    requires_sandbox: false,
-  },
-  {
-    name: "execute_python",
-    description: "Execute Python code in a sandboxed environment",
-    category: "execution",
-    requires_workspace: false,
-    requires_sandbox: true,
-  },
-  {
-    name: "execute_javascript",
-    description: "Execute JavaScript code in a sandboxed environment",
-    category: "execution",
-    requires_workspace: false,
-    requires_sandbox: true,
-  },
-  {
-    name: "git_operation",
-    description: "Perform git operations — branch, commit, diff",
-    category: "git",
-    requires_workspace: true,
-    requires_sandbox: true,
-  },
-  {
-    name: "code_search",
-    description: "Search codebase using Oh My Pi's indexed knowledge",
-    category: "search",
-    requires_workspace: false,
-    requires_sandbox: false,
-  },
-];
-
 // ── Component ─────────────────────────────────────────────
 
 export function OhMyPiPanel({ onExecute, status }: OhMyPiPanelProps) {
@@ -158,7 +91,11 @@ export function OhMyPiPanel({ onExecute, status }: OhMyPiPanelProps) {
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const capabilities = MOCK_CAPABILITIES;
+  // Live, from /api/v1/ohmypi/capabilities. This used to be a module-level
+  // MOCK_CAPABILITIES array of nine hand-written tools, shown identically
+  // whether or not the agent was installed (RC3 P8).
+  const capQuery = useOhMyPiCapabilities();
+  const capabilities: OhMyPiCapability[] = capQuery.data?.capabilities ?? [];
 
   const handleExecute = async () => {
     if (!selectedAction || !onExecute) return;
@@ -178,6 +115,9 @@ export function OhMyPiPanel({ onExecute, status }: OhMyPiPanelProps) {
   };
 
   const selectedCap = capabilities.find((c) => c.name === selectedAction);
+  const selectedCategory = selectedCap
+    ? capabilityCategory(selectedCap.name)
+    : undefined;
 
   return (
     <div className="animate-fade-in">
@@ -236,7 +176,28 @@ export function OhMyPiPanel({ onExecute, status }: OhMyPiPanelProps) {
       )}
 
       {/* Capability grid */}
-      <Card title="MCP Tools" className="mb-4">
+      <Card
+        title={`MCP Tools${capabilities.length ? ` (${capabilities.length})` : ""}`}
+        className="mb-4"
+      >
+        {capQuery.isLoading && (
+          <div className="text-xs text-hermes-muted font-mono py-2">
+            Loading capabilities…
+          </div>
+        )}
+        {capQuery.isError && (
+          <div className="text-xs text-hermes-red font-mono py-2">
+            Could not reach /ohmypi/capabilities —{" "}
+            {capQuery.error instanceof Error
+              ? capQuery.error.message
+              : "unknown error"}
+          </div>
+        )}
+        {!capQuery.isLoading && !capQuery.isError && capabilities.length === 0 && (
+          <div className="text-xs text-hermes-muted font-mono py-2">
+            The agent reports no capabilities.
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-2">
           {capabilities.map((cap) => {
             const isSelected = selectedAction === cap.name;
@@ -255,9 +216,9 @@ export function OhMyPiPanel({ onExecute, status }: OhMyPiPanelProps) {
                 }`}
               >
                 <div
-                  className={`mt-0.5 ${CAPABILITY_COLORS[cap.category] || "text-hermes-muted"}`}
+                  className={`mt-0.5 ${CAPABILITY_COLORS[capabilityCategory(cap.name)] || "text-hermes-muted"}`}
                 >
-                  {CAPABILITY_ICONS[cap.category] || (
+                  {CAPABILITY_ICONS[capabilityCategory(cap.name)] || (
                     <Activity className="w-3.5 h-3.5" />
                   )}
                 </div>
@@ -267,16 +228,11 @@ export function OhMyPiPanel({ onExecute, status }: OhMyPiPanelProps) {
                       {cap.name}
                     </span>
                     <span className="text-[9px] text-hermes-muted px-1 py-0 bg-hermes-bg rounded font-mono uppercase">
-                      {cap.category}
+                      {capabilityCategory(cap.name)}
                     </span>
-                    {cap.requires_workspace && (
+                    {cap.requires_lsp && (
                       <Badge variant="default" className="text-[10px] px-1.5 py-0">
-                        workspace
-                      </Badge>
-                    )}
-                    {cap.requires_sandbox && (
-                      <Badge variant="default" className="text-[10px] px-1.5 py-0">
-                        sandbox
+                        lsp
                       </Badge>
                     )}
                   </div>
@@ -309,10 +265,10 @@ export function OhMyPiPanel({ onExecute, status }: OhMyPiPanelProps) {
           <div className="space-y-3">
             <div>
               <label className="text-[10px] text-hermes-muted font-mono uppercase mb-1 block">
-                {selectedCap?.category === "lsp" ? "File path" :
-                 selectedCap?.category === "execution" ? "Code" :
-                 selectedCap?.category === "dap" ? "File" :
-                 selectedCap?.category === "search" ? "Query" :
+                {selectedCategory === "lsp" ? "File path" :
+                 selectedCategory === "execution" ? "Code" :
+                 selectedCategory === "dap" ? "File" :
+                 selectedCategory === "search" ? "Query" :
                  "Input"}
               </label>
               <input
@@ -320,10 +276,10 @@ export function OhMyPiPanel({ onExecute, status }: OhMyPiPanelProps) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
-                  selectedCap?.category === "lsp" ? "e.g., src/app.py" :
-                  selectedCap?.category === "execution" ? "print('hello')" :
-                  selectedCap?.category === "dap" ? "e.g., src/app.py:42" :
-                  selectedCap?.category === "search" ? "e.g., authenticate" :
+                  selectedCategory === "lsp" ? "e.g., src/app.py" :
+                  selectedCategory === "execution" ? "print('hello')" :
+                  selectedCategory === "dap" ? "e.g., src/app.py:42" :
+                  selectedCategory === "search" ? "e.g., authenticate" :
                   "Enter input..."
                 }
                 className="w-full bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-sm text-hermes-text font-mono focus:outline-none focus:border-hermes-amber/50 placeholder:text-hermes-muted/50"

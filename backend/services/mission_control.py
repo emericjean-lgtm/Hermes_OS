@@ -300,7 +300,10 @@ class MissionControlService:
         self._freebuff = freebuff_adapter
         self._planner = planner or TaskPlanner(strategy=config.default_planning_strategy if config else PlanningStrategy.BALANCED)
         self._config = config or MissionControlConfiguration()
-        self._created_at = time.time()
+        # perf_counter, not time(): uptime must not jump when the wall clock is
+        # adjusted (NTP, DST), and time() resolves to 15.6 ms on Windows, which
+        # reported a freshly built service as having 0.0s of uptime.
+        self._created_at = time.perf_counter()
         self._lock = threading.RLock()
 
     @property
@@ -1212,7 +1215,7 @@ class MissionControlService:
             memory_status="operational",
             integrations_status=integrations,
             event_bus_status="operational" if bus_ok else "unhealthy",
-            uptime=time.time() - self._created_at,
+            uptime=time.perf_counter() - self._created_at,
         )
 
     def diagnostics(self) -> dict[str, Any]:
@@ -1222,7 +1225,7 @@ class MissionControlService:
             A nested dict with detailed subsystem information.
         """
         return {
-            "uptime_seconds": time.time() - self._created_at,
+            "uptime_seconds": time.perf_counter() - self._created_at,
             "missions": {
                 "count": len(self._supervisor._missions),  # noqa: SLF001
                 "states": self._mission_state_distribution(),
@@ -1321,7 +1324,7 @@ class MissionControlService:
                 memory=mem_stats,
                 skills=skill_stats,
                 engine=engine_stats,
-                uptime_seconds=time.time() - self._created_at,
+                uptime_seconds=time.perf_counter() - self._created_at,
             )
 
     # ------------------------------------------------------------------

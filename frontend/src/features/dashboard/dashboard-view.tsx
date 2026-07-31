@@ -79,7 +79,7 @@ export function DashboardView() {
               ))}
               <div className="flex items-center justify-between p-2 bg-hermes-bg rounded text-xs">
                 <span className="text-hermes-muted font-mono">Uptime</span>
-                <span className="text-hermes-text font-mono">{formatUptime(health.uptime_s)}</span>
+                <span className="text-hermes-text font-mono">{formatUptime(health.uptime_seconds)}</span>
               </div>
             </div>
           ) : (

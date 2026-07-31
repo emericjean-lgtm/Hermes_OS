@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict, deque
 from typing import Any
 
 from .execution_models import ValidationOutcome, TaskExecution
@@ -15,15 +16,22 @@ class ValidationEngine:
     Checks: expected result, test criteria, quality, security, compliance.
     """
 
+    #: Retention cap for per-task validation state. stats() walks _results on
+    #: every call, and all three collections grew per task forever (RC3 P5).
+    MAX_RETAINED_VALIDATIONS = 2000
+
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._criteria: dict[str, list[str]] = {}       # task_id → validation criteria
-        self._results: dict[str, ValidationOutcome] = {}  # task_id → outcome
-        self._history: list[dict[str, Any]] = []
+        self._criteria: OrderedDict[str, list[str]] = OrderedDict()   # task_id → criteria
+        self._results: OrderedDict[str, ValidationOutcome] = OrderedDict()  # task_id → outcome
+        self._history: deque[dict[str, Any]] = deque(maxlen=self.MAX_RETAINED_VALIDATIONS)
 
     def set_criteria(self, task_id: str, criteria: list[str]) -> None:
         with self._lock:
             self._criteria[task_id] = criteria
+            self._criteria.move_to_end(task_id)
+            while len(self._criteria) > self.MAX_RETAINED_VALIDATIONS:
+                self._criteria.popitem(last=False)
 
     def validate(self, task: TaskExecution) -> ValidationOutcome:
         """Validate a completed task's result."""
@@ -32,6 +40,9 @@ class ValidationEngine:
 
             outcome = self._evaluate(task, criteria)
             self._results[task.task_id] = outcome
+            self._results.move_to_end(task.task_id)
+            while len(self._results) > self.MAX_RETAINED_VALIDATIONS:
+                self._results.popitem(last=False)
             self._history.append({
                 "task_id": task.task_id,
                 "outcome": outcome.value,

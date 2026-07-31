@@ -59,6 +59,12 @@ class DatabaseConfig:
     @property
     def connection_string(self) -> str:
         if self.backend == StorageBackend.SQLITE:
+            # ":memory:" is SQLite's in-memory sentinel, not a file stem.
+            # Appending ".db" produced ":memory:.db", which sqlite3 cannot
+            # open at all (and which is an illegal filename on Windows
+            # because of the colons).
+            if self.name == ":memory:":
+                return "sqlite:///:memory:"
             return f"sqlite:///{self.name}.db"
         return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
 

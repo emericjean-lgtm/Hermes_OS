@@ -1,6 +1,11 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import {
+  useConversationDecision,
+  useSendConversationMessage,
+  useStartConversation,
+} from "@/hooks/use-api";
 
 interface ChatMessage {
   role: "user" | "hermes" | "system" | "agent";
@@ -32,84 +37,6 @@ const WELCOME_MESSAGE: ChatMessage = {
   timestamp: new Date().toISOString(),
 };
 
-// Mock storage for conversation state
-let mockSessionId = `conv_${Math.random().toString(36).slice(2, 14)}`;
-
-function generateMockResponse(userMessage: string): ConversationResponse {
-  const lower = userMessage.toLowerCase();
-  let content = "";
-  let intent: IntentInfo = { type: "unknown", confidence: 0, domain: "general" };
-  let requiresApproval = false;
-  let approvalRequest: { action: string; risk: string; description: string } | null = null;
-  let suggestedActions: { label: string; action: string }[] = [];
-
-  if (lower.includes("optimise") || lower.includes("performance")) {
-    content =
-      "🔍 **Analyse d'optimisation détectée**\n\nJ'ai compris que vous souhaitez optimiser votre projet. Je peux lancer une mission complète avec analyse des performances et recommandations.";
-    intent = { type: "optimization", confidence: 0.88, domain: "software" };
-    suggestedActions = [
-      { label: "Lancer optimisation", action: "start_mission" },
-      { label: "Analyser d'abord", action: "analyze_first" },
-    ];
-  } else if (lower.includes("debug") || lower.includes("bug") || lower.includes("erreur")) {
-    content =
-      "🐛 **Diagnostic de bug en cours**\n\nJ'ai détecté une demande de débogage. Je vais analyser le problème avec Oh My Pi et mes agents d'analyse.";
-    intent = { type: "debug", confidence: 0.92, domain: "software" };
-    requiresApproval = true;
-    approvalRequest = {
-      action: "debug_mission",
-      risk: "HIGH",
-      description: "Lancer une mission de débogage complète",
-    };
-  } else if (lower.includes("refactor") || lower.includes("restructure")) {
-    content =
-      "🔄 **Refactoring planifié**\n\nJ'ai compris que vous souhaitez refactoriser votre code. Voulez-vous que je commence par une analyse d'impact ?";
-    intent = { type: "refactor", confidence: 0.85, domain: "software" };
-    requiresApproval = true;
-    approvalRequest = {
-      action: "refactor_mission",
-      risk: "MEDIUM",
-      description: "Planifier une mission de refactoring",
-    };
-  } else if (lower.includes("analyse") || lower.includes("analyse")) {
-    content =
-      "📊 **Analyse demandée**\n\nJe lance une analyse de votre projet dans le domaine **software**. Je vais examiner le code, la structure et les performances.";
-    intent = { type: "analysis", confidence: 0.9, domain: "software" };
-    suggestedActions = [
-      { label: "Lancer analyse", action: "start_mission" },
-      { label: "Voir détails", action: "show_details" },
-    ];
-  } else if (lower.includes("hello") || lower.includes("bonjour") || lower.includes("salut")) {
-    content = WELCOME_MESSAGE.content;
-    intent = { type: "greeting", confidence: 0.95, domain: "general" };
-    suggestedActions = [
-      { label: "Analyser projet", action: "analyze_project" },
-      { label: "Voir missions", action: "list_missions" },
-    ];
-  } else if (lower.includes("oui") || lower.includes("yes") || lower.includes("approuve")) {
-    content = "✅ **Approbation enregistrée**\n\nJ'ai bien pris en compte votre validation. Je poursuis l'exécution du plan.";
-    intent = { type: "approval", confidence: 0.95, domain: "general" };
-  } else if (lower.includes("non") || lower.includes("annule") || lower.includes("stop")) {
-    content = "🛑 **Action annulée**\n\nJ'ai annulé l'opération en cours. N'hésitez pas à me donner de nouvelles instructions.";
-    intent = { type: "cancel", confidence: 0.9, domain: "general" };
-  } else {
-    content =
-      "🤔 **Je n'ai pas bien compris**\n\nPouvez-vous reformuler votre demande ? Je peux vous aider à analyser, déboguer, optimiser ou refactoriser du code.";
-    intent = { type: "unknown", confidence: 0.3, domain: "general" };
-  }
-
-  return {
-    success: true,
-    session_id: mockSessionId,
-    message: { role: "hermes", content, timestamp: new Date().toISOString() },
-    intent,
-    requires_approval: requiresApproval,
-    approval_request: approvalRequest,
-    suggested_actions: suggestedActions,
-    status: requiresApproval ? "awaiting_approval" : "active",
-  };
-}
-
 export default function ConversationCenter() {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState("");
@@ -123,6 +50,20 @@ export default function ConversationCenter() {
     { label: string; action: string }[]
   >([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const startConversation = useStartConversation();
+  const sendMessage = useSendConversationMessage();
+  const decide = useConversationDecision();
+
+  /** Reuse the live session, opening one on first use. */
+  const ensureSession = useCallback(async () => {
+    if (sessionId) return sessionId;
+    const started = await startConversation.mutateAsync(undefined);
+    setSessionId(started.session_id);
+    return started.session_id;
+  }, [sessionId, startConversation]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -143,22 +84,28 @@ export default function ConversationCenter() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsProcessing(true);
+    setError(null);
 
-    // Simulate response delay
-    await new Promise((r) => setTimeout(r, 800 + Math.random() * 600));
+    try {
+      const id = await ensureSession();
+      const response = await sendMessage.mutateAsync({
+        sessionId: id,
+        message: userMsg.content,
+      });
 
-    const response = generateMockResponse(userMsg.content);
-
-    const hermesMsg: ChatMessage = {
-      role: "hermes",
-      content: response.message.content,
-      timestamp: response.message.timestamp,
-    };
-    setMessages((prev) => [...prev, hermesMsg]);
-    setPendingApproval(response.approval_request);
-    setSuggestedActions(response.suggested_actions);
-    setIsProcessing(false);
-  }, [input, isProcessing]);
+      setMessages((prev) => [...prev, {
+        role: "hermes",
+        content: response.message.content,
+        timestamp: response.message.timestamp,
+      }]);
+      setPendingApproval(response.approval_request);
+      setSuggestedActions(response.suggested_actions ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Hermes could not be reached");
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [input, isProcessing, ensureSession, sendMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -179,17 +126,22 @@ export default function ConversationCenter() {
     setMessages((prev) => [...prev, msg]);
     setPendingApproval(null);
     setIsProcessing(true);
+    setError(null);
 
-    await new Promise((r) => setTimeout(r, 500));
-    const response: ChatMessage = {
-      role: "hermes",
-      content:
-        "✅ **Approbation enregistrée**\n\nMission en cours d'exécution. Je vous tiendrai informé de la progression.",
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, response]);
-    setIsProcessing(false);
-  }, []);
+    try {
+      const id = await ensureSession();
+      const response = await decide.mutateAsync({ sessionId: id, decision: "approve" });
+      setMessages((prev) => [...prev, {
+        role: "hermes",
+        content: response.message.content,
+        timestamp: response.message.timestamp,
+      }]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Approval could not be recorded");
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [ensureSession, decide]);
 
   const handleReject = useCallback(async () => {
     const msg: ChatMessage = {
@@ -200,17 +152,22 @@ export default function ConversationCenter() {
     setMessages((prev) => [...prev, msg]);
     setPendingApproval(null);
     setIsProcessing(true);
+    setError(null);
 
-    await new Promise((r) => setTimeout(r, 500));
-    const response: ChatMessage = {
-      role: "hermes",
-      content:
-        "🛑 **Action annulée**\n\nJ'ai annulé l'opération. N'hésitez pas à me donner de nouvelles instructions.",
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, response]);
-    setIsProcessing(false);
-  }, []);
+    try {
+      const id = await ensureSession();
+      const response = await decide.mutateAsync({ sessionId: id, decision: "cancel" });
+      setMessages((prev) => [...prev, {
+        role: "hermes",
+        content: response.message.content,
+        timestamp: response.message.timestamp,
+      }]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Cancellation could not be recorded");
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [ensureSession, decide]);
 
   const displayContent = (content: string) => {
     // Simple markdown-like rendering
@@ -232,10 +189,17 @@ export default function ConversationCenter() {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-gray-500 bg-gray-800/60 px-2 py-1 rounded">
-            {mockSessionId.slice(0, 16)}...
+            {sessionId ? sessionId.slice(0, 16) + "…" : "no session yet"}
           </span>
         </div>
       </div>
+
+      {/* A failed call must be visible, not silently swallowed. */}
+      {error && (
+        <div className="mx-6 mt-3 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
+          {error}
+        </div>
+      )}
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">

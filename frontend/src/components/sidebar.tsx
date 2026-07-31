@@ -17,9 +17,22 @@ const navItems = [
   { id: "governance", label: "Governance", icon: "⚖" },
   { id: "events", label: "Events", icon: "↯" },
   { id: "autonomous", label: "Autonomous", icon: "🧬" },
+  // cockpit-shell.tsx registers evolution: EvolutionCenter, but no sidebar
+  // entry ever pointed at it, so the Center was built, wired to the real
+  // /api/v1/evolution endpoints, and unreachable from the UI (R-004).
+  { id: "evolution", label: "Evolution", icon: "🧪" },
   { id: "security", label: "Security", icon: "🔒" },
   { id: "system", label: "System", icon: "⊞" },
   { id: "deployment", label: "Deploy", icon: "🚀" },
+  // P-001 : ces huit Centers exposent des API qui existaient déjà sans écran.
+  { id: "execution", label: "Execution", icon: "▶" },
+  { id: "workspace", label: "Workspace", icon: "📁" },
+  { id: "knowledge", label: "Knowledge", icon: "🕸" },
+  { id: "alexandrie", label: "Alexandrie", icon: "📚" },
+  { id: "policy", label: "Policy", icon: "📜" },
+  { id: "validation", label: "Validation", icon: "✔" },
+  { id: "monitoring", label: "Monitoring", icon: "📈" },
+  { id: "health", label: "Health", icon: "❤" },
 ];
 
 export function Sidebar() {

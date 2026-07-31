@@ -224,14 +224,14 @@ describe("Type Guards (compile-time validated)", () => {
 
 // ── API Client structure ───────────────────────────────
 describe("API Client Endpoints", () => {
-  it("systemClient has health and statistics methods", () => {
-    const { systemClient } = require("@/services/client");
+  it("systemClient has health and statistics methods", async () => {
+    const { systemClient } = await import("@/services/client");
     expect(typeof systemClient.health).toBe("function");
     expect(typeof systemClient.statistics).toBe("function");
   });
 
-  it("missionsClient has CRUD + action methods", () => {
-    const { missionsClient } = require("@/services/client");
+  it("missionsClient has CRUD + action methods", async () => {
+    const { missionsClient } = await import("@/services/client");
     expect(typeof missionsClient.list).toBe("function");
     expect(typeof missionsClient.get).toBe("function");
     expect(typeof missionsClient.create).toBe("function");
@@ -243,8 +243,8 @@ describe("API Client Endpoints", () => {
     expect(typeof missionsClient.timeline).toBe("function");
   });
 
-  it("agentsClient has CRUD + action methods", () => {
-    const { agentsClient } = require("@/services/client");
+  it("agentsClient has CRUD + action methods", async () => {
+    const { agentsClient } = await import("@/services/client");
     expect(typeof agentsClient.list).toBe("function");
     expect(typeof agentsClient.get).toBe("function");
     expect(typeof agentsClient.create).toBe("function");
@@ -253,41 +253,43 @@ describe("API Client Endpoints", () => {
     expect(typeof agentsClient.metrics).toBe("function");
   });
 
-  it("runtimeClient has list, health, metrics, resources methods", () => {
-    const { runtimeClient } = require("@/services/client");
+  it("runtimeClient has list, health, metrics, resources methods", async () => {
+    const { runtimeClient } = await import("@/services/client");
     expect(typeof runtimeClient.list).toBe("function");
     expect(typeof runtimeClient.health).toBe("function");
     expect(typeof runtimeClient.resources).toBe("function");
     expect(typeof runtimeClient.allocations).toBe("function");
-    expect(typeof runtimeClient.select).toBe("function");
+    // `select` a été retiré : POST /runtime/select n'existe pas côté backend
+    // (404). Vérifier sa présence revenait à garantir un appel mort (P-002 §7).
+    expect("select" in runtimeClient).toBe(false);
   });
 
-  it("memoryClient has search, graph, experiences methods", () => {
-    const { memoryClient } = require("@/services/client");
+  it("memoryClient has search, graph, experiences methods", async () => {
+    const { memoryClient } = await import("@/services/client");
     expect(typeof memoryClient.search).toBe("function");
     expect(typeof memoryClient.graph).toBe("function");
     expect(typeof memoryClient.experiences).toBe("function");
     expect(typeof memoryClient.index).toBe("function");
   });
 
-  it("skillsClient has select, load, unload, cache methods", () => {
-    const { skillsClient } = require("@/services/client");
+  it("skillsClient has select, load, unload, cache methods", async () => {
+    const { skillsClient } = await import("@/services/client");
     expect(typeof skillsClient.select).toBe("function");
     expect(typeof skillsClient.load).toBe("function");
     expect(typeof skillsClient.unload).toBe("function");
     expect(typeof skillsClient.cache).toBe("function");
   });
 
-  it("toolsClient has mcp methods", () => {
-    const { toolsClient } = require("@/services/client");
+  it("toolsClient has mcp methods", async () => {
+    const { toolsClient } = await import("@/services/client");
     expect(typeof toolsClient.mcpServers).toBe("function");
     expect(typeof toolsClient.mcpConnect).toBe("function");
     expect(typeof toolsClient.mcpDisconnect).toBe("function");
     expect(typeof toolsClient.execute).toBe("function");
   });
 
-  it("governanceClient has approve/reject/audit methods", () => {
-    const { governanceClient } = require("@/services/client");
+  it("governanceClient has approve/reject/audit methods", async () => {
+    const { governanceClient } = await import("@/services/client");
     expect(typeof governanceClient.rules).toBe("function");
     expect(typeof governanceClient.approvals).toBe("function");
     expect(typeof governanceClient.approve).toBe("function");
@@ -295,8 +297,8 @@ describe("API Client Endpoints", () => {
     expect(typeof governanceClient.audit).toBe("function");
   });
 
-  it("executionClient has lifecycle methods", () => {
-    const { executionClient } = require("@/services/client");
+  it("executionClient has lifecycle methods", async () => {
+    const { executionClient } = await import("@/services/client");
     expect(typeof executionClient.start).toBe("function");
     expect(typeof executionClient.get).toBe("function");
     expect(typeof executionClient.pause).toBe("function");
@@ -307,76 +309,76 @@ describe("API Client Endpoints", () => {
 
 // ── Hooks availability ────────────────────────────────
 describe("Custom Hooks exist", () => {
-  it("useSystemHealth is exported", () => {
-    const { useSystemHealth } = require("@/hooks/use-api");
+  it("useSystemHealth is exported", async () => {
+    const { useSystemHealth } = await import("@/hooks/use-api");
     expect(typeof useSystemHealth).toBe("function");
   });
 
-  it("useMissions is exported", () => {
-    const { useMissions } = require("@/hooks/use-api");
+  it("useMissions is exported", async () => {
+    const { useMissions } = await import("@/hooks/use-api");
     expect(typeof useMissions).toBe("function");
   });
 
-  it("useAgents is exported", () => {
-    const { useAgents } = require("@/hooks/use-api");
+  it("useAgents is exported", async () => {
+    const { useAgents } = await import("@/hooks/use-api");
     expect(typeof useAgents).toBe("function");
   });
 
-  it("useRuntimes is exported", () => {
-    const { useRuntimes } = require("@/hooks/use-api");
+  it("useRuntimes is exported", async () => {
+    const { useRuntimes } = await import("@/hooks/use-api");
     expect(typeof useRuntimes).toBe("function");
   });
 
-  it("useMemorySearch is exported", () => {
-    const { useMemorySearch } = require("@/hooks/use-api");
+  it("useMemorySearch is exported", async () => {
+    const { useMemorySearch } = await import("@/hooks/use-api");
     expect(typeof useMemorySearch).toBe("function");
   });
 
-  it("useSkills is exported", () => {
-    const { useSkills } = require("@/hooks/use-api");
+  it("useSkills is exported", async () => {
+    const { useSkills } = await import("@/hooks/use-api");
     expect(typeof useSkills).toBe("function");
   });
 
-  it("useTools is exported", () => {
-    const { useTools } = require("@/hooks/use-api");
+  it("useTools is exported", async () => {
+    const { useTools } = await import("@/hooks/use-api");
     expect(typeof useTools).toBe("function");
   });
 
-  it("useApprovals is exported", () => {
-    const { useApprovals } = require("@/hooks/use-api");
+  it("useApprovals is exported", async () => {
+    const { useApprovals } = await import("@/hooks/use-api");
     expect(typeof useApprovals).toBe("function");
   });
 
-  it("useExecutions is exported", () => {
-    const { useExecutions } = require("@/hooks/use-api");
+  it("useExecutions is exported", async () => {
+    const { useExecutions } = await import("@/hooks/use-api");
     expect(typeof useExecutions).toBe("function");
   });
 
-  it("useWebSocket is exported", () => {
-    const { useWebSocket } = require("@/hooks/use-websocket");
+  it("useWebSocket is exported", async () => {
+    const { useWebSocket } = await import("@/hooks/use-websocket");
     expect(typeof useWebSocket).toBe("function");
   });
 });
 
 // ── Components render structure ────────────────────────
 describe("UI Components", () => {
-  it("Card component is exported", () => {
-    const { Card } = require("@/components/ui/card");
+  it("Card component is exported", async () => {
+    const { Card } = await import("@/components/ui/card");
     expect(typeof Card).toBe("function");
   });
 
-  it("Badge component is exported", () => {
-    const { Badge } = require("@/components/ui/card");
+  it("Badge component is exported", async () => {
+    const { Badge } = await import("@/components/ui/card");
     expect(typeof Badge).toBe("function");
   });
 
-  it("StatCard component is exported", () => {
-    const { StatCard } = require("@/components/ui/card");
+  it("StatCard component is exported", async () => {
+    const { StatCard } = await import("@/components/ui/card");
     expect(typeof StatCard).toBe("function");
   });
 
-  it("ProgressBar component is exported", () => {
-    const { ProgressBar } = require("@/components/ui/card");
+  it("ProgressBar component is exported", async () => {
+    const { ProgressBar } = await import("@/components/ui/card");
     expect(typeof ProgressBar).toBe("function");
   });
 
@@ -390,76 +392,76 @@ describe("UI Components", () => {
 
 // ── Feature center existence ──────────────────────────
 describe("Feature Centers", () => {
-  it("DashboardView is exported", () => {
-    const { DashboardView } = require("@/features/dashboard/dashboard-view");
+  it("DashboardView is exported", async () => {
+    const { DashboardView } = await import("@/features/dashboard/dashboard-view");
     expect(typeof DashboardView).toBe("function");
   });
 
-  it("MissionCenter is exported", () => {
-    const { MissionCenter } = require("@/features/missions/mission-center");
+  it("MissionCenter is exported", async () => {
+    const { MissionCenter } = await import("@/features/missions/mission-center");
     expect(typeof MissionCenter).toBe("function");
   });
 
-  it("AgentCenter is exported", () => {
-    const { AgentCenter } = require("@/features/agents/agent-center");
+  it("AgentCenter is exported", async () => {
+    const { AgentCenter } = await import("@/features/agents/agent-center");
     expect(typeof AgentCenter).toBe("function");
   });
 
-  it("RuntimeCenter is exported", () => {
-    const { RuntimeCenter } = require("@/features/runtime/runtime-center");
+  it("RuntimeCenter is exported", async () => {
+    const { RuntimeCenter } = await import("@/features/runtime/runtime-center");
     expect(typeof RuntimeCenter).toBe("function");
   });
 
-  it("MemoryCenter is exported", () => {
-    const { MemoryCenter } = require("@/features/memory/memory-center");
+  it("MemoryCenter is exported", async () => {
+    const { MemoryCenter } = await import("@/features/memory/memory-center");
     expect(typeof MemoryCenter).toBe("function");
   });
 
-  it("SkillsCenter is exported", () => {
-    const { SkillsCenter } = require("@/features/skills/skills-center");
+  it("SkillsCenter is exported", async () => {
+    const { SkillsCenter } = await import("@/features/skills/skills-center");
     expect(typeof SkillsCenter).toBe("function");
   });
 
-  it("ToolsCenter is exported", () => {
-    const { ToolsCenter } = require("@/features/tools/tools-center");
+  it("ToolsCenter is exported", async () => {
+    const { ToolsCenter } = await import("@/features/tools/tools-center");
     expect(typeof ToolsCenter).toBe("function");
   });
 
-  it("GovernanceCenter is exported", () => {
-    const { GovernanceCenter } = require("@/features/governance/governance-center");
+  it("GovernanceCenter is exported", async () => {
+    const { GovernanceCenter } = await import("@/features/governance/governance-center");
     expect(typeof GovernanceCenter).toBe("function");
   });
 
-  it("EventsCenter is exported", () => {
-    const { EventsCenter } = require("@/features/events/events-center");
+  it("EventsCenter is exported", async () => {
+    const { EventsCenter } = await import("@/features/events/events-center");
     expect(typeof EventsCenter).toBe("function");
   });
 
-  it("CockpitShell has all 9 views mapped", () => {
-    const { default: CockpitShell } = require("@/components/cockpit-shell");
+  it("CockpitShell has all 9 views mapped", async () => {
+    const { default: CockpitShell } = await import("@/components/cockpit-shell");
     expect(typeof CockpitShell).toBe("function");
   });
 });
 
 // ── Navigation ────────────────────────────────────────
 describe("Navigation", () => {
-  it("Sidebar is exported", () => {
-    const { Sidebar } = require("@/components/sidebar");
+  it("Sidebar is exported", async () => {
+    const { Sidebar } = await import("@/components/sidebar");
     expect(typeof Sidebar).toBe("function");
   });
 
-  it("Topbar is exported", () => {
-    const { Topbar } = require("@/components/topbar");
+  it("Topbar is exported", async () => {
+    const { Topbar } = await import("@/components/topbar");
     expect(typeof Topbar).toBe("function");
   });
 
-  it("StatusBar is exported", () => {
-    const { StatusBar } = require("@/components/statusbar");
+  it("StatusBar is exported", async () => {
+    const { StatusBar } = await import("@/components/statusbar");
     expect(typeof StatusBar).toBe("function");
   });
 
-  it("Providers is exported", () => {
-    const { Providers } = require("@/components/providers");
+  it("Providers is exported", async () => {
+    const { Providers } = await import("@/components/providers");
     expect(typeof Providers).toBe("function");
   });
 });

@@ -5,11 +5,15 @@ Provides REST endpoints and a WebSocket for real-time event streaming.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger("hermes_os.runtime.events")
 
 from backend.runtime.events.event_bus import RuntimeEventBus
 from backend.runtime.events.event_models import (
@@ -30,6 +34,18 @@ _bus: Optional[RuntimeEventBus] = None
 _store: Optional[EventStore] = None
 _ws_clients: list[WebSocket] = []
 
+#: The loop serving the app, captured when a WebSocket client connects.
+#: Events are published from worker threads, which have no running loop of
+#: their own, so the loop has to be remembered rather than discovered.
+_ws_loop: Optional["asyncio.AbstractEventLoop"] = None
+
+#: Marker set on a bus whose ``publish`` this module has already wrapped.
+#: Per-instance and not a module flag: ``create_app()`` runs once at import of
+#: backend.main and again per test, each time with a *new* bus, so a global flag
+#: would wrap the first bus and silently leave every later one unwrapped —
+#: which is exactly what happened while developing this.
+_WRAPPED_MARKER = "_hermes_broadcast_wrapped"
+
 
 def create_runtime_event_routes(
     bus: RuntimeEventBus,
@@ -40,6 +56,11 @@ def create_runtime_event_routes(
     _bus = bus
     _store = store
 
+    if getattr(bus, _WRAPPED_MARKER, False):
+        # This bus is already wrapped; wrapping again would nest the wrapper
+        # inside itself and broadcast each event twice.
+        return router
+
     # Auto-publish in-memory events to WebSocket clients
     _original_publish = bus.publish
 
@@ -49,20 +70,50 @@ def create_runtime_event_routes(
             try:
                 _store.store(event)
             except Exception:
-                pass
-        # Broadcast to WebSocket clients
-        import asyncio
-
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(_broadcast(event))
-        except RuntimeError:
-            pass
+                logger.debug("event store write failed", exc_info=True)
+        _dispatch_to_websockets(event)
 
     bus.publish = _publish_and_broadcast  # type: ignore[method-assign]
+    setattr(bus, _WRAPPED_MARKER, True)
 
     return router
+
+
+def _dispatch_to_websockets(event: RuntimeEventModel) -> None:
+    """Schedule a broadcast on the serving loop, from any thread.
+
+    The previous implementation called ``asyncio.get_event_loop()`` and
+    ``ensure_future`` here. Both are wrong off the main thread: in a worker
+    thread ``get_event_loop()`` raises (caught, so the event vanished silently),
+    and even on the right thread ``ensure_future`` is not thread-safe. Since
+    subsystems publish from threadpool workers and background schedulers, that
+    is where most events came from — which is why the Cockpit stream looked
+    connected but stayed empty.
+
+    ``run_coroutine_threadsafe`` against the loop captured at connect time is
+    the supported way to cross that boundary.
+    """
+    if not _ws_clients:
+        return
+
+    loop = _ws_loop
+    if loop is None or loop.is_closed():
+        return
+
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+
+    if running is loop:
+        # Already on the serving loop: schedule directly.
+        loop.create_task(_broadcast(event))
+    else:
+        # A worker thread, or another loop entirely.
+        try:
+            asyncio.run_coroutine_threadsafe(_broadcast(event), loop)
+        except RuntimeError:
+            logger.debug("could not schedule WebSocket broadcast", exc_info=True)
 
 
 # ── REST Endpoints ─────────────────────────────────────────
@@ -150,7 +201,13 @@ async def runtime_events_ws(websocket: WebSocket):
         - runtime_id (optional): filter by runtime
         - severity (optional): minimum severity level
     """
+    global _ws_loop
+
     await websocket.accept()
+    # Remember the loop serving this connection: publishers on worker threads
+    # need a concrete loop to hand their broadcast to (see
+    # _dispatch_to_websockets).
+    _ws_loop = asyncio.get_running_loop()
     _ws_clients.append(websocket)
 
     runtime_filter: Optional[str] = None

@@ -12,6 +12,9 @@ const statusBadge: Record<RuntimeStatus, keyof typeof statusColors> = {
 
 const statusColors = { success: "success", warning: "warning", danger: "danger" } as const;
 
+/** Bytes to GB, one decimal. The endpoint reports bytes; the meters show GB. */
+const gib = (n: number) => (n / 1024 ** 3).toFixed(1);
+
 export function RuntimeCenter() {
   const { data: runtimes, isLoading } = useRuntimes();
   const { data: resources } = useResourceStatus();
@@ -29,26 +32,52 @@ export function RuntimeCenter() {
         </div>
       </div>
 
-      {/* Resource status */}
+      {/* Resource status.
+          These meters read the fields /api/v1/runtime/resources actually sends.
+          They previously read cpu_percent / ram_percent / vram_total_gb /
+          gpu_temp_c — none of which the endpoint has ever returned — so every
+          gauge here rendered `undefined` and silently fell back to zero or
+          blank. The declared type matched the reading, not the API, so nothing
+          caught it (R-002 P3). */}
       {resources && (
         <div className="grid grid-cols-4 gap-3 mb-6">
-          <ResourceMeter label="CPU" value={resources.cpu_percent} unit="%" />
-          <ResourceMeter label="RAM" value={resources.ram_percent} unit="%" detail={`${resources.ram_used_gb.toFixed(1)}/${resources.ram_total_gb.toFixed(1)} GB`} />
-          {resources.vram_total_gb != null && (
-            <ResourceMeter
-              label="VRAM"
-              value={resources.vram_percent || 0}
-              unit="%"
-              detail={`${(resources.vram_used_gb || 0).toFixed(1)}/${resources.vram_total_gb.toFixed(1)} GB`}
-            />
-          )}
-          {resources.gpu_temp_c != null && (
-            <ResourceMeter
-              label="GPU Temp"
-              value={Math.min(100, (resources.gpu_temp_c / 100) * 100)}
-              unit="°C"
-              detail={`${resources.gpu_temp_c}°C`}
-            />
+          <ResourceMeter
+            label="RAM"
+            value={resources.ram.usage_pct}
+            unit="%"
+            detail={`${gib(resources.ram.used_bytes)}/${gib(resources.ram.total_bytes)} GB`}
+          />
+          <ResourceMeter
+            label="Allocations"
+            value={resources.allocations > 0 ? 100 : 0}
+            unit=""
+            detail={`${resources.allocations} active · ${gib(resources.allocated_bytes)} GB`}
+          />
+          {resources.gpu.available ? (
+            <>
+              <ResourceMeter
+                label="VRAM"
+                value={
+                  resources.gpu.vram_total_bytes > 0
+                    ? (resources.gpu.vram_used_bytes / resources.gpu.vram_total_bytes) * 100
+                    : 0
+                }
+                unit="%"
+                detail={`${gib(resources.gpu.vram_used_bytes)}/${gib(resources.gpu.vram_total_bytes)} GB`}
+              />
+              {resources.gpu.temperature_celsius != null && (
+                <ResourceMeter
+                  label="GPU Temp"
+                  value={Math.min(100, resources.gpu.temperature_celsius)}
+                  unit="°C"
+                  detail={`${resources.gpu.temperature_celsius}°C · ${resources.gpu.name}`}
+                />
+              )}
+            </>
+          ) : (
+            <div className="col-span-2 flex items-center justify-center text-xs text-hermes-muted font-mono border border-hermes-border/50 rounded-lg">
+              No GPU detected by the resource manager
+            </div>
           )}
         </div>
       )}

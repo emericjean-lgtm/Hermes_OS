@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from typing import Optional
 
+from fastapi import APIRouter, Body, HTTPException, Query
+
 from .skill_cache import SkillCache
 from .skill_distributor import SkillDistributor
 from .skill_loader import SkillLoader
-from .skill_models import LoadState, SkillCategory, SkillDefinition, SkillStatus
+from .skill_models import (
+    LoadState,
+    SkillCategory,
+    SkillDefinition,
+    SkillDistribution,
+    SkillProfile,
+    SkillSelection,
+    SkillStatus,
+)
 from .skill_profiler import SkillProfiler
 from .skill_registry import SkillRegistry
 from .skill_selector import SkillSelector
@@ -158,3 +168,80 @@ def _distribution_to_dict(d: SkillDistribution) -> dict:
             for agent_id, skills in d.assignments.items()
         },
     }
+
+
+# ── HTTP surface ─────────────────────────────────────────────
+# Thin delegation to the handlers above (HOS-066B). The distributor and its
+# registry/selector/loader/cache/profiler are the module-level instances built
+# at the top of this file; create_skill_routes() takes the same object from the
+# container so both access paths share one graph.
+
+router = APIRouter(prefix="/skills", tags=["skills"])
+
+
+def create_skill_routes(distributor: SkillDistributor) -> APIRouter:
+    """Bind the container-owned distributor to these routes."""
+    global _distributor
+    _distributor = distributor
+    return router
+
+
+@router.get("")
+async def get_skills(
+    category: Optional[str] = Query(None),
+    domain: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
+) -> dict:
+    return handle_get_skills(category, domain, status, tag)
+
+
+@router.get("/cache")
+async def get_cache() -> dict:
+    return handle_get_cache()
+
+
+@router.get("/statistics")
+async def get_statistics() -> dict:
+    return handle_get_statistics()
+
+
+@router.post("/select")
+async def select_skills(payload: dict = Body(default_factory=dict)) -> dict:
+    return handle_post_select(
+        task_description=payload.get("task_description", ""),
+        categories=payload.get("categories"),
+        technologies=payload.get("technologies"),
+        agent_capabilities=payload.get("agent_capabilities"),
+        max_skills=int(payload.get("max_skills", 10)),
+    )
+
+
+@router.post("/load")
+async def load_skill(payload: dict = Body(...)) -> dict:
+    return handle_post_load(
+        skill_id=payload.get("skill_id", ""),
+        agent_id=payload.get("agent_id", ""),
+        mission_id=payload.get("mission_id", ""),
+    )
+
+
+@router.post("/unload")
+async def unload_skill(payload: dict = Body(...)) -> dict:
+    return handle_post_unload(payload.get("skill_id", ""))
+
+
+@router.post("/distribute")
+async def distribute(payload: dict = Body(...)) -> dict:
+    return handle_post_distribute(
+        mission_id=payload.get("mission_id", ""),
+        agent_tasks=payload.get("agent_tasks", {}),
+    )
+
+
+@router.get("/{skill_id}")
+async def get_skill(skill_id: str) -> dict:
+    result = handle_get_skill(skill_id)
+    if result is None:
+        raise HTTPException(404, f"skill {skill_id!r} not found")
+    return result

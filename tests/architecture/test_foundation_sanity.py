@@ -12,6 +12,7 @@ gate in CI even on minimal runners.
 from __future__ import annotations
 
 import importlib
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,7 +63,11 @@ def test_capture_pytest_baseline_script_is_executable(repo_root: Path) -> None:
     target = _artifact(repo_root, "scripts", "ci", "capture_pytest_baseline.sh")
     if not target.is_file():  # pragma: no cover - guarded by I-0.3 AC-9
         pytest.skip(f"missing HOS-000 deliverable: {target}")
-    import os
+    if sys.platform == "win32":
+        # NTFS carries no POSIX mode bits, so st_mode is synthesised and the
+        # execute bits say nothing about the file. The CI runner that actually
+        # runs this script is Linux, and the check is meaningful there.
+        pytest.skip("POSIX execute bit is not represented on Windows")
 
     mode = target.stat().st_mode
     assert mode & 0o111, f"{target} must be executable (chmod +x missing)"

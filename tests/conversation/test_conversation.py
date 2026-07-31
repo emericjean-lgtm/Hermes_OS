@@ -253,9 +253,25 @@ class TestContextBuilder:
 # Response Generator Tests
 # ═══════════════════════════════════════════════════════════════
 
+def _offline_generator() -> ResponseGenerator:
+    """Un générateur dont l'inférence échoue volontairement.
+
+    ``ResponseGenerator`` interroge désormais un vrai modèle : sans cela, le chat
+    répondait « Voici ce que je peux vous dire à ce sujet… » à toute question.
+    Les tests ci-dessous portent sur le *repli* — le gabarit servi quand aucun
+    modèle n'est joignable — et sur les accusés de réception, qui restent
+    volontairement déterministes. Une doublure qui lève garantit ce chemin sans
+    dépendre d'Ollama, comme ``tests.support.fake_inference`` ailleurs.
+    """
+    async def unavailable(**_kwargs):
+        raise ConnectionError("aucun modèle en test")
+
+    return ResponseGenerator(chat=unavailable)
+
+
 class TestResponseGenerator:
     def test_generate_optimization_response(self):
-        rg = ResponseGenerator()
+        rg = _offline_generator()
         intent = IntentResult(intent=IntentType.OPTIMIZATION, confidence=0.9)
         ctx = ConversationContext()
         response = rg.generate(intent, ctx, "Optimise mon code")
@@ -270,7 +286,7 @@ class TestResponseGenerator:
         assert response.requires_approval is True
 
     def test_generate_greeting_response(self):
-        rg = ResponseGenerator()
+        rg = _offline_generator()
         intent = IntentResult(intent=IntentType.GREETING, confidence=0.95)
         ctx = ConversationContext()
         response = rg.generate(intent, ctx, "Salut")
@@ -278,14 +294,14 @@ class TestResponseGenerator:
         assert len(response.suggested_actions) > 0
 
     def test_generate_unknown_response(self):
-        rg = ResponseGenerator()
+        rg = _offline_generator()
         intent = IntentResult(intent=IntentType.UNKNOWN)
         ctx = ConversationContext()
         response = rg.generate(intent, ctx, "?")
         assert "pas bien compris" in response.message.content.lower()
 
     def test_generate_cancel_response(self):
-        rg = ResponseGenerator()
+        rg = _offline_generator()
         intent = IntentResult(intent=IntentType.CANCEL)
         ctx = ConversationContext()
         response = rg.generate(intent, ctx, "Annule")

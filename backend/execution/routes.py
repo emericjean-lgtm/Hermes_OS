@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import APIRouter, Body, HTTPException
+
 from .execution_controller import ExecutionController
 from .mission_executor import MissionExecutor
 from .execution_models import (
@@ -116,3 +118,91 @@ def _reset_controller() -> None:
     global _executor, _controller
     _executor = MissionExecutor()
     _controller = ExecutionController(_executor)
+
+
+# ── HTTP surface ─────────────────────────────────────────────
+# Thin delegation to the handlers above (HOS-066B). Paths mirror get_routes().
+# "/statistics" is declared before "/{execution_id}" so the literal wins.
+
+router = APIRouter(prefix="/execution", tags=["execution"])
+
+
+def create_execution_routes(controller: ExecutionController) -> APIRouter:
+    """Bind the container-owned controller to these routes."""
+    global _controller
+    _controller = controller
+    return router
+
+
+@router.get("")
+async def list_all() -> list[dict[str, Any]]:
+    return list_executions()
+
+
+@router.get("/statistics")
+async def get_statistics() -> dict[str, Any]:
+    return statistics()
+
+
+@router.post("/start")
+async def start(payload: dict = Body(...)) -> dict[str, Any]:
+    # `tasks` is walked with `t.get(...)` downstream, so a string or a list of
+    # scalars raised AttributeError and surfaced as 500 — a client-input error
+    # reported as a server fault. Validated here rather than by widening the
+    # app-level exception handlers to AttributeError, which would also swallow
+    # genuine server bugs.
+    tasks = payload.get("tasks", [])
+    if not isinstance(tasks, list):
+        raise HTTPException(
+            status_code=422,
+            detail=[{"type": "list_type", "loc": ["body", "tasks"],
+                     "msg": "Input should be a list of task objects"}],
+        )
+    bad = [i for i, t in enumerate(tasks) if not isinstance(t, dict)]
+    if bad:
+        raise HTTPException(
+            status_code=422,
+            detail=[{"type": "dict_type", "loc": ["body", "tasks", i],
+                     "msg": "Each task must be an object"} for i in bad],
+        )
+
+    dependencies = payload.get("dependencies")
+    if dependencies is not None and not isinstance(dependencies, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=[{"type": "dict_type", "loc": ["body", "dependencies"],
+                     "msg": "Input should be an object mapping task id -> list of ids"}],
+        )
+
+    return start_execution(
+        goal=payload.get("goal", ""),
+        tasks=tasks,
+        mission_id=payload.get("mission_id", ""),
+        dependencies=dependencies,
+        priority=payload.get("priority", "normal"),
+    )
+
+
+@router.get("/{execution_id}")
+async def get_one(execution_id: str) -> dict[str, Any]:
+    return get_execution(execution_id)
+
+
+@router.get("/{execution_id}/timeline")
+async def timeline(execution_id: str) -> dict[str, Any]:
+    return get_timeline(execution_id)
+
+
+@router.post("/{execution_id}/pause")
+async def pause(execution_id: str) -> dict[str, Any]:
+    return pause_execution(execution_id)
+
+
+@router.post("/{execution_id}/resume")
+async def resume(execution_id: str) -> dict[str, Any]:
+    return resume_execution(execution_id)
+
+
+@router.post("/{execution_id}/cancel")
+async def cancel(execution_id: str) -> dict[str, Any]:
+    return cancel_execution(execution_id)

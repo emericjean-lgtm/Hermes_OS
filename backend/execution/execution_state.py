@@ -95,7 +95,12 @@ class ExecutionStateMachine:
         with self._lock:
             if not self._checkpoints:
                 return None
-            return max(self._checkpoints.values(), key=lambda c: c.created_at)
+            # max() returns the *first* of several equal maxima, and two
+            # checkpoints saved inside one clock tick share created_at — which
+            # is routine on Windows, whose clock is coarse. Iterating the
+            # insertion-ordered dict backwards makes the most recently saved
+            # checkpoint win such ties, which is what "last" means here.
+            return max(reversed(self._checkpoints.values()), key=lambda c: c.created_at)
 
     def is_terminal(self) -> bool:
         return self.state in {ExecutionState.COMPLETED, ExecutionState.FAILED, ExecutionState.CANCELLED}

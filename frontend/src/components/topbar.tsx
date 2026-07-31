@@ -27,7 +27,7 @@ export function Topbar() {
         </div>
         <span className="text-hermes-border">|</span>
         <span className="text-xs text-hermes-muted font-mono">
-          Uptime: {formatUptime(health?.uptime_s || 0)}
+          Uptime: {formatUptime(health?.uptime_seconds || 0)}
         </span>
       </div>
 

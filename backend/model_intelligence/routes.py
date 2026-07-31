@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import APIRouter, Body, Query
+
 from .adaptive_router import AdaptiveRouter
 from .benchmark_scheduler import BenchmarkScheduler
 from .model_intelligence_models import TaskType
@@ -194,3 +196,67 @@ def handle_get_benchmarks(model_id: str = "") -> dict[str, Any]:
         "success": True,
         "benchmarks": scheduler.get_latest_benchmarks(model_id if model_id else None),
     }
+
+
+# ── HTTP surface ─────────────────────────────────────────────
+# Thin delegation to the handlers above (HOS-066B). The docstrings on those
+# handlers already declared these paths under /models; that prefix is used here
+# so the intended contract is what gets served.
+
+router = APIRouter(prefix="/models", tags=["model-intelligence"])
+
+
+def create_model_intelligence_routes(adaptive_router: AdaptiveRouter) -> APIRouter:
+    """Bind the container-owned AdaptiveRouter to these routes.
+
+    Seeds the module singleton so the lazy accessors below return the container's
+    instance instead of building a second, unwired one.
+    """
+    global _router
+    _router = adaptive_router
+    return router
+
+
+@router.get("")
+async def get_intelligence() -> dict[str, Any]:
+    return handle_get_intelligence()
+
+
+@router.get("/ranking")
+async def get_ranking(
+    task_type: str = Query(""),
+    limit: int = Query(5, ge=1, le=100),
+) -> dict[str, Any]:
+    return handle_get_ranking(task_type, limit)
+
+
+@router.post("/recommend")
+async def recommend(payload: dict = Body(...)) -> dict[str, Any]:
+    return handle_recommend(
+        task_description=payload.get("task_description", ""),
+        language=payload.get("language", "python"),
+        max_vram_mb=int(payload.get("max_vram_mb", 8192)),
+    )
+
+
+@router.get("/history")
+async def get_history(limit: int = Query(20, ge=1, le=200)) -> dict[str, Any]:
+    return handle_get_history(limit)
+
+
+@router.post("/benchmark")
+async def run_benchmark(payload: dict = Body(default_factory=dict)) -> dict[str, Any]:
+    return handle_run_benchmark(
+        model_id=payload.get("model_id", ""),
+        task_type=payload.get("task_type", "code_generation"),
+    )
+
+
+@router.get("/performance")
+async def get_performance(model_id: str = Query("")) -> dict[str, Any]:
+    return handle_get_performance(model_id)
+
+
+@router.get("/benchmarks")
+async def get_benchmarks(model_id: str = Query("")) -> dict[str, Any]:
+    return handle_get_benchmarks(model_id)

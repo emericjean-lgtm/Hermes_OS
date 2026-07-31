@@ -35,16 +35,30 @@ export interface RuntimeDecision {
   justification: string;
 }
 
+// Mirrors what GET /api/v1/runtime/resources actually returns. The previous
+// shape (cpu_percent, ram_total_gb, vram_total_gb, gpu_name...) matched none of
+// the response fields, so every consumer silently read `undefined` and fell back
+// to zero rather than failing (R-002 P3).
 export interface ResourceStatus {
-  cpu_percent: number;
-  ram_total_gb: number;
-  ram_used_gb: number;
-  ram_percent: number;
-  vram_total_gb?: number;
-  vram_used_gb?: number;
-  vram_percent?: number;
-  gpu_temp_c?: number;
-  gpu_name?: string;
+  gpu: {
+    name: string;
+    vendor: string;
+    vram_total_bytes: number;
+    vram_used_bytes: number;
+    vram_free_bytes: number;
+    temperature_celsius: number | null;
+    utilization_pct: number | null;
+    available: boolean;
+  };
+  ram: {
+    total_bytes: number;
+    used_bytes: number;
+    free_bytes: number;
+    usage_pct: number;
+    status: string;
+  };
+  allocations: number;
+  allocated_bytes: number;
 }
 
 // ── Mission ──────────────────────────────────────────
@@ -311,13 +325,17 @@ export interface MCPServer {
 }
 
 // ── Governance ───────────────────────────────────────
+// Aligné sur ce que /api/v1/policy/rules renvoie réellement :
+// {id, name, category, decision, enabled, priority}. Le type déclarait `action`
+// et `description`, deux champs que l'endpoint n'a jamais envoyés (P-001).
 export interface PolicyRule {
   id: string;
   name: string;
   category: string;
-  action: "ALLOW" | "DENY" | "REVIEW_REQUIRED";
+  decision: string;
   enabled: boolean;
-  description: string;
+  priority: number;
+  description?: string;
 }
 
 export interface ApprovalRequest {
@@ -382,7 +400,7 @@ export interface Checkpoint {
 export interface SystemHealth {
   status: "HEALTHY" | "DEGRADED" | "UNHEALTHY";
   version: string;
-  uptime_s: number;
+  uptime_seconds: number;
   subsystems: Record<string, SubsystemHealth>;
 }
 
@@ -501,12 +519,16 @@ export interface OhMyPiStatus {
   };
 }
 
+// Mirrors what /api/v1/ohmypi/capabilities actually returns. This used to
+// declare category / requires_workspace / requires_sandbox — three fields the
+// endpoint has never sent — and omit requires_lsp, which it does send. The
+// panel's fabricated MOCK_CAPABILITIES satisfied the wrong shape, so nothing
+// ever surfaced the drift (RC3 P8).
 export interface OhMyPiCapability {
   name: string;
   description: string;
-  category: string;
-  requires_workspace: boolean;
-  requires_sandbox: boolean;
+  inputs: string[];
+  requires_lsp: boolean;
 }
 
 export interface OhMyPiExecutionResult {

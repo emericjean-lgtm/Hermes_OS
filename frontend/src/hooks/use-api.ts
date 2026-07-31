@@ -14,7 +14,19 @@ import {
   executionClient,
   eventsClient,
   alexandrieClient,
+  evolutionClient,
+  securityClient,
+  subsystemClient,
+  klaatcodeClient,
+  ohmypiClient,
+  autonomousClient,
+  modelIntelligenceClient,
+  conversationClient,
+  workspaceClient,
+  verificationClient,
+  monitoringClient,
 } from "@/services/client";
+import type { ToolHealthSummary } from "@/services/client";
 import type {
   Mission,
   Agent,
@@ -184,7 +196,11 @@ export function useTools() {
   return useQuery<ToolDefinition[]>({ queryKey: ["tools"], queryFn: toolsClient.list });
 }
 export function useToolsHealth() {
-  return useQuery<ToolHealth[]>({ queryKey: ["tools", "health"], queryFn: toolsClient.health });
+  // Aggregate, not a per-tool list — see ToolHealthSummary.
+  return useQuery<ToolHealthSummary>({
+    queryKey: ["tools", "health"],
+    queryFn: toolsClient.health,
+  });
 }
 export function useMCPServers() {
   return useQuery<MCPServer[]>({ queryKey: ["tools", "mcp"], queryFn: toolsClient.mcpServers });
@@ -299,5 +315,329 @@ export function useAlexandrieGraph(node_id?: string) {
     queryKey: ["alexandrie", "graph", node_id],
     queryFn: () => alexandrieClient.graph(node_id),
     enabled: true,
+  });
+}
+
+// ── Evolution (R-001) ───────────────────────────────────────────────
+
+export function useEvolutionProposals(status?: string) {
+  return useQuery({
+    queryKey: ["evolution", "proposals", status ?? "all"],
+    queryFn: () => evolutionClient.proposals(status),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useEvolutionReports(limit = 10) {
+  return useQuery({
+    queryKey: ["evolution", "reports", limit],
+    queryFn: () => evolutionClient.reports(limit),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useEvolutionStatus() {
+  return useQuery({
+    queryKey: ["evolution", "status"],
+    queryFn: () => evolutionClient.status(),
+    refetchInterval: 15_000,
+  });
+}
+
+// ── Security & System (RC3) ─────────────────────────────────────────
+
+export function useSecurityStatus() {
+  return useQuery({
+    queryKey: ["security", "status"],
+    queryFn: () => securityClient.status(),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useSecurityThreats(limit = 50) {
+  return useQuery({
+    queryKey: ["security", "threats", limit],
+    queryFn: () => securityClient.threats(limit),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useSecurityEvents(limit = 100) {
+  return useQuery({
+    queryKey: ["security", "events", limit],
+    queryFn: () => securityClient.events(limit),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useSubsystemHealth() {
+  return useQuery({
+    queryKey: ["system", "subsystem-health"],
+    queryFn: () => subsystemClient.health(),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useSubsystemAssembly() {
+  return useQuery({
+    queryKey: ["system", "assembly"],
+    queryFn: () => subsystemClient.assembly(),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useSubsystemStatistics() {
+  return useQuery({
+    queryKey: ["system", "subsystem-statistics"],
+    queryFn: () => subsystemClient.statistics(),
+    refetchInterval: 15_000,
+  });
+}
+
+// ── KlaatCode / Oh My Pi ──────────────────────────────────
+// klaatcodeClient and ohmypiClient were complete but had no hooks, so the two
+// panels rendered module-level MOCK_CAPABILITIES constants and a hard-coded
+// "MCP Connected" badge instead of the live agent (RC3 P8).
+
+export function useKlaatCodeStatus() {
+  return useQuery({
+    queryKey: ["klaatcode", "status"],
+    queryFn: () => klaatcodeClient.status(),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useKlaatCodeCapabilities() {
+  return useQuery({
+    queryKey: ["klaatcode", "capabilities"],
+    queryFn: () => klaatcodeClient.capabilities(),
+  });
+}
+
+export function useOhMyPiStatus() {
+  return useQuery({
+    queryKey: ["ohmypi", "status"],
+    queryFn: () => ohmypiClient.status(),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useOhMyPiCapabilities() {
+  return useQuery({
+    queryKey: ["ohmypi", "capabilities"],
+    queryFn: () => ohmypiClient.capabilities(),
+  });
+}
+
+// ── Autonomous (HOS-063) ──────────────────────────────────
+// No hooks existed for the autonomous surface, so the Center that displays it
+// had nothing to call and rendered fabricated constants instead (R-002 P3).
+
+export function useAutonomousStatus() {
+  return useQuery({
+    queryKey: ["autonomous", "status"],
+    queryFn: () => autonomousClient.status(),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useAutonomousGoal(goalId: string | undefined) {
+  return useQuery({
+    queryKey: ["autonomous", "goal", goalId],
+    queryFn: () => autonomousClient.goal(goalId as string),
+    enabled: Boolean(goalId),
+    refetchInterval: 3_000,
+  });
+}
+
+export function useAutonomousReport(goalId: string | undefined) {
+  return useQuery({
+    queryKey: ["autonomous", "report", goalId],
+    queryFn: () => autonomousClient.report(goalId as string),
+    enabled: Boolean(goalId),
+  });
+}
+
+export function useAutonomousTimeline(goalId: string | undefined) {
+  return useQuery({
+    queryKey: ["autonomous", "timeline", goalId],
+    queryFn: () => autonomousClient.timeline(goalId as string),
+    enabled: Boolean(goalId),
+    refetchInterval: 3_000,
+  });
+}
+
+export function useStartAutonomousGoal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userRequest: string) => autonomousClient.start(userRequest),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["autonomous"] });
+    },
+  });
+}
+
+/** Pause / resume / cancel. The Center's control buttons were inert. */
+export function useAutonomousAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ goalId, action }: {
+      goalId: string;
+      action: "pause" | "resume" | "cancel";
+    }) => autonomousClient[action](goalId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["autonomous"] });
+    },
+  });
+}
+
+// ── Model Intelligence (HOS-060) ──────────────────────────
+
+export function useModelIntelligence() {
+  return useQuery({
+    queryKey: ["models", "intelligence"],
+    queryFn: () => modelIntelligenceClient.models(),
+    refetchInterval: 20_000,
+  });
+}
+
+export function useModelRanking() {
+  return useQuery({
+    queryKey: ["models", "ranking"],
+    queryFn: () => modelIntelligenceClient.ranking(),
+    refetchInterval: 30_000,
+  });
+}
+
+/** Real routing recommendation. The Center used to sleep a random
+ *  600–1000 ms and return a hard-coded decision (R-002 P3/P5). */
+export function useRecommendModel() {
+  return useMutation({
+    mutationFn: (payload: { task_type: string; description: string }) =>
+      modelIntelligenceClient.recommend(payload),
+  });
+}
+
+export function useModelHistory(limit = 50) {
+  return useQuery({
+    queryKey: ["models", "history", limit],
+    queryFn: () => modelIntelligenceClient.history(limit),
+  });
+}
+
+// ── Conversation (HOS-062) ────────────────────────────────
+
+export function useStartConversation() {
+  return useMutation({
+    mutationFn: (userRequest?: string) => conversationClient.start(userRequest),
+  });
+}
+
+export function useSendConversationMessage() {
+  return useMutation({
+    mutationFn: ({ sessionId, message }: { sessionId: string; message: string }) =>
+      conversationClient.message(sessionId, message),
+  });
+}
+
+export function useConversationDecision() {
+  return useMutation({
+    mutationFn: ({ sessionId, decision }: {
+      sessionId: string;
+      decision: "approve" | "cancel";
+    }) => conversationClient[decision](sessionId),
+  });
+}
+
+// ── Workspace / Verification / Monitoring (P-001) ─────────
+// Ces API existaient toutes ; aucun écran ne les atteignait.
+
+export function useWorkspaces() {
+  return useQuery({
+    queryKey: ["workspace", "list"],
+    queryFn: () => workspaceClient.list(),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useWorkspaceAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action }: {
+      id: string;
+      action: "lock" | "release" | "remove";
+    }) => workspaceClient[action](id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workspace"] }),
+  });
+}
+
+export function useVerificationRunners() {
+  return useQuery({
+    queryKey: ["verification", "runners"],
+    queryFn: () => verificationClient.runners(),
+  });
+}
+
+export function useMonitoringResources() {
+  return useQuery({
+    queryKey: ["monitoring", "resources"],
+    queryFn: () => monitoringClient.resources(),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useRuntimeEventLog(limit = 50) {
+  return useQuery({
+    queryKey: ["monitoring", "runtime-events", limit],
+    queryFn: () => monitoringClient.runtimeEvents(limit),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useRuntimeIntelligence() {
+  return useQuery({
+    queryKey: ["monitoring", "intelligence"],
+    queryFn: () => monitoringClient.intelligenceScores(),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useExecutionStatistics() {
+  return useQuery({
+    queryKey: ["execution", "statistics"],
+    queryFn: () => monitoringClient.executionStatistics(),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useResourceAllocations() {
+  return useQuery({
+    queryKey: ["monitoring", "allocations"],
+    queryFn: () => monitoringClient.allocations(),
+    refetchInterval: 10_000,
+  });
+}
+
+// ── Evolution : actions à effet de bord (P-002) ───────────
+// simulate / approve / apply modifient le système. Le Cockpit les expose
+// derrière une confirmation explicite (voir components/confirm-action.tsx) ;
+// l'autorisation finale reste au backend (Policy / Security / Approval).
+
+export function useEvolutionAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action }: {
+      id: string;
+      action: "simulate" | "approve" | "apply";
+    }) => evolutionClient[action](id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["evolution"] }),
+  });
+}
+
+export function useEvolutionAnalyze() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => evolutionClient.analyze(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["evolution"] }),
   });
 }

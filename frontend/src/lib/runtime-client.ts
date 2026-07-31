@@ -5,7 +5,7 @@ import type {
 } from "@/types/mission-control";
 
 const API = (process.env.NEXT_PUBLIC_MC_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
-const PREFIX = "/api/hermes-os";
+const PREFIX = "/api/v1";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${API}${PREFIX}${path}`, {

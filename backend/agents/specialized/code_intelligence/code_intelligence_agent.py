@@ -333,9 +333,13 @@ class CodeIntelligenceAgent:
                     errors = [str(e)]
                     duration_ms = 0.0
             else:
-                success = True
-                data = {"status": "simulated", "provider": provider.value}
-                errors = []
+                # No provider bound means the work did not happen. This used to
+                # set success = True with {"status": "simulated"}, so routing to
+                # an unavailable provider still reported a completed task
+                # (R-002 P5).
+                success = False
+                data = None
+                errors = [f"provider {provider.value} is not bound; task not executed"]
                 duration_ms = 0.0
 
         completed = datetime.now(timezone.utc)

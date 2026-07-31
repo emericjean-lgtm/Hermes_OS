@@ -1,0 +1,735 @@
+{
+ "base": "http://127.0.0.1:8010/api/v1",
+ "checked": 66,
+ "mismatches": 0,
+ "rows": [
+  {
+   "method": "health",
+   "declared": "SystemHealth",
+   "path": "/health",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "eventbus",
+    "status",
+    "uptime_seconds"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "version",
+   "declared": "{ version: string }",
+   "path": "/version",
+   "status": 404,
+   "verdict": "not checked",
+   "detail": "Not Found"
+  },
+  {
+   "method": "list",
+   "declared": "unknown",
+   "path": "/missions",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "missions",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "create",
+   "declared": "Mission",
+   "path": "/missions",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "missions",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "list",
+   "declared": "unknown",
+   "path": "/agents",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "agents",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "create",
+   "declared": "Agent",
+   "path": "/agents",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "agents",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "sendMessage",
+   "declared": "CollaborationMessage",
+   "path": "/collaboration/messages",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "messages",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "delegate",
+   "declared": "Delegation",
+   "path": "/collaboration/delegate",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "review",
+   "declared": "{ status: string }",
+   "path": "/collaboration/review",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "list",
+   "declared": "unknown",
+   "path": "/runtimes",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "active",
+    "fallback",
+    "runtimes"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "resources",
+   "declared": "ResourceStatus",
+   "path": "/runtime/resources/status",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "active_alerts",
+    "gpu_available",
+    "gpu_name",
+    "gpu_temperature",
+    "ram_usage_pct",
+    "vram_usage_pct"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "release",
+   "declared": "{ status: string }",
+   "path": "/runtime/resources/release",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "select",
+   "declared": "RuntimeDecision",
+   "path": "/runtime/select",
+   "status": 404,
+   "verdict": "not checked",
+   "detail": "Not Found"
+  },
+  {
+   "method": "searchAdvanced",
+   "declared": "unknown",
+   "path": "/memory/search",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "results",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "experiences",
+   "declared": "unknown",
+   "path": "/memory/experiences",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "recommendations"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "index",
+   "declared": "MemoryEntry",
+   "path": "/memory/index",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "select",
+   "declared": "unknown",
+   "path": "/skills/select",
+   "status": 404,
+   "verdict": "not checked",
+   "detail": "Not Found"
+  },
+  {
+   "method": "load",
+   "declared": "Skill",
+   "path": "/skills/load",
+   "status": 404,
+   "verdict": "not checked",
+   "detail": "Not Found"
+  },
+  {
+   "method": "unload",
+   "declared": "{ status: string }",
+   "path": "/skills/unload",
+   "status": 404,
+   "verdict": "not checked",
+   "detail": "Not Found"
+  },
+  {
+   "method": "list",
+   "declared": "unknown",
+   "path": "/tools",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "count",
+    "stats",
+    "tools"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "register",
+   "declared": "ToolDefinition",
+   "path": "/tools/register",
+   "status": 404,
+   "verdict": "not checked",
+   "detail": "Not Found"
+  },
+  {
+   "method": "execute",
+   "declared": "ToolExecution",
+   "path": "/tools/execute",
+   "status": 404,
+   "verdict": "not checked",
+   "detail": "Not Found"
+  },
+  {
+   "method": "select",
+   "declared": "{ tool_id: string; score: number; justification: string }",
+   "path": "/tools/select",
+   "status": 404,
+   "verdict": "not checked",
+   "detail": "Not Found"
+  },
+  {
+   "method": "health",
+   "declared": "ToolHealthSummary",
+   "path": "/tools/health",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "avg_latency_ms",
+    "degraded_or_unhealthy",
+    "healthy",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "mcpServers",
+   "declared": "unknown",
+   "path": "/mcp/servers",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "count",
+    "servers"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "mcpConnect",
+   "declared": "MCPServer",
+   "path": "/mcp/connect",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "mcpDisconnect",
+   "declared": "{ status: string }",
+   "path": "/mcp/disconnect",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "rules",
+   "declared": "unknown",
+   "path": "/policy/rules",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "rules"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "evaluate",
+   "declared": "{ verdict: string; reason: string; rule_id?: string }",
+   "path": "/policy/evaluate",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "approvals",
+   "declared": "unknown",
+   "path": "/approval",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "approvals",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "start",
+   "declared": "ExecutionState",
+   "path": "/execution/start",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "error"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "list",
+   "declared": "ExecutionState[]",
+   "path": "/execution",
+   "status": 200,
+   "actual": "array",
+   "verdict": "ok"
+  },
+  {
+   "method": "statistics",
+   "declared": "SystemStatistics",
+   "path": "/execution/statistics",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "active_executions",
+    "completed_executions",
+    "executor_stats",
+    "total_executions"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "health",
+   "declared": "{ healthy: boolean; error?: string }",
+   "path": "/alexandrie/health",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "error",
+    "error_type",
+    "healthy"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "status",
+   "declared": "AlexandrieStatus",
+   "path": "/alexandrie/status",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "alexandrie_health",
+    "cache",
+    "circuit_breaker",
+    "documents_indexed",
+    "documents_synced",
+    "events_count"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "documents",
+   "declared": "{ total: number; documents: AlexandrieDocument[] }",
+   "path": "/alexandrie/documents",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "documents",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "createDocument",
+   "declared": "AlexandrieDocument",
+   "path": "/alexandrie/documents",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "documents",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "sync",
+   "declared": "AlexandrieSyncResult",
+   "path": "/alexandrie/sync",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "syncStatus",
+   "declared": "{ last_sync_at: string | null; documents_synced: number }",
+   "path": "/alexandrie/sync/status",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "documents_synced",
+    "last_sync_at"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "cacheStats",
+   "declared": "{ entries: number; hits: number; misses: number; hit_rate: number }",
+   "path": "/alexandrie/cache/stats",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "entries",
+    "evictions",
+    "hit_rate",
+    "hits",
+    "max_entries",
+    "misses"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "cachePrune",
+   "declared": "{ removed: number }",
+   "path": "/alexandrie/cache/prune",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "linkToMission",
+   "declared": "{ linked: boolean }",
+   "path": "/alexandrie/missions/link",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "relevantDocuments",
+   "declared": "{ documents: { id: string; title: string; relevance: number }[] }",
+   "path": "/alexandrie/missions/relevant",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "status",
+   "declared": "{ status: OhMyPiStatus }",
+   "path": "/ohmypi/status",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "capabilities",
+    "status",
+    "tools"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "capabilities",
+   "declared": "{ capabilities: OhMyPiCapability[]; count: number }",
+   "path": "/ohmypi/capabilities",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "capabilities",
+    "count"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "execute",
+   "declared": "OhMyPiExecutionResult",
+   "path": "/ohmypi/execute",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "status",
+   "declared": "KlaatCodeStatus",
+   "path": "/klaatcode/status",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "capabilities",
+    "status",
+    "tools"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "capabilities",
+   "declared": "{ capabilities: KlaatCodeCapability[]; count: number }",
+   "path": "/klaatcode/capabilities",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "capabilities",
+    "count"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "analyze",
+   "declared": "KlaatCodeExecutionResult",
+   "path": "/klaatcode/analyze",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "execute",
+   "declared": "KlaatCodeExecutionResult",
+   "path": "/klaatcode/execute",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "diagnostics",
+   "declared": "KlaatCodeExecutionResult",
+   "path": "/klaatcode/diagnostics",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "status",
+   "declared": "SecurityStatusDTO",
+   "path": "/security/status",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "isolation",
+    "permissions",
+    "threats",
+    "timestamp",
+    "trust"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "health",
+   "declared": "SubsystemHealthDTO",
+   "path": "/system/health",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "by_status",
+    "detail",
+    "services",
+    "silent",
+    "status",
+    "unhealthy"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "status",
+   "declared": "AutonomousStatusDTO",
+   "path": "/autonomous/status",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "active",
+    "active_sessions",
+    "cancelled",
+    "completed",
+    "decisions",
+    "failed"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "start",
+   "declared": "AutonomousGoalDTO",
+   "path": "/autonomous/start",
+   "status": 404,
+   "verdict": "not checked",
+   "detail": "Not Found"
+  },
+  {
+   "method": "models",
+   "declared": "ModelIntelligenceDTO",
+   "path": "/models",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "data",
+    "success"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "ranking",
+   "declared": "{ success: boolean; models: ModelRankingEntryDTO[] }",
+   "path": "/models/ranking",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "models",
+    "success"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "performance",
+   "declared": "ModelIntelligenceDTO",
+   "path": "/models/performance",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "data",
+    "success"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "recommend",
+   "declared": "{ success: boolean; decision: ModelDecisionDTO }",
+   "path": "/models/recommend",
+   "status": 405,
+   "verdict": "not checked",
+   "detail": "Method Not Allowed"
+  },
+  {
+   "method": "start",
+   "declared": "{ success: boolean; session_id: string; status: string }",
+   "path": "/conversation/start",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "messages",
+    "session_id",
+    "status",
+    "success",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "sessions",
+   "declared": "{ success: boolean; sessions: unknown[]; total: number }",
+   "path": "/conversation/sessions",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "sessions",
+    "success",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "message",
+   "declared": "ConversationReplyDTO",
+   "path": "/conversation/message",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "messages",
+    "session_id",
+    "status",
+    "success",
+    "total"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "list",
+   "declared": "unknown",
+   "path": "/workspace",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "total",
+    "workspaces"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "create",
+   "declared": "WorkspaceDTO",
+   "path": "/workspace",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "total",
+    "workspaces"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "resources",
+   "declared": "ResourceStatus",
+   "path": "/runtime/resources",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "allocated_bytes",
+    "allocations",
+    "gpu",
+    "ram"
+   ],
+   "verdict": "ok"
+  },
+  {
+   "method": "allocations",
+   "declared": "unknown",
+   "path": "/runtime/resources/allocations",
+   "status": 200,
+   "actual": "object",
+   "keys": [
+    "allocations",
+    "count",
+    "total_allocated_bytes"
+   ],
+   "verdict": "ok"
+  }
+ ]
+}

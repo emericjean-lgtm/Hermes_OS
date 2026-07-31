@@ -144,9 +144,16 @@ class KlaatCodeMCPAdapter:
 
             for tool_spec in KLATCODE_MCP_TOOLS:
                 name = tool_spec["name"]
+                # KlaatCodeAction is a (str, Enum), and on Python 3.11 str() of
+                # such a member yields "KlaatCodeAction.ANALYZE_PROJECT" rather
+                # than its value. Interpolating it produced public tool names
+                # like "klaatcode.KlaatCodeAction.ANALYZE_PROJECT"; nothing
+                # noticed because these definitions were never registered
+                # anywhere until R-002 P2 wired the registries up.
+                action = getattr(name, "value", str(name))
                 # ToolDefinition for the Hermes Tool Registry
                 td = ToolDefinition(
-                    name=f"klaatcode.{name}",
+                    name=f"klaatcode.{action}",
                     tool_type=ToolType.CUSTOM,
                     category=ToolCategory.SYSTEM,
                     description=tool_spec["description"],
@@ -161,7 +168,7 @@ class KlaatCodeMCPAdapter:
 
                 # MCPTool for the MCP Registry
                 mt = MCPTool(
-                    name=f"klaatcode.{name}",
+                    name=f"klaatcode.{action}",
                     description=tool_spec["description"],
                     input_schema=tool_spec["input_schema"],
                 )

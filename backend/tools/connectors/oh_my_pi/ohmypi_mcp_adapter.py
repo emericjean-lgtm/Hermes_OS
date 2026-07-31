@@ -62,8 +62,12 @@ class OhMyPiMCPAdapter:
     def _register_tools(self) -> None:
         for spec in OHMYPI_MCP_TOOLS:
             name = spec["name"]
+            # OhMyPiAction is a (str, Enum); on Python 3.11 str() of a member
+            # yields "OhMyPiAction.LSP_EDIT", not its value, so interpolating it
+            # produced names like "ohmypi.OhMyPiAction.LSP_EDIT" (R-002 P2).
+            action = getattr(name, "value", str(name))
             td = ToolDefinition(
-                name=f"ohmypi.{name}", tool_type=ToolType.CUSTOM,
+                name=f"ohmypi.{action}", tool_type=ToolType.CUSTOM,
                 category=ToolCategory.SYSTEM, description=spec["description"],
                 permissions=spec["permissions"],
                 tags=["ohmypi", "lsp", "debug", "ast", "rust-native"],

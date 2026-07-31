@@ -368,9 +368,13 @@ class KlaatCodeAgent:
                 error_msg = response.error
                 data = response.data
             else:
-                # Fallback: simulate execution for CI / no KlaatCode
-                data = {"status": "simulated", "action": mcp_action}
-                success = True
+                # No adapter bound means the work did not happen. This used to
+                # fall back to success = True with {"status": "simulated"}, so a
+                # mission with no KlaatCode wired reported every task as
+                # succeeding (R-002 P5).
+                success = False
+                error_msg = "KlaatCode MCP adapter is not bound; task not executed"
+                data = None
 
         except Exception as e:
             success = False

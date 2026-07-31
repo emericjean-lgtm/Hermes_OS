@@ -150,7 +150,13 @@ class OhMyPiAgent:
                 error_msg = response.error
                 data = response.data
             else:
-                data = {"status": "simulated", "action": mcp_action}; success = True
+                # No adapter bound means the work did not happen. This used to
+                # set success = True with {"status": "simulated"}, so a mission
+                # with no Oh My Pi wired reported every task as succeeding
+                # (R-002 P5).
+                success = False
+                error_msg = "Oh My Pi MCP adapter is not bound; task not executed"
+                data = None
         except Exception as e:
             success = False; error_msg = str(e)
 

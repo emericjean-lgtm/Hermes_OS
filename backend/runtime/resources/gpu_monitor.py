@@ -124,26 +124,96 @@ class GPUMonitor:
         return None
 
     def _try_ollama_ps(self) -> Optional[GPUInfo]:
-        """Attempt to infer VRAM usage from Ollama's running models."""
+        """VRAM in use, as reported by Ollama, plus the adapter's real capacity.
+
+        This used to shell out to ``ollama ps`` purely to decide whether a GPU
+        existed, then report ``vram_total_bytes = 16 GiB  # Assume 16 GB`` and
+        ``vram_used_bytes = 0`` — an invented capacity and a figure that was
+        never measured. Both numbers now come from something that measured them:
+        Ollama's own ``/api/ps`` reports ``size_vram`` per resident model, and
+        the adapter's true capacity comes from :meth:`_adapter_vram_total`.
+        """
+        used = self._ollama_vram_used()
+        if used is None:
+            return None
+
+        name, total = self._adapter_vram_total()
+        return GPUInfo(
+            name=name or "ollama",
+            vendor="AMD" if name and "AMD" in name.upper() else "unknown",
+            vram_total_bytes=total,
+            vram_used_bytes=used,
+            # Only meaningful when the capacity is known; 0 total would make
+            # "free" a fabrication of the same kind this replaces.
+            vram_free_bytes=max(total - used, 0) if total else 0,
+            available=True,
+        )
+
+    @staticmethod
+    def _ollama_vram_used() -> Optional[int]:
+        """Sum ``size_vram`` over Ollama's resident models. None if unreachable.
+
+        Returns 0 — not None — when Ollama answers with no model loaded: the
+        runtime is present and using no VRAM, which is a measurement, not an
+        absence of one.
+        """
+        import json
+        import urllib.error
+        import urllib.request
+
+        endpoint = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+        if not endpoint.startswith("http"):
+            endpoint = f"http://{endpoint}"
         try:
-            result = subprocess.run(
-                ["ollama", "ps"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return GPUInfo(
-                    name="ollama",
-                    vendor="unknown",
-                    vram_total_bytes=16 * 1024 * 1024 * 1024,  # Assume 16 GB
-                    vram_used_bytes=0,
-                    vram_free_bytes=0,
-                    available=True,
-                )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+            with urllib.request.urlopen(f"{endpoint}/api/ps", timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+            return None
+
+        models = payload.get("models")
+        if not isinstance(models, list):
+            return None
+        return sum(int(m.get("size_vram", 0) or 0) for m in models)
+
+    @staticmethod
+    def _adapter_vram_total() -> tuple[str, int]:
+        """The adapter's real VRAM capacity. ``("", 0)`` when undetectable.
+
+        On Windows the driver publishes it as ``HardwareInformation.qwMemorySize``.
+        WMI's ``Win32_VideoController.AdapterRAM`` is *not* used: it is a 32-bit
+        field and reports 4 GiB for this 16 GiB card.
+        """
+        if os.name != "nt":
+            return "", 0
+        try:
+            import winreg
+        except ImportError:  # pragma: no cover - non-Windows
+            return "", 0
+
+        key_path = (r"SYSTEM\CurrentControlSet\Control\Class"
+                    r"\{4d36e968-e325-11ce-bfc1-08002be10318}")
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as root:
+                for index in range(16):
+                    try:
+                        subkey_name = winreg.EnumKey(root, index)
+                    except OSError:
+                        break
+                    try:
+                        with winreg.OpenKey(root, subkey_name) as sub:
+                            size, _ = winreg.QueryValueEx(
+                                sub, "HardwareInformation.qwMemorySize")
+                            try:
+                                desc, _ = winreg.QueryValueEx(sub, "DriverDesc")
+                            except OSError:
+                                desc = ""
+                            if int(size) > 0:
+                                return str(desc), int(size)
+                    except OSError:
+                        continue
+        except OSError:
             pass
-        return None
+        return "", 0
 
 
 class NoopGPUMonitor(GPUMonitor):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -32,17 +33,63 @@ class TaskScheduler:
     Integrates with RuntimeResourceManager for GPU limits.
     """
 
+    #: Tasks retained after completion. The scheduler is a live work queue, not
+    #: an archive: get_progress(), is_all_done() and build_plan() each walk this
+    #: registry, and they run once per task execution. Unbounded, that made them
+    #: O(missions-ever-run) and throughput decayed from 983 to 256 missions/s
+    #: over a 3100-mission run (RC3 P5). Bounding it makes the same scans
+    #: constant-cost. Sized as a diagnostic window over recent work — durable
+    #: task history belongs to episodic memory, not to the scheduler.
+    MAX_RETAINED_TASKS = 512
+
+    _TERMINAL = frozenset({TaskExecutionStatus.COMPLETED,
+                           TaskExecutionStatus.SKIPPED,
+                           TaskExecutionStatus.FAILED})
+
     def __init__(self, max_parallel: int = 8, max_gpu_tasks: int = 2) -> None:
         self._lock = threading.RLock()
         self._max_parallel = max_parallel
         self._max_gpu_tasks = max_gpu_tasks
-        self._tasks: dict[str, TaskExecution] = {}
+        self._tasks: OrderedDict[str, TaskExecution] = OrderedDict()
         self._dependencies: dict[str, set[str]] = {}   # task_id → {dep_ids...}
 
     def register_task(self, task: TaskExecution, dependencies: list[str] | None = None) -> None:
         with self._lock:
             self._tasks[task.task_id] = task
+            self._tasks.move_to_end(task.task_id)
             self._dependencies[task.task_id] = set(dependencies or [])
+            self._evict_oldest()
+
+    def get_task(self, task_id: str) -> TaskExecution | None:
+        """Look up one registered task. O(1) — callers used to linear-scan."""
+        with self._lock:
+            return self._tasks.get(task_id)
+
+    #: How many still-pending tasks eviction will rotate to the back before it
+    #: starts discarding them. Keeps eviction O(1) amortised instead of scanning
+    #: the whole registry for terminal candidates on every registration.
+    _EVICT_RESCUE_LIMIT = 16
+
+    def _evict_oldest(self) -> None:
+        """Drop the oldest tasks once past the retention cap. Lock held.
+
+        Finished work is discarded before pending work: an oldest-first pop that
+        lands on a still-queued task rotates it to the back instead of dropping
+        it. That rescue is bounded, so the retention cap stays a hard memory
+        bound even if every retained task is pending.
+        """
+        overflow = len(self._tasks) - self.MAX_RETAINED_TASKS
+        if overflow <= 0:
+            return
+        rescued = 0
+        while overflow > 0 and self._tasks:
+            tid, task = self._tasks.popitem(last=False)
+            if task.status not in self._TERMINAL and rescued < self._EVICT_RESCUE_LIMIT:
+                self._tasks[tid] = task
+                rescued += 1
+                continue
+            self._dependencies.pop(tid, None)
+            overflow -= 1
 
     def update_task(self, task_id: str, status: TaskExecutionStatus,
                     result: Any = None) -> None:
@@ -112,6 +159,12 @@ class TaskScheduler:
             return plan
 
     def get_progress(self) -> dict[str, Any]:
+        # Walks the retained registry. Kept as a straight scan on purpose: task
+        # status is assigned directly by callers as well as through
+        # update_task(), so any maintained tally would silently drift, and a
+        # terminal task is not guaranteed never to be re-executed. What made
+        # this expensive was the registry growing without bound (RC3 P5); the
+        # scan is now O(MAX_RETAINED_TASKS), i.e. constant, not O(missions run).
         with self._lock:
             total = len(self._tasks)
             completed = sum(
@@ -133,10 +186,7 @@ class TaskScheduler:
         with self._lock:
             if not self._tasks:
                 return True
-            return all(
-                t.status in {TaskExecutionStatus.COMPLETED, TaskExecutionStatus.SKIPPED, TaskExecutionStatus.FAILED}
-                for t in self._tasks.values()
-            )
+            return all(t.status in self._TERMINAL for t in self._tasks.values())
 
     # ── private ──
 
@@ -146,7 +196,17 @@ class TaskScheduler:
 
     @staticmethod
     def _priority_value(task: TaskExecution) -> int:
-        # Higher is more urgent
+        """Rank one task for the ready-queue sort. Higher is more urgent.
+
+        KNOWN LIMITATION (RC3 P5, deliberately not fixed here): this returns the
+        same value for every task, so the sort in get_ready_tasks() is inert and
+        a CRITICAL mission's tasks do not outrank a LOW one's. The cause is a
+        model gap, not a typo — ``priority`` lives on ``ExecutionMeta`` (per
+        mission, set by the API) and ``TaskExecution`` carries no priority at
+        all, so there is nothing here to rank by. Closing it means propagating
+        the mission priority onto each task, which is new behaviour and out of
+        scope for an audit. Documented in the RC3 report instead.
+        """
         prio_map = {
             ExecutionPriority.CRITICAL: 4,
             ExecutionPriority.HIGH: 3,

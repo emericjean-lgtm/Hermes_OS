@@ -270,10 +270,18 @@ async def open_mcp_session(monkeypatch, tmp_path):
 
     app = main_module.create_app()
 
+    # "localhost:8000" and not the old "mcp-test": FastMCP enables DNS-rebinding
+    # protection by default and only allows Host headers matching
+    # ['127.0.0.1:*', 'localhost:*', '[::1]:*'], so a synthetic hostname now gets
+    # a bare "421 Misdirected Request" from the transport-security middleware
+    # before any tool is reached. The port is required — the allow patterns end
+    # in ":*", which is matched by prefix against "<host>:".
+    MCP_TEST_BASE = "http://localhost:8000"
+
     def httpx_client_factory(headers=None, timeout=None, auth=None):
         return httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
-            base_url="http://mcp-test",
+            base_url=MCP_TEST_BASE,
             headers=headers,
             timeout=timeout or httpx.Timeout(30),
             auth=auth,
@@ -286,7 +294,7 @@ async def open_mcp_session(monkeypatch, tmp_path):
     try:
         async with app.router.lifespan_context(app):
             async with streamablehttp_client(
-                "http://mcp-test/mcp", httpx_client_factory=httpx_client_factory
+                f"{MCP_TEST_BASE}/mcp", httpx_client_factory=httpx_client_factory
             ) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()

@@ -22,17 +22,25 @@ export default function RuntimeHealth() {
               </div>
             ))}
           </div>
+          {/* Measured latency per runtime.
+              This chart used to plot ten Math.random() values against labels
+              reading "-50s … -5s", so it looked like a latency history and was
+              noise. Hermes exposes no latency time series, so it now shows the
+              one real figure the health endpoint does return (R-002 P3/P5). */}
           <div style={{ height: 120 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={Array.from({ length: 10 }, (_, i) => ({ t: `-${(10 - i) * 5}s`, v: Math.random() * 100 }))}>
+              <LineChart data={d.map((h) => ({ t: h.name, v: h.latency_ms ?? 0 }))}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis dataKey="t" tick={{ fill: "#64748b", fontSize: 8 }} />
-                <YAxis tick={{ fill: "#64748b", fontSize: 8 }} />
+                <YAxis tick={{ fill: "#64748b", fontSize: 8 }} unit="ms" />
                 <Tooltip contentStyle={{ background: "#1a1a24", border: "1px solid rgba(255,255,255,0.1)", fontSize: 11 }} />
-                <Line type="monotone" dataKey="v" stroke="#6366f1" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="v" stroke="#6366f1" strokeWidth={2} dot />
               </LineChart>
             </ResponsiveContainer>
           </div>
+          <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+            Current latency per runtime. No historical series is exposed.
+          </p>
         </>
       )}
     </div>

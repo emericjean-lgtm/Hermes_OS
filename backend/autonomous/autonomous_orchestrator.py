@@ -9,10 +9,9 @@ User Goal → Interpretation → Memory Retrieval → Mission Planner
 
 from __future__ import annotations
 
-import random
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from typing import Any, Callable
 
 from .autonomous_guard import AutonomousGuard, GuardVerdict
@@ -36,7 +35,18 @@ class AutonomousOrchestrator:
     Full pipeline orchestrating all Hermes subsystems.
     """
 
-    def __init__(self, on_event: Callable | None = None) -> None:
+    def __init__(
+        self,
+        on_event: Callable | None = None,
+        mission_executor: Any = None,
+    ) -> None:
+        """
+        Args:
+            mission_executor: runs the planned tasks for real (HOS-050). Injected
+                so this orchestrator keeps deciding and something else executes.
+                Defaults to a :class:`MissionExecutor`, whose own default task
+                executor drives a real runtime.
+        """
         self._lock = threading.RLock()
         self._on_event = on_event
 
@@ -45,10 +55,26 @@ class AutonomousOrchestrator:
         self.guard = AutonomousGuard()
         self.memory_loop = AutonomousMemoryLoop()
 
-        self._sessions: dict[str, AutonomousSession] = {}
-        self._goals: dict[str, AutonomousGoal] = {}
+        if mission_executor is None:
+            from backend.execution.mission_executor import MissionExecutor
+
+            mission_executor = MissionExecutor(on_event=on_event)
+        self.mission_executor = mission_executor
+
+        # Bounded, like _reports already was. These two were plain dicts that
+        # grew forever: a 1600-mission run leaked ~10 KiB per mission and never
+        # released any of it, and throughput decayed from 972 to 453 missions/s
+        # as they filled (RC3 P5). OrderedDict + eviction keeps recent history
+        # queryable without an unbounded retention policy nobody chose.
+        self._sessions: OrderedDict[str, AutonomousSession] = OrderedDict()
+        self._goals: OrderedDict[str, AutonomousGoal] = OrderedDict()
+        # Secondary index so get_session() is O(1). It used to scan every
+        # session on each lookup, which is what made the decay superlinear.
+        self._session_by_goal: dict[str, str] = {}
         self._reports: deque[AutonomousReport] = deque(maxlen=50)
         self._execution_count = 0
+        # Live counters, so get_status() does not have to scan every goal.
+        self._status_counts: dict[str, int] = {}
 
     # ── Public API ──
 
@@ -60,7 +86,7 @@ class AutonomousOrchestrator:
         1. Interpret goal
         2. Create session
         3. Plan (decisions)
-        4. Execute (simulated)
+        4. Execute (real, through MissionExecutor)
         5. Validate
         6. Learn
         7. Report
@@ -72,6 +98,7 @@ class AutonomousOrchestrator:
             goal = self.interpreter.interpret(user_request, ctx)
             goal.status = GoalStatus.ANALYZING
             self._goals[goal.goal_id] = goal
+            self._evict_oldest()
             self._publish(AUTONOMOUS_EVENTS["goal_received"], {
                 "goal_id": goal.goal_id, "request": user_request,
             })
@@ -83,6 +110,7 @@ class AutonomousOrchestrator:
                 status=GoalStatus.PLANNING,
             )
             self._sessions[session.session_id] = session
+            self._session_by_goal[session.goal_id] = session.session_id
 
             # 3. Plan
             goal.status = GoalStatus.PLANNING
@@ -121,10 +149,25 @@ class AutonomousOrchestrator:
                 "goal_id": goal.goal_id, "session_id": session.session_id,
             })
 
-            # Simulate execution
-            success = random.random() > 0.15  # 85% success rate
-            duration = random.uniform(500, 5000)
-            time.sleep(0.01)  # Tiny delay for realism
+            # Execute for real through the Mission Executor (HOS-050).
+            #
+            # This replaced `success = random.random() > 0.15` and
+            # `duration = random.uniform(500, 5000)`. Those two lines meant every
+            # autonomous goal returned a fabricated outcome with an invented
+            # duration, and because the API reported success no caller could tell.
+            # Outcome and duration are now whatever actually happened.
+            exec_result = self._execute_plan(goal, session, plan_decisions)
+            success = exec_result["success"]
+            duration = exec_result["duration_ms"]
+            if not success and exec_result.get("runtime_available") is False:
+                # The work could not be attempted at all. That is a failed goal,
+                # not a completed one, and the reason has to reach the report.
+                goal.status = GoalStatus.FAILED
+                self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
+                    "goal_id": goal.goal_id,
+                    "reason": "runtime_unavailable",
+                    "detail": exec_result.get("error", ""),
+                })
 
             # 5. Validate
             goal.status = GoalStatus.VALIDATING
@@ -134,14 +177,16 @@ class AutonomousOrchestrator:
                 goal_id=goal.goal_id,
                 user_request=goal.user_request,
                 interpreted_goal=goal.interpreted_goal,
-                execution_summary=f"Executed {goal.domain} goal: {goal.interpreted_goal[:80]}...",
-                results={"success": success, "duration_ms": duration},
-                improvements=["Consider using hybrid mode for complex goals"],
-                lessons=[f"Learned: {goal.domain} goals work best with {', '.join(session.active_agents)}"],
+                execution_summary=exec_result["summary"],
+                results=exec_result["results"],
+                improvements=exec_result["improvements"],
+                lessons=exec_result["lessons"],
                 decisions=[d.to_dict() for d in plan_decisions],
                 total_duration_ms=duration,
                 agents_used=session.active_agents,
-                runtimes_used=["ktransformers"],
+                # Measured, not asserted. This was hardcoded to
+                # ["ktransformers"] regardless of what ran — and nothing ran.
+                runtimes_used=exec_result["runtimes_used"],
                 tools_used=[d.selected_option for d in plan_decisions
                            if d.decision_type == DecisionType.TOOL_SELECTION],
                 success=success,
@@ -203,10 +248,9 @@ class AutonomousOrchestrator:
             return self._goals.get(goal_id)
 
     def get_session(self, goal_id: str) -> AutonomousSession | None:
-        for s in self._sessions.values():
-            if s.goal_id == goal_id:
-                return s
-        return None
+        with self._lock:
+            session_id = self._session_by_goal.get(goal_id)
+            return self._sessions.get(session_id) if session_id else None
 
     def get_report(self, goal_id: str) -> AutonomousReport | None:
         for r in self._reports:
@@ -265,6 +309,156 @@ class AutonomousOrchestrator:
         })
 
         return decisions
+
+    def _execute_plan(
+        self,
+        goal: AutonomousGoal,
+        session: AutonomousSession,
+        plan_decisions: list[AutonomousDecision],
+    ) -> dict[str, Any]:
+        """Turn the plan into real tasks, run them, and report what happened.
+
+        Everything returned here is measured. ``success`` is true only when every
+        task actually completed and validated; ``duration_ms`` is wall-clock;
+        ``runtimes_used`` lists the runtimes that really served a task.
+
+        A goal whose runtime is unavailable comes back with
+        ``runtime_available: False`` so the caller can fail it rather than
+        recording a completion that never occurred.
+        """
+        from backend.execution.execution_models import (
+            ExecutionMeta,
+            ExecutionPriority,
+            TaskExecution,
+            TaskExecutionStatus,
+        )
+
+        started = time.perf_counter()
+
+        # DecisionEngine produces *selection* decisions (agent, runtime, tool,
+        # skill, workflow) — it does not decompose a goal into sub-tasks. So the
+        # unit of work is the goal itself, carrying the selections the planner
+        # made. One honest task beats inventing a decomposition the planner never
+        # produced.
+        def _selected(kind: DecisionType) -> str:
+            for d in plan_decisions:
+                if d.decision_type == kind and d.selected_option:
+                    return str(d.selected_option)
+            return ""
+
+        task = TaskExecution(
+            task_id=f"{goal.goal_id}-t0",
+            node_id=f"{goal.goal_id}-n0",
+            title=goal.interpreted_goal or goal.user_request,
+            status=TaskExecutionStatus.PENDING,
+            assigned_agent=_selected(DecisionType.AGENT_SELECTION),
+            assigned_runtime=_selected(DecisionType.RUNTIME_SELECTION),
+            assigned_skills=[d.selected_option for d in plan_decisions
+                             if d.decision_type == DecisionType.SKILL_SELECTION
+                             and d.selected_option],
+            assigned_tools=[d.selected_option for d in plan_decisions
+                            if d.decision_type == DecisionType.TOOL_SELECTION
+                            and d.selected_option],
+        )
+        tasks = [task]
+
+        meta = ExecutionMeta(
+            mission_id=goal.goal_id,
+            user_goal=goal.user_request,
+            priority=ExecutionPriority.NORMAL,
+        )
+
+        results: list[dict[str, Any]] = []
+        runtimes: list[str] = []
+        unavailable: str = ""
+
+        try:
+            # prepare() returns the state machine execute_task() needs.
+            state_machine = self.mission_executor.prepare(meta, tasks)
+            for task in tasks:
+                outcome = self.mission_executor.execute_task(
+                    state_machine, task.task_id
+                )
+                results.append(outcome)
+                if outcome.get("runtime_available") is False:
+                    unavailable = outcome.get("error", "runtime unavailable")
+                    break
+        except Exception as exc:  # the executor itself failed
+            unavailable = f"{type(exc).__name__}: {exc}"
+
+        duration_ms = (time.perf_counter() - started) * 1000.0
+
+        for task in tasks:
+            if task.assigned_runtime and task.assigned_runtime not in runtimes:
+                runtimes.append(task.assigned_runtime)
+
+        completed = [t for t in tasks if t.status == TaskExecutionStatus.COMPLETED]
+        failed = [t for t in tasks if t.status == TaskExecutionStatus.FAILED]
+        success = bool(completed) and not failed and not unavailable
+
+        summary = (
+            f"{len(completed)}/{len(tasks)} task(s) completed on "
+            f"{', '.join(runtimes) or 'no runtime'} in {duration_ms:.0f}ms"
+        )
+        if unavailable:
+            summary = f"Execution could not run: {unavailable}"
+
+        lessons: list[str] = []
+        improvements: list[str] = []
+        if unavailable:
+            improvements.append(
+                "Provide a reachable runtime before dispatching autonomous goals"
+            )
+        if failed:
+            lessons.append(
+                f"{len(failed)} task(s) failed validation: "
+                + "; ".join(f"{t.title}: {'; '.join(t.errors[-1:]) or 'no detail'}"
+                            for t in failed[:3])
+            )
+        if completed:
+            avg = sum(t.duration_ms for t in completed) / len(completed)
+            lessons.append(
+                f"{goal.domain} tasks averaged {avg:.0f}ms on "
+                f"{', '.join(runtimes) or 'unknown runtime'}"
+            )
+
+        return {
+            "success": success,
+            "duration_ms": duration_ms,
+            "runtime_available": not bool(unavailable),
+            "error": unavailable,
+            "runtimes_used": runtimes,
+            "summary": summary,
+            "improvements": improvements,
+            "lessons": lessons,
+            "results": {
+                "success": success,
+                "duration_ms": round(duration_ms, 1),
+                "tasks_total": len(tasks),
+                "tasks_completed": len(completed),
+                "tasks_failed": len(failed),
+                "tokens": sum(
+                    int(t.resources_used.get("total_tokens", 0) or 0) for t in tasks
+                ),
+                "outputs": [
+                    {"task": t.title, "chars": len(str(t.result or ""))}
+                    for t in completed
+                ],
+            },
+        }
+
+    #: How much autonomous history stays resident. Chosen to be generous for a
+    #: Cockpit that lists recent goals while still being a bound — an unbounded
+    #: dict is not a retention policy, it is the absence of one.
+    MAX_RETAINED_GOALS = 500
+
+    def _evict_oldest(self) -> None:
+        """Drop the oldest goals and their sessions once the cap is exceeded."""
+        while len(self._goals) > self.MAX_RETAINED_GOALS:
+            goal_id, _ = self._goals.popitem(last=False)
+            session_id = self._session_by_goal.pop(goal_id, None)
+            if session_id is not None:
+                self._sessions.pop(session_id, None)
 
     def _publish(self, event_type: str, payload: dict, severity: str = "info") -> None:
         if self._on_event is None:
