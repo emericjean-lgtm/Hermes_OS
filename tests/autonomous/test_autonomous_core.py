@@ -176,6 +176,28 @@ class TestDecisionEngine:
         d = de.select_runtime("code_analysis", 0.7)
         assert d.decision_type == DecisionType.RUNTIME_SELECTION
 
+    def test_select_runtime_without_orchestrator_never_names_a_phantom_runtime(self):
+        """Unwired, this used to always pick one of three names —
+        "ktransformers", "default_llm", "local_model" — that nothing in the
+        codebase has ever registered. The fallback must name a runtime that
+        could plausibly exist, not one of the old fixed fantasy options."""
+        de = DecisionEngine()
+        d = de.select_runtime("general", 0.3)
+        assert d.selected_option not in ("ktransformers", "default_llm", "local_model")
+
+    def test_select_runtime_with_orchestrator_uses_the_real_registry(self):
+        """Wired, the decision must be built from whatever the orchestrator
+        actually knows about — not the hardcoded list, regardless of what
+        that list happens to contain."""
+        class _FakeOrchestrator:
+            def get_stats(self):
+                return {"runtime_ids": ["a-real-runtime"]}
+
+        de = DecisionEngine()
+        de.set_runtime_orchestrator(_FakeOrchestrator())
+        d = de.select_runtime("general", 0.3)
+        assert d.selected_option == "a-real-runtime"
+
     def test_select_tool(self):
         de = DecisionEngine()
         d = de.select_tool("code_analysis", {"language": "python"})
@@ -293,6 +315,22 @@ class TestAutonomousOrchestrator:
         orch = AutonomousOrchestrator()
         goal = orch.start_goal("Build a REST API")
         assert goal.domain in ("backend", "web")
+
+    def test_report_carries_the_generated_text_not_just_its_length(self):
+        """The report used to keep only the task's own title and a character
+        count (`{"task": t.title, "chars": len(...)}`) — real tokens were spent
+        against a real runtime, but what the model actually said was discarded
+        before it ever reached the API or the Cockpit."""
+        from tests.support.fake_inference import FAKE_COMPLETION
+
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Write a function")
+        assert goal.status == GoalStatus.COMPLETED
+        report = orch.get_report(goal.goal_id)
+        assert report is not None
+        outputs = report.results["outputs"]
+        assert outputs, "a completed goal must report at least one output"
+        assert outputs[0]["content"] == FAKE_COMPLETION
 
     def test_pause_goal(self):
         orch = AutonomousOrchestrator()

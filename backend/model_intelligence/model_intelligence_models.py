@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -159,77 +160,74 @@ class BenchmarkResult:
             self.timestamp = datetime.now(timezone.utc).isoformat()
 
 
-PREDEFINED_MODELS: dict[str, dict[str, Any]] = {
-    "qwen3-coder-30b": {
-        "name": "Qwen3-Coder 30B",
-        "architecture": "qwen",
-        "parameters_b": 30.0,
-        "vram_required_mb": 18000,
-        "ram_required_mb": 24000,
-        "context_window": 32768,
-        "tokens_per_second": 25.0,
-        "task_scores": {"code_generation": 0.95, "debug": 0.92, "analysis": 0.88},
-        "available_backends": ["ollama", "ktransformers"],
-        "tags": ["code", "reasoning"],
-    },
-    "deepseek-coder-16b": {
-        "name": "DeepSeek Coder 16B",
-        "architecture": "deepseek",
-        "parameters_b": 16.0,
-        "vram_required_mb": 10000,
-        "ram_required_mb": 16000,
-        "context_window": 16384,
-        "tokens_per_second": 35.0,
-        "task_scores": {"code_generation": 0.90, "debug": 0.85, "analysis": 0.80},
-        "available_backends": ["ollama", "ktransformers", "llamacpp"],
-        "tags": ["code"],
-    },
-    "llama3.2-3b": {
-        "name": "Llama 3.2 3B",
-        "architecture": "llama",
-        "parameters_b": 3.0,
-        "vram_required_mb": 2000,
-        "ram_required_mb": 4000,
-        "context_window": 8192,
-        "tokens_per_second": 80.0,
-        "task_scores": {"chat": 0.85, "analysis": 0.75, "code_generation": 0.70},
-        "available_backends": ["ollama", "llamacpp", "transformers"],
-        "tags": ["general", "lightweight"],
-    },
-    "codellama-7b": {
-        "name": "CodeLlama 7B",
-        "architecture": "codellama",
-        "parameters_b": 7.0,
-        "vram_required_mb": 5000,
-        "ram_required_mb": 8000,
-        "context_window": 16384,
-        "tokens_per_second": 45.0,
-        "task_scores": {"code_generation": 0.85, "debug": 0.80, "refactor": 0.82},
-        "available_backends": ["ollama", "llamacpp", "ktransformers"],
-        "tags": ["code"],
-    },
-    "mistral-7b": {
-        "name": "Mistral 7B",
-        "architecture": "mistral",
-        "parameters_b": 7.0,
-        "vram_required_mb": 5000,
-        "ram_required_mb": 8000,
-        "context_window": 32768,
-        "tokens_per_second": 50.0,
-        "task_scores": {"chat": 0.90, "analysis": 0.85, "reasoning": 0.82},
-        "available_backends": ["ollama", "llamacpp", "transformers"],
-        "tags": ["general", "reasoning"],
-    },
-    "phi3-14b": {
-        "name": "Phi-3 14B",
-        "architecture": "phi",
-        "parameters_b": 14.0,
-        "vram_required_mb": 8000,
-        "ram_required_mb": 12000,
-        "context_window": 131072,
-        "tokens_per_second": 40.0,
-        "task_scores": {"reasoning": 0.92, "analysis": 0.88, "code_generation": 0.82},
-        "available_backends": ["ollama", "llamacpp"],
-        "tags": ["reasoning", "long-context"],
-    },
-}
+_ARCH_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("qwen", "qwen"), ("deepseek", "deepseek"), ("gemma", "gemma"),
+    ("phi", "phi"), ("mistral", "mistral"), ("mixtral", "mixtral"),
+    ("llama", "llama"), ("codellama", "codellama"), ("falcon", "falcon"),
+    ("starcoder", "starcoder"),
+)
+
+
+def _infer_architecture(model_tag: str) -> str:
+    tag = model_tag.lower()
+    for prefix, arch in _ARCH_PREFIXES:
+        if prefix in tag:
+            return arch
+    return "other"
+
+
+_PARAM_COUNT_RE = re.compile(r"(\d+(?:\.\d+)?)b(?:[^a-z0-9]|$)", re.IGNORECASE)
+
+
+def _infer_parameters_b(model_tag: str) -> float:
+    """Read the parameter count the vendor already put in their own tag
+    (``qwen3.5:9b`` -> 9.0), rather than leaving every entry at 0 or
+    inventing a number nobody measured. Tags with no size suffix
+    (``devstral``, ``nomic-embed-text``) honestly stay at 0.0."""
+    match = _PARAM_COUNT_RE.search(model_tag)
+    return float(match.group(1)) if match else 0.0
+
+
+def _build_predefined_models() -> dict[str, dict[str, Any]]:
+    """Seed the profiler from config/models.yaml's roles — the same file
+    agent_registry.py and ModelRouter treat as the single source of truth
+    for which Ollama tag backs which role.
+
+    This replaced six fictional entries (``qwen3-coder-30b``,
+    ``mistral-7b``, ``codellama-7b``, ``phi3-14b``, ``deepseek-coder-16b``,
+    ``llama3.2-3b``) that this deployment has never had installed — the
+    Models Center presented a plausible-looking benchmark leaderboard for
+    models nobody could run. Fields this project has no measured data for
+    (``tokens_per_second``, ``task_scores``, ``context_window``) are left
+    at their honest defaults — see ``ModelProfile.overall_score``, which
+    already degrades gracefully to neutral values rather than requiring
+    them — instead of being filled with equally invented plausible numbers.
+    """
+    try:
+        from backend.core.config import load_models_config
+
+        roles: dict[str, dict[str, Any]] = load_models_config().get("roles") or {}
+    except Exception:
+        # A missing/unreadable config/models.yaml must not take the whole
+        # module down at import time; an empty catalogue is honest about
+        # not knowing any models, which is what the old fictional six
+        # never were.
+        return {}
+
+    models: dict[str, dict[str, Any]] = {}
+    for role_name, role in roles.items():
+        tag = role.get("model")
+        if not tag or tag in models:
+            continue
+        models[tag] = {
+            "name": tag,
+            "architecture": _infer_architecture(tag),
+            "parameters_b": _infer_parameters_b(tag),
+            "vram_required_mb": int(float(role.get("vram_gb", 0)) * 1024),
+            "available_backends": ["ollama"],
+            "tags": [role_name, role.get("tier", "")],
+        }
+    return models
+
+
+PREDEFINED_MODELS: dict[str, dict[str, Any]] = _build_predefined_models()

@@ -440,8 +440,14 @@ class AutonomousOrchestrator:
                 "tokens": sum(
                     int(t.resources_used.get("total_tokens", 0) or 0) for t in tasks
                 ),
+                # `content` used to be missing entirely: only the task's own
+                # title and a character count were kept, so a goal that ran
+                # for real (tokens spent, seconds elapsed, confirmed against
+                # Ollama) still left the user with no way to read what the
+                # model actually said — the one thing they asked for.
                 "outputs": [
-                    {"task": t.title, "chars": len(str(t.result or ""))}
+                    {"task": t.title, "chars": len(str(t.result or "")),
+                     "content": str(t.result or "")}
                     for t in completed
                 ],
             },

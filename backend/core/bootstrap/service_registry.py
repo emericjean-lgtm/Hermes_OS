@@ -473,6 +473,20 @@ def _make_autonomous_engine(c: Any) -> Any:
     if loop is not None:
         loop.set_memory_manager(c.get("memory_manager"))
         loop.set_evolution_engine(c.get("evolution_engine"))
+
+    # DecisionEngine.select_runtime() exposed the same four set_* hooks
+    # (agent supervisor, runtime orchestrator, skill distributor, tool
+    # router) and none was ever called anywhere in the codebase or its
+    # tests — confirmed by a repo-wide search before this change. Every
+    # "runtime selection" it ever produced named one of three runtimes
+    # ("ktransformers", "default_llm", "local_model") that are not, and
+    # have never been, registered anywhere. Wiring the real orchestrator
+    # closes that gap for the one decision most visibly self-contradicted
+    # a report's own measured `runtimes_used`; agent/tool/skill selection
+    # remain heuristic (see CHANGELOG).
+    decisions = getattr(getattr(engine, "orchestrator", None), "decisions", None)
+    if decisions is not None:
+        decisions.set_runtime_orchestrator(c.get("runtime_orchestrator"))
     return engine
 
 
@@ -895,8 +909,10 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         # memory_manager and evolution_engine are real dependencies: the factory
         # closes the learning loop with both, so they must be built first.
         # execution_engine is the shared task pipeline it now runs on.
+        # runtime_orchestrator lets DecisionEngine report a runtime that is
+        # actually registered instead of one of three that never were.
         dependencies=("event_dispatcher", "memory_manager", "evolution_engine",
-                      "execution_engine"),
+                      "execution_engine", "runtime_orchestrator"),
         route_binder=_bind_autonomous_routes,
         produced_events=("goal.started", "goal.completed"),
         description="Goal-driven autonomous execution (HOS-063)",

@@ -1,3 +1,77 @@
+## Vérification de l'IA locale — Autonomous Center et Models Center (2026-07-31)
+
+Suite à la refonte visuelle, l'utilisateur a demandé de vérifier que les
+onglets s'appuyant sur l'IA locale (Ollama) fonctionnent réellement et
+remplissent leur rôle — pas seulement qu'ils s'affichent correctement.
+Méthode : lecture du code à la recherche d'appels LLM réels, confrontation
+des noms de modèles codés en dur avec `ollama list`, et exécution de flux
+réels dans le navigateur en surveillant `ollama ps` (charge VRAM, latence
+multi-seconde) pour distinguer une vraie inférence d'une donnée simulée.
+Trois défauts confirmés ; deux corrigés ici (le troisième, le plus risqué,
+est traité séparément). Un quatrième point — la sélection d'agent/outil/
+compétence dans `DecisionEngine` — reste heuristique : voir "Non corrigé"
+plus bas.
+
+### Fixed — Autonomous Center
+- **Le texte généré par l'IA était calculé puis jeté.** Chaque tâche
+  autonome appelait bien Ollama (confirmé : 22,9 s d'exécution, 113 tokens
+  réels mesurés via `ollama ps`), mais `_execute_plan()` ne renvoyait dans
+  `outputs` que `{"task": ..., "chars": len(...)}` — la longueur du texte,
+  jamais le texte lui-même. Le rapport final ne contenait donc aucune trace
+  de ce que le modèle avait produit. `outputs` inclut maintenant `"content"`
+  avec le texte réel.
+- **La justification de choix de runtime était une liste imaginaire.**
+  `_generate_runtime_alternatives()` renvoyait toujours
+  `["ktransformers", "default_llm", "local_model"]` — trois runtimes que ce
+  déploiement n'a jamais enregistrés — pendant que le champ `runtimes_used`
+  du même rapport JSON, calculé séparément par `mission_executor.py`,
+  disait correctement `["ollama"]` : une contradiction visible dans la même
+  réponse. `DecisionEngine` reçoit maintenant le `RuntimeOrchestrator` réel
+  au bootstrap (`set_runtime_orchestrator`, ajouté aux dépendances du
+  service `autonomous_engine`) et lit sa liste de runtimes effectivement
+  enregistrés ; à défaut, le seul runtime réellement câblé (`ollama`) sert
+  de repli plutôt qu'un nom inventé.
+
+### Fixed — Models Center
+- **Le catalogue de modèles était entièrement fictif.** `PREDEFINED_MODELS`
+  listait six modèles (`qwen3-coder-30b`, `deepseek-coder-16b`,
+  `llama3.2-3b`, `codellama-7b`, `mistral-7b`, `phi3-14b`) qu'aucun
+  déploiement de ce projet n'a jamais installés — le classement affiché
+  était un banc d'essai plausible pour des modèles que personne ne pouvait
+  exécuter. Le catalogue est désormais construit depuis `config/models.yaml`
+  (la même source que `agent_registry.py` et le routeur de modèles), avec
+  architecture et nombre de paramètres déduits du tag Ollama réel
+  (`qwen3.5:9b` → `qwen`, 9,0 B) plutôt qu'inventés ; un tag sans suffixe de
+  taille (`devstral`, `nomic-embed-text`) reste honnêtement à 0 B au lieu
+  d'un chiffre plausible. 12 modèles réels en résultent.
+- **Le repli du routeur adaptatif nommait aussi un modèle fictif.**
+  `AdaptiveRouter._fallback_decision()` renvoyait toujours `model_id
+  ="llama3.2-3b"` — le seul chemin censé toujours réussir recommandait un
+  modèle introuvable. Il choisit maintenant le profil réel le plus léger
+  connu du profileur.
+
+### Not fixed — gap documenté
+- Les trois autres points d'entrée de `DecisionEngine`
+  (`set_agent_supervisor`, `set_skill_distributor`, `set_tool_router`)
+  restent des méthodes mortes : jamais appelées, y compris dans les tests.
+  La sélection d'agent, d'outil et de compétence dans l'Autonomous Center
+  reste donc heuristique/factice. Hors périmètre de cette passe ;
+  documenté ici pour qu'il ne soit pas pris pour un défaut résolu.
+
+### Verified
+- `pytest tests/autonomous/test_autonomous_core.py` : **74/74**, avec 3
+  nouveaux tests couvrant le repli sans orchestrateur, la sélection depuis
+  un registre réel, et la présence du texte généré dans le rapport.
+- `pytest tests/model_intelligence/` : **112/112**, avec un nouveau test
+  qui vérifie que le catalogue est un sous-ensemble des tags réels de
+  `config/models.yaml` et ne contient aucun des six identifiants fictifs.
+- Suite complète (`backend/tests` + `tests`) : **3312 passed, 3 skipped,
+  0 failed**.
+- Vérification navigateur du Models Center après redémarrage du serveur :
+  12 modèles réels affichés (`nomic-embed-text`, `qwen3:1.7b`, `qwen3:4b`,
+  `qwen3.5:9b`, `gemma4:12b`, …) avec tags de rôle et paramètres corrects
+  dans la colonne « Params ».
+
 ## Refonte — Fusion des Centers redondants (2026-07-31)
 
 Suite directe de la refonte précédente, qui avait signalé sans les traiter

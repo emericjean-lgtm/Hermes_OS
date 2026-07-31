@@ -81,7 +81,23 @@ class TestModelIntelligenceModels:
 
     def test_predefined_models_count(self):
         assert len(PREDEFINED_MODELS) >= 5
-        assert "qwen3-coder-30b" in PREDEFINED_MODELS
+        assert "qwen3-coder:30b" in PREDEFINED_MODELS
+
+    def test_predefined_models_come_from_the_real_role_catalogue(self):
+        """PREDEFINED_MODELS used to be six fixed entries — llama3.2-3b,
+        mistral-7b, codellama-7b, phi3-14b, deepseek-coder-16b,
+        qwen3-coder-30b — none of which any deployment of this project has
+        ever had installed: the Models Center showed a benchmark
+        leaderboard for models nobody could run. Every entry now must be a
+        real config/models.yaml role, keyed by that role's actual Ollama tag."""
+        from backend.core.config import load_models_config
+
+        real_tags = {r["model"] for r in load_models_config()["roles"].values()}
+        assert PREDEFINED_MODELS, "the catalogue must not be empty"
+        assert set(PREDEFINED_MODELS) <= real_tags
+        fake_ids = {"llama3.2-3b", "mistral-7b", "codellama-7b",
+                    "phi3-14b", "deepseek-coder-16b", "qwen3-coder-30b"}
+        assert not (set(PREDEFINED_MODELS) & fake_ids)
 
     def test_performance_record_auto_timestamp(self):
         rec = ModelPerformanceRecord(
@@ -128,9 +144,12 @@ class TestModelProfiler:
 
     def test_get_profile(self):
         profiler = ModelProfiler()
-        profile = profiler.get_profile("qwen3-coder-30b")
+        profile = profiler.get_profile("qwen3-coder:30b")
         assert profile is not None
-        assert "Qwen" in profile.name
+        # `name` is the real Ollama tag itself (lowercase) now that the
+        # profiler is seeded from config/models.yaml, not a hand-written
+        # display string like the old fictional "Qwen3-Coder 30B" was.
+        assert "qwen3" in profile.name.lower()
 
     def test_get_profile_not_found(self):
         profiler = ModelProfiler()
@@ -168,10 +187,10 @@ class TestModelProfiler:
     def test_update_performance(self):
         profiler = ModelProfiler()
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3-coder-30b", task_type=TaskType.CODE_GENERATION,
+            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
             duration_ms=1000, tokens_used=200, success=True,
         ))
-        profile = profiler.get_profile("qwen3-coder-30b")
+        profile = profiler.get_profile("qwen3-coder:30b")
         assert profile is not None
         assert profile.total_runs >= 1
 
@@ -397,7 +416,7 @@ class TestAdaptiveRouter:
 class TestBenchmarkScheduler:
     def test_run_benchmark(self):
         scheduler = BenchmarkScheduler()
-        result = scheduler.run_benchmark("qwen3-coder-30b", TaskType.CODE_GENERATION)
+        result = scheduler.run_benchmark("qwen3-coder:30b", TaskType.CODE_GENERATION)
         assert result.quality_score > 0
 
     def test_run_benchmark_unknown_model(self):
@@ -535,7 +554,7 @@ class TestAPIRoutes:
         assert result["success"] is True
 
     def test_run_benchmark(self):
-        result = handle_run_benchmark("qwen3-coder-30b", "code_generation")
+        result = handle_run_benchmark("qwen3-coder:30b", "code_generation")
         assert result["success"] is True
         assert "benchmark" in result
 
@@ -548,7 +567,7 @@ class TestAPIRoutes:
         assert result["success"] is True
 
     def test_get_performance_specific(self):
-        result = handle_get_performance("qwen3-coder-30b")
+        result = handle_get_performance("qwen3-coder:30b")
         assert result["success"] is True
         assert "score" in result
 
@@ -564,7 +583,7 @@ class TestThreadSafety:
         def access(n):
             try:
                 profiler.list_profiles()
-                profiler.get_profile("qwen3-coder-30b")
+                profiler.get_profile("qwen3-coder:30b")
                 profiler.get_stats()
             except Exception as e:
                 errors.append(e)
@@ -594,7 +613,7 @@ class TestThreadSafety:
         errors = []
         def benchmark(n):
             try:
-                scheduler.run_benchmark("llama3.2-3b", TaskType.CHAT)
+                scheduler.run_benchmark("qwen3:1.7b", TaskType.CHAT)
             except Exception as e:
                 errors.append(e)
         threads = [threading.Thread(target=benchmark, args=(i,)) for i in range(10)]
@@ -608,7 +627,7 @@ class TestThreadSafety:
         def update(n):
             try:
                 profiler.update_performance(ModelPerformanceRecord(
-                    model_id="qwen3-coder-30b", task_type=TaskType.CODE_GENERATION,
+                    model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
                     duration_ms=100, tokens_used=50, success=n % 2 == 0,
                 ))
             except Exception as e:

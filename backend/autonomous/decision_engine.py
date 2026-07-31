@@ -157,11 +157,26 @@ class DecisionEngine:
         return alternatives
 
     def _generate_runtime_alternatives(self, task_type: str, complexity: float) -> list[dict]:
-        return [
-            {"name": "ktransformers", "description": "High-performance inference", "score": 0.85},
-            {"name": "default_llm", "description": "Default LLM runtime", "score": 0.75},
-            {"name": "local_model", "description": "Local model execution", "score": 0.60},
-        ]
+        # This used to be three fixed names ("ktransformers", "default_llm",
+        # "local_model") that never existed as registered runtimes — the
+        # decision log would say "Runtime ktransformers optimal" on the same
+        # report whose own runtimes_used correctly said ["ollama"], because
+        # that field is measured after execution while this one never was.
+        # set_runtime_orchestrator() (composition root) makes the real
+        # registry available here; wired == unwired falls back to the one
+        # runtime this deployment actually ships (Ollama), never to a name
+        # nothing provides.
+        if self._runtime_orchestrator is not None:
+            try:
+                ids = list(self._runtime_orchestrator.get_stats().get("runtime_ids") or [])
+            except Exception:
+                ids = []
+            if ids:
+                return [
+                    {"name": rid, "description": "Registered runtime", "score": 0.9 - i * 0.1}
+                    for i, rid in enumerate(ids)
+                ]
+        return [{"name": "ollama", "description": "Local Ollama runtime", "score": 0.7}]
 
     def _generate_tool_alternatives(self, task_type: str, params: dict) -> list[dict]:
         return [

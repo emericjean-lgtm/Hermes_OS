@@ -159,15 +159,25 @@ class AdaptiveRouter:
         return []
 
     def _fallback_decision(self, task: TaskContext) -> ModelDecision:
+        # This named a fixed model_id ("llama3.2-3b") that has never been
+        # installed in any deployment of this project — the one path meant
+        # to always succeed recommended a model that could not run. The
+        # lightest *real* profile the profiler actually knows about (from
+        # config/models.yaml) is the honest fallback: still real if nothing
+        # scored above the caller's constraints.
+        profiles = self._profiler.list_profiles()
+        lightest = min(profiles, key=lambda p: p.vram_required_mb) if profiles else None
+
         return ModelDecision(
-            model_id="llama3.2-3b",
-            model_name="Llama 3.2 3B (fallback)",
+            model_id=lightest.model_id if lightest else "",
+            model_name=f"{lightest.name} (fallback)" if lightest else "no model available",
             runtime=RuntimeBackend.OLLAMA,
             quantization=Quantization.Q4_K_M,
-            confidence=0.5,
-            reason="No optimal model found, using lightweight fallback",
+            confidence=0.5 if lightest else 0.0,
+            reason="No optimal model found, using the lightest known profile"
+                   if lightest else "No model profiles are registered",
             alternatives=[],
-            estimated_vram_mb=2000,
+            estimated_vram_mb=lightest.vram_required_mb if lightest else 0,
             task_context=task,
         )
 
