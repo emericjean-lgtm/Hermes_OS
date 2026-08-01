@@ -1,3 +1,80 @@
+## Quatre défauts en attente — Mission Center, Validation Center, appli fantôme (2026-08-01)
+
+Suite au traitement des trois défauts d'« IA factice », quatre pistes
+mineures avaient été mises de côté en tâches de fond. L'utilisateur a
+demandé de les traiter directement dans cette session.
+
+### Fixed — Mission Center : panneau de détail
+- **`selected.id` valait toujours `undefined`.** `GET /api/v1/missions`
+  renvoie `mission_id`, pas `id` ; `missionsClient.list()` ne faisait
+  aucune projection (contrairement à `toAgent()`, qui existait déjà pour
+  ce même problème côté agents). Toutes les missions partageaient donc la
+  même clé React `undefined`, et `.find(m => m.id === selectedMissionId)`
+  retombait toujours sur la première mission de la liste, quel que soit le
+  clic. Ajout de `toMission()` dans `services/client.ts`, sur le même
+  principe que `toAgent()`.
+- **Le panneau de détail lisait des champs que la liste n'envoie jamais.**
+  `description`, `created_at` n'existent que sur `GET /missions/{id}`, pas
+  sur `GET /missions` — le panneau affichait donc en permanence
+  « No description » / « Invalid Date » quelle que soit la mission
+  sélectionnée. `MissionCenter` utilise maintenant `useMission(id)` (un
+  hook déjà présent mais jamais appelé) pour un vrai fetch de détail au
+  lieu d'une simple recherche dans la liste. La ligne de liste, elle,
+  n'affiche plus que le total de nœuds (`node_count`) — le nombre de
+  nœuds *terminés* n'existe tout simplement pas sur l'endpoint liste, et
+  afficher `undefined/undefined` n'était pas plus honnête que de l'omettre.
+
+### Fixed — Validation Center : bouton de lancement
+- **Le Center affirmait que la charge utile de `POST /verification/run`
+  n'était pas documentée dans l'OpenAPI — c'est faux.** Le modèle Pydantic
+  `VerificationRunRequest` (`backend/api/routes/verification.py`) expose
+  `repo_path`/`runner`/`timeout`/`project_id` avec un schéma complet et
+  vérifiable sur `/openapi.json`. Ajout d'un vrai formulaire (chemin de
+  dépôt + sélection du runner parmi les 7 réels déjà listés) et de
+  `verificationClient.run()` / `useRunVerification()`. Vérifié en
+  conditions réelles : au `autonomy_level` livré (« low »), Aegis refuse
+  l'appel avec un motif honnête (`REQUIRE_HUMAN_VALIDATION` — « needs
+  autonomy level high to auto-allow ») au lieu du bouton inexistant
+  d'avant ou d'un faux succès.
+
+### Investigated — avertissement de clé React dupliquée
+- Le warning « two children with the same key » (valeur « standard »),
+  précédemment jugé non reproductible, était en réalité l'un des deux
+  symptômes du bug `mission.id` ci-dessus. Vérifié sur un onglet
+  entièrement neuf, deux tailles de viewport, balayage des 22 Centers :
+  zéro avertissement une fois le correctif du Mission Center appliqué.
+  L'apparition persistante sur un onglet resté ouvert tout au long de la
+  session était un artefact de Fast Refresh accumulé, pas un défaut du
+  code livré.
+
+### Removed — application fantôme pré-Cockpit
+- En cherchant pourquoi les boutons de l'ancienne page `/missions`
+  restaient inertes, découverte d'une application parallèle entière :
+  `/agents`, `/events`, `/execution`, `/memory`, `/missions`, `/runtimes`,
+  `/settings`, `/skills`, chacune avec sa propre sidebar
+  (`components/layout/Sidebar.tsx`), ses propres hooks (`use-agents`,
+  `use-dashboard`, `use-events`, `use-execution`, `use-missions`,
+  `use-runtimes`) et ses propres clients API
+  (`lib/{agent,execution,mission-control,mission-planner,runtime}-*.ts`)
+  — un héritage d'avant la refonte Cockpit, jamais retiré. Vérification
+  exhaustive (`grep` de chaque chemin de module contre tout le reste du
+  code source) : **aucune référence externe**, ni lien, ni import, depuis
+  l'application réelle (`/` → `/dashboard` → `CockpitShell`). Confirmé
+  avec l'utilisateur avant suppression étant donné l'ampleur (54 fichiers,
+  bien au-delà de la seule page `/missions` signalée initialement) :
+  suppression complète plutôt que réparation d'une interface que plus
+  personne ne peut atteindre. `/missions` (et les sept autres routes)
+  renvoient désormais un 404 propre au lieu d'une page aux boutons morts.
+
+### Verified
+- `tsc --noEmit` : **0 erreur**. `vitest run` : **65/65**. `next build` :
+  compilation réussie — 2 routes (`/`, `/dashboard`) contre 14 avant la
+  suppression.
+- Vérification navigateur : Mission Center affiche la vraie description,
+  la vraie date et le vrai décompte de nœuds pour la mission Redis créée
+  précédemment ; Validation Center déclenche un vrai appel POST et affiche
+  le refus honnête d'Aegis ; `/missions` renvoie 404.
+
 ## Mission Planner — décomposition réellement pilotée par le LLM (2026-07-31)
 
 Troisième et dernier des trois défauts d'« IA factice » remontés par la

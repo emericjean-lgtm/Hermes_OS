@@ -578,6 +578,12 @@ export function useVerificationRunners() {
   });
 }
 
+export function useRunVerification() {
+  return useMutation({
+    mutationFn: verificationClient.run,
+  });
+}
+
 export function useMonitoringResources() {
   return useQuery({
     queryKey: ["monitoring", "resources"],

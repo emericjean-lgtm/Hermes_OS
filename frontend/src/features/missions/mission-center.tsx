@@ -1,6 +1,6 @@
 "use client";
 
-import { useMissions, useMissionGraph, useCreateMission } from "@/hooks/use-api";
+import { useMissions, useMission, useCreateMission } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
 import { Card, Badge, ProgressBar, Button } from "@/components/ui/card";
 import { useState } from "react";
@@ -38,7 +38,10 @@ export function MissionCenter() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
-  const selected = missions?.find((m) => m.id === selectedMissionId);
+  // The list endpoint never sends description/created_at (see toMission in
+  // services/client.ts) — the detail panel needs a real per-mission fetch,
+  // not a lookup into the list's own (intentionally thinner) rows.
+  const { data: selected } = useMission(selectedMissionId);
 
   const handleCreate = () => {
     if (title.trim()) {
@@ -129,8 +132,11 @@ export function MissionCenter() {
                 </div>
                 <ProgressBar value={mission.progress} size="sm" className="mb-1" />
                 <div className="flex items-center gap-3 text-[10px] text-hermes-muted font-mono">
-                  <span>{mission.priority}</span>
-                  <span>{mission.completed_nodes}/{mission.node_count} nodes</span>
+                  {mission.priority && <span>{mission.priority}</span>}
+                  {/* The list endpoint only reports a node total, not how
+                      many are done — that per-node breakdown only exists
+                      on the detail fetch (see the panel to the right). */}
+                  <span>{mission.node_count ?? "?"} nodes</span>
                 </div>
               </button>
             ))}
@@ -156,7 +162,7 @@ export function MissionCenter() {
                 </Badge>
                 <div className="text-[10px] text-hermes-muted font-mono">Created</div>
                 <div className="text-[10px] text-hermes-text font-mono">
-                  {new Date(selected.created_at).toLocaleDateString()}
+                  {selected.created_at ? new Date(selected.created_at).toLocaleDateString() : "—"}
                 </div>
               </div>
               <ProgressBar value={selected.progress} />

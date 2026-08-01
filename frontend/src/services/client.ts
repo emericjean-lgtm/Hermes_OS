@@ -171,9 +171,33 @@ export const systemClient = {
 };
 
 // ── Missions ─────────────────────────────────────────
+/** GET /api/v1/missions returns `mission_id` and a bare `progress` number
+ *  (0-100); GET /api/v1/missions/{id} returns the same `mission_id` but a
+ *  `progress` *object* (`{total, completed, progress_pct, ...}` — see
+ *  backend/mission/dependency_resolver.py) plus `description`/`created_at`,
+ *  which the list endpoint omits entirely. Every mission therefore had
+ *  `id === undefined` (MissionCenter read `.id`, never `.mission_id`) —
+ *  every row shared the same React key, and `.find(m => m.id === selected)`
+ *  always matched the first mission regardless of which one was clicked.
+ *  This normalises both shapes onto the one `Mission` type. */
+function toMission(raw: Record<string, any>): Mission {
+  const progress = raw.progress;
+  const progressIsDetail = progress && typeof progress === "object";
+  return {
+    ...raw,
+    id: raw.id ?? raw.mission_id,
+    progress: progressIsDetail ? progress.progress_pct ?? 0 : progress ?? 0,
+    node_count: progressIsDetail ? progress.total : raw.nodes,
+    completed_nodes: progressIsDetail ? progress.completed : undefined,
+  } as Mission;
+}
+
 export const missionsClient = {
-  list: () => fetchJSON<unknown>("/missions").then((d) => unwrap<Mission>(d, "missions")),
-  get: (id: string) => fetchJSON<Mission>(`/missions/${id}`),
+  list: () =>
+    fetchJSON<unknown>("/missions")
+      .then((d) => unwrap<Record<string, any>>(d, "missions"))
+      .then((rows) => rows.map(toMission)),
+  get: (id: string) => fetchJSON<Record<string, any>>(`/missions/${id}`).then(toMission),
   create: (data: Partial<Mission>) =>
     fetchJSON<Mission>("/missions", { method: "POST", body: JSON.stringify(data) }),
   graph: (id: string) => fetchJSON<MissionGraph>(`/missions/${id}/graph`),
@@ -879,10 +903,40 @@ export interface VerificationRunnerDTO {
   description: string;
 }
 
+export interface VerificationRunRequest {
+  repo_path: string;
+  runner: string;
+  timeout?: number;
+  project_id?: string;
+}
+
+export interface VerificationRunResult {
+  ran: boolean;
+  runner: string;
+  kind: string;
+  passed: boolean;
+  exit_code: number | null;
+  timed_out: boolean;
+  verdict: string;
+  reason: string;
+  duration_seconds: number;
+  output: string;
+}
+
 export const verificationClient = {
   runners: () =>
     fetchJSON<unknown>("/verification/runners").then((d) =>
       Array.isArray(d) ? (d as VerificationRunnerDTO[]) : []),
+  // POST /verification/run — its payload *is* documented (VerificationRunRequest
+  // in backend/api/routes/verification.py, visible at GET /openapi.json), unlike
+  // what ValidationCenter used to claim. At the shipped autonomy_level of "low"
+  // Aegis will refuse most calls (verdict != "allow", ran=false) — that refusal
+  // is the real, honest answer, not a reason to hide the trigger.
+  run: (data: VerificationRunRequest) =>
+    fetchJSON<VerificationRunResult>("/verification/run", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };
 
 // ── Monitoring (P-001) ────────────────────────────────────

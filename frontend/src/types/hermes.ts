@@ -79,13 +79,14 @@ export interface ResourceStatus {
 export interface Mission {
   id: string;
   title: string;
-  description: string;
+  // GET /missions (list) sends neither — only GET /missions/{id} does.
+  description?: string;
   status: MissionStatus;
-  priority: MissionPriority;
-  type: MissionType;
+  priority?: MissionPriority;
+  type?: MissionType;
   progress: number;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
   completed_at?: string;
   estimated_duration_s?: number;
   node_count?: number;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSubsystemStatistics, useVerificationRunners } from "@/hooks/use-api";
+import { useSubsystemStatistics, useVerificationRunners, useRunVerification } from "@/hooks/use-api";
 import {
   AsyncPanel,
   CenterHeader,
@@ -9,24 +9,28 @@ import {
   StatGrid,
   Toolbar,
 } from "@/components/center-scaffold";
-import { Badge } from "@/components/ui/card";
+import { Badge, Button, Card } from "@/components/ui/card";
 
-// Deux sources réelles, et une limite assumée.
+// Deux sources réelles pour l'inventaire, une troisième pour le déclenchement.
 //
 // Les *runners* de vérification viennent de GET /verification/runners (route
 // héritée, servie sans le préfixe /api/v1). Les compteurs du moteur de
 // validation viennent de /api/v1/system/statistics → execution_engine.validator.
-//
-// Il n'existe **aucun** endpoint /api/v1/validation : le déclenchement d'une
-// vérification passe par POST /verification/run, qui exige une charge utile non
-// documentée dans l'OpenAPI. Ce Center ne propose donc pas de bouton
-// « lancer » — l'inventer reviendrait à deviner un contrat (P-001).
+// Le déclenchement passe par POST /verification/run — dont la charge utile
+// *est* documentée (VerificationRunRequest, backend/api/routes/verification.py,
+// visible sur /openapi.json) malgré ce que ce fichier affirmait auparavant.
+// À l'autonomy_level "low" livré, Aegis refusera la plupart des appels
+// (verdict != "allow", ran=false) : c'est la vraie réponse honnête du
+// système, pas une raison de cacher le déclencheur.
 
 export function ValidationCenter() {
   const runners = useVerificationRunners();
   const stats = useSubsystemStatistics();
+  const runVerification = useRunVerification();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Tous");
+  const [repoPath, setRepoPath] = useState("");
+  const [selectedRunner, setSelectedRunner] = useState("");
 
   const all = runners.data ?? [];
   const kinds = ["Tous", ...Array.from(new Set(all.map((r) => r.kind))).slice(0, 6)];
@@ -118,10 +122,75 @@ export function ValidationCenter() {
         </AsyncPanel>
       </div>
 
-      <p className="text-[11px] text-hermes-muted font-mono mt-4">
-        Le déclenchement d'une vérification n'est pas exposé ici : sa charge utile n'est pas décrite dans l'OpenAPI, et aucun
-        bouton ne sera câblé sur un contrat deviné.
-      </p>
+      <div className="mt-4">
+        <Card
+          title="Lancer une vérification"
+          subtitle="POST /verification/run — soumis à l'évaluation Aegis (verification_run)"
+        >
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                type="text"
+                placeholder="Chemin du dépôt (repo_path)…"
+                value={repoPath}
+                onChange={(e) => setRepoPath(e.target.value)}
+                className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-xs text-hermes-text font-mono focus:border-hermes-cyan outline-none"
+              />
+              <select
+                value={selectedRunner}
+                onChange={(e) => setSelectedRunner(e.target.value)}
+                className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-xs text-hermes-text font-mono focus:border-hermes-cyan outline-none"
+              >
+                <option value="">Choisir un runner…</option>
+                {all.map((r) => (
+                  <option key={r.name} value={r.name}>
+                    {r.name} ({r.kind})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center justify-between">
+              <Button
+                variant="primary"
+                disabled={!repoPath.trim() || !selectedRunner || runVerification.isPending}
+                onClick={() =>
+                  runVerification.mutate({ repo_path: repoPath.trim(), runner: selectedRunner })
+                }
+              >
+                {runVerification.isPending ? "Exécution…" : "Lancer"}
+              </Button>
+              {runVerification.data && (
+                <Badge variant={runVerification.data.ran ? (runVerification.data.passed ? "success" : "danger") : "warning"}>
+                  {runVerification.data.ran
+                    ? runVerification.data.passed
+                      ? "Réussi"
+                      : "Échoué"
+                    : `Refusé — ${runVerification.data.verdict}`}
+                </Badge>
+              )}
+            </div>
+
+            {runVerification.isError && (
+              <p className="text-[11px] text-hermes-red font-mono">
+                {(runVerification.error as Error)?.message || "La requête a échoué."}
+              </p>
+            )}
+
+            {runVerification.data && (
+              <div className="bg-hermes-bg rounded-lg p-3 flex flex-col gap-1.5">
+                {runVerification.data.reason && (
+                  <p className="text-[11px] text-hermes-muted font-mono">{runVerification.data.reason}</p>
+                )}
+                {runVerification.data.output && (
+                  <pre className="text-[10px] text-hermes-text font-mono whitespace-pre-wrap max-h-64 overflow-y-auto">
+                    {runVerification.data.output}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
