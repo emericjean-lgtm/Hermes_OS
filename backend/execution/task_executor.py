@@ -101,6 +101,11 @@ class RealTaskExecutor:
             measured telemetry. The bootstrap wires this to Model
             Intelligence's profiler (HOS-065), which otherwise never learned
             from a single real execution (see CHANGELOG).
+        num_ctx_for: maps a task to the context window to request — the
+            per-role value real benchmarks informed (HOS-065C), not the one
+            global default every call used to fall back to regardless of
+            which model answered it. None (the default) preserves the old
+            behaviour: the client's own configured default applies.
         timeout_s: hard ceiling on one inference call.
     """
 
@@ -112,6 +117,7 @@ class RealTaskExecutor:
         workspace_manager: Any = None,
         on_event: Optional[Callable] = None,
         on_execution: Optional[Callable[[Any, str, float, int, bool], None]] = None,
+        num_ctx_for: Optional[Callable[[Any], Optional[int]]] = None,
         timeout_s: float = 180.0,
         default_model: str = "qwen3:4b",
     ) -> None:
@@ -120,6 +126,7 @@ class RealTaskExecutor:
         self._workspace = workspace_manager
         self._on_event = on_event
         self._on_execution = on_execution
+        self._num_ctx_for = num_ctx_for
         self._timeout_s = timeout_s
         self._default_model = default_model
 
@@ -197,6 +204,7 @@ class RealTaskExecutor:
                       or getattr(task, "assigned_runtime", "")
                       or "ollama")
         model = self._resolve_model(task, assignment)
+        num_ctx = self._resolve_num_ctx(task)
         messages = self._build_messages(task, assignment)
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
 
@@ -204,7 +212,7 @@ class RealTaskExecutor:
         started = time.perf_counter()
         try:
             response = self._run_coro(
-                chat(messages=messages, model=model), self._timeout_s
+                chat(messages=messages, model=model, num_ctx=num_ctx), self._timeout_s
             )
         except RuntimeUnavailableError:
             self._record_failure()
@@ -282,7 +290,8 @@ class RealTaskExecutor:
 
     # ── helpers ──────────────────────────────────────────────────────
 
-    async def _default_chat(self, *, messages: list[dict[str, Any]], model: str) -> Any:
+    async def _default_chat(self, *, messages: list[dict[str, Any]], model: str,
+                            num_ctx: Optional[int] = None) -> Any:
         """Real inference through the configured Ollama endpoint.
 
         Built from ``get_settings()`` the same way ``get_agent_registry()`` does,
@@ -300,7 +309,8 @@ class RealTaskExecutor:
             settings.ollama_api_url,
             keep_alive=getattr(settings, "ollama_keep_alive", "10m"),
             timeout=self._timeout_s,
-            default_num_ctx=getattr(settings, "ollama_num_ctx", 8192),
+            default_num_ctx=num_ctx if num_ctx is not None
+                            else getattr(settings, "ollama_num_ctx", 8192),
         )
         try:
             return await client.chat(messages, model=model)
@@ -321,6 +331,14 @@ class RealTaskExecutor:
             except Exception:
                 logger.debug("model_for callback failed", exc_info=True)
         return self._default_model
+
+    def _resolve_num_ctx(self, task: Any) -> Optional[int]:
+        if self._num_ctx_for is not None:
+            try:
+                return self._num_ctx_for(task)
+            except Exception:
+                logger.debug("num_ctx_for callback failed", exc_info=True)
+        return None
 
     @staticmethod
     def _build_messages(task: Any, assignment: Any) -> list[dict[str, Any]]:

@@ -273,12 +273,16 @@ class TestDependencyInjection:
         executor = bootstrap.container.get("task_executor")
         assert executor._model_for is not None
         assert executor._on_execution is not None
+        assert executor._num_ctx_for is not None
 
         router = mi_routes._get_router()
         profiler = mi_routes._get_profiler()
         assert bootstrap.container.get("model_intelligence") is router
 
-        async def fake_chat(*, messages, model):
+        seen_ctx = []
+
+        async def fake_chat(*, messages, model, num_ctx=None):
+            seen_ctx.append(num_ctx)
             return "a real completion"
 
         try:
@@ -290,7 +294,14 @@ class TestDependencyInjection:
         # The model actually used came from AdaptiveRouter, and is a real,
         # installed tag (from config/models.yaml, not the fictional catalog
         # HOS-065 shipped with) rather than the hardcoded qwen3:4b default.
-        assert outcome.model == router.recommend_for_text("Implement a REST endpoint").model_id
+        recommendation = router.recommend_for_text("Implement a REST endpoint")
+        assert outcome.model == recommendation.model_id
+
+        # HOS-065C: the context window that reached the runtime call is the
+        # real, per-role, benchmark-informed value (config/models.yaml's
+        # roles.*.num_ctx) — not None/the old single global default.
+        assert seen_ctx == [recommendation.num_ctx]
+        assert recommendation.num_ctx > 0
 
         profile = profiler.get_profile(outcome.model)
         assert profile is not None

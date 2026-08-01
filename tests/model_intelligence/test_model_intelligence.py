@@ -40,6 +40,20 @@ from backend.model_intelligence.routes import (
 )
 
 
+async def _fake_benchmark_chat(*, messages, model, num_ctx):
+    """Real-shaped fake for BenchmarkScheduler's non-streaming /api/chat
+    call — no network I/O, but the same fields run_benchmark() actually
+    reads (eval_count/eval_duration/prompt_eval_count), so the real parsing
+    and metric-computation code stays under test."""
+    return {
+        "message": {"content": "A real-shaped fake response for testing."},
+        "eval_count": 42,
+        "eval_duration": 500_000_000,  # 0.5s in ns -> 84 tok/s
+        "prompt_eval_count": 10,
+        "total_duration": 600_000_000,
+    }
+
+
 # ═══════════════════════════════════════════════════════════════
 # Model Profile & Models Tests
 # ═══════════════════════════════════════════════════════════════
@@ -388,6 +402,25 @@ class TestModelPredictor:
 # ═══════════════════════════════════════════════════════════════
 
 class TestAdaptiveRouter:
+    def test_recommend_reports_the_profile_num_ctx(self):
+        """num_ctx (HOS-065C) previously didn't exist on ModelDecision at
+        all — every consumer fell back to one global default regardless of
+        which model AdaptiveRouter actually picked."""
+        router = AdaptiveRouter()
+        task = TaskContext(task_type=TaskType.CHAT, max_vram_mb=20000)
+        decision = router.recommend(task)
+        profile = router._profiler.get_profile(decision.model_id)  # noqa: SLF001
+        assert decision.num_ctx == profile.context_window
+        assert decision.num_ctx > 0
+
+    def test_fallback_decision_also_reports_num_ctx(self):
+        """_fallback_decision has its own separate ModelDecision
+        construction — confirm num_ctx isn't only set on the main path."""
+        router = AdaptiveRouter()
+        task = TaskContext(task_type=TaskType.CODE_GENERATION, max_latency_ms=1)
+        decision = router._fallback_decision(task)  # noqa: SLF001 - exercising the fallback directly
+        assert decision.num_ctx > 0
+
     def test_recommend_code_generation(self):
         router = AdaptiveRouter()
         task = TaskContext(task_type=TaskType.CODE_GENERATION, max_vram_mb=20000)
@@ -475,37 +508,88 @@ class TestAdaptiveRouter:
 # ═══════════════════════════════════════════════════════════════
 
 class TestBenchmarkScheduler:
+    """chat=_fake_benchmark_chat everywhere: run_benchmark() now makes a
+    real Ollama call by default (see the module docstring on
+    benchmark_scheduler.py — this replaced random.uniform() fabrication),
+    so the hermetic suite injects the same kind of fake RealTaskExecutor's
+    own tests use rather than reaching the network."""
+
     def test_run_benchmark(self):
-        scheduler = BenchmarkScheduler()
-        result = scheduler.run_benchmark("qwen3-coder:30b", TaskType.CODE_GENERATION)
-        assert result.quality_score > 0
+        scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
+        try:
+            result = scheduler.run_benchmark("qwen3-coder:30b", TaskType.CODE_GENERATION)
+            assert result.quality_score > 0
+            assert result.tokens_per_second == pytest.approx(84.0, rel=0.01)
+        finally:
+            scheduler.close()
 
     def test_run_benchmark_unknown_model(self):
-        scheduler = BenchmarkScheduler()
-        with pytest.raises(ValueError):
-            scheduler.run_benchmark("nonexistent", TaskType.CODE_GENERATION)
+        scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
+        try:
+            with pytest.raises(ValueError):
+                scheduler.run_benchmark("nonexistent", TaskType.CODE_GENERATION)
+        finally:
+            scheduler.close()
+
+    def test_run_benchmark_raises_when_ollama_is_unreachable(self):
+        """Never fabricate: a benchmark that could not run must say so,
+        not report invented numbers — the same discipline as
+        RealTaskExecutor.execute()'s RuntimeUnavailableError."""
+        async def refused(**_kwargs):
+            raise ConnectionError("connection refused")
+
+        scheduler = BenchmarkScheduler(chat=refused)
+        try:
+            with pytest.raises(RuntimeError, match="could not reach Ollama"):
+                scheduler.run_benchmark("qwen3-coder:30b", TaskType.CODE_GENERATION)
+        finally:
+            scheduler.close()
 
     def test_run_full_benchmark(self):
-        scheduler = BenchmarkScheduler()
-        results = scheduler.run_full_benchmark([TaskType.CODE_GENERATION])
-        assert len(results) > 0
+        scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
+        try:
+            results = scheduler.run_full_benchmark([TaskType.CODE_GENERATION])
+            assert len(results) > 0
+        finally:
+            scheduler.close()
 
-    def test_get_latest_benchmarks(self):
-        scheduler = BenchmarkScheduler()
-        benchmarks = scheduler.get_latest_benchmarks()
-        assert len(benchmarks) > 0
+    def test_get_latest_benchmarks_empty_before_anything_ran(self):
+        """Previously returned a fresh batch of random.uniform() numbers on
+        every call regardless of whether anything had actually run —
+        get_latest_benchmarks() must now be honest about "nothing yet"."""
+        scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
+        try:
+            assert scheduler.get_latest_benchmarks() == []
+        finally:
+            scheduler.close()
+
+    def test_get_latest_benchmarks_reflects_a_real_run(self):
+        scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
+        try:
+            scheduler.run_benchmark("qwen3-coder:30b", TaskType.CODE_GENERATION)
+            benchmarks = scheduler.get_latest_benchmarks()
+            assert len(benchmarks) == 1
+            assert benchmarks[0]["model_id"] == "qwen3-coder:30b"
+        finally:
+            scheduler.close()
 
     def test_get_regressions(self):
-        scheduler = BenchmarkScheduler()
-        regressions = scheduler.get_regressions()
-        assert isinstance(regressions, list)
+        scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
+        try:
+            regressions = scheduler.get_regressions()
+            assert isinstance(regressions, list)
+        finally:
+            scheduler.close()
 
     def test_start_stop(self):
-        scheduler = BenchmarkScheduler()
-        scheduler.start(interval_h=24)
-        assert scheduler._running is True
-        scheduler.stop()
-        assert scheduler._running is False
+        scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
+        try:
+            scheduler.start(interval_h=24)
+            assert scheduler._running is True
+            scheduler.stop()
+            assert scheduler._running is False
+        finally:
+            scheduler.close()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -614,12 +698,24 @@ class TestAPIRoutes:
         result = handle_get_history()
         assert result["success"] is True
 
-    def test_run_benchmark(self):
+    def test_run_benchmark(self, monkeypatch):
+        import backend.model_intelligence.routes as mi_routes
+
+        monkeypatch.setattr(mi_routes, "_scheduler", BenchmarkScheduler(
+            profiler=mi_routes._get_profiler(), analyzer=mi_routes._get_analyzer(),
+            chat=_fake_benchmark_chat,
+        ))
         result = handle_run_benchmark("qwen3-coder:30b", "code_generation")
         assert result["success"] is True
         assert "benchmark" in result
 
-    def test_run_benchmark_all(self):
+    def test_run_benchmark_all(self, monkeypatch):
+        import backend.model_intelligence.routes as mi_routes
+
+        monkeypatch.setattr(mi_routes, "_scheduler", BenchmarkScheduler(
+            profiler=mi_routes._get_profiler(), analyzer=mi_routes._get_analyzer(),
+            chat=_fake_benchmark_chat,
+        ))
         result = handle_run_benchmark()
         assert result["success"] is True
 
@@ -748,7 +844,7 @@ class TestThreadSafety:
         assert len(history) >= 10
 
     def test_concurrent_benchmark_scheduler(self):
-        scheduler = BenchmarkScheduler()
+        scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
         errors = []
         def benchmark(n):
             try:
@@ -758,6 +854,7 @@ class TestThreadSafety:
         threads = [threading.Thread(target=benchmark, args=(i,)) for i in range(10)]
         for t in threads: t.start()
         for t in threads: t.join()
+        scheduler.close()
         assert len(errors) == 0
 
     def test_concurrent_performance_updates(self):

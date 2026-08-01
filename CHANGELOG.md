@@ -1,3 +1,92 @@
+## HOS-065C — Benchmarks réels et contexte optimisé par rôle (2026-08-01)
+
+Demande de l'utilisateur : lister les modèles installés/utilisés, faire les
+benchmarks manquants, ajuster le contexte de chaque modèle à sa valeur
+optimale. Périmètre confirmé avant exécution.
+
+### État des lieux
+- **16 modèles installés**, 12 réellement utilisés par Hermes
+  (`config/models.yaml`), 4 orphelins d'un autre projet
+  (`hermes3-feedmail:64k`, `feedmail-coder`, `feedmail-deepseek`,
+  `feedmail-fast`) — laissés de côté.
+- **Aucun benchmark réel n'avait jamais été fait.** `BenchmarkScheduler`
+  fabriquait chaque chiffre avec `random.uniform()` sans jamais appeler
+  Ollama, et `get_latest_benchmarks()` régénérait un nouveau jeu de
+  nombres aléatoires à chaque appel au lieu de retourner quoi que ce soit
+  de mesuré.
+- **Le contexte était un seul réglage global (8192)** appliqué
+  identiquement aux 12 modèles, de `nomic-embed-text` (max réel 2048) à
+  `qwen3.5:9b`/`qwen3-coder:30b` (max réel 262144).
+
+### Fixed — BenchmarkScheduler devient réel
+- `run_benchmark()` fait maintenant un vrai appel `POST /api/chat` non
+  streamé à Ollama et lit ses propres compteurs authentiques
+  (`eval_count`, `eval_duration`, `prompt_eval_count`) plutôt que
+  d'estimer ou de fabriquer — latence, tokens/seconde et VRAM (via
+  `/api/ps`, avant/après) sont désormais mesurés, pas inventés. Ne
+  fabrique jamais : si Ollama est injoignable, la méthode lève une
+  exception au lieu de renvoyer des chiffres inventés (même discipline que
+  `RealTaskExecutor.execute()`).
+- `get_latest_benchmarks()` retourne maintenant les résultats réellement
+  stockés (vide tant que rien n'a tourné) au lieu de refabriquer un jeu de
+  nombres aléatoires à chaque appel.
+- Chaque benchmark alimente aussi `ModelProfiler.update_performance()`
+  (même signal que les exécutions réelles de tâches) et
+  `profile.task_scores[task_type]` — ce dernier champ n'était jamais
+  rempli par quoi que ce soit, donc chaque classement d'`AdaptiveRouter`
+  retombait sur la valeur neutre 0.5 pour absolument toutes les paires
+  modèle/tâche.
+- `quality_score` reste honnête : 1.0 si le modèle a produit une réponse
+  non vide, 0.0 sinon — présenté comme un signal de complétion, pas comme
+  une évaluation de qualité qu'aucune infrastructure ne validerait.
+
+### Fixed — contexte par rôle, mesuré, pas théorique
+- Chaque rôle de `config/models.yaml` a maintenant un `num_ctx` propre,
+  choisi à partir d'un vrai benchmark (latence/VRAM mesurées à un contexte
+  candidat), pas du maximum architectural du modèle. Détail des 11
+  modèles de chat benchmarkés (+ `nomic-embed-text` vérifié séparément via
+  `/api/embed`) dans `config/models.yaml`.
+- **Deux découvertes en cours de route** :
+  - `deepseek-r1:32b` (reasoning_escalation) : à seulement 16384 (une
+    fraction de son max réel 131072), 95,8s de latence, 6,6 tok/s, 9,5GB
+    déjà déversés en RAM. Ce modèle de 19GB sur disque sature déjà cette
+    carte de 17,16GB — augmenter son contexte n'aurait fait qu'aggraver
+    la situation, donc son `num_ctx` reste au réglage d'origine (8192) au
+    lieu d'être relevé comme tous les autres rôles.
+  - `qwen3-coder:30b` (code) déborde déjà sur la RAM (15,2GB VRAM + 6,1GB
+    RAM à 24576) — limite matérielle inhérente (18GB sur disque, avant
+    même d'ajouter le cache de contexte), pas quelque chose qu'un réglage
+    de `num_ctx` peut corriger.
+  - `nomic-embed-text` recevait 8192 alors que son maximum réel est 2048
+    (`ollama show`) — corrigé à sa vraie limite.
+- **Propagation du `num_ctx` par rôle dans tout le pipeline d'inférence**,
+  qui reposait entièrement sur un seul défaut global côté client Ollama
+  jusqu'ici :
+  - `ModelRouter.RoutingDecision` porte désormais `num_ctx` (même
+    principe que `thinking`, déjà par-décision).
+  - `AdaptiveRouter.ModelDecision` porte aussi `num_ctx`, dérivé de
+    `ModelProfile.context_window` (champ existant, jamais rempli jusqu'ici
+    — toujours à sa valeur par défaut 4096).
+  - `BaseAgent.respond_events()` et `TaskDecomposer._chat_once()`
+    transmettent désormais `num_ctx=decision.num_ctx` à `chat_events()` —
+    aucun des deux ne le faisait auparavant.
+  - `RealTaskExecutor` gagne un point d'injection `num_ctx_for` (miroir de
+    `model_for`, optionnel, `None` par défaut = comportement inchangé),
+    câblé dans `_make_task_executor` sur `AdaptiveRouter.recommend_for_text()`.
+
+### Verified
+- `pytest tests/model_intelligence/` (avec les nouveaux tests de
+  benchmark réel + regression `chat_capable`), `tests/architecture/
+  test_model_router.py` (nouveau fichier — aucun test dédié n'existait
+  pour `ModelRouter` auparavant), `tests/integration/test_real_execution.py`
+  et `test_assembly.py` (num_ctx_for bout-en-bout) : tous verts.
+- Suite complète : **3363 passed, 3 skipped, 0 failed**.
+- Vérification bout-en-bout avec Ollama réel : objectif autonome exécuté,
+  `ollama ps` confirme `context_length: 16384` pour `qwen3:1.7b` (rôle
+  swift) — exactement la valeur configurée, avec la VRAM réelle mesurée
+  (3183MB) identique à celle du benchmark. `POST /models/recommend`
+  expose maintenant `num_ctx` dans sa réponse.
+
 ## Model Intelligence — trois des quatre adaptateurs câblés (2026-08-01)
 
 Suite directe de l'entrée précédente. Sur les quatre adaptateurs HOS-065B

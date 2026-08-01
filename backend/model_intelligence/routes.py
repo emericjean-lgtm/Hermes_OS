@@ -140,6 +140,7 @@ def handle_recommend(task_description: str, language: str = "python",
             "estimated_latency_ms": decision.estimated_latency_ms,
             "estimated_tps": decision.estimated_tokens_per_second,
             "estimated_vram_mb": decision.estimated_vram_mb,
+            "num_ctx": decision.num_ctx,
             "alternatives": decision.alternatives,
         },
     }

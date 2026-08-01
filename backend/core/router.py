@@ -28,6 +28,11 @@ class RoutingDecision:
     # the decision rather than resolved by each caller, so it lands in the
     # audit log's routing_decision alongside the model it applies to.
     thinking: bool = False
+    # The role's operational context window (config/models.yaml's
+    # roles.*.num_ctx, HOS-065C), chosen from real per-model benchmark data
+    # rather than the single global default every chat_events() call used
+    # to fall back to regardless of which model it was talking to.
+    num_ctx: int = 8192
 
 
 class UnknownTaskTypeError(ValueError):
@@ -111,6 +116,7 @@ class ModelRouter:
             tier=role["tier"],
             reason=reason,
             thinking=self.thinking_for(task_type),
+            num_ctx=int(role.get("num_ctx", 8192)),
         )
 
     def thinking_for(self, task_type: str) -> bool:

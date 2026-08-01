@@ -294,10 +294,12 @@ class TaskDecomposer:
     async def _chat_once(
         self, model: str, messages: list[dict[str, Any]],
         temperature: Optional[float], top_p: Optional[float], think: bool,
+        num_ctx: Optional[int] = None,
     ) -> str:
         content_parts: list[str] = []
         async for chunk in self._ollama.chat_events(
             model, messages, temperature=temperature, top_p=top_p, think=think,
+            num_ctx=num_ctx,
         ):
             if chunk.kind == "content":
                 content_parts.append(chunk.text)
@@ -325,6 +327,7 @@ class TaskDecomposer:
                 self._chat_once(
                     decision.model, messages,
                     gen.get("temperature"), gen.get("top_p"), decision.thinking,
+                    decision.num_ctx,
                 ),
                 self._timeout_s,
             )

@@ -38,7 +38,8 @@ class FakeChatResponse:
         }
 
 
-async def fake_chat(*, messages: list[dict[str, Any]], model: str) -> FakeChatResponse:
+async def fake_chat(*, messages: list[dict[str, Any]], model: str,
+                     num_ctx: "int | None" = None) -> FakeChatResponse:
     """Stand-in for ``RealTaskExecutor._default_chat``: no socket, same shape."""
     return FakeChatResponse(FAKE_COMPLETION, model)
 
@@ -47,7 +48,8 @@ def install(monkeypatch: Any) -> None:
     """Point ``RealTaskExecutor``'s default inference at :func:`fake_chat`."""
     from backend.execution.task_executor import RealTaskExecutor
 
-    async def _patched(self: Any, *, messages: list[dict[str, Any]], model: str) -> Any:
-        return await fake_chat(messages=messages, model=model)
+    async def _patched(self: Any, *, messages: list[dict[str, Any]], model: str,
+                       num_ctx: "int | None" = None) -> Any:
+        return await fake_chat(messages=messages, model=model, num_ctx=num_ctx)
 
     monkeypatch.setattr(RealTaskExecutor, "_default_chat", _patched, raising=True)

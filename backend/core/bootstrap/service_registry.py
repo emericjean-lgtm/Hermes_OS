@@ -277,6 +277,22 @@ def _make_task_executor(c: Any) -> Any:
         except Exception:
             return None
 
+    def _num_ctx_for(task: Any) -> Optional[int]:
+        """The chosen model's own operational context window (HOS-065C —
+        config/models.yaml's roles.*.num_ctx, set from real benchmark data),
+        not the one global default every call used to fall back to
+        regardless of which model answered it. Re-resolves the same
+        recommendation _model_for already made — cheap, in-memory, no
+        network call — rather than changing model_for's return shape."""
+        title = getattr(task, "title", "") or ""
+        if not title:
+            return None
+        try:
+            decision = mi_routes._get_router().recommend_for_text(title)  # noqa: SLF001
+            return decision.num_ctx or None
+        except Exception:
+            return None
+
     def _record_feedback(task: Any, model: str, duration_ms: float,
                          tokens_used: int, success: bool) -> None:
         if not model:
@@ -303,6 +319,7 @@ def _make_task_executor(c: Any) -> Any:
         on_event=_dispatcher(c, "task_executor"),
         model_for=_model_for,
         on_execution=_record_feedback,
+        num_ctx_for=_num_ctx_for,
     )
 
 

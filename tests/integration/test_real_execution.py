@@ -296,7 +296,7 @@ class TestModelIntelligenceFeedback:
         and discarded (the defect model.py's RuntimeRecommender had)."""
         seen_models = []
 
-        async def fake_chat(*, messages, model):
+        async def fake_chat(*, messages, model, num_ctx=None):
             seen_models.append(model)
             return "ok"
 
@@ -307,6 +307,43 @@ class TestModelIntelligenceFeedback:
             executor.close()
         assert seen_models == ["picked-model:1b"]
         assert outcome.model == "picked-model:1b"
+
+    def test_num_ctx_for_reaches_the_runtime_call(self):
+        """num_ctx_for (HOS-065C) is the seam _make_task_executor uses to
+        ask AdaptiveRouter for the model's real, benchmarked context window
+        — this confirms the resolved value reaches the chat call, not just
+        computed and discarded (the same defect class model_for fixed for
+        the model choice itself)."""
+        seen_ctx = []
+
+        async def fake_chat(*, messages, model, num_ctx=None):
+            seen_ctx.append(num_ctx)
+            return "ok"
+
+        executor = RealTaskExecutor(chat=fake_chat, num_ctx_for=lambda task: 24576)
+        try:
+            executor.execute(_Task(), None)
+        finally:
+            executor.close()
+        assert seen_ctx == [24576]
+
+    def test_num_ctx_for_defaulting_to_none_does_not_break_execution(self):
+        """No num_ctx_for injected (every caller before this pass, and
+        still every test that doesn't explicitly opt in) must keep working
+        exactly as before — None reaches the chat call, same as always."""
+        seen_ctx = []
+
+        async def fake_chat(*, messages, model, num_ctx=None):
+            seen_ctx.append(num_ctx)
+            return "ok"
+
+        executor = RealTaskExecutor(chat=fake_chat)
+        try:
+            outcome = executor.execute(_Task(), None)
+        finally:
+            executor.close()
+        assert seen_ctx == [None]
+        assert outcome.result == "ok"
 
 
 # ── The autonomous pipeline end to end ───────────────────────────────

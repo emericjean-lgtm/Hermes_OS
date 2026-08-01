@@ -87,5 +87,9 @@ class BaseAgent(ABC):
             # the same one the audit log records. See §22.1 — reasoning
             # costs ~3.5 s of silence before the first visible word.
             think=decision.thinking,
+            # Per-role, chosen from real benchmark data (HOS-065C) — every
+            # chat_events() call used to fall back to one global default
+            # (8192) regardless of which model it was actually talking to.
+            num_ctx=decision.num_ctx,
         )
         return decision, stream

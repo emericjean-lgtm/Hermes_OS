@@ -132,6 +132,12 @@ class ModelDecision:
     estimated_tokens_per_second: float = 0.0
     estimated_vram_mb: int = 0
     task_context: TaskContext | None = None
+    # The per-role operational context window (config/models.yaml's
+    # roles.*.num_ctx, HOS-065C) — not the model's architectural maximum
+    # (that lives on ModelProfile.context_window too, same source). 0 means
+    # "the caller's own default", the same convention chat_events() already
+    # uses for its own num_ctx parameter.
+    num_ctx: int = 0
 
 
 @dataclass
@@ -237,6 +243,11 @@ def _build_predefined_models() -> dict[str, dict[str, Any]]:
             "tags": [role_name, role.get("tier", "")],
             # The embedding role serves /api/embed, not /api/chat.
             "chat_capable": role_name != "embedding",
+            # HOS-065C: the operational context window chosen for this role
+            # from real benchmark data (latency/VRAM measured at several
+            # candidates — see CHANGELOG), not the model's architectural
+            # maximum. 8192 only if a role predates that pass.
+            "context_window": int(role.get("num_ctx", 8192)),
         }
     return models
 

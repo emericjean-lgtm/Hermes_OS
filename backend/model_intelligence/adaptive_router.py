@@ -86,6 +86,7 @@ class AdaptiveRouter:
             estimated_tokens_per_second=best["estimated_tps"],
             estimated_vram_mb=best["estimated_vram_mb"],
             task_context=task,
+            num_ctx=profile.context_window if profile else 0,
         )
 
         self._log_decision(decision)
@@ -186,6 +187,7 @@ class AdaptiveRouter:
             alternatives=[],
             estimated_vram_mb=lightest.vram_required_mb if lightest else 0,
             task_context=task,
+            num_ctx=lightest.context_window if lightest else 0,
         )
 
     def _log_decision(self, decision: ModelDecision) -> None:
