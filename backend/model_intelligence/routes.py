@@ -6,8 +6,9 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Query
 
-from .adaptive_router import AdaptiveRouter
+from .adaptive_router import AdaptiveRouter, CloudGate
 from .benchmark_scheduler import BenchmarkScheduler
+from .cloud_catalog import CloudModelCatalog
 from .model_evolution_adapter import ModelEvolutionAdapter
 from .model_intelligence_models import TaskType
 from .model_memory_adapter import ModelMemoryAdapter
@@ -24,6 +25,8 @@ _scheduler: BenchmarkScheduler | None = None
 _optimizer: ModelRuntimeOptimizer | None = None
 _memory: ModelMemoryAdapter | None = None
 _evolution: ModelEvolutionAdapter | None = None
+_cloud_catalog: CloudModelCatalog | None = None
+_cloud_catalog_checked = False
 
 
 def _get_profiler() -> ModelProfiler:
@@ -47,6 +50,48 @@ def _get_predictor() -> ModelPredictor:
     return _predictor
 
 
+def _get_cloud_catalog() -> CloudModelCatalog | None:
+    """None when OPENROUTER_API_KEY isn't configured — the safe default:
+    cloud escalation (HOS-066C) stays off and recommend() behaves exactly as
+    it did before this feature existed. Checked once per process: an empty
+    key is a deployment choice, not something that becomes true mid-run."""
+    global _cloud_catalog, _cloud_catalog_checked
+    if not _cloud_catalog_checked:
+        _cloud_catalog_checked = True
+        from backend.core.config import get_settings
+
+        settings = get_settings()
+        if settings.openrouter_api_key:
+            _cloud_catalog = CloudModelCatalog(
+                settings.openrouter_api_key,
+                _get_profiler(),
+                reserve_daily_requests=settings.openrouter_daily_reserve,
+            )
+    return _cloud_catalog
+
+
+def _cloud_authorized() -> bool:
+    """Aegis's cloud_inference category, evaluated fresh each time (cheap:
+    load_security_config() is lru_cache'd, and AegisEngine.evaluate() is a
+    pure, local rules check — no network, no model call). At the shipped
+    autonomy_level "low" this always returns False (human validation
+    required), which is what keeps cloud escalation off automatically out
+    of the box even with a real API key configured."""
+    from backend.core.config import get_settings, load_security_config
+    from backend.security.aegis_engine import ActionRequest, AegisEngine, Verdict
+    from backend.security.permission_matrix import PermissionMatrix
+
+    settings = get_settings()
+    matrix = PermissionMatrix(load_security_config())
+    engine = AegisEngine(matrix, settings.allowed_paths_list)
+    decision = engine.evaluate(ActionRequest(
+        action_type="cloud_inference",
+        description="OpenRouter free-model escalation",
+        requesting_agent="model_intelligence",
+    ))
+    return decision.verdict == Verdict.ALLOW
+
+
 def _get_router() -> AdaptiveRouter:
     global _router
     if _router is None:
@@ -55,6 +100,13 @@ def _get_router() -> AdaptiveRouter:
             analyzer=_get_analyzer(),
             predictor=_get_predictor(),
         )
+        catalog = _get_cloud_catalog()
+        if catalog is not None:
+            _router.set_cloud(CloudGate(
+                authorized=_cloud_authorized,
+                has_quota=catalog.has_budget,
+                refresh_catalog=catalog.refresh,
+            ))
     return _router
 
 
@@ -262,6 +314,42 @@ def handle_get_evolution(threshold: float = 0.7, suggest_for: str = "") -> dict[
     return result
 
 
+def handle_get_cloud_status() -> dict[str, Any]:
+    """GET /models/cloud/status
+
+    Honest, read-only visibility into OpenRouter cloud escalation (HOS-066C)
+    — whether it is configured at all, whether Aegis authorizes it *right
+    now* at the current autonomy level, and the real cached catalogue/quota
+    state. Deliberately does not trigger a fresh network call on every
+    request: quota/catalogue are read from CloudModelCatalog's own cache
+    (refreshed on an actual cloud-eligible recommendation, see
+    AdaptiveRouter._try_cloud_recommendation), so checking status never
+    itself spends quota or adds latency.
+    """
+    catalog = _get_cloud_catalog()
+    if catalog is None:
+        return {
+            "success": True,
+            "configured": False,
+            "authorized": False,
+            "message": "OPENROUTER_API_KEY is not set — cloud escalation is disabled; every task runs local.",
+        }
+    authorized = _cloud_authorized()
+    status = catalog.status()
+    return {
+        "success": True,
+        "configured": True,
+        "authorized": authorized,
+        "message": (
+            "Cloud escalation is reachable." if authorized else
+            "A key is configured, but Aegis does not currently authorize cloud_inference "
+            "(needs autonomy_level 'high' in config/security.yaml, or per-request approval) — "
+            "every task still runs local."
+        ),
+        **status,
+    }
+
+
 # ── HTTP surface ─────────────────────────────────────────────
 # Thin delegation to the handlers above (HOS-066B). The docstrings on those
 # handlers already declared these paths under /models; that prefix is used here
@@ -337,3 +425,8 @@ async def get_evolution(
     suggest_for: str = Query(""),
 ) -> dict[str, Any]:
     return handle_get_evolution(threshold, suggest_for)
+
+
+@router.get("/cloud/status")
+async def get_cloud_status() -> dict[str, Any]:
+    return handle_get_cloud_status()

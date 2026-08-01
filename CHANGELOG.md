@@ -1,3 +1,102 @@
+## HOS-066C — Escalade cloud OpenRouter (modèles gratuits), local par défaut (2026-08-01)
+
+Demande de l'utilisateur : intégrer OpenRouter comme second runtime, mais
+uniquement ses modèles gratuits (`:free`), avec bascule automatique entre
+eux, sélection selon le type de tâche, priorité systématique au local, et
+repli automatique sur le local si le quota cloud est épuisé. Remplace une
+première piste (intégration du CLI FreeBuff) écartée après analyse : le
+CLI gratuit de FreeBuff n'a aucun mode programmable/headless documenté —
+voir la discussion, non commitée. Aucune fabrication de code n'a eu lieu
+avant validation explicite du plan par l'utilisateur.
+
+### Fait important à ne pas perdre de vue
+Le quota gratuit d'OpenRouter (20 req/min ; 50/jour, ou 1000/jour avec
+≥10$ de crédit à vie sur le compte) est **un seul pool partagé entre tous
+les modèles `:free`**, pas un quota par modèle — confirmé sur la doc
+officielle. Faire tourner plusieurs modèles gratuits en rotation aide la
+fiabilité (un modèle en panne, un autre choisi) et l'adéquation à la
+tâche ; ça n'étend jamais le budget total. Le message n'a pas été édulcoré
+auprès de l'utilisateur.
+
+### Added
+- `backend/connectors/openrouter_client.py` — `OpenRouterClient`, même
+  forme que `OllamaClientProtocol` (`chat`/`chat_stream`/`chat_events`) :
+  appels réels à `POST /chat/completions` (OpenAI-compatible), lecture des
+  vrais compteurs `usage.prompt_tokens`/`completion_tokens` d'OpenRouter en
+  non-streaming, parsing SSE réel en streaming (y compris le cas
+  `finish_reason: "error"` en cours de flux — confirmé sur la doc, pas
+  supposé). `OpenRouterQuotaExhaustedError` distingue un 429 (quota) d'une
+  autre panne, sans changer le traitement (les deux déclenchent le même
+  repli local automatique).
+- `backend/model_intelligence/cloud_catalog.py` — `CloudModelCatalog` :
+  découvre dynamiquement les modèles gratuits via `GET /models`
+  (`pricing.prompt == "0" and pricing.completion == "0"`, pas seulement le
+  suffixe `:free`), les enregistre dans le même `ModelProfiler` que les 12
+  rôles locaux (`vram_required_mb=0`, `context_window` réel de l'API,
+  `chat_capable` dérivé des modalités de sortie réelles). `has_budget()`
+  vérifie le quota réel via `GET /key` (mis en cache, ~60s), avec une
+  marge de sécurité configurable (`OPENROUTER_DAILY_RESERVE`, 5 par
+  défaut) — jamais laisser l'escalade automatique consommer les toutes
+  dernières requêtes du jour. Inconnu/injoignable = pas de budget : échec
+  fermé vers le local, jamais une supposition optimiste.
+- `AdaptiveRouter` (adaptive_router.py) — nouvelle porte d'escalade
+  cloud, local-first par construction : un profil cloud n'est même
+  considéré que si **aucun modèle local n'est viable** pour la tâche, ou
+  si la tâche a explicitement demandé l'escalade
+  (`TaskContext.cloud_escalation_allowed`, même logique que
+  `reasoning_escalation`/`advanced_analysis` — un palier délibéré, jamais
+  déclenché par une heuristique). Même alors, le cloud n'est utilisé que
+  si Aegis autorise `cloud_inference` *et* qu'il reste du quota réel —
+  sinon repli silencieux sur le classement local existant, inchangé.
+  `_fallback_decision` (le dernier recours) exclut explicitement les
+  profils cloud : ils portent `vram_required_mb=0`, ce qui leur aurait
+  fait gagner ce classement à coup sûr et aurait contourné toutes les
+  vérifications d'autorisation/quota — bug réel trouvé et corrigé avant
+  qu'il n'atteigne la production.
+- `RealTaskExecutor` (task_executor.py) — `cloud_chat`/`runtime_for`/
+  `local_fallback_for`, tous optionnels (`None` par défaut = comportement
+  100% inchangé). Un échec cloud, quelle qu'en soit la cause (quota,
+  réseau, modèle indisponible), déclenche un repli automatique et réel sur
+  un modèle local — ce n'est pas une fabrication de résultat (interdite
+  par R-001), c'est le choix d'un runtime différent, tout aussi réel.
+- `config/security.yaml` — nouvelle catégorie Aegis `cloud_inference`
+  (même politique que `network_call` : `min_autonomy_for_auto_allow:
+  high`). Au niveau d'autonomie livré par défaut (`low`), toute tentative
+  d'escalade cloud requiert une validation humaine — **rien ne part vers
+  l'extérieur automatiquement**, même avec une clé API configurée. Passer
+  `autonomy_level` à `high` est l'acte délibéré par lequel un opérateur
+  active l'escalade automatique.
+- `GET /models/cloud/status` — visibilité honnête en lecture seule :
+  configuré ou non, autorisé ou non *en ce moment*, taille du catalogue,
+  quota restant réel (depuis le cache, sans jamais déclencher d'appel
+  réseau juste pour être consultée).
+- `OPENROUTER_API_KEY`/`OPENROUTER_DAILY_RESERVE` dans `.env.example` —
+  vide par défaut, le réglage le plus sûr : Hermes reste 100% local tant
+  qu'une clé réelle n'est pas fournie.
+
+### Verified
+- 47 nouveaux tests (`tests/model_intelligence/test_openrouter_client.py`,
+  `test_cloud_catalog.py`, `test_cloud_escalation.py`,
+  `test_task_executor_cloud_fallback.py`, `test_cloud_status_route.py`,
+  plus 3 dans `backend/tests/test_aegis.py` pour `cloud_inference`) : tout
+  passe sans réseau (`httpx.MockTransport` pour le client HTTP réel, aucun
+  double factice pour la logique métier).
+- Suite complète (`tests/` + `backend/tests/`) : **3413 passed, 3 skipped,
+  0 failed**.
+
+### Non fait dans cette passe
+- `ModelRouter` (backend/core/router.py, utilisé par `BaseAgent`/
+  `TaskDecomposer` pour le chat/la décomposition de mission) n'a pas
+  l'escalade cloud — seul `AdaptiveRouter`/`RealTaskExecutor` (le pipeline
+  d'exécution de tâches réel) l'a. Extension naturelle si l'escalade cloud
+  doit aussi couvrir les agents conversationnels.
+- Pas de widget de quota dans le Models Center — `GET /models/cloud/status`
+  existe côté backend, rien côté frontend pour l'instant.
+- Pas de benchmark réel des modèles cloud gratuits (l'extension de
+  `BenchmarkScheduler` proposée dans le plan) — les profils cloud démarrent
+  avec les mêmes scores neutres que les rôles locaux avant leur premier
+  vrai benchmark.
+
 ## HOS-065C — Benchmarks réels et contexte optimisé par rôle (2026-08-01)
 
 Demande de l'utilisateur : lister les modèles installés/utilisés, faire les

@@ -75,6 +75,7 @@ class TestModelIntelligenceModels:
     def test_runtime_backend_enum(self):
         assert RuntimeBackend.OLLAMA.value == "ollama"
         assert RuntimeBackend.KTRANSFORMERS.value == "ktransformers"
+        assert RuntimeBackend.OPENROUTER.value == "openrouter"
 
     def test_quantization_enum(self):
         assert Quantization.Q4_K_M.value == "q4_k_m"
@@ -84,6 +85,8 @@ class TestModelIntelligenceModels:
         ctx = TaskContext()
         assert ctx.task_type == TaskType.GENERAL
         assert ctx.max_vram_mb == 8192
+        # HOS-066C: cloud escalation is opt-in, never a silent default.
+        assert ctx.cloud_escalation_allowed is False
 
     def test_model_decision_creation(self):
         decision = ModelDecision(

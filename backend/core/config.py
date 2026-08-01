@@ -47,6 +47,18 @@ class Settings(BaseSettings):
             )
         return value
 
+    # ── OPENROUTER (HOS-066C) ───────────────────────────────────────
+    # Empty (the default) keeps Hermes 100% local — cloud escalation is only
+    # wired at bootstrap when this is set (see service_registry.py's
+    # _wire_cloud_escalation). Only OpenRouter's free (":free", zero-priced)
+    # models are ever used — see backend/model_intelligence/cloud_catalog.py.
+    openrouter_api_key: str = ""
+    # Requests held back from the automatic escalation path, out of
+    # OpenRouter's shared daily free-tier quota (50, or 1000 with >=$10
+    # lifetime account credit) — a safety margin so a burst of low-value
+    # tasks can't silently exhaust the day's budget. 0 uses the full quota.
+    openrouter_daily_reserve: int = 5
+
     ollama_keep_alive: str = "10m"
     # Floor applied whenever a caller doesn't pass num_ctx explicitly (see
     # backend/connectors/ollama_client.py DEFAULT_NUM_CTX). Ollama's own

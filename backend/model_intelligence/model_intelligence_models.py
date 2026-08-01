@@ -42,6 +42,13 @@ class RuntimeBackend(str, Enum):
     TRANSFORMERS = "transformers"
     VLLM = "vllm"
     LLAMACPP = "llamacpp"
+    # OpenRouter's free (":free") model pool — the only cloud tier this
+    # project uses (see backend/connectors/openrouter_client.py). Never the
+    # default: AdaptiveRouter only offers it when no local model is viable
+    # or a task explicitly opts in, and only when Aegis's cloud_inference
+    # category authorizes it (config/security.yaml) — see AdaptiveRouter's
+    # CloudGate.
+    OPENROUTER = "openrouter"
 
 
 class Quantization(str, Enum):
@@ -117,6 +124,12 @@ class TaskContext:
     requires_code: bool = True
     deadline_s: int = 300
     budget_tokens: int = 100000
+    # Explicit opt-in for a cloud (OpenRouter free-model) escalation, mirroring
+    # how reasoning_escalation/advanced_analysis are deliberate, named local
+    # tiers rather than something a complexity heuristic silently triggers.
+    # False (the default) still lets AdaptiveRouter reach for cloud in the one
+    # other honest case: no local model is viable at all (see recommend()).
+    cloud_escalation_allowed: bool = False
 
 
 @dataclass

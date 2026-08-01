@@ -68,6 +68,35 @@ def test_file_read_inside_whitelist_always_allowed(security_config, tmp_path):
     assert decision.verdict is Verdict.ALLOW
 
 
+def test_cloud_inference_requires_validation_at_shipped_autonomy(security_config):
+    """HOS-066C: the shipped config/security.yaml's own autonomy_level (not
+    overridden here) must keep OpenRouter escalation off automatically —
+    the whole point of gating it behind Aegis."""
+    engine = _engine(security_config, allowed_paths=[])
+    decision = engine.evaluate(
+        ActionRequest(action_type="cloud_inference", description="OpenRouter free-model escalation")
+    )
+    assert decision.verdict is Verdict.REQUIRE_HUMAN_VALIDATION
+
+
+def test_cloud_inference_auto_allowed_at_high_autonomy(security_config):
+    engine = _engine(security_config, allowed_paths=[], autonomy_level="high")
+    decision = engine.evaluate(
+        ActionRequest(action_type="cloud_inference", description="OpenRouter free-model escalation")
+    )
+    assert decision.verdict is Verdict.ALLOW
+
+
+def test_cloud_inference_still_requires_validation_at_medium_autonomy(security_config):
+    """Same tier as network_call/verification_run — "medium" (which already
+    auto-allows file_write/git_operation) is deliberately not enough."""
+    engine = _engine(security_config, allowed_paths=[], autonomy_level="medium")
+    decision = engine.evaluate(
+        ActionRequest(action_type="cloud_inference", description="OpenRouter free-model escalation")
+    )
+    assert decision.verdict is Verdict.REQUIRE_HUMAN_VALIDATION
+
+
 def test_file_read_outside_whitelist_is_denied(security_config, tmp_path):
     engine = _engine(security_config, allowed_paths=[str(tmp_path / "allowed")], autonomy_level="low")
     decision = engine.evaluate(

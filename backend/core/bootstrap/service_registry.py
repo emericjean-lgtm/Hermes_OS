@@ -293,6 +293,38 @@ def _make_task_executor(c: Any) -> Any:
         except Exception:
             return None
 
+    def _runtime_for(task: Any) -> Optional[str]:
+        """Which runtime AdaptiveRouter actually chose for this task
+        (HOS-066C) — "openrouter" only when its cloud escalation gate said
+        yes (no local model viable / task opted in, Aegis authorized, real
+        quota available); anything else runs local exactly as before this
+        existed. Re-resolves the same recommendation _model_for already
+        made, same reasoning as _num_ctx_for above."""
+        title = getattr(task, "title", "") or ""
+        if not title:
+            return None
+        try:
+            decision = mi_routes._get_router().recommend_for_text(title)  # noqa: SLF001
+            return decision.runtime.value
+        except Exception:
+            return None
+
+    def _local_fallback_for(task: Any) -> Optional[str]:
+        """A real local model to retry against if a cloud call fails
+        (HOS-066C) — the same ranking machinery, forced local-only
+        (allow_cloud=False) so it can never recommend the very runtime that
+        just failed."""
+        title = getattr(task, "title", "") or ""
+        if not title:
+            return None
+        try:
+            decision = mi_routes._get_router().recommend_for_text(  # noqa: SLF001
+                title, allow_cloud=False,
+            )
+            return decision.model_id or None
+        except Exception:
+            return None
+
     def _record_feedback(task: Any, model: str, duration_ms: float,
                          tokens_used: int, success: bool) -> None:
         if not model:
@@ -320,7 +352,38 @@ def _make_task_executor(c: Any) -> Any:
         model_for=_model_for,
         on_execution=_record_feedback,
         num_ctx_for=_num_ctx_for,
+        cloud_chat=_make_cloud_chat(),
+        runtime_for=_runtime_for,
+        local_fallback_for=_local_fallback_for,
     )
+
+
+def _make_cloud_chat() -> Optional[Any]:
+    """OpenRouter chat callable for RealTaskExecutor (HOS-066C). None when
+    OPENROUTER_API_KEY isn't configured — cloud is then entirely unreachable
+    regardless of what AdaptiveRouter recommends, the safe default. A fresh
+    OpenRouterClient per call, closed after — the same pattern
+    RealTaskExecutor._default_chat already uses for OllamaClient."""
+    from backend.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.openrouter_api_key:
+        return None
+
+    async def _cloud_chat(*, messages: list[dict[str, Any]], model: str,
+                          num_ctx: Optional[int] = None) -> Any:
+        from backend.connectors.openrouter_client import OpenRouterClient
+
+        client = OpenRouterClient(settings.openrouter_api_key)
+        try:
+            return await client.chat(messages, model=model, num_ctx=num_ctx)
+        finally:
+            try:
+                await client.aclose()
+            except Exception:  # pragma: no cover - best-effort cleanup
+                pass
+
+    return _cloud_chat
 
 
 def _make_execution_engine(c: Any) -> Any:

@@ -97,3 +97,18 @@ action_categories:
     mutating: true
     path_based: false
     mandatory_validation: true # §17.3: "actions réseau importantes"
+
+  # OpenRouter cloud-model escalation (HOS-066C) — the first path by which a
+  # task's prompt content leaves this machine. Same policy shape as
+  # network_call (not mandatory, but gated behind "high") rather than
+  # network_major (always human): the request itself is bounded and
+  # inspectable (one chat completion to a named free model), not an open
+  # network action. At the shipped autonomy_level "low" this still requires
+  # human validation every time — nothing is sent automatically out of the
+  # box. Raising autonomy_level to "high" is how an operator deliberately
+  # opts in to unattended cloud escalation.
+  cloud_inference:
+    mutating: true
+    path_based: false
+    mandatory_validation: false
+    min_autonomy_for_auto_allow: high

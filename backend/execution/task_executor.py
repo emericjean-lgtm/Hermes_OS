@@ -106,6 +106,18 @@ class RealTaskExecutor:
             global default every call used to fall back to regardless of
             which model answered it. None (the default) preserves the old
             behaviour: the client's own configured default applies.
+        cloud_chat: same shape as ``chat``, talking to OpenRouter instead of
+            Ollama (HOS-066C). None (the default) disables cloud entirely —
+            every task runs local, unchanged from before this existed.
+        runtime_for: maps a task to ``"openrouter"``/``"ollama"``/None — the
+            runtime AdaptiveRouter actually chose for it. Only ``"openrouter"``
+            with ``cloud_chat`` set attempts a cloud call; anything else runs
+            local exactly as before.
+        local_fallback_for: maps a task to a real *local* model to retry
+            against if the cloud call fails for any reason (quota exhausted,
+            network error, model unavailable). Retrying against a real,
+            different runtime is not fabrication — it is the automatic
+            cloud-to-local fallback the escalation feature exists for.
         timeout_s: hard ceiling on one inference call.
     """
 
@@ -118,6 +130,9 @@ class RealTaskExecutor:
         on_event: Optional[Callable] = None,
         on_execution: Optional[Callable[[Any, str, float, int, bool], None]] = None,
         num_ctx_for: Optional[Callable[[Any], Optional[int]]] = None,
+        cloud_chat: Optional[Callable[..., Any]] = None,
+        runtime_for: Optional[Callable[[Any], Optional[str]]] = None,
+        local_fallback_for: Optional[Callable[[Any], Optional[str]]] = None,
         timeout_s: float = 180.0,
         default_model: str = "qwen3:4b",
     ) -> None:
@@ -127,6 +142,9 @@ class RealTaskExecutor:
         self._on_event = on_event
         self._on_execution = on_execution
         self._num_ctx_for = num_ctx_for
+        self._cloud_chat = cloud_chat
+        self._runtime_for = runtime_for
+        self._local_fallback_for = local_fallback_for
         self._timeout_s = timeout_s
         self._default_model = default_model
 
@@ -209,29 +227,62 @@ class RealTaskExecutor:
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
 
         chat = self._chat or self._default_chat
+        use_cloud = self._cloud_chat is not None and self._resolve_runtime(task) == "openrouter"
+        if use_cloud:
+            runtime_id = "openrouter"
+        requested_runtime = runtime_id
+
         started = time.perf_counter()
         try:
+            active_chat = self._cloud_chat if use_cloud else chat
             response = self._run_coro(
-                chat(messages=messages, model=model, num_ctx=num_ctx), self._timeout_s
+                active_chat(messages=messages, model=model, num_ctx=num_ctx), self._timeout_s
             )
-        except RuntimeUnavailableError:
-            self._record_failure()
-            self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
-            raise
-        except asyncio.TimeoutError as exc:
-            self._record_failure()
-            self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
-            raise RuntimeUnavailableError(
-                f"runtime {runtime_id!r} timed out after {self._timeout_s:.0f}s"
-            ) from exc
         except Exception as exc:
-            self._record_failure()
-            self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
-            # Anything the runtime layer raises means the work did not happen.
-            raise RuntimeUnavailableError(
-                f"runtime {runtime_id!r} could not execute task "
-                f"{getattr(task, 'task_id', '?')}: {type(exc).__name__}: {exc}"
-            ) from exc
+            if use_cloud:
+                # A real, different runtime exists (local) — retrying against
+                # it is not fabrication, it is the automatic cloud-to-local
+                # fallback this feature exists for. Any cloud failure
+                # triggers it, not just quota exhaustion: a network hiccup or
+                # a model going away deserves the same honest recovery.
+                logger.warning(
+                    "cloud runtime failed for task %s (%s: %s) — falling back to local",
+                    getattr(task, "task_id", "?"), type(exc).__name__, exc,
+                )
+                fallback_model = self._resolve_local_fallback(task) or self._default_model
+                try:
+                    response = self._run_coro(
+                        chat(messages=messages, model=fallback_model, num_ctx=num_ctx),
+                        self._timeout_s,
+                    )
+                    model = fallback_model
+                    runtime_id = "ollama"
+                except Exception as exc2:
+                    self._record_failure()
+                    self._report_execution(task, fallback_model,
+                                           (time.perf_counter() - started) * 1000.0, 0, False)
+                    raise RuntimeUnavailableError(
+                        f"cloud runtime failed ({type(exc).__name__}: {exc}) and "
+                        f"the local fallback also failed: {type(exc2).__name__}: {exc2}"
+                    ) from exc2
+            elif isinstance(exc, RuntimeUnavailableError):
+                self._record_failure()
+                self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
+                raise
+            elif isinstance(exc, asyncio.TimeoutError):
+                self._record_failure()
+                self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
+                raise RuntimeUnavailableError(
+                    f"runtime {runtime_id!r} timed out after {self._timeout_s:.0f}s"
+                ) from exc
+            else:
+                self._record_failure()
+                self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
+                # Anything the runtime layer raises means the work did not happen.
+                raise RuntimeUnavailableError(
+                    f"runtime {runtime_id!r} could not execute task "
+                    f"{getattr(task, 'task_id', '?')}: {type(exc).__name__}: {exc}"
+                ) from exc
 
         duration_ms = (time.perf_counter() - started) * 1000.0
         content, meta = self._read_response(response)
@@ -261,7 +312,7 @@ class RealTaskExecutor:
                                   or _estimate_tokens(content)),
             metadata={
                 "provider": served_by,
-                "runtime_requested": runtime_id,
+                "runtime_requested": requested_runtime,
                 "token_counts": "reported" if meta.get("prompt_tokens") else "estimated",
             },
         )
@@ -321,6 +372,22 @@ class RealTaskExecutor:
                 await client.aclose()
             except Exception:  # pragma: no cover - best-effort cleanup
                 logger.debug("closing Ollama client failed", exc_info=True)
+
+    def _resolve_runtime(self, task: Any) -> Optional[str]:
+        if self._runtime_for is not None:
+            try:
+                return self._runtime_for(task)
+            except Exception:
+                logger.debug("runtime_for callback failed", exc_info=True)
+        return None
+
+    def _resolve_local_fallback(self, task: Any) -> Optional[str]:
+        if self._local_fallback_for is not None:
+            try:
+                return self._local_fallback_for(task)
+            except Exception:
+                logger.debug("local_fallback_for callback failed", exc_info=True)
+        return None
 
     def _resolve_model(self, task: Any, assignment: Any) -> str:
         if self._model_for is not None:
