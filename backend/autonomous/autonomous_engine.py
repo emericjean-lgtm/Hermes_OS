@@ -23,7 +23,9 @@ class AutonomousEngine:
     """
 
     def __init__(self, on_event: Callable | None = None,
-                 mission_executor: Any = None) -> None:
+                 mission_executor: Any = None,
+                 mission_planner: Any = None,
+                 graph_executor: Any = None) -> None:
         """
         Args:
             mission_executor: the shared task-execution pipeline. Passed straight
@@ -32,9 +34,16 @@ class AutonomousEngine:
                 own — the duplication R-002 P1 removes. When ``None`` the
                 orchestrator still builds its own, which keeps direct
                 construction working in tests.
+            mission_planner: the real Mission Planner (HOS-042), passed
+                through so a goal is decomposed into a real DAG (HOS-067)
+                instead of one flat task — see AutonomousOrchestrator.
+            graph_executor: the real DAG walker (HOS-041), passed through
+                alongside ``mission_planner``.
         """
         self._orchestrator = AutonomousOrchestrator(
-            on_event=on_event, mission_executor=mission_executor)
+            on_event=on_event, mission_executor=mission_executor,
+            mission_planner=mission_planner, graph_executor=graph_executor,
+        )
 
     @property
     def orchestrator(self) -> AutonomousOrchestrator:

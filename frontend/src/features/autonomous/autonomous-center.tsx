@@ -37,6 +37,9 @@ const statusBadge = (status: string | undefined) => {
 
 export function AutonomousCenter() {
   const [request, setRequest] = useState("");
+  const [localPath, setLocalPath] = useState("");
+  const [repository, setRepository] = useState("");
+  const [branch, setBranch] = useState("");
   const [goalId, setGoalId] = useState<string | undefined>(undefined);
 
   const status = useAutonomousStatus();
@@ -52,7 +55,14 @@ export function AutonomousCenter() {
   const execute = () => {
     const text = request.trim();
     if (!text) return;
-    start.mutate(text, { onSuccess: (g) => setGoalId(g.goal_id) });
+    const context: Record<string, unknown> = {};
+    if (localPath.trim()) context.local_path = localPath.trim();
+    if (repository.trim()) context.repository = repository.trim();
+    if (branch.trim()) context.branch = branch.trim();
+    start.mutate(
+      { userRequest: text, context },
+      { onSuccess: (g) => setGoalId(g.goal_id) },
+    );
   };
 
   return (
@@ -97,6 +107,34 @@ export function AutonomousCenter() {
             <Play className="w-4 h-4" />
             {busy ? "Running…" : "Execute"}
           </button>
+        </div>
+
+        {/* Project binding (HOS-067) — optional. A goal bound to either
+            requires Aegis validation before it runs (see the "paused"
+            status below) instead of the unconditional pass-through a
+            plain, unbound goal gets. */}
+        <div className="grid grid-cols-3 gap-3 mt-3">
+          <input
+            type="text"
+            value={localPath}
+            onChange={(e) => setLocalPath(e.target.value)}
+            placeholder="Local folder (optional) — e.g. C:\projects\my-app"
+            className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:outline-none focus:border-hermes-amber/50 placeholder:text-hermes-muted/50"
+          />
+          <input
+            type="text"
+            value={repository}
+            onChange={(e) => setRepository(e.target.value)}
+            placeholder="GitHub repo (optional) — e.g. owner/repo"
+            className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:outline-none focus:border-hermes-amber/50 placeholder:text-hermes-muted/50"
+          />
+          <input
+            type="text"
+            value={branch}
+            onChange={(e) => setBranch(e.target.value)}
+            placeholder="Branch (optional) — default: main"
+            className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:outline-none focus:border-hermes-amber/50 placeholder:text-hermes-muted/50"
+          />
         </div>
         {busy && (
           <div className="text-[10px] text-hermes-muted font-mono mt-2">
@@ -166,6 +204,40 @@ export function AutonomousCenter() {
               ))}
             </div>
           </div>
+          {(goal.local_path || goal.repository) && (
+            <div className="mt-3 pt-3 border-t border-hermes-border/30 flex gap-4 text-[10px] font-mono">
+              {goal.local_path && (
+                <div>
+                  <span className="text-hermes-muted uppercase">Local: </span>
+                  <span className="text-hermes-text">{goal.local_path}</span>
+                </div>
+              )}
+              {goal.repository && (
+                <div>
+                  <span className="text-hermes-muted uppercase">Repo: </span>
+                  <span className="text-hermes-text">
+                    {goal.repository}{goal.branch ? `@${goal.branch}` : ""}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+          {goal.status === "paused" && (
+            <div className="mt-3 pt-3 border-t border-hermes-border/30 text-[10px] font-mono text-hermes-amber flex items-center gap-2">
+              <AlertCircle className="w-3 h-3" />
+              This goal touches a real project and needs human validation
+              (Aegis) before it can run — raise autonomy_level, or resume it
+              once approved.
+            </div>
+          )}
+          {goal.knowledge_context && (
+            <div className="mt-3 pt-3 border-t border-hermes-border/30">
+              <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">
+                From past missions
+              </div>
+              <div className="text-[10px] text-hermes-text">{goal.knowledge_context}</div>
+            </div>
+          )}
         </Card>
       )}
 

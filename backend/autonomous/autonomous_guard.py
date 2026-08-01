@@ -25,6 +25,49 @@ class GuardVerdict(str, Enum):
     REVIEW = "review"
 
 
+class AegisSecurityAdapter:
+    """Bridges AutonomousGuard's expected security-engine contract
+    (``check_access(principal_id=, resource_type=, resource_id=, operation=,
+    context=) -> dict``) to the real, deterministic ``AegisEngine`` (HOS-067)
+    — the same rules engine every other risk-relevant Hermes action goes
+    through (file writes, git operations, OpenRouter cloud escalation).
+
+    Before this, ``set_security_engine``/``set_policy_engine`` existed but
+    were never called anywhere in the bootstrap — confirmed by a repo-wide
+    search — so ``check_action()`` only ever ran its hard-blocked-category
+    list, and every autonomous goal reached ``ALLOW`` regardless of
+    ``autonomy_level``.
+    """
+
+    def __init__(self, engine: Any) -> None:
+        self._engine = engine
+
+    def check_access(
+        self, *, principal_id: str, resource_type: str, resource_id: str,
+        operation: str, context: dict,
+    ) -> dict[str, Any]:
+        from backend.security.aegis_engine import ActionRequest, Verdict
+
+        decision = self._engine.evaluate(ActionRequest(
+            action_type=operation,
+            description=f"autonomous: {operation} on {resource_id}",
+            target_path=context.get("target_path") or None,
+            requesting_agent=principal_id,
+        ))
+        # check_action() below tests `allowed` *before* `requires_review` —
+        # a hard DENY must report allowed=False (-> BLOCK), while
+        # REQUIRE_HUMAN_VALIDATION is not a denial, it is "not auto-approved,
+        # ask a human" (-> REVIEW), which check_action() only reaches when
+        # allowed=True. Reporting REQUIRE_HUMAN_VALIDATION as allowed=False
+        # would short-circuit straight to BLOCK and requires_review would
+        # never be read — found by this adapter's own tests.
+        return {
+            "allowed": decision.verdict != Verdict.DENY,
+            "reason": decision.reason,
+            "requires_review": decision.verdict == Verdict.REQUIRE_HUMAN_VALIDATION,
+        }
+
+
 class AutonomousGuard:
     """Final safety guard before any autonomous action.
 

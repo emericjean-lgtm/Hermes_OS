@@ -1,3 +1,116 @@
+## HOS-067 — Autonomous OS : décomposition, décisions et sécurité réelles (2026-08-01)
+
+Demande de l'utilisateur : point de comparaison entre le fonctionnement
+attendu de l'onglet Autonomous OS (interprétation → récupération de
+connaissances → planification multi-étapes → sélection de ressources →
+vérification de sécurité → exécution → apprentissage → amélioration
+continue) et le comportement réel du code, puis un plan pour combler les
+écarts trouvés, avec en plus la possibilité de lier une mission à un
+dossier local et/ou un dépôt GitHub au démarrage. Après validation du
+plan par l'utilisateur, mise en œuvre complète (premier onglet d'une série
+de revues du même type, à poursuivre sur les autres onglets).
+
+### Écarts trouvés (audit, avant tout code)
+- La mission n'était **jamais réellement décomposée** : une seule tâche
+  plate était construite à la main pour tout l'objectif, en cour-circuitant
+  le vrai `TaskDecomposer`/`MissionPlanner` que `/missions` utilise déjà
+  (HOS-042).
+- La sélection d'agent/outil/compétence dans `DecisionEngine` était une
+  liste figée avec des scores figés, jamais branchée aux vrais registres —
+  et nommait des agents (`klaatcode`, `ohmypi`, `code_intelligence`) qui
+  n'ont jamais été enregistrés dans Hermes (les vrais : `hermes_prime`,
+  `atlas`, `minerva`, `veritas`, etc. — `config/agents.yaml`).
+- `AutonomousGuard.set_security_engine`/`set_policy_engine` n'étaient
+  **jamais appelés nulle part** — confirmé par une recherche sur tout le
+  dépôt — donc chaque objectif autonome recevait `ALLOW` quel que soit
+  `autonomy_level`, indépendamment du vrai moteur Aegis.
+- La récupération de connaissances avant planification n'existait pas
+  réellement : un seul appel nommait un paramètre `mode=` que
+  `MemoryManager.search()` n'a jamais accepté (avalé par un `except: pass`
+  muet), et de toute façon `set_memory_manager()` n'était jamais appelé sur
+  l'interprète.
+- Aucune possibilité de lier une mission à un dossier local ou un dépôt
+  GitHub, ni côté Autonomous ni côté Missions.
+
+### Added
+- `AutonomousOrchestrator` gagne un chemin réel optionnel
+  (`mission_planner`/`graph_executor` injectés) : quand câblé (bootstrap),
+  `start_goal()` décompose l'objectif en un vrai DAG multi-nœuds via le
+  même pipeline que `/missions` (`TaskDecomposer` réel, dépendances,
+  recommandation de runtime par tâche), puis l'exécute via
+  `GraphExecutor.build_graph()/start_mission()/execute_step()` — exactement
+  la séquence que `/missions/{id}/start` pilote déjà, donc une mission
+  autonome apparaît aussi dans `/missions`. Sans injection (tous les tests
+  existants), comportement legacy inchangé à l'identique — confirmé par
+  les 78 tests `tests/autonomous/test_autonomous_core.py`, tous verts sans
+  modification.
+- Décisions réelles par tâche (`AdaptiveRouter` non utilisé ici — le plan
+  réel porte déjà catégorie/recommandation de runtime avec sa propre
+  justification/compétences requises) : agent = vraie catégorie → vrai
+  agent enregistré (`config/agents.yaml`), runtime = la vraie justification
+  de `RuntimeRecommendation`. Reste un gap réel documenté : la sélection
+  d'agent est maintenant honnête, mais rien ne fait encore dispatcher
+  l'exécution différemment par agent (toujours un appel générique
+  `RealTaskExecutor`).
+- `AegisSecurityAdapter` (autonomous_guard.py) — branche
+  `AutonomousGuard` sur le vrai `AegisEngine` déterministe. **Basé sur le
+  risque, pas un blocage systématique** : un objectif sans dossier local,
+  sans dépôt, et non signalé sécurité par l'interprète (mots comme
+  "secure"/"security") n'est pas soumis à Aegis du tout — un blocage
+  systématique aurait rendu l'onglet inopérant par défaut à
+  `autonomy_level: low` sans aucun bénéfice de sécurité réel (le texte
+  généré ne touche ni fichier ni réseau). Un objectif lié à un projet réel,
+  ou explicitement signalé sécurité, requiert une vraie validation humaine.
+  Bug trouvé et corrigé en cours de route : `AutonomousGuard.check_action()`
+  teste `allowed` avant `requires_review` — un premier essai qui rapportait
+  `allowed=False` pour `REQUIRE_HUMAN_VALIDATION` court-circuitait tout
+  droit vers `BLOCK` au lieu de `REVIEW` (`goal.status = PAUSED`, pas
+  `FAILED`) ; capturé par les tests de l'adaptateur avant d'atteindre la
+  production.
+- `config/security.yaml` — nouvelle catégorie `autonomous_goal_execute`
+  (`min_autonomy_for_auto_allow: medium`).
+- Liaison de projet (HOS-067) : `AutonomousGoal.local_path`/`repository`/
+  `branch`, capturés depuis `context` à l'interprétation, propagés dans
+  `PlanningRequest.repository`/`branch` (déjà consommés par le prompt de
+  décomposition côté `/missions`). `local_path` validé contre la liste
+  blanche `ALLOWED_PATHS` d'Aegis (`file_read`) avant toute planification.
+  Champs ajoutés au formulaire du Cockpit.
+- Récupération de connaissances réelle avant planification :
+  `AutonomousInterpreter._gather_knowledge()` appelle
+  `MemoryManager.recommend_for_mission()` (missions similaires réelles,
+  bonnes pratiques, erreurs fréquentes — `ExperienceManager`, déjà
+  existant, jamais branché) et alimente
+  `PlanningRequest.specification` — visible aussi dans le Cockpit
+  ("From past missions").
+
+### Non fait dans cette passe (limites réelles, documentées dans le code)
+- L'exécution ne dispatch pas encore réellement par agent (voir plus haut).
+- `models_used`/`tokens` restent vides pour les missions exécutées via le
+  vrai DAG : `node_execution.py` écrase le tag de modèle du nœud par le
+  runtime réel ("ollama") après exécution — une limite partagée avec
+  `/missions`, pas spécifique à Autonomous, à corriger directement là-bas.
+- Reprendre un objectif en pause (validation humaine) ne relance pas
+  encore la planification/exécution — `resume_goal()` ne fait encore que
+  changer le statut, comportement déjà limité avant cette passe.
+- La boucle d'évolution (Phase E) reste volontairement au comportement
+  actuel : détection de propositions seulement, jamais
+  simulation/validation/application automatique — un choix de gouvernance
+  à valider explicitement avant de le changer.
+
+### Verified
+- Vérifié en conditions réelles dans le navigateur avec Ollama réel : un
+  objectif simple ("Write a haiku about databases") décompose en 7 tâches
+  réelles, s'exécute en ~19,6s, avec des décisions réelles (agents
+  `atlas`/`hermes_prime`/`minerva`/`veritas`, modèles réels
+  `qwen3.5:9b`/`hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q4_K_M`) ; un
+  objectif lié à un vrai dossier local passe correctement en `paused` avec
+  le message d'explication attendu, à `autonomy_level: low`.
+- Nouveaux tests (`tests/autonomous/test_autonomous_real_wiring.py`) : DAG
+  réel (chemin câblé vs repli legacy), décisions dérivées du plan,
+  `AegisSecurityAdapter`, portes basées sur le risque, récupération de
+  connaissances, champs de liaison de projet.
+- Suite complète (`tests/` + `backend/tests/`) : voir résultat ci-dessous.
+
 ## HOS-066C — Escalade cloud OpenRouter (modèles gratuits), local par défaut (2026-08-01)
 
 Demande de l'utilisateur : intégrer OpenRouter comme second runtime, mais

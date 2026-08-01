@@ -112,3 +112,23 @@ action_categories:
     path_based: false
     mandatory_validation: false
     min_autonomy_for_auto_allow: high
+
+  # ── Autonomous Agentic Core (HOS-067) ──
+  # Gates whether an autonomous goal (/autonomous/start) is allowed to plan
+  # and execute at all. Not path_based here — a goal's own local_path (when
+  # bound to one) is checked separately as a plain file_read against
+  # ALLOWED_PATHS before this runs; this category is the broader "is
+  # autonomous execution itself authorized right now" gate. Individual risky
+  # actions a mission's tasks take (file writes, git operations, network
+  # calls) are still separately gated by their own categories at the point
+  # of use — this does not replace those, it is the outer gate.
+  # min_autonomy "medium", not "high": an autonomous goal is not itself an
+  # external-egress or destructive action (those remain gated at "high" or
+  # mandatory elsewhere) — it is the same class of "mutating, needs a
+  # deliberate opt-in" as file_write/git_operation. At the shipped
+  # autonomy_level "low" this still requires human validation every time.
+  autonomous_goal_execute:
+    mutating: true
+    path_based: false
+    mandatory_validation: false
+    min_autonomy_for_auto_allow: medium

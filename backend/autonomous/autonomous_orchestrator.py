@@ -35,17 +35,35 @@ class AutonomousOrchestrator:
     Full pipeline orchestrating all Hermes subsystems.
     """
 
+    #: Safety valve on the DAG walk (HOS-067), mirrors mission/routes.py's
+    #: own constant — execute_step() runs every currently-ready node, so a
+    #: well-formed graph needs at most one pass per dependency level.
+    MAX_EXECUTION_PASSES = 100
+
     def __init__(
         self,
         on_event: Callable | None = None,
         mission_executor: Any = None,
+        mission_planner: Any = None,
+        graph_executor: Any = None,
     ) -> None:
         """
         Args:
-            mission_executor: runs the planned tasks for real (HOS-050). Injected
-                so this orchestrator keeps deciding and something else executes.
-                Defaults to a :class:`MissionExecutor`, whose own default task
-                executor drives a real runtime.
+            mission_executor: runs the planned tasks for real (HOS-050). Used
+                by the legacy single-task path (see ``_execute_plan``) —
+                still the fallback when ``mission_planner``/``graph_executor``
+                are not supplied. Defaults to a :class:`MissionExecutor`,
+                whose own default task executor drives a real runtime.
+            mission_planner: the real Mission Planner (HOS-042) — same
+                instance ``/missions`` uses. When supplied together with
+                ``graph_executor``, ``start_goal`` decomposes the goal into a
+                real multi-node DAG instead of one flat task (HOS-067) — see
+                ``_plan_and_execute_via_dag``. ``None`` (the default, and
+                every existing caller/test before this change) keeps the
+                legacy single-task behaviour unchanged.
+            graph_executor: the real DAG walker (HOS-041) — same instance
+                ``/missions`` drives via ``start_mission``/``execute_step``.
+                Required alongside ``mission_planner`` to use the real path.
         """
         self._lock = threading.RLock()
         self._on_event = on_event
@@ -60,6 +78,8 @@ class AutonomousOrchestrator:
 
             mission_executor = MissionExecutor(on_event=on_event)
         self.mission_executor = mission_executor
+        self.mission_planner = mission_planner
+        self.graph_executor = graph_executor
         # Set by the bootstrap (see service_registry.py's
         # _make_autonomous_engine) so goal execution reports the real model
         # Model Intelligence picked — see set_model_adapter().
@@ -131,35 +151,105 @@ class AutonomousOrchestrator:
             self._sessions[session.session_id] = session
             self._session_by_goal[session.goal_id] = session.session_id
 
+            # Security, before any planning work happens (HOS-067):
+            # 1. If the goal is bound to a local project, it must be visible
+            #    to Hermes at all — the same ALLOWED_PATHS whitelist every
+            #    other file access in this codebase respects, checked here
+            #    as a plain read (mutating actions a task later takes are
+            #    still separately gated at the point of use).
+            if goal.local_path:
+                path_verdict = self.guard.check_action(
+                    "file_read", goal.local_path,
+                    context={"target_path": goal.local_path},
+                )
+                if path_verdict != GuardVerdict.ALLOW:
+                    goal.status = GoalStatus.FAILED
+                    self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
+                        "goal_id": goal.goal_id,
+                        "reason": f"local_path {goal.local_path!r} denied by Aegis",
+                    })
+                    return goal
+
+            # 2. Is *this* goal's execution authorized right now? Before this,
+            #    AutonomousGuard's set_security_engine/set_policy_engine hooks
+            #    were never wired to anything (confirmed by a repo-wide
+            #    search) — every goal reached ALLOW regardless of
+            #    autonomy_level. See AegisSecurityAdapter (autonomous_guard.py)
+            #    and _make_autonomous_engine (service_registry.py).
+            #
+            #    Deliberately risk-based, not a blanket gate on every goal:
+            #    a pure text generation/analysis goal with no project binding
+            #    has no real-world footprint (no file/git/network action is
+            #    even reachable from it today — see the module's own report
+            #    on what execution actually does), so gating it identically
+            #    to one bound to a real repo would just be friction with no
+            #    corresponding risk, and would silently defeat the entire
+            #    point of this tab at the shipped autonomy_level. A goal
+            #    touching a real project, or one the interpreter already
+            #    flagged security-sensitive (constraints["security_required"],
+            #    from words like "secure"/"security" in the request), is the
+            #    real trigger for asking Aegis.
+            is_risk_relevant = bool(
+                goal.local_path or goal.repository or goal.contraints.get("security_required")
+            )
+            if is_risk_relevant:
+                guard_verdict = self.guard.check_action(
+                    "autonomous_goal_execute", f"goal/{goal.goal_id}",
+                    context={"goal_id": goal.goal_id, "target_path": goal.local_path or None},
+                )
+                if guard_verdict == GuardVerdict.BLOCK:
+                    goal.status = GoalStatus.FAILED
+                    self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
+                        "goal_id": goal.goal_id, "reason": "Guard blocked",
+                    })
+                    return goal
+                if guard_verdict == GuardVerdict.REVIEW:
+                    # A real human-in-the-loop signal, not a fabricated pause —
+                    # Aegis's own REQUIRE_HUMAN_VALIDATION verdict. Resuming a
+                    # paused goal today only flips its status (see
+                    # resume_goal); it does not yet re-enter planning/
+                    # execution — a real, separate gap, not hidden here.
+                    goal.status = GoalStatus.PAUSED
+                    session.status = GoalStatus.PAUSED
+                    self._publish(AUTONOMOUS_EVENTS["goal_paused"], {
+                        "goal_id": goal.goal_id, "reason": "Requires human validation (Aegis)",
+                    })
+                    return goal
+
             # 3. Plan
             goal.status = GoalStatus.PLANNING
             self._publish(AUTONOMOUS_EVENTS["goal_analyzed"], {
                 "goal_id": goal.goal_id, "interpretation": goal.interpreted_goal,
             })
 
-            plan_decisions = self._create_plan(goal, ctx)
-            session.active_agents = [d.selected_option for d in plan_decisions
-                                     if d.decision_type == DecisionType.AGENT_SELECTION]
-            session.timeline.append({
-                "event": "plan_created",
-                "timestamp": time.time(),
-                "decisions": [d.decision_id for d in plan_decisions],
-            })
-            self._publish(AUTONOMOUS_EVENTS["plan_created"], {
-                "goal_id": goal.goal_id, "decisions": len(plan_decisions),
-            })
-
-            # Guard check before execution
-            guard_verdict = self.guard.check_action(
-                "goal.execute", f"goal/{goal.goal_id}",
-                context={"goal_id": goal.goal_id},
-            )
-            if guard_verdict != GuardVerdict.ALLOW:
-                goal.status = GoalStatus.FAILED
-                self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
-                    "goal_id": goal.goal_id, "reason": "Guard blocked",
+            use_real_pipeline = self.mission_planner is not None and self.graph_executor is not None
+            dag_mission = None
+            if use_real_pipeline:
+                # Real multi-node DAG via the same pipeline /missions uses
+                # (HOS-067) — decomposition, dependencies, per-task runtime
+                # recommendation, all real; publishes its own plan_created.
+                plan_decisions, dag_mission = self._plan_via_dag(goal, session, ctx)
+                if dag_mission is None:
+                    # Planning itself produced nothing real to run — report
+                    # that honestly rather than falling back to a fabricated
+                    # single task.
+                    goal.status = GoalStatus.FAILED
+                    self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
+                        "goal_id": goal.goal_id, "reason": "planning produced no executable tasks",
+                    })
+                    return goal
+            else:
+                plan_decisions = self._create_plan(goal, ctx)
+                session.active_agents = [d.selected_option for d in plan_decisions
+                                         if d.decision_type == DecisionType.AGENT_SELECTION]
+                session.timeline.append({
+                    "event": "plan_created",
+                    "timestamp": time.time(),
+                    "decisions": [d.decision_id for d in plan_decisions],
                 })
-                return goal
+                self._publish(AUTONOMOUS_EVENTS["plan_created"], {
+                    "goal_id": goal.goal_id, "decisions": len(plan_decisions),
+                })
 
             # 4. Execute
             goal.status = GoalStatus.EXECUTING
@@ -168,14 +258,18 @@ class AutonomousOrchestrator:
                 "goal_id": goal.goal_id, "session_id": session.session_id,
             })
 
-            # Execute for real through the Mission Executor (HOS-050).
+            # Execute for real through the Mission Executor (HOS-050), or the
+            # real DAG pipeline (HOS-067) when wired.
             #
             # This replaced `success = random.random() > 0.15` and
             # `duration = random.uniform(500, 5000)`. Those two lines meant every
             # autonomous goal returned a fabricated outcome with an invented
             # duration, and because the API reported success no caller could tell.
             # Outcome and duration are now whatever actually happened.
-            exec_result = self._execute_plan(goal, session, plan_decisions)
+            if use_real_pipeline:
+                exec_result = self._execute_via_dag(goal, session, dag_mission)
+            else:
+                exec_result = self._execute_plan(goal, session, plan_decisions)
             success = exec_result["success"]
             duration = exec_result["duration_ms"]
             if not success and exec_result.get("runtime_available") is False:
@@ -296,6 +390,227 @@ class AutonomousOrchestrator:
             }
 
     # ── Private ──
+
+    #: TaskCategory value -> a *real* registered agent id (config/agents.yaml
+    #: — HOS-067). Replaces DecisionEngine's fake agent alternatives
+    #: ("klaatcode", "ohmypi", "code_intelligence", "mission_planner") for
+    #: the real DAG path — none of those names has ever been a registered
+    #: Hermes agent. This is a category heuristic, not a measured score:
+    #: agent SELECTION is now real, but nothing yet makes execution actually
+    #: dispatch per-agent behaviour (still a single generic RealTaskExecutor
+    #: call regardless of which agent is named) — a real, separate gap, not
+    #: hidden by this change.
+    _CATEGORY_AGENT: dict[str, str] = {
+        "implementation": "atlas", "optimization": "atlas",
+        "integration": "atlas", "deployment": "atlas",
+        "testing": "veritas", "review": "veritas",
+        "documentation": "hermes_scribe",
+        "analysis": "minerva",
+        "planning": "kronos",
+        "security": "aegis",
+        "design": "hermes_prime", "custom": "hermes_prime",
+    }
+
+    def _plan_via_dag(
+        self, goal: AutonomousGoal, session: AutonomousSession, context: dict,
+    ) -> tuple[list[AutonomousDecision], Any]:
+        """Decompose the goal into a real multi-node DAG via the same
+        Mission Planner ``/missions`` uses (HOS-067), instead of the single
+        flat task ``_create_plan``/``_execute_plan`` build by hand.
+
+        Returns ``(decisions, mission)``; ``mission`` is ``None`` when
+        planning produced no executable tasks — the caller must fail the
+        goal honestly rather than fabricate a task that was never planned.
+        """
+        from backend.mission.planner.planner_models import PlanningRequest
+
+        request = PlanningRequest(
+            user_request=goal.user_request,
+            objective=goal.interpreted_goal,
+            context=context,
+            repository=goal.repository,
+            branch=goal.branch,
+            # Real prior-experience summary (Phase D) reaches the same
+            # decomposition prompt /missions' own `specification` field
+            # already threads into _build_user_prompt() — not a second,
+            # parallel context channel.
+            specification=goal.knowledge_context,
+            tags=[t for t in (goal.domain, goal.language) if t],
+        )
+        result = self.mission_planner.plan(request)
+
+        if not result.task_breakdowns:
+            return [], None
+
+        plan_decisions = self._decisions_from_plan(goal, result)
+        session.active_agents = sorted({
+            d.selected_option for d in plan_decisions
+            if d.decision_type == DecisionType.AGENT_SELECTION
+        })
+        session.timeline.append({
+            "event": "plan_created",
+            "timestamp": time.time(),
+            "decisions": [d.decision_id for d in plan_decisions],
+        })
+        self._publish(AUTONOMOUS_EVENTS["plan_created"], {
+            "goal_id": goal.goal_id, "decisions": len(plan_decisions),
+        })
+
+        mission = self.mission_planner.build_mission(
+            result,
+            title=(goal.interpreted_goal or goal.user_request)[:100],
+            objective=goal.user_request,
+        )
+        session.mission_id = mission.mission_id
+        return plan_decisions, mission
+
+    def _decisions_from_plan(self, goal: AutonomousGoal, result: Any) -> list[AutonomousDecision]:
+        """Real per-task decisions derived from the real planning result
+        (HOS-067) — no DecisionEngine call here: its agent/tool/skill
+        alternatives are still hardcoded lists never checked against a real
+        registry (see decision_engine.py's own module docstring and
+        CHANGELOG). A real plan already carries real category, runtime
+        recommendation (with its own reasoning string), and required-skills
+        data per task — this reads that instead of inventing a parallel
+        heuristic.
+        """
+        decisions: list[AutonomousDecision] = []
+        for task in result.task_breakdowns:
+            agent = self._CATEGORY_AGENT.get(task.category.value, "hermes_prime")
+            decisions.append(AutonomousDecision(
+                decision_id=f"dec_{task.task_id}_agent",
+                decision_type=DecisionType.AGENT_SELECTION,
+                reason=f"Category {task.category.value!r} maps to {agent!r} (config/agents.yaml).",
+                confidence=0.6,
+                selected_option=agent,
+                context={"task_id": task.task_id, "category": task.category.value},
+            ))
+
+            rec = result.runtime_recommendations.get(task.task_id)
+            if rec is not None:
+                decisions.append(AutonomousDecision(
+                    decision_id=f"dec_{task.task_id}_runtime",
+                    decision_type=DecisionType.RUNTIME_SELECTION,
+                    reason=rec.reasoning,
+                    confidence=rec.confidence,
+                    selected_option=rec.model_name,
+                    alternatives=[{"name": a} for a in rec.alternatives],
+                    context={"task_id": task.task_id},
+                ))
+
+            if task.required_skills:
+                decisions.append(AutonomousDecision(
+                    decision_id=f"dec_{task.task_id}_skill",
+                    decision_type=DecisionType.SKILL_SELECTION,
+                    reason=f"Task requires: {', '.join(task.required_skills)}.",
+                    confidence=0.7,
+                    selected_option=task.required_skills[0],
+                    context={"task_id": task.task_id, "all_skills": task.required_skills},
+                ))
+        return decisions
+
+    def _execute_via_dag(
+        self, goal: AutonomousGoal, session: AutonomousSession, mission: Any,
+    ) -> dict[str, Any]:
+        """Build and walk the real DAG (HOS-067) — the same
+        build_graph()/start_mission()/execute_step() sequence
+        ``/missions/{id}/start`` drives, so an autonomous goal's mission
+        shows up identically in ``/missions`` too (one shared source of
+        truth, not a second, disconnected execution path).
+        """
+        from backend.mission.mission_models import MissionStatus, NodeStatus
+
+        started = time.perf_counter()
+        issues = self.graph_executor.build_graph(mission, mission.nodes, mission.edges)
+        if issues:
+            duration_ms = (time.perf_counter() - started) * 1000.0
+            return self._dag_result(
+                success=False, duration_ms=duration_ms, mission=mission,
+                error="; ".join(issues),
+                summary=f"Mission graph invalid: {'; '.join(issues)}",
+            )
+
+        if not self.graph_executor.start_mission(mission):
+            duration_ms = (time.perf_counter() - started) * 1000.0
+            return self._dag_result(
+                success=False, duration_ms=duration_ms, mission=mission,
+                error=f"mission could not start (status={mission.status.value})",
+                summary="Mission could not start",
+            )
+
+        terminal = (MissionStatus.COMPLETED, MissionStatus.FAILED, MissionStatus.CANCELLED)
+        passes = 0
+        while mission.status not in terminal and passes < self.MAX_EXECUTION_PASSES:
+            stepped = self.graph_executor.execute_step(mission)
+            passes += 1
+            if stepped == 0:
+                break
+
+        duration_ms = (time.perf_counter() - started) * 1000.0
+        completed = [n for n in mission.nodes if n.status == NodeStatus.COMPLETED]
+        failed = [n for n in mission.nodes if n.status == NodeStatus.FAILED]
+        success = bool(completed) and not failed and mission.status == MissionStatus.COMPLETED
+
+        summary = f"{len(completed)}/{len(mission.nodes)} task(s) completed in {duration_ms:.0f}ms"
+        return self._dag_result(
+            success=success, duration_ms=duration_ms, mission=mission, error="",
+            summary=summary,
+        )
+
+    def _dag_result(
+        self, *, success: bool, duration_ms: float, mission: Any, error: str, summary: str,
+    ) -> dict[str, Any]:
+        from backend.mission.mission_models import NodeStatus
+
+        completed = [n for n in mission.nodes if n.status == NodeStatus.COMPLETED]
+        failed = [n for n in mission.nodes if n.status == NodeStatus.FAILED]
+        # preferred_runtime holds a model tag before a node runs (from
+        # RuntimeRecommender) and the real serving provider ("ollama"/
+        # "openrouter") after — node_execution.py overwrites it once the
+        # node actually executes. This means the specific model tag isn't
+        # recoverable from the node afterward; models_used is left honestly
+        # empty here rather than reporting the pre-execution recommendation
+        # as if it were what actually ran. A real limitation shared with
+        # /missions, not autonomous-specific — worth fixing there directly.
+        runtimes_used = sorted({n.preferred_runtime for n in completed if n.preferred_runtime})
+
+        lessons: list[str] = []
+        improvements: list[str] = []
+        if error:
+            improvements.append("Provide a reachable runtime / valid mission graph before dispatching autonomous goals")
+        if failed:
+            lessons.append(
+                f"{len(failed)} task(s) failed: "
+                + "; ".join(f"{n.title}: {n.result_summary or 'no detail'}" for n in failed[:3])
+            )
+        if completed:
+            avg = sum(n.actual_duration_ms for n in completed) / len(completed)
+            lessons.append(f"{len(completed)} task(s) averaged {avg:.0f}ms")
+
+        return {
+            "success": success,
+            "duration_ms": duration_ms,
+            "runtime_available": not bool(error),
+            "error": error,
+            "runtimes_used": runtimes_used,
+            "summary": summary,
+            "improvements": improvements,
+            "lessons": lessons,
+            "results": {
+                "success": success,
+                "duration_ms": round(duration_ms, 1),
+                "tasks_total": len(mission.nodes),
+                "tasks_completed": len(completed),
+                "tasks_failed": len(failed),
+                "tokens": 0,
+                "models_used": [],
+                "outputs": [
+                    {"task": n.title, "chars": len(n.result_summary or ""),
+                     "content": n.result_summary or ""}
+                    for n in completed
+                ],
+            },
+        }
 
     def _create_plan(self, goal: AutonomousGoal, context: dict) -> list[AutonomousDecision]:
         """Create a plan: select agents, runtime, tools, skills."""

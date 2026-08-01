@@ -42,6 +42,20 @@ class AutonomousGoal:
     domain: str = ""
     complexity: float = 0.5
     estimated_duration_s: float = 0.0
+    # Which project this goal operates on (HOS-067) — a local checkout
+    # (validated against Aegis's ALLOWED_PATHS whitelist before planning)
+    # and/or a GitHub repository, threaded into PlanningRequest.repository/
+    # branch/context so the real decomposition prompt and any file/git tools
+    # a task uses know which project they're working on. Both empty means
+    # "no specific project" — every existing caller keeps working unchanged.
+    local_path: str = ""
+    repository: str = ""
+    branch: str = ""
+    # Real prior-experience summary (HOS-067) — from
+    # MemoryManager.recommend_for_mission(), gathered before planning so it
+    # can be threaded into the decomposition prompt. Empty string is honest
+    # on a fresh deployment with no history yet, not an error.
+    knowledge_context: str = ""
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
 
@@ -57,6 +71,10 @@ class AutonomousGoal:
             "domain": self.domain,
             "complexity": self.complexity,
             "estimated_duration_s": self.estimated_duration_s,
+            "local_path": self.local_path,
+            "repository": self.repository,
+            "branch": self.branch,
+            "knowledge_context": self.knowledge_context,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -159,6 +177,10 @@ AUTONOMOUS_EVENTS = {
     "learning_completed": "autonomous.learning.completed",
     "goal_failed": "autonomous.goal.failed",
     "decision_made": "autonomous.decision.made",
+    # HOS-067: a REQUIRE_HUMAN_VALIDATION verdict from Aegis pauses the goal
+    # instead of failing it — distinct from goal_failed so the Cockpit can
+    # tell "needs a human" from "something went wrong".
+    "goal_paused": "autonomous.goal.paused",
 }
 
 # Heuristic domain/task-type mappings for goal interpretation

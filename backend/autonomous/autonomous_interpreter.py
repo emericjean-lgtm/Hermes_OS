@@ -46,17 +46,13 @@ class AutonomousInterpreter:
             language=language,
             domain=domain,
             complexity=complexity,
+            local_path=str(ctx.get("local_path") or "").strip(),
+            repository=str(ctx.get("repository") or ctx.get("repo_url") or "").strip(),
+            branch=str(ctx.get("branch") or "").strip(),
         )
 
         if self._memory_manager:
-            try:
-                similar = self._memory_manager.search(
-                    f"goal:{user_request[:50]}", mode="keyword"
-                )
-                if similar:
-                    goal.estimated_duration_s = self._estimate_from_history(similar)
-            except Exception:
-                pass
+            goal.knowledge_context = self._gather_knowledge(domain, language, user_request)
 
         self._history.append({
             "goal_id": goal.goal_id,
@@ -66,6 +62,38 @@ class AutonomousInterpreter:
         })
 
         return goal
+
+    def _gather_knowledge(self, domain: str, language: str, user_request: str) -> str:
+        """Real retrieval across episodic memory before planning starts
+        (HOS-067) — replaces a call that named a ``mode=`` keyword
+        ``MemoryManager.search()`` has never accepted (silently swallowed by
+        a bare ``except: pass``, and unreachable anyway since nothing ever
+        called ``set_memory_manager()`` on this class before this change —
+        confirmed by a repo-wide search). Best-effort: an empty summary on a
+        fresh deployment, or on any retrieval failure, is honest — it must
+        never block interpretation.
+        """
+        try:
+            rec = self._memory_manager.recommend_for_mission(
+                mission_type=domain, tags=[t for t in (domain, language) if t],
+            )
+        except Exception:
+            return ""
+
+        if not rec or not rec.get("similar_missions"):
+            return ""
+
+        parts = [
+            f"{rec['similar_missions']} similar past mission(s), "
+            f"{rec['similar_success_rate']}% succeeded."
+        ]
+        if rec.get("recommended_models"):
+            parts.append("Models that worked before: " + ", ".join(rec["recommended_models"]) + ".")
+        if rec.get("best_practices"):
+            parts.append("Best practices: " + "; ".join(rec["best_practices"][:3]) + ".")
+        if rec.get("frequent_errors"):
+            parts.append("Watch out for: " + "; ".join(rec["frequent_errors"][:3]) + ".")
+        return " ".join(parts)
 
     def get_history(self, limit: int = 50) -> list[dict]:
         return self._history[-limit:]
@@ -135,13 +163,3 @@ class AutonomousInterpreter:
         if any(kw in text.lower() for kw in complex_keywords):
             base += 0.15
         return min(1.0, base + random.uniform(-0.1, 0.1))
-
-    def _estimate_from_history(self, similar_goals: list) -> float:
-        try:
-            durations = [g.metadata.get("duration_ms", 0) for g in similar_goals
-                        if hasattr(g, "metadata")]
-            if durations:
-                return sum(durations) / len(durations) / 1000.0
-        except Exception:
-            pass
-        return 0.0

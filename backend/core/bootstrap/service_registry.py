@@ -630,11 +630,57 @@ def _make_autonomous_engine(c: Any) -> Any:
         # The one shared pipeline. Without this the orchestrator builds a private
         # MissionExecutor and Hermes carries two task engines (R-002 P1).
         mission_executor=c.get("execution_engine"),
+        # HOS-067: the same Mission Planner + DAG walker /missions uses, so a
+        # goal is decomposed into a real multi-node DAG (TaskDecomposer,
+        # dependencies, per-task runtime recommendation) instead of the one
+        # flat task the orchestrator used to build by hand. Note: the
+        # container key "mission_executor" names the GraphExecutor (DAG
+        # walker, backend/mission/graph_executor.py) — a naming collision
+        # with this factory's own `mission_executor` param (the *task*
+        # execution pipeline, backend/execution/mission_executor.py). Both
+        # names are inherited from ServiceSpec/AutonomousOrchestrator and
+        # not changed here to keep this a wiring-only diff.
+        mission_planner=c.get("mission_planner"),
+        graph_executor=c.get("mission_executor"),
     )
-    loop = getattr(getattr(engine, "orchestrator", None), "memory_loop", None)
+    orchestrator = getattr(engine, "orchestrator", None)
+
+    interpreter = getattr(orchestrator, "interpreter", None)
+    if interpreter is not None:
+        # HOS-067: real cross-memory retrieval before planning
+        # (MemoryManager.recommend_for_mission — episodic + experience
+        # manager). Before this, set_memory_manager() was never called on
+        # the interpreter anywhere, so its own (differently broken) memory
+        # call never executed — confirmed by a repo-wide search.
+        interpreter.set_memory_manager(c.get("memory_manager"))
+
+    loop = getattr(orchestrator, "memory_loop", None)
     if loop is not None:
         loop.set_memory_manager(c.get("memory_manager"))
         loop.set_evolution_engine(c.get("evolution_engine"))
+
+    guard = getattr(orchestrator, "guard", None)
+    if guard is not None:
+        # HOS-067: connect AutonomousGuard to the real, deterministic Aegis
+        # engine — before this, set_security_engine()/set_policy_engine()
+        # were never called anywhere, so every autonomous goal reached
+        # ALLOW regardless of autonomy_level (only the guard's own
+        # hard-blocked-category list, which "goal.execute" never matched,
+        # ever ran). Built the same way agents/aegis.py's AegisAgent
+        # constructs its own — a second, disconnected instance rather than
+        # a shared one, matching how model_intelligence/routes.py's cloud
+        # gate does the same for the same reason (no bootstrap-level Aegis
+        # service exists to share yet).
+        from backend.autonomous.autonomous_guard import AegisSecurityAdapter
+        from backend.core.config import get_settings, load_security_config
+        from backend.security.aegis_engine import AegisEngine
+        from backend.security.permission_matrix import PermissionMatrix
+
+        settings = get_settings()
+        aegis_engine = AegisEngine(
+            PermissionMatrix(load_security_config()), settings.allowed_paths_list,
+        )
+        guard.set_security_engine(AegisSecurityAdapter(aegis_engine))
 
     # DecisionEngine.select_runtime() exposed the same four set_* hooks
     # (agent supervisor, runtime orchestrator, skill distributor, tool
@@ -645,8 +691,9 @@ def _make_autonomous_engine(c: Any) -> Any:
     # have never been, registered anywhere. Wiring the real orchestrator
     # closes that gap for the one decision most visibly self-contradicted
     # a report's own measured `runtimes_used`; agent/tool/skill selection
-    # remain heuristic (see CHANGELOG).
-    decisions = getattr(getattr(engine, "orchestrator", None), "decisions", None)
+    # remain heuristic on the legacy single-task path (see CHANGELOG) — the
+    # real DAG path (HOS-067) derives them from the real plan instead.
+    decisions = getattr(orchestrator, "decisions", None)
     if decisions is not None:
         decisions.set_runtime_orchestrator(c.get("runtime_orchestrator"))
 
@@ -657,7 +704,6 @@ def _make_autonomous_engine(c: Any) -> Any:
     # (see _make_task_executor). This is a reporting seam, not a decision
     # one — see AutonomousOrchestrator.set_model_adapter()'s docstring for
     # why select_model_for_goal() is deliberately not used here.
-    orchestrator = getattr(engine, "orchestrator", None)
     if orchestrator is not None:
         from backend.model_intelligence import routes as mi_routes
         from backend.model_intelligence.model_autonomous_adapter import (
@@ -1100,9 +1146,12 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         # model_intelligence isn't consulted through the container (same
         # module-singleton reach-through as task_executor) — declared so the
         # dependency graph reflects the real coupling ModelAutonomousAdapter
-        # introduces.
+        # introduces. mission_planner + mission_executor (the container key
+        # for GraphExecutor, see _make_autonomous_engine's own note on the
+        # naming collision) are HOS-067's real DAG pipeline.
         dependencies=("event_dispatcher", "memory_manager", "evolution_engine",
-                      "execution_engine", "runtime_orchestrator", "model_intelligence"),
+                      "execution_engine", "runtime_orchestrator", "model_intelligence",
+                      "mission_planner", "mission_executor"),
         route_binder=_bind_autonomous_routes,
         produced_events=("goal.started", "goal.completed"),
         description="Goal-driven autonomous execution (HOS-063)",

@@ -655,6 +655,14 @@ export interface AutonomousGoalDTO {
   complexity: number;
   priority: string;
   estimated_duration_s: number;
+  // Project binding (HOS-067) — empty strings when the goal isn't bound to
+  // a specific local checkout or GitHub repository.
+  local_path: string;
+  repository: string;
+  branch: string;
+  // Real prior-experience summary gathered before planning (HOS-067) —
+  // empty on a fresh deployment with no mission history yet.
+  knowledge_context: string;
   created_at: string;
 }
 

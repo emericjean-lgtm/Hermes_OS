@@ -470,7 +470,8 @@ export function useAutonomousTimeline(goalId: string | undefined) {
 export function useStartAutonomousGoal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (userRequest: string) => autonomousClient.start(userRequest),
+    mutationFn: ({ userRequest, context }: { userRequest: string; context?: Record<string, unknown> }) =>
+      autonomousClient.start(userRequest, context),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["autonomous"] });
     },
