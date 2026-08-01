@@ -299,6 +299,30 @@ class TestDependencyInjection:
             "wiring, nothing but the simulated BenchmarkScheduler ever did"
         )
 
+        # Same real execution, ModelMemoryAdapter's side (HOS-065B):
+        # record_model_for_task() existed and was never called by anything,
+        # so get_best_model_for_task() always returned None.
+        memory = mi_routes._get_memory()
+        task_type = router._infer_task_type("Implement a REST endpoint").value
+        assert memory.get_best_model_for_task(task_type) is None, (
+            "needs 3+ uses before it will name a winner — see "
+            "ModelMemoryAdapter.get_best_model_for_task"
+        )
+        relations = memory.query_knowledge_graph(target=task_type)
+        assert any(r["source"] == outcome.model for r in relations)
+
+    def test_autonomous_orchestrator_shares_the_container_model_intelligence(self, client, bootstrap):
+        """AutonomousOrchestrator.set_model_adapter (called by
+        _make_autonomous_engine) wraps the same AdaptiveRouter the container
+        exposes as "model_intelligence" — not a second, disconnected
+        instance whose feedback the Models Center would never see."""
+        from backend.model_intelligence import routes as mi_routes
+
+        orchestrator = bootstrap.container.get("autonomous_engine").orchestrator
+        assert orchestrator._model_adapter is not None
+        assert orchestrator._model_adapter._router is mi_routes._get_router()
+        assert bootstrap.container.get("model_intelligence") is mi_routes._get_router()
+
     def test_every_cross_app_shared_service_is_declared(self):
         """Sharing state between app instances must be deliberate.
 

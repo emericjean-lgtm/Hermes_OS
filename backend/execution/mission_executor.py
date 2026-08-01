@@ -168,6 +168,12 @@ class MissionExecutor:
             task.assigned_runtime = outcome.runtime_id
             task.resources_used = outcome.resources()
             task.completed_at = datetime.now(timezone.utc)
+            # outcome.model (the specific tag Model Intelligence picked and
+            # Ollama actually served — see task_executor.py's model_for) is
+            # about to be shadowed by the validation outcome below and was
+            # never returned to any caller. AutonomousOrchestrator needs it
+            # to report which model a goal really used, not just "ollama".
+            served_model = outcome.model
 
             # 3. Validate
             sm.transition(ExecutionState.VALIDATING, f"Validating task {task_id}")
@@ -213,6 +219,7 @@ class MissionExecutor:
                 "status": task.status.value,
                 "agent": task.assigned_agent,
                 "runtime": task.assigned_runtime,
+                "model": served_model,
                 "skills": task.assigned_skills,
                 "tools": task.assigned_tools,
                 "outcome": task.validation_outcome.value if task.validation_outcome else None,

@@ -1,3 +1,96 @@
+## Model Intelligence — trois des quatre adaptateurs câblés (2026-08-01)
+
+Suite directe de l'entrée précédente. Sur les quatre adaptateurs HOS-065B
+jamais instanciés nulle part (`ModelAutonomousAdapter`,
+`ModelRuntimeAdapter`, `ModelEvolutionAdapter`, `ModelMemoryAdapter`),
+l'utilisateur a arbitré : Runtime reste de côté (un seul runtime réel,
+Ollama, tant qu'aucun second n'existe — rien à décider) ; pour les trois
+autres, choix laissé à l'appréciation du moment de câblage le plus sûr et
+le plus intéressant.
+
+### Fixed/Added — ModelAutonomousAdapter (Autonomous Core)
+- `record_feedback()` existait depuis HOS-065B et n'était appelé nulle
+  part : le choix de modèle et le résultat d'un objectif autonome
+  n'allaient nulle part au-delà du profileur déjà alimenté par
+  `RealTaskExecutor.on_execution`. Décision de conception : ne **pas**
+  utiliser `select_model_for_goal()` pour faire décider l'adaptateur —
+  il opère au niveau de l'objectif, alors que le câblage existant décide
+  déjà par tâche, juste avant l'exécution réelle. Les deux en parallèle
+  auraient pu se contredire. L'adaptateur est donc branché comme couche
+  de **traçabilité** : il enregistre ce qui s'est réellement passé,
+  jamais ce qui devrait se passer.
+- `MissionExecutor.execute_task()` calculait `outcome.model` (le tag
+  précis, ex. `qwen3:1.7b`) puis l'écrasait avec le résultat de la
+  validation avant qu'aucun appelant ne le voie — le dict retourné
+  n'exposait que `runtime` (le fournisseur, ex. « ollama »). Capturé
+  et republié.
+- `report.results.models_used` : nouveau champ dans le rapport
+  Autonomous Center, listant les modèles réellement utilisés — jusqu'ici
+  invisible, seul `runtimes_used` (le fournisseur) apparaissait.
+- Les quatre constantes d'événement de l'adaptateur (`model.decision.
+  created`, `model.selection.completed`, `model.performance.updated`,
+  `model.routing.optimized`) n'étaient pas déclarées dans
+  `event_topics.py` — corrigé au passage (`model.profiled` et
+  `model.recommended`, déjà déclarés comme `produced_events` du service
+  `model_intelligence` mais absents eux aussi, corrigés en même temps).
+
+### Fixed/Added — ModelMemoryAdapter (graphe de connaissances)
+- **Défaut de documentation trouvé en le lisant** : le docstring du
+  module affirmait une intégration avec la mémoire épisodique, la
+  mémoire procédurale et le graphe de connaissances *réels* de Hermes
+  (HOS-047). L'implémentation entière était trois listes Python privées
+  et jamais connectées au vrai `MemoryManager` déjà dans le bootstrap —
+  `# In-memory stores (simulating Episodic/Procedural/Knowledge stores)`,
+  littéralement dans le code. Docstring corrigé pour ne plus prétendre
+  une intégration qui n'a jamais existé.
+- Choix du volet le plus intéressant parmi les trois (épisodique,
+  procédural, graphe) : le **graphe de connaissances**
+  (`record_model_for_task`/`get_best_model_for_task`), pour deux raisons —
+  il réutilise directement la télémétrie déjà réelle
+  (`on_execution`), et apporte un signal différent du profileur
+  (performance par *type de tâche*, pas par modèle seul). Pas de fusion
+  avec le vrai `MemoryManager` : décalage de schéma trop important
+  (`EpisodicMemory` est structuré autour de `mission_id`, pas de choix
+  de modèle par tâche) pour un chantier fait en passant.
+- Nouvelle route `GET /models/knowledge?task_type=...`, alimentée à
+  chaque exécution réelle par `_make_task_executor`.
+
+### Fixed/Added — ModelEvolutionAdapter (détection de dérive)
+- Choisi plutôt que `update_weights()` : le formulaire de score
+  (`ModelProfile.overall_score`) a des coefficients figés en dur qui ne
+  consultent jamais les poids que cet adaptateur gère — les rendre réels
+  changerait le comportement du classement sans signal validé pour
+  savoir si le nouveau réglage est meilleur. `detect_underperforming_
+  models()`/`suggest_model_replacement()` sont en lecture seule, calculés
+  uniquement depuis les données réelles du profileur — vérifié qu'ils ne
+  touchent jamais `PerformanceAnalyzer.get_benchmark_summary()`
+  (les chiffres simulés de `BenchmarkScheduler`).
+- Nouvelle route `GET /models/evolution?threshold=&suggest_for=`.
+
+### Not fixed — gap documenté
+- `ModelRuntimeAdapter`/`ModelRuntimeOptimizer` restent non câblés, par
+  choix explicite de l'utilisateur : sans second runtime réel, comparer
+  Ollama/KTransformers/vLLM/llama.cpp reviendrait toujours à recommander
+  Ollama — de la mécanique sans décision à prendre.
+- `update_weights()`/le calcul d'`overall_score` restent inchangés (voir
+  ci-dessus).
+- `ModelMemoryAdapter` reste un cache local à Model Intelligence, pas une
+  intégration avec le vrai `MemoryManager`/`EpisodicMemory`.
+
+### Verified
+- `pytest tests/model_intelligence/ tests/integration/test_assembly.py
+  tests/autonomous/` : **317/317**, dont 6 nouveaux tests pour les routes
+  `/models/knowledge` et `/models/evolution` et 4 pour le câblage de
+  `ModelAutonomousAdapter` dans `AutonomousOrchestrator`.
+- Vérification bout-en-bout avec Ollama réel : objectif autonome
+  « Écrire une fonction de validation email en Python » exécuté avec
+  succès. `report.results.models_used` : `["qwen3:1.7b"]`.
+  `GET /models/knowledge?task_type=general` : une relation réelle
+  `qwen3:1.7b USED_FOR general (success=true)`, `best_model_for_task:
+  null` (honnête — il faut 3 usages avant de désigner un gagnant).
+  `GET /models/evolution` : liste vide, aucune dérive détectée (attendu,
+  aucun modèle n'a encore assez d'historique).
+
 ## Model Intelligence — AdaptiveRouter réellement branché sur l'exécution (2026-08-01)
 
 L'utilisateur a demandé de vérifier si le système de Model Intelligence &

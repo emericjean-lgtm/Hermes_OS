@@ -290,6 +290,14 @@ def _make_task_executor(c: Any) -> Any:
             tokens_used=tokens_used,
             success=success,
         ))
+        # ModelMemoryAdapter's MODEL_USED_FOR_TASK relations (HOS-065B) —
+        # record_model_for_task() existed and was never called by anything,
+        # so get_best_model_for_task() always returned None. Same real
+        # telemetry as the profiler update above, different shape (a
+        # per-task-type win/loss graph, not an aggregate profile score).
+        mi_routes._get_memory().record_model_for_task(  # noqa: SLF001
+            model, task_type.value, success,
+        )
 
     return RealTaskExecutor(
         on_event=_dispatcher(c, "task_executor"),
@@ -558,6 +566,25 @@ def _make_autonomous_engine(c: Any) -> Any:
     decisions = getattr(getattr(engine, "orchestrator", None), "decisions", None)
     if decisions is not None:
         decisions.set_runtime_orchestrator(c.get("runtime_orchestrator"))
+
+    # ModelAutonomousAdapter (HOS-065B) existed, was never instantiated
+    # anywhere, and its record_feedback() was never called — an autonomous
+    # goal's model choice and outcome went nowhere but the profiler this
+    # orchestrator already reports to via RealTaskExecutor.on_execution
+    # (see _make_task_executor). This is a reporting seam, not a decision
+    # one — see AutonomousOrchestrator.set_model_adapter()'s docstring for
+    # why select_model_for_goal() is deliberately not used here.
+    orchestrator = getattr(engine, "orchestrator", None)
+    if orchestrator is not None:
+        from backend.model_intelligence import routes as mi_routes
+        from backend.model_intelligence.model_autonomous_adapter import (
+            ModelAutonomousAdapter,
+        )
+
+        orchestrator.set_model_adapter(ModelAutonomousAdapter(
+            adaptive_router=mi_routes._get_router(),  # noqa: SLF001
+            on_event=_dispatcher(c, "autonomous_engine"),
+        ))
     return engine
 
 
@@ -987,8 +1014,12 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         # execution_engine is the shared task pipeline it now runs on.
         # runtime_orchestrator lets DecisionEngine report a runtime that is
         # actually registered instead of one of three that never were.
+        # model_intelligence isn't consulted through the container (same
+        # module-singleton reach-through as task_executor) — declared so the
+        # dependency graph reflects the real coupling ModelAutonomousAdapter
+        # introduces.
         dependencies=("event_dispatcher", "memory_manager", "evolution_engine",
-                      "execution_engine", "runtime_orchestrator"),
+                      "execution_engine", "runtime_orchestrator", "model_intelligence"),
         route_binder=_bind_autonomous_routes,
         produced_events=("goal.started", "goal.completed"),
         description="Goal-driven autonomous execution (HOS-063)",

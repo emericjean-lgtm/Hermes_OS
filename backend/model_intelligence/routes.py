@@ -8,7 +8,9 @@ from fastapi import APIRouter, Body, Query
 
 from .adaptive_router import AdaptiveRouter
 from .benchmark_scheduler import BenchmarkScheduler
+from .model_evolution_adapter import ModelEvolutionAdapter
 from .model_intelligence_models import TaskType
+from .model_memory_adapter import ModelMemoryAdapter
 from .model_profiler import ModelProfiler
 from .model_predictor import ModelPredictor
 from .model_runtime_optimizer import ModelRuntimeOptimizer
@@ -20,6 +22,8 @@ _predictor: ModelPredictor | None = None
 _router: AdaptiveRouter | None = None
 _scheduler: BenchmarkScheduler | None = None
 _optimizer: ModelRuntimeOptimizer | None = None
+_memory: ModelMemoryAdapter | None = None
+_evolution: ModelEvolutionAdapter | None = None
 
 
 def _get_profiler() -> ModelProfiler:
@@ -69,6 +73,22 @@ def _get_optimizer() -> ModelRuntimeOptimizer:
     if _optimizer is None:
         _optimizer = ModelRuntimeOptimizer()
     return _optimizer
+
+
+def _get_memory() -> ModelMemoryAdapter:
+    global _memory
+    if _memory is None:
+        _memory = ModelMemoryAdapter()
+    return _memory
+
+
+def _get_evolution_adapter() -> ModelEvolutionAdapter:
+    global _evolution
+    if _evolution is None:
+        _evolution = ModelEvolutionAdapter(
+            profiler=_get_profiler(), analyzer=_get_analyzer(),
+        )
+    return _evolution
 
 
 def handle_get_intelligence() -> dict[str, Any]:
@@ -198,6 +218,49 @@ def handle_get_benchmarks(model_id: str = "") -> dict[str, Any]:
     }
 
 
+def handle_get_knowledge(task_type: str = "") -> dict[str, Any]:
+    """GET /models/knowledge
+
+    ModelMemoryAdapter's decision-pattern cache — see its module docstring
+    for what this is (and isn't: not the real Unified Memory/Knowledge
+    Graph). ``task_type`` optionally asks "which real model has actually
+    won most often for this task type" rather than the ranking's
+    pre-execution estimate.
+    """
+    memory = _get_memory()
+    result: dict[str, Any] = {"success": True, "stats": memory.get_stats()}
+    if task_type:
+        result["best_model_for_task"] = memory.get_best_model_for_task(task_type)
+        result["relations"] = memory.query_knowledge_graph(target=task_type)
+    return result
+
+
+def handle_get_evolution(threshold: float = 0.7, suggest_for: str = "") -> dict[str, Any]:
+    """GET /models/evolution
+
+    Read-only diagnostic from ModelEvolutionAdapter (HOS-065B), computed
+    entirely from ModelProfiler's real, execution-fed data — detect_under
+    performing_models()/suggest_model_replacement() never touch
+    PerformanceAnalyzer's benchmark summaries (BenchmarkScheduler's
+    simulated numbers, see its module docstring), so nothing fabricated
+    reaches this response.
+
+    update_weights() is deliberately not exposed here: ModelProfile.
+    overall_score has fixed coefficients (see model_intelligence_models.py)
+    that never read these weights, so wiring a weight-update loop without a
+    validated signal for "better" would be a behaviour change dressed as a
+    fix, not the read-only visibility this endpoint is for.
+    """
+    adapter = _get_evolution_adapter()
+    result: dict[str, Any] = {
+        "success": True,
+        "underperforming": adapter.detect_underperforming_models(threshold),
+    }
+    if suggest_for:
+        result["suggestion"] = adapter.suggest_model_replacement(suggest_for)
+    return result
+
+
 # ── HTTP surface ─────────────────────────────────────────────
 # Thin delegation to the handlers above (HOS-066B). The docstrings on those
 # handlers already declared these paths under /models; that prefix is used here
@@ -260,3 +323,16 @@ async def get_performance(model_id: str = Query("")) -> dict[str, Any]:
 @router.get("/benchmarks")
 async def get_benchmarks(model_id: str = Query("")) -> dict[str, Any]:
     return handle_get_benchmarks(model_id)
+
+
+@router.get("/knowledge")
+async def get_knowledge(task_type: str = Query("")) -> dict[str, Any]:
+    return handle_get_knowledge(task_type)
+
+
+@router.get("/evolution")
+async def get_evolution(
+    threshold: float = Query(0.7, ge=0.0, le=1.0),
+    suggest_for: str = Query(""),
+) -> dict[str, Any]:
+    return handle_get_evolution(threshold, suggest_for)

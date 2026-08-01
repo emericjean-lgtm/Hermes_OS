@@ -332,6 +332,66 @@ class TestAutonomousOrchestrator:
         assert outputs, "a completed goal must report at least one output"
         assert outputs[0]["content"] == FAKE_COMPLETION
 
+    def test_model_adapter_off_by_default_is_a_safe_noop(self):
+        """set_model_adapter() is never called by these bare-constructor
+        tests — this pins that a goal still completes normally when no
+        adapter is wired, the same isolation every other test here relies
+        on."""
+        orch = AutonomousOrchestrator()
+        assert orch._model_adapter is None
+        goal = orch.start_goal("Write a function")
+        assert goal.status == GoalStatus.COMPLETED
+
+    def test_model_adapter_receives_real_feedback_not_a_fabrication(self):
+        """ModelAutonomousAdapter.record_feedback() existed since HOS-065B
+        and was never called by anything — a goal's model choice and
+        outcome went nowhere. _make_task_executor's model_for callback
+        picks the model that actually runs; this confirms that same real
+        choice (not a placeholder) reaches record_feedback()."""
+        calls = []
+
+        class _FakeAdapter:
+            def record_feedback(self, feedback):
+                calls.append(feedback)
+
+        orch = AutonomousOrchestrator()
+        orch.set_model_adapter(_FakeAdapter())
+        goal = orch.start_goal("Write a function")
+        assert goal.status == GoalStatus.COMPLETED
+
+        assert len(calls) == 1
+        feedback = calls[0]
+        assert feedback.goal_id == goal.goal_id
+        assert feedback.model_id == "qwen3:4b"  # RealTaskExecutor's default
+        assert feedback.success is True
+        assert feedback.duration_ms > 0
+        assert feedback.tokens_used > 0
+
+    def test_report_includes_the_real_models_used(self):
+        """results.models_used surfaces the specific model tag Model
+        Intelligence picked (e.g. "qwen3:4b") — previously discarded inside
+        RealTaskExecutor/MissionExecutor before reaching the report, leaving
+        only the runtime provider name ("ollama") in runtimes_used."""
+        orch = AutonomousOrchestrator()
+        goal = orch.start_goal("Write a function")
+        report = orch.get_report(goal.goal_id)
+        assert report is not None
+        assert report.results["models_used"] == ["qwen3:4b"]
+
+    def test_broken_model_adapter_does_not_fail_the_goal(self):
+        """A reporting failure must not turn an already-completed goal into
+        a failed one — the same discipline as _emit()/_report_execution()
+        elsewhere in this codebase."""
+
+        class _BrokenAdapter:
+            def record_feedback(self, feedback):
+                raise RuntimeError("boom")
+
+        orch = AutonomousOrchestrator()
+        orch.set_model_adapter(_BrokenAdapter())
+        goal = orch.start_goal("Write a function")
+        assert goal.status == GoalStatus.COMPLETED
+
     def test_pause_goal(self):
         orch = AutonomousOrchestrator()
         # Create a new object directly for pause testing

@@ -35,6 +35,8 @@ from backend.model_intelligence.routes import (
     handle_get_history,
     handle_run_benchmark,
     handle_get_performance,
+    handle_get_knowledge,
+    handle_get_evolution,
 )
 
 
@@ -629,6 +631,84 @@ class TestAPIRoutes:
         result = handle_get_performance("qwen3-coder:30b")
         assert result["success"] is True
         assert "score" in result
+
+    def test_get_knowledge_without_task_type(self):
+        result = handle_get_knowledge()
+        assert result["success"] is True
+        assert "stats" in result
+        assert "best_model_for_task" not in result
+
+    def test_get_knowledge_with_task_type_no_data_yet(self):
+        """A task type nothing has ever recorded a real outcome for must
+        return None, not a guess — the same "never fabricate" discipline
+        as everywhere else this session touched Model Intelligence. Uses a
+        task type nothing else in this module-global singleton could ever
+        plausibly have recorded, since handle_get_knowledge() reads the
+        same shared cache every test in this class does."""
+        result = handle_get_knowledge(task_type="__test_isolation_probe_43a__")
+        assert result["success"] is True
+        assert result["best_model_for_task"] is None
+
+    def test_get_knowledge_reflects_real_usage(self):
+        from backend.model_intelligence.routes import _get_memory
+
+        task_type = "__test_isolation_probe_43b__"
+        _get_memory().record_model_for_task("qwen3-coder:30b", task_type, True)
+        result = handle_get_knowledge(task_type=task_type)
+        assert result["success"] is True
+        assert any(r["source"] == "qwen3-coder:30b" for r in result["relations"])
+
+    def test_get_evolution_no_underperformers_yet(self):
+        result = handle_get_evolution()
+        assert result["success"] is True
+        assert isinstance(result["underperforming"], list)
+        assert "suggestion" not in result
+
+    def test_get_evolution_detects_a_real_underperformer(self):
+        """Fabricate the *record*, not the *detection*: feed real-shaped
+        performance records (same shape _make_task_executor's on_execution
+        hook feeds after a real execution) into an isolated profiler/adapter
+        pair and confirm detect_underperforming_models() — not this test —
+        is what decides the model is struggling. Isolated rather than
+        routed through the module-global singleton other tests in this
+        class also share, so this needs no assumption about what state
+        those left behind."""
+        from backend.model_intelligence.model_evolution_adapter import (
+            ModelEvolutionAdapter,
+        )
+        from backend.model_intelligence.model_intelligence_models import (
+            ModelPerformanceRecord,
+            TaskType,
+        )
+        from backend.model_intelligence.model_profiler import ModelProfiler
+
+        profiler = ModelProfiler()
+        model_id = next(iter(profiler.list_profiles())).model_id
+        for _ in range(5):
+            profiler.update_performance(ModelPerformanceRecord(
+                model_id=model_id, task_type=TaskType.GENERAL,
+                duration_ms=1000, tokens_used=10, success=False,
+            ))
+
+        adapter = ModelEvolutionAdapter(profiler=profiler)
+        underperforming = adapter.detect_underperforming_models(threshold=0.9)
+        assert any(m["model_id"] == model_id for m in underperforming)
+
+    def test_get_evolution_suggestion_stays_within_declared_scope(self):
+        """suggest_model_replacement() must never reach into
+        PerformanceAnalyzer's benchmark summaries (BenchmarkScheduler's
+        simulated numbers) — only ModelProfiler's real, execution-fed
+        data. A candidate list keyed only by profile scores is the
+        observable proof; get_evolution_summary()'s benchmark-tainted
+        model_trends field must not leak in."""
+        from backend.model_intelligence.routes import _get_profiler
+
+        profiles = list(_get_profiler().list_profiles())
+        result = handle_get_evolution(suggest_for=profiles[0].model_id)
+        assert "suggestion" in result
+        if result["suggestion"] is not None:
+            assert "model_trends" not in result["suggestion"]
+            assert "candidates" in result["suggestion"]
 
 
 # ═══════════════════════════════════════════════════════════════

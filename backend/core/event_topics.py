@@ -168,6 +168,14 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # message
     "message.received",
     "message.sent",
+    # model (ModelAutonomousAdapter, HOS-065B — added when it was wired
+    # into AutonomousOrchestrator; see CHANGELOG)
+    "model.decision.created",
+    "model.performance.updated",
+    "model.recommended",
+    "model.routing.optimized",
+    "model.profiled",
+    "model.selection.completed",
     # mission
     "mission.cancelled",
     "mission.created",

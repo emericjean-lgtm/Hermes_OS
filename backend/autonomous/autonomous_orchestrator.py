@@ -60,6 +60,10 @@ class AutonomousOrchestrator:
 
             mission_executor = MissionExecutor(on_event=on_event)
         self.mission_executor = mission_executor
+        # Set by the bootstrap (see service_registry.py's
+        # _make_autonomous_engine) so goal execution reports the real model
+        # Model Intelligence picked — see set_model_adapter().
+        self._model_adapter: Any = None
 
         # Bounded, like _reports already was. These two were plain dicts that
         # grew forever: a 1600-mission run leaked ~10 KiB per mission and never
@@ -77,6 +81,21 @@ class AutonomousOrchestrator:
         self._status_counts: dict[str, int] = {}
 
     # ── Public API ──
+
+    def set_model_adapter(self, adapter: Any) -> None:
+        """Inject Model Intelligence's ModelAutonomousAdapter (HOS-065B).
+
+        Optional and off by default (None): every existing caller/test that
+        builds this orchestrator without one keeps behaving exactly as
+        before — goal execution just doesn't get reported to Model
+        Intelligence. This is a reporting seam, not a decision one: the
+        model that actually runs is still chosen by RealTaskExecutor's own
+        model_for hook (backend/core/bootstrap/service_registry.py), so
+        this adapter never gets asked to pick a model itself
+        (select_model_for_goal) — that would create a second decision-maker
+        that could disagree with what the report says actually happened.
+        """
+        self._model_adapter = adapter
 
     def start_goal(
         self, user_request: str, context: dict[str, Any] | None = None
@@ -396,6 +415,12 @@ class AutonomousOrchestrator:
         failed = [t for t in tasks if t.status == TaskExecutionStatus.FAILED]
         success = bool(completed) and not failed and not unavailable
 
+        # Real model(s) Model Intelligence picked and Ollama actually served
+        # for this goal — previously computed inside RealTaskExecutor and
+        # then discarded before reaching this report (see mission_executor.py).
+        models_used = sorted({r.get("model") for r in results if r.get("model")})
+        self._report_model_feedback(goal, tasks, results)
+
         summary = (
             f"{len(completed)}/{len(tasks)} task(s) completed on "
             f"{', '.join(runtimes) or 'no runtime'} in {duration_ms:.0f}ms"
@@ -440,6 +465,10 @@ class AutonomousOrchestrator:
                 "tokens": sum(
                     int(t.resources_used.get("total_tokens", 0) or 0) for t in tasks
                 ),
+                # The specific model(s) actually served this goal (e.g.
+                # "qwen3:1.7b"), not the runtime provider name already in
+                # runtimes_used (e.g. "ollama") — see mission_executor.py.
+                "models_used": models_used,
                 # `content` used to be missing entirely: only the task's own
                 # title and a character count were kept, so a goal that ran
                 # for real (tokens spent, seconds elapsed, confirmed against
@@ -452,6 +481,38 @@ class AutonomousOrchestrator:
                 ],
             },
         }
+
+    def _report_model_feedback(
+        self, goal: AutonomousGoal, tasks: list, results: list[dict[str, Any]],
+    ) -> None:
+        """Feed ModelAutonomousAdapter (HOS-065B) with what a task actually
+        did, so its per-goal history and stats reflect real usage — before
+        this, they stayed empty forever because nothing ever called
+        record_feedback(). Never raises: a reporting failure must not turn
+        an already-completed goal into a failed one."""
+        if self._model_adapter is None:
+            return
+        from backend.execution.execution_models import TaskExecutionStatus
+        from backend.model_intelligence.model_autonomous_adapter import (
+            ModelExecutionFeedback,
+        )
+
+        for task, outcome in zip(tasks, results):
+            model_id = outcome.get("model")
+            if not model_id:
+                continue
+            try:
+                self._model_adapter.record_feedback(ModelExecutionFeedback(
+                    goal_id=goal.goal_id,
+                    model_id=model_id,
+                    task_type=goal.domain or "general",
+                    duration_ms=task.duration_ms,
+                    tokens_used=int(task.resources_used.get("total_tokens", 0) or 0),
+                    success=task.status == TaskExecutionStatus.COMPLETED,
+                    errors=list(task.errors[-3:]) if task.errors else [],
+                ))
+            except Exception:
+                pass
 
     #: How much autonomous history stays resident. Chosen to be generous for a
     #: Cockpit that lists recent goals while still being a bound — an unbounded

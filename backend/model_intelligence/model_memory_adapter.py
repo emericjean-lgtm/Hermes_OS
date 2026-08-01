@@ -1,7 +1,24 @@
-"""Memory integration for Model Intelligence (HOS-065B).
+"""Model Intelligence's own decision-pattern store (HOS-065B).
 
-Stores model decisions and performance in Episodic Memory,
-Procedural Memory, and Knowledge Graph for continuous learning.
+This does NOT integrate with backend.memory's real MemoryManager/
+EpisodicMemory (the store missions and autonomous goals write to via
+memory_manager.record_episode) or a real graph database. It never did,
+despite this module's original docstring claiming otherwise — the
+"Episodic/Procedural/Knowledge Graph" stores below have always been three
+private, disconnected Python lists (`# In-memory stores (simulating
+Episodic/Procedural/Knowledge stores)`, per the previous version of this
+comment). Merging them into the real memory subsystem would mean a schema
+bridge (EpisodicMemory is shaped around mission_id/agents_used/
+runtimes_used, not per-task model choices) that is worth doing deliberately,
+not as a side effect of wiring this module in.
+
+What changed instead: record_model_for_task() is now actually called, from
+the same real execution telemetry backend/core/bootstrap/service_registry.py
+feeds ModelProfiler with (_make_task_executor's on_execution hook) — so
+get_best_model_for_task() reflects real usage instead of staying forever
+empty. It is exactly what its name says: a same-process, in-memory
+decision-pattern cache local to Model Intelligence, not a bridge to
+Hermes's other memory systems.
 """
 
 from __future__ import annotations
@@ -21,7 +38,9 @@ REL_MODEL_RECOMMENDED_BY_CONTEXT = "MODEL_RECOMMENDED_BY_CONTEXT"
 
 
 class ModelMemoryAdapter:
-    """Bridges Model Intelligence with Unified Memory (HOS-047)."""
+    """Model Intelligence's own episodic/procedural/knowledge-graph-shaped
+    cache of decision patterns — see the module docstring for what this is
+    not (a bridge to HOS-047's real Unified Memory)."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
