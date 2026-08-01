@@ -74,28 +74,59 @@ auprès de l'utilisateur.
   vide par défaut, le réglage le plus sûr : Hermes reste 100% local tant
   qu'une clé réelle n'est pas fournie.
 
-### Verified
-- 47 nouveaux tests (`tests/model_intelligence/test_openrouter_client.py`,
-  `test_cloud_catalog.py`, `test_cloud_escalation.py`,
-  `test_task_executor_cloud_fallback.py`, `test_cloud_status_route.py`,
-  plus 3 dans `backend/tests/test_aegis.py` pour `cloud_inference`) : tout
-  passe sans réseau (`httpx.MockTransport` pour le client HTTP réel, aucun
-  double factice pour la logique métier).
-- Suite complète (`tests/` + `backend/tests/`) : **3413 passed, 3 skipped,
-  0 failed**.
+### Added — complété : BenchmarkScheduler, agents conversationnels, widget
+Les trois points listés comme non faits dans la première passe (ci-dessous)
+ont été traités dans la foulée, sur demande explicite de l'utilisateur
+("termine la liste des non fait dans cette passe") :
 
-### Non fait dans cette passe
-- `ModelRouter` (backend/core/router.py, utilisé par `BaseAgent`/
-  `TaskDecomposer` pour le chat/la décomposition de mission) n'a pas
-  l'escalade cloud — seul `AdaptiveRouter`/`RealTaskExecutor` (le pipeline
-  d'exécution de tâches réel) l'a. Extension naturelle si l'escalade cloud
-  doit aussi couvrir les agents conversationnels.
-- Pas de widget de quota dans le Models Center — `GET /models/cloud/status`
-  existe côté backend, rien côté frontend pour l'instant.
-- Pas de benchmark réel des modèles cloud gratuits (l'extension de
-  `BenchmarkScheduler` proposée dans le plan) — les profils cloud démarrent
-  avec les mêmes scores neutres que les rôles locaux avant leur premier
-  vrai benchmark.
+- `BenchmarkScheduler.run_benchmark()` bascule désormais vers OpenRouter
+  pour tout profil `RuntimeBackend.OPENROUTER` (même catalogue réel
+  qu'`AdaptiveRouter`, pas une liste séparée). OpenRouter ne renvoie pas
+  `eval_count`/`eval_duration` comme Ollama : latence et tokens/seconde sont
+  mesurés sur l'horloge murale autour de l'appel complet (réseau + génération),
+  une mesure réelle mais honnêtement différente de la mesure locale, documentée
+  comme telle plutôt que présentée à tort comme équivalente. VRAM/RAM à 0 (réel :
+  une complétion cloud ne coûte rien en local).
+- `get_cloud_fallback_model(task_type)` (model_intelligence/routes.py) —
+  fonction réutilisable qui repasse par la même porte d'escalade
+  d'`AdaptiveRouter` (Aegis, quota) avec `cloud_escalation_allowed=True`
+  forcé, pour un appelant qui a *déjà* essayé le local et échoué (un cas
+  qu'`AdaptiveRouter` ne peut pas voir lui-même : son filtre ne regarde que
+  la VRAM, pas si Ollama répond réellement).
+- `BaseAgent`/`TaskDecomposer` gagnent un `cloud_client` optionnel
+  (`None` par défaut = comportement 100% inchangé). Le local reste le
+  premier essai systématique ; un repli cloud n'est tenté que si
+  l'appel local échoue *avant d'avoir streamé le moindre chunk* — la même
+  garde que `OllamaClient.chat_events()` applique déjà à ses propres
+  reconnexions, pour ne jamais risquer une réponse dupliquée ou incohérente.
+  Câblé dans `AgentRegistry`/`_make_mission_planner` uniquement quand
+  `OPENROUTER_API_KEY` est configuré. Un bug réel a été trouvé et corrigé en
+  cours de route : le premier brouillon appelait `chat_events()` à
+  l'intérieur du générateur de repli, ce qui rendait l'appel paresseux
+  (jamais exécuté avant la première itération) au lieu d'immédiat comme
+  avant cette fonctionnalité — cassait un test existant
+  (`test_the_decision_actually_reaches_ollama`), corrigé en gardant l'appel
+  dans la méthode simple qui construit le générateur, pas dans le générateur
+  lui-même.
+- `OpenRouterClient.from_settings()` — point unique pour "une clé est-elle
+  configurée", utilisé par les trois consommateurs (agents, planificateur,
+  exécuteur de tâches) au lieu de trois gardes légèrement différentes.
+- Panneau de statut cloud dans le Models Center (frontend) —
+  `GET /models/cloud/status`, lecture seule, affiché entre l'en-tête et les
+  onglets : configuré/non configuré, autorisé/non autorisé *maintenant*,
+  quota restant, taille du catalogue. Pas un nouvel onglet — l'idée
+  délibérément écartée dans le plan initial, la visibilité seule ne justifie
+  pas une surface produit séparée. Vérifié dans le navigateur avec le
+  backend réel : "cloud local uniquement" s'affiche correctement (aucune
+  clé configurée sur ce poste).
+
+### Verified
+- 24 tests supplémentaires (`test_benchmark_scheduler_cloud.py`,
+  `test_cloud_fallback_helper.py`, `test_base_agent_cloud_fallback.py`,
+  `test_task_decomposer_cloud_fallback.py`) — 71 tests HOS-066C au total,
+  tous verts.
+- Suite complète (`tests/` + `backend/tests/`) : **3437 passed, 3 skipped,
+  0 failed**.
 
 ## HOS-065C — Benchmarks réels et contexte optimisé par rôle (2026-08-01)
 

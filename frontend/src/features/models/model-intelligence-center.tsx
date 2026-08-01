@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import {
+  useCloudStatus,
   useModelIntelligence,
   useModelRanking,
   useRecommendModel,
@@ -29,6 +30,7 @@ export default function ModelIntelligenceCenter() {
   const overview = useModelIntelligence();
   const ranking = useModelRanking();
   const recommend = useRecommendModel();
+  const cloudStatus = useCloudStatus();
   const benchmarks = useQuery({
     queryKey: ["models", "benchmarks"],
     queryFn: () => modelIntelligenceClient.benchmarks(),
@@ -68,6 +70,38 @@ export default function ModelIntelligenceCenter() {
           )
         }
       />
+
+      {/* Cloud escalation status (HOS-066C) — read-only, GET /models/cloud/status.
+          Local stays the default in every case; this is visibility, not a control. */}
+      {!cloudStatus.isLoading && cloudStatus.data && (
+        <div className="flex items-center gap-3 bg-hermes-elevated/40 border border-hermes-border rounded-lg px-4 py-2.5 text-xs">
+          {!cloudStatus.data.configured ? (
+            <>
+              <Badge>cloud local uniquement</Badge>
+              <span className="text-hermes-muted">
+                OpenRouter n&apos;est pas configuré — chaque tâche s&apos;exécute en local.
+              </span>
+            </>
+          ) : cloudStatus.data.authorized ? (
+            <>
+              <Badge variant="success">cloud actif</Badge>
+              <span className="text-hermes-muted">
+                {cloudStatus.data.catalog_size ?? 0} modèles gratuits ·{" "}
+                {cloudStatus.data.quota_remaining != null
+                  ? `${cloudStatus.data.quota_remaining} requêtes restantes aujourd'hui`
+                  : "quota inconnu"}
+                {" · réserve "}
+                {cloudStatus.data.reserve_daily_requests ?? 0}
+              </span>
+            </>
+          ) : (
+            <>
+              <Badge variant="warning">cloud configuré, non autorisé</Badge>
+              <span className="text-hermes-muted">{cloudStatus.data.message}</span>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-hermes-elevated/50 rounded-lg p-1">

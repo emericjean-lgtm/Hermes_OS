@@ -215,17 +215,25 @@ class TaskDecomposer:
         router: Any = None,
         models_config: Optional[dict] = None,
         timeout_s: float = 90.0,
+        cloud_client: Any = None,
     ) -> None:
         """``ollama_client``/``router`` are optional on purpose: with none
         supplied (the default, and every existing caller/test before this
         change), ``decompose()`` behaves exactly as it always has — pure
         keyword matching, no network access. Only the real bootstrap wiring
         (``_make_mission_planner``) supplies both, which is what turns on
-        the LLM path."""
+        the LLM path.
+
+        ``cloud_client`` (HOS-066C) is an ``OpenRouterClient``-shaped object,
+        optional and ``None`` by default — a resilience fallback tried only
+        after a local LLM decomposition attempt has already failed, never a
+        first choice. See ``_decompose_with_llm``.
+        """
         self._ollama = ollama_client
         self._router = router
         self._models_config = models_config or {}
         self._timeout_s = timeout_s
+        self._cloud_client = cloud_client
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
@@ -305,6 +313,54 @@ class TaskDecomposer:
                 content_parts.append(chunk.text)
         return "".join(content_parts)
 
+    async def _chat_once_cloud(
+        self, model: str, messages: list[dict[str, Any]],
+        temperature: Optional[float], top_p: Optional[float],
+    ) -> str:
+        """Same shape as ``_chat_once`` but against ``self._cloud_client``
+        (HOS-066C) — only ever called after a local attempt already failed,
+        see ``_decompose_with_llm``."""
+        content_parts: list[str] = []
+        async for chunk in self._cloud_client.chat_events(
+            model, messages, temperature=temperature, top_p=top_p,
+        ):
+            if chunk.kind == "content":
+                content_parts.append(chunk.text)
+        return "".join(content_parts)
+
+    def _try_cloud_decompose(
+        self, request: PlanningRequest, messages: list[dict[str, Any]], gen: dict,
+    ) -> Optional[str]:
+        """One retry against a cloud (OpenRouter free-model) fallback after
+        the local ``planning`` role failed (HOS-066C) — never a first
+        choice, and only attempted at all when a cloud client is wired
+        (OPENROUTER_API_KEY configured) and AdaptiveRouter's own gate
+        (Aegis authorization, real quota) allows it. Returns None on any
+        failure or when no cloud option is available — the caller already
+        has a safety net (rule-based decomposition), so this stays
+        best-effort rather than raising.
+        """
+        if self._cloud_client is None:
+            return None
+        try:
+            from backend.model_intelligence.routes import get_cloud_fallback_model
+
+            cloud_model = get_cloud_fallback_model("planning")
+            if cloud_model is None:
+                return None
+            return self._run_coro(
+                self._chat_once_cloud(
+                    cloud_model, messages, gen.get("temperature"), gen.get("top_p"),
+                ),
+                self._timeout_s,
+            )
+        except Exception:
+            logger.warning(
+                "cloud fallback decomposition also failed for request %s",
+                request.request_id, exc_info=True,
+            )
+            return None
+
     def _decompose_with_llm(self, request: PlanningRequest) -> Optional[list[TaskBreakdown]]:
         if self._ollama is None or self._router is None:
             return None
@@ -316,13 +372,13 @@ class TaskDecomposer:
         if not prompt_context:
             return None
 
+        gen = self._models_config.get("generation_defaults", {}).get("standard", {})
+        messages = [
+            {"role": "system", "content": _DECOMPOSITION_SYSTEM_PROMPT},
+            {"role": "user", "content": _build_user_prompt(request)},
+        ]
         try:
             decision = self._router.select_model("planning")
-            gen = self._models_config.get("generation_defaults", {}).get("standard", {})
-            messages = [
-                {"role": "system", "content": _DECOMPOSITION_SYSTEM_PROMPT},
-                {"role": "user", "content": _build_user_prompt(request)},
-            ]
             content = self._run_coro(
                 self._chat_once(
                     decision.model, messages,
@@ -331,12 +387,18 @@ class TaskDecomposer:
                 ),
                 self._timeout_s,
             )
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "LLM decomposition failed for request %s; falling back to "
-                "rule-based decomposition", request.request_id, exc_info=True,
+                "local LLM decomposition failed for request %s (%s: %s)",
+                request.request_id, type(exc).__name__, exc, exc_info=True,
             )
-            return None
+            content = self._try_cloud_decompose(request, messages, gen)
+            if content is None:
+                logger.warning(
+                    "falling back to rule-based decomposition for request %s",
+                    request.request_id,
+                )
+                return None
 
         items = _extract_json_array(content)
         if not items:

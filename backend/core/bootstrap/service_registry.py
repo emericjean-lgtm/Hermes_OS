@@ -440,10 +440,13 @@ def _make_mission_planner(c: Any) -> Any:
         keep_alive=getattr(settings, "ollama_keep_alive", "10m"),
         default_num_ctx=getattr(settings, "ollama_num_ctx", 8192),
     )
+    from backend.connectors.openrouter_client import OpenRouterClient
+
     decomposer = TaskDecomposer(
         ollama_client=ollama_client,
         router=ModelRouter(models_config),
         models_config=models_config,
+        cloud_client=OpenRouterClient.from_settings(),
     )
 
     return MissionPlanner(

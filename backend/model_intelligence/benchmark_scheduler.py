@@ -42,6 +42,7 @@ from typing import Any, Callable, Optional
 from .model_intelligence_models import (
     BenchmarkResult,
     ModelProfile,
+    RuntimeBackend,
     TaskType,
 )
 from .model_profiler import ModelProfiler
@@ -87,6 +88,7 @@ class BenchmarkScheduler:
         analyzer: Optional[PerformanceAnalyzer] = None,
         *,
         chat: Optional[Callable[..., Any]] = None,
+        cloud_chat: Optional[Callable[..., Any]] = None,
         timeout_s: float = 180.0,
     ) -> None:
         """``chat`` is ``async (*, messages, model, num_ctx) -> dict`` —
@@ -95,10 +97,21 @@ class BenchmarkScheduler:
         Defaults to a real call against the configured Ollama endpoint;
         tests inject a fake to stay hermetic, the same pattern
         ``RealTaskExecutor``/``TaskDecomposer`` use.
+
+        ``cloud_chat`` is the same shape, but its dict is OpenRouter's raw
+        ``/chat/completions`` JSON (``choices[0].message.content``,
+        ``usage.prompt_tokens``/``completion_tokens`` — no per-call
+        generation-duration counter the way Ollama reports one, see
+        ``run_benchmark``'s cloud branch for how latency/tps are measured
+        instead). Used automatically for any profile whose
+        ``available_backends`` includes ``RuntimeBackend.OPENROUTER``
+        (HOS-066C) — defaults to a real call if ``OPENROUTER_API_KEY`` is
+        configured, otherwise benchmarking a cloud model raises.
         """
         self._profiler = profiler or ModelProfiler()
         self._analyzer = analyzer or PerformanceAnalyzer()
         self._chat = chat
+        self._cloud_chat = cloud_chat
         self._timeout_s = timeout_s
 
         self._running = False
@@ -184,6 +197,35 @@ class BenchmarkScheduler:
             response.raise_for_status()
             return response.json()
 
+    async def _default_cloud_chat(self, *, messages: list[dict[str, Any]], model: str,
+                                   num_ctx: int) -> dict[str, Any]:
+        """Non-streaming OpenRouter ``/chat/completions`` call, raw JSON —
+        same "own httpx call, no wrapper client" pattern as ``_default_chat``
+        above. Raises plainly if no key is configured: a benchmark that
+        cannot run must say so, not report invented numbers (module
+        docstring's "never fabricate" rule applies here too).
+        """
+        import httpx
+
+        from backend.core.config import get_settings
+
+        settings = get_settings()
+        if not settings.openrouter_api_key:
+            raise RuntimeError(
+                "cannot benchmark a cloud model: OPENROUTER_API_KEY is not configured"
+            )
+        async with httpx.AsyncClient(
+            base_url="https://openrouter.ai/api/v1", timeout=self._timeout_s,
+            headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+        ) as client:
+            response = await client.post("/chat/completions", json={
+                "model": model,
+                "messages": messages,
+                "stream": False,
+            })
+            response.raise_for_status()
+            return response.json()
+
     def _measured_vram_mb(self, model_id: str) -> tuple[int, int]:
         """Real VRAM/RAM split for a currently-loaded model, from Ollama's
         own /api/ps (``size_vram`` vs ``size`` — the difference is what
@@ -216,10 +258,15 @@ class BenchmarkScheduler:
                        num_ctx: int = _DEFAULT_BENCHMARK_NUM_CTX) -> BenchmarkResult:
         """Run one real benchmark for a model on a specific task.
 
+        Dispatches to Ollama or OpenRouter (HOS-066C) based on the
+        profile's ``available_backends`` — the same real catalogue
+        ``AdaptiveRouter`` reads, not a separate list to keep in sync.
+
         Raises:
             ValueError: ``model_id`` isn't a known profile.
-            RuntimeError: Ollama could not be reached — a benchmark that
-                could not run must say so, not report invented numbers.
+            RuntimeError: the runtime could not be reached (Ollama down, or
+                OPENROUTER_API_KEY missing for a cloud model) — a benchmark
+                that could not run must say so, not report invented numbers.
         """
         profile = self._profiler.get_profile(model_id)
         if not profile:
@@ -227,8 +274,17 @@ class BenchmarkScheduler:
 
         prompt = _PROMPTS_BY_TASK_TYPE.get(task_type, _DEFAULT_PROMPT)
         messages = [{"role": "user", "content": prompt}]
-        chat = self._chat or self._default_chat
 
+        if RuntimeBackend.OPENROUTER in profile.available_backends:
+            return self._run_cloud_benchmark(profile, task_type, messages)
+        return self._run_local_benchmark(profile, task_type, messages, num_ctx)
+
+    def _run_local_benchmark(
+        self, profile: ModelProfile, task_type: TaskType,
+        messages: list[dict[str, Any]], num_ctx: int,
+    ) -> BenchmarkResult:
+        model_id = profile.model_id
+        chat = self._chat or self._default_chat
         try:
             raw = self._run_coro(
                 chat(messages=messages, model=model_id, num_ctx=num_ctx),
@@ -248,8 +304,63 @@ class BenchmarkScheduler:
 
         tps = (eval_count / (eval_duration_ns / 1e9)) if eval_duration_ns > 0 else 0.0
         latency_ms = total_duration_ns / 1e6
-
         vram_mb, ram_mb = self._measured_vram_mb(model_id)
+
+        return self._finalize_benchmark(
+            profile, task_type, content=content, latency_ms=latency_ms, tps=tps,
+            vram_mb=vram_mb or profile.vram_required_mb, ram_mb=ram_mb,
+            tokens_used=eval_count + prompt_eval_count,
+        )
+
+    def _run_cloud_benchmark(
+        self, profile: ModelProfile, task_type: TaskType,
+        messages: list[dict[str, Any]],
+    ) -> BenchmarkResult:
+        """OpenRouter reports token usage but not a generation-duration
+        counter the way Ollama's ``eval_duration`` does, so latency/tps here
+        are measured on the wall clock around the whole call (network +
+        generation combined) rather than a pure on-device figure — still a
+        real measurement, just a coarser and honestly different one than
+        the local path's, worth knowing when comparing the two.
+        """
+        model_id = profile.model_id
+        cloud_chat = self._cloud_chat or self._default_cloud_chat
+        started = time.perf_counter()
+        try:
+            raw = self._run_coro(
+                cloud_chat(messages=messages, model=model_id, num_ctx=0),
+                self._timeout_s,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"benchmark for {model_id!r} could not reach OpenRouter: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        latency_ms = (time.perf_counter() - started) * 1000.0
+
+        choices = raw.get("choices") or []
+        content = str((choices[0].get("message") or {}).get("content") or "") if choices else ""
+        usage = raw.get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+        tps = completion_tokens / (latency_ms / 1000.0) if latency_ms > 0 and completion_tokens else 0.0
+
+        return self._finalize_benchmark(
+            profile, task_type, content=content, latency_ms=latency_ms, tps=tps,
+            # Real: a cloud completion costs no local VRAM/RAM.
+            vram_mb=0, ram_mb=0,
+            tokens_used=prompt_tokens + completion_tokens,
+        )
+
+    def _finalize_benchmark(
+        self, profile: ModelProfile, task_type: TaskType, *, content: str,
+        latency_ms: float, tps: float, vram_mb: int, ram_mb: int, tokens_used: int,
+    ) -> BenchmarkResult:
+        """Shared tail for both the local and cloud paths: build the
+        result, store it, and feed the same learning signals a real task
+        execution does — one place so the two paths can't silently drift
+        apart on what "recording a benchmark" means."""
+        model_id = profile.model_id
         # A response is the completion signal available without a real
         # evaluation harness — see the module docstring.
         quality = 1.0 if content.strip() else 0.0
@@ -260,7 +371,7 @@ class BenchmarkScheduler:
             task_type=task_type,
             latency_ms=round(latency_ms, 1),
             tokens_per_second=round(tps, 1),
-            vram_usage_mb=vram_mb or profile.vram_required_mb,
+            vram_usage_mb=vram_mb,
             ram_usage_mb=ram_mb,
             quality_score=quality,
             temperature=0.2,
@@ -278,7 +389,7 @@ class BenchmarkScheduler:
 
         self._profiler.update_performance(ModelPerformanceRecord(
             model_id=model_id, task_type=task_type,
-            duration_ms=round(latency_ms), tokens_used=eval_count + prompt_eval_count,
+            duration_ms=round(latency_ms), tokens_used=tokens_used,
             success=quality > 0,
         ))
         # task_scores was never populated by anything — every recommend()

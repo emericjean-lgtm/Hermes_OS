@@ -101,6 +101,20 @@ class OpenRouterClient:
             transport=transport,
         )
 
+    @classmethod
+    def from_settings(cls) -> "OpenRouterClient | None":
+        """None when OPENROUTER_API_KEY isn't configured — the one, shared
+        way every consumer (agents, mission planner, task executor) checks
+        whether cloud escalation is available at all, so "is it configured"
+        is answered identically everywhere rather than three slightly
+        different guards drifting apart."""
+        from backend.core.config import get_settings
+
+        settings = get_settings()
+        if not settings.openrouter_api_key:
+            return None
+        return cls(settings.openrouter_api_key)
+
     # ── chat ─────────────────────────────────────────────────────────
 
     async def chat(

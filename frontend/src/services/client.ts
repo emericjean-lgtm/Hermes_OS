@@ -778,6 +778,21 @@ export interface ModelDecisionDTO {
   alternatives: { model_id: string; name: string; score: number; reason: string }[];
 }
 
+// OpenRouter free-model cloud escalation (HOS-066C) — read-only status:
+// whether a key is configured, whether Aegis authorizes it *right now* at
+// the current autonomy level, and the real cached catalogue/quota state.
+export interface CloudStatusDTO {
+  success: boolean;
+  configured: boolean;
+  authorized: boolean;
+  message: string;
+  catalog_size?: number;
+  catalog_age_s?: number | null;
+  quota_remaining?: number | null;
+  quota_checked_age_s?: number | null;
+  reserve_daily_requests?: number;
+}
+
 export const modelIntelligenceClient = {
   models: () => fetchJSON<ModelIntelligenceDTO>("/models"),
   ranking: () =>
@@ -791,6 +806,7 @@ export const modelIntelligenceClient = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  cloudStatus: () => fetchJSON<CloudStatusDTO>("/models/cloud/status"),
 };
 
 // ── Conversation (HOS-062) ────────────────────────────────

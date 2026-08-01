@@ -525,6 +525,16 @@ export function useModelHistory(limit = 50) {
   });
 }
 
+/** OpenRouter cloud escalation status (HOS-066C) — cheap (reads a cache,
+ *  never itself spends quota), so a short poll is fine. */
+export function useCloudStatus() {
+  return useQuery({
+    queryKey: ["models", "cloud-status"],
+    queryFn: () => modelIntelligenceClient.cloudStatus(),
+    refetchInterval: 30_000,
+  });
+}
+
 // ── Conversation (HOS-062) ────────────────────────────────
 
 export function useStartConversation() {

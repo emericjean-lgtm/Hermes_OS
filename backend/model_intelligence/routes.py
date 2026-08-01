@@ -10,7 +10,7 @@ from .adaptive_router import AdaptiveRouter, CloudGate
 from .benchmark_scheduler import BenchmarkScheduler
 from .cloud_catalog import CloudModelCatalog
 from .model_evolution_adapter import ModelEvolutionAdapter
-from .model_intelligence_models import TaskType
+from .model_intelligence_models import RuntimeBackend, TaskContext, TaskType
 from .model_memory_adapter import ModelMemoryAdapter
 from .model_profiler import ModelProfiler
 from .model_predictor import ModelPredictor
@@ -108,6 +108,31 @@ def _get_router() -> AdaptiveRouter:
                 refresh_catalog=catalog.refresh,
             ))
     return _router
+
+
+def get_cloud_fallback_model(task_type: str = "") -> str | None:
+    """A cloud (OpenRouter free-model) id to retry against when a *local*
+    attempt has already failed for this task_type (HOS-066C) — used by
+    BaseAgent/TaskDecomposer's resilience fallback, so it goes through the
+    exact same authorization/quota/catalogue gate as the task-execution
+    pipeline rather than a second, looser check.
+
+    ``cloud_escalation_allowed=True`` forces the gate open regardless of
+    whether local profiles look "viable" on paper — appropriate here
+    specifically because local has *already* failed for a reason
+    AdaptiveRouter's VRAM-only viability check cannot see (Ollama
+    unreachable), not because the task is inherently cloud-worthy.
+
+    None means "no real cloud option right now" (not configured, not
+    authorized, no quota, or nothing registered) — callers must treat that
+    as "give up on this attempt", never invent a model id.
+    """
+    router = _get_router()
+    tt = TaskType(task_type) if task_type in TaskType._value2member_map_ else TaskType.GENERAL
+    decision = router.recommend(TaskContext(task_type=tt, cloud_escalation_allowed=True))
+    if decision.runtime == RuntimeBackend.OPENROUTER:
+        return decision.model_id
+    return None
 
 
 def _get_scheduler() -> BenchmarkScheduler:
