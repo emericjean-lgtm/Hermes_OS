@@ -38,7 +38,12 @@ class AdaptiveRouter:
 
     def recommend(self, task: TaskContext) -> ModelDecision:
         """Recommend the best model for a given task context."""
-        profiles = self._profiler.list_profiles()
+        # chat_capable excludes embedding-only models (nomic-embed-text):
+        # Ollama's /api/chat returns 400 for them. Found by actually running
+        # a mission through this recommendation end to end — every other
+        # ranking signal starts at its neutral untrained default, so the
+        # smallest-VRAM embedding model was winning every single time.
+        profiles = [p for p in self._profiler.list_profiles() if p.chat_capable]
         records = self._get_records_for_task(task.task_type)
 
         # Filter by VRAM
@@ -162,10 +167,12 @@ class AdaptiveRouter:
         # This named a fixed model_id ("llama3.2-3b") that has never been
         # installed in any deployment of this project — the one path meant
         # to always succeed recommended a model that could not run. The
-        # lightest *real* profile the profiler actually knows about (from
-        # config/models.yaml) is the honest fallback: still real if nothing
-        # scored above the caller's constraints.
-        profiles = self._profiler.list_profiles()
+        # lightest *real*, chat-capable profile the profiler actually knows
+        # about (from config/models.yaml) is the honest fallback: still real
+        # if nothing scored above the caller's constraints. chat_capable
+        # matters here too — this path is exactly as reachable as recommend()'s
+        # main path when every candidate is filtered out by VRAM/latency.
+        profiles = [p for p in self._profiler.list_profiles() if p.chat_capable]
         lightest = min(profiles, key=lambda p: p.vram_required_mb) if profiles else None
 
         return ModelDecision(

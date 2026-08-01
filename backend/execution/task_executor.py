@@ -96,6 +96,11 @@ class RealTaskExecutor:
         workspace_manager: when supplied, each result is written as a real
             artifact so the output leaves a trace on disk.
         on_event: the shared event dispatcher.
+        on_execution: ``(task, model, duration_ms, tokens_used, success) ->
+            None``, called after every attempt — success or failure — with
+            measured telemetry. The bootstrap wires this to Model
+            Intelligence's profiler (HOS-065), which otherwise never learned
+            from a single real execution (see CHANGELOG).
         timeout_s: hard ceiling on one inference call.
     """
 
@@ -106,6 +111,7 @@ class RealTaskExecutor:
         model_for: Optional[Callable[[Any], str]] = None,
         workspace_manager: Any = None,
         on_event: Optional[Callable] = None,
+        on_execution: Optional[Callable[[Any, str, float, int, bool], None]] = None,
         timeout_s: float = 180.0,
         default_model: str = "qwen3:4b",
     ) -> None:
@@ -113,6 +119,7 @@ class RealTaskExecutor:
         self._model_for = model_for
         self._workspace = workspace_manager
         self._on_event = on_event
+        self._on_execution = on_execution
         self._timeout_s = timeout_s
         self._default_model = default_model
 
@@ -201,14 +208,17 @@ class RealTaskExecutor:
             )
         except RuntimeUnavailableError:
             self._record_failure()
+            self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
             raise
         except asyncio.TimeoutError as exc:
             self._record_failure()
+            self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
             raise RuntimeUnavailableError(
                 f"runtime {runtime_id!r} timed out after {self._timeout_s:.0f}s"
             ) from exc
         except Exception as exc:
             self._record_failure()
+            self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
             # Anything the runtime layer raises means the work did not happen.
             raise RuntimeUnavailableError(
                 f"runtime {runtime_id!r} could not execute task "
@@ -220,6 +230,7 @@ class RealTaskExecutor:
 
         if not content.strip():
             self._record_failure()
+            self._report_execution(task, model, duration_ms, 0, False)
             raise RuntimeUnavailableError(
                 f"runtime {runtime_id!r} returned an empty completion"
             )
@@ -247,6 +258,8 @@ class RealTaskExecutor:
             },
         )
         outcome.artifact_path = self._persist_artifact(task, outcome)
+        self._report_execution(task, outcome.model, duration_ms,
+                                outcome.prompt_tokens + outcome.completion_tokens, True)
 
         with self._lock:
             self._executions += 1
@@ -368,6 +381,15 @@ class RealTaskExecutor:
     def _record_failure(self) -> None:
         with self._lock:
             self._failures += 1
+
+    def _report_execution(self, task: Any, model: str, duration_ms: float,
+                          tokens_used: int, success: bool) -> None:
+        if self._on_execution is None:
+            return
+        try:
+            self._on_execution(task, model, duration_ms, tokens_used, success)
+        except Exception:  # pragma: no cover - feedback must never break execution
+            logger.debug("model execution feedback failed", exc_info=True)
 
     def _emit(self, topic: str, payload: dict[str, Any]) -> None:
         if self._on_event is None:

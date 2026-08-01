@@ -213,6 +213,102 @@ class TestHonestFailure:
         assert task.errors
 
 
+# ── Model Intelligence feedback seam (HOS-065) ───────────────────────
+#
+# _make_task_executor (backend/core/bootstrap/service_registry.py) wires
+# model_for/on_execution to AdaptiveRouter/ModelProfiler so a real task
+# execution both picks its model through Model Intelligence and feeds its
+# measured outcome back — previously nothing in the mission/task pipeline
+# consulted the recommender, and the only thing that ever "trained" the
+# profiler (BenchmarkScheduler) fabricated every number with
+# random.uniform() and never persisted them. These are hermetic: only the
+# wiring contract is under test, not the real router/profiler.
+
+
+class TestModelIntelligenceFeedback:
+    def test_reports_success_with_measured_telemetry(self):
+        async def fake_chat(**_kwargs):
+            return "a real completion"
+
+        calls = []
+        executor = RealTaskExecutor(
+            chat=fake_chat,
+            on_execution=lambda task, model, duration_ms, tokens, success: calls.append(
+                (task.task_id, model, duration_ms, tokens, success)
+            ),
+        )
+        try:
+            executor.execute(_Task(), None)
+        finally:
+            executor.close()
+
+        assert len(calls) == 1
+        task_id, model, duration_ms, tokens, success = calls[0]
+        assert task_id == "it-task"
+        assert model
+        assert duration_ms > 0
+        assert tokens > 0
+        assert success is True
+
+    def test_reports_failure_with_zero_tokens(self):
+        async def refused(**_kwargs):
+            raise ConnectionError("nope")
+
+        calls = []
+        executor = RealTaskExecutor(
+            chat=refused,
+            on_execution=lambda task, model, duration_ms, tokens, success: calls.append(
+                (model, tokens, success)
+            ),
+        )
+        try:
+            with pytest.raises(RuntimeUnavailableError):
+                executor.execute(_Task(), None)
+        finally:
+            executor.close()
+
+        assert len(calls) == 1
+        model, tokens, success = calls[0]
+        assert tokens == 0
+        assert success is False
+
+    def test_on_execution_failure_does_not_break_a_successful_task(self):
+        """A broken feedback callback must not corrupt the real result —
+        the same "must never fail work" discipline as _emit."""
+
+        async def fake_chat(**_kwargs):
+            return "ok"
+
+        def broken_feedback(*_args):
+            raise RuntimeError("boom")
+
+        executor = RealTaskExecutor(chat=fake_chat, on_execution=broken_feedback)
+        try:
+            outcome = executor.execute(_Task(), None)
+        finally:
+            executor.close()
+        assert outcome.result == "ok"
+
+    def test_model_for_selects_the_model_actually_used(self):
+        """model_for is the seam _make_task_executor uses to ask
+        AdaptiveRouter which model to use — this confirms the resolved
+        choice is the one that reaches the runtime call, not just computed
+        and discarded (the defect model.py's RuntimeRecommender had)."""
+        seen_models = []
+
+        async def fake_chat(*, messages, model):
+            seen_models.append(model)
+            return "ok"
+
+        executor = RealTaskExecutor(chat=fake_chat, model_for=lambda task: "picked-model:1b")
+        try:
+            outcome = executor.execute(_Task(), None)
+        finally:
+            executor.close()
+        assert seen_models == ["picked-model:1b"]
+        assert outcome.model == "picked-model:1b"
+
+
 # ── The autonomous pipeline end to end ───────────────────────────────
 
 

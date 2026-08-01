@@ -1,3 +1,97 @@
+## Model Intelligence — AdaptiveRouter réellement branché sur l'exécution (2026-08-01)
+
+L'utilisateur a demandé de vérifier si le système de Model Intelligence &
+Adaptive Routing (HOS-065 — `AdaptiveRouter`, `ModelProfiler`,
+`PerformanceAnalyzer`, `ModelPredictor`, `ModelRuntimeOptimizer`,
+`BenchmarkScheduler`, et quatre adaptateurs vers Autonomous/Runtime/
+Evolution/Memory) fonctionnait vraiment, en proposant en parallèle
+d'ajouter une couche de stratégie au-dessus. Vérification faite avant
+toute décision d'architecture : même verdict que les trois précédents.
+
+### Constat
+- **Réel** : les composants existent, `AdaptiveRouter` est câblé au
+  bootstrap, et le Models Center appelle vraiment `/models/recommend`,
+  `/ranking`, `/performance` — un outil consultatif humain fonctionnel.
+- **Décoratif** : `AdaptiveRouter.recommend()` n'était appelé nulle part
+  dans le pipeline d'exécution réel — `RealTaskExecutor._resolve_model()`
+  retombait toujours sur `qwen3:4b` en dur. Les quatre adaptateurs
+  (`ModelAutonomousAdapter`, `ModelRuntimeAdapter`, `ModelEvolutionAdapter`,
+  `ModelMemoryAdapter`) n'étaient instanciés nulle part — code mort, même
+  défaut que les hooks `set_*` de `DecisionEngine`. `ModelRuntimeOptimizer`
+  avait zéro appelant, même via HTTP. La boucle d'apprentissage
+  (`BenchmarkScheduler.run_benchmark()`) fabriquait chaque nombre avec
+  `random.uniform()` sans jamais parler à Ollama, et `get_latest_benchmarks()`
+  regénérait des valeurs aléatoires à chaque appel au lieu de retourner un
+  historique stocké.
+
+### Fixed
+- **`RealTaskExecutor` consulte maintenant réellement `AdaptiveRouter`.**
+  `_make_task_executor` (bootstrap) câble `model_for` sur
+  `AdaptiveRouter.recommend_for_text(task.title)`, en réutilisant le même
+  singleton de module que le Models Center (`mi_routes._get_router()`) —
+  pas une seconde instance déconnectée.
+- **Les exécutions réelles nourrissent enfin le profileur.** Nouveau
+  callback `on_execution` sur `RealTaskExecutor`, appelé sur les 4 chemins
+  de sortie (succès et 3 formes d'échec) avec la télémétrie mesurée
+  (modèle, durée, tokens, succès), câblé sur
+  `ModelProfiler.update_performance()`. `tokens_per_second` est désormais
+  une moyenne glissante calculée depuis de vraies complétions
+  (`tokens_used / duration_s`), plus une valeur figée à 0 ou fabriquée par
+  le benchmark simulé.
+- **Bug trouvé en vérification réelle, pas en test unitaire** : le modèle
+  recommandé pour la toute première mission exécutée après ce câblage a
+  été `nomic-embed-text` — un modèle d'*embeddings*, pas de chat. Ollama a
+  renvoyé `400 Bad Request` sur `/api/chat`, faisant échouer 5 des 7 tâches
+  de la mission. Cause : `nomic-embed-text` a le plus petit footprint VRAM
+  (0.3GB) des douze modèles, et avec tous les autres signaux de classement
+  encore à leur valeur neutre non entraînée (0.5), c'est ce seul critère
+  qui tranchait — à chaque fois. Ajout d'un champ `chat_capable` sur
+  `ModelProfile` (faux uniquement pour le rôle `embedding`), exclu du
+  pool de sélection de `recommend()` et de `_fallback_decision()`, mais
+  conservé dans le catalogue général et le classement du Models Center
+  (toujours un vrai modèle installé, juste pas candidat au chat).
+
+### Not fixed — gap documenté
+- Les quatre adaptateurs (`ModelAutonomousAdapter`, `ModelRuntimeAdapter`,
+  `ModelEvolutionAdapter`, `ModelMemoryAdapter`) restent non câblés — hors
+  périmètre de cette passe, qui s'est concentrée sur la connexion la plus
+  directe et la plus sûre (sélection + apprentissage réel côté exécution).
+- `ModelRuntimeOptimizer` et le `BenchmarkScheduler` simulé restent
+  inchangés et inutilisés par le pipeline réel.
+- La proposition de l'utilisateur d'ajouter un « Model Strategy Engine »
+  au-dessus d'`AdaptiveRouter` (un modèle par étape de mission — plan,
+  code, revue, résumé…) reste pertinente mais prématurée : construire une
+  nouvelle couche stratégique par-dessus un routeur qui n'était pas encore
+  branché sur l'exécution aurait hérité du même problème. Recommandation
+  donnée à l'utilisateur : cette passe est le prérequis, pas encore ce
+  niveau supérieur.
+
+### Verified
+- `pytest tests/model_intelligence/` : **117/117** (+5 nouveaux, dont
+  deux couvrant explicitement la non-régression du bug `nomic-embed-text`).
+- `pytest tests/integration/test_real_execution.py` : nouveaux tests
+  hermétiques (`TestModelIntelligenceFeedback`, 4 tests) confirmant que
+  `on_execution` reçoit une télémétrie réelle en succès et en échec, et
+  qu'un callback de feedback cassé ne peut pas corrompre un résultat par
+  ailleurs réussi.
+- `pytest tests/integration/test_assembly.py` : nouveau test confirmant
+  que `task_executor` partage la même instance `AdaptiveRouter`/
+  `ModelProfiler` que le reste du conteneur (pas de singleton rival).
+- `tests/integration/test_p002_api_namespace.py` : le test qui affirmait
+  que la charge utile de `/verification/run` n'était pas documentée (une
+  prémisse fausse, voir l'entrée précédente) a été remplacé par un test
+  qui vérifie le contraire contre le schéma OpenAPI réel.
+- Suite complète : **3334 passed, 3 skipped, 0 failed** (+11 par rapport
+  à avant cette passe).
+- Vérification bout-en-bout avec Ollama réel : mission de 7 tâches
+  exécutée deux fois. Avant le correctif `chat_capable` : 5/7 échouées
+  (`400 Bad Request` sur `nomic-embed-text`). Après : **7/7 réussies**,
+  toutes routées vers `qwen3:1.7b` par `AdaptiveRouter`. Confirmé dans le
+  Models Center : l'en-tête passe de « 0 RUNS » à « 7 RUNS », et
+  `qwen3:1.7b` affiche un TPS réel mesuré de 44.3 (au lieu de 0) avec un
+  taux de succès de 100 % — pendant que les modèles jamais utilisés
+  restent honnêtement à 0.
+
 ## Quatre défauts en attente — Mission Center, Validation Center, appli fantôme (2026-08-01)
 
 Suite au traitement des trois défauts d'« IA factice », quatre pistes

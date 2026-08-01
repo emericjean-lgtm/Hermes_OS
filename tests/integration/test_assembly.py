@@ -67,6 +67,16 @@ def client(app):
         yield c
 
 
+class _StubTask:
+    """Minimal stand-in for TaskExecution — only what RealTaskExecutor reads
+    via getattr(..., default), same pattern as test_real_execution.py's
+    _Task."""
+
+    def __init__(self, title: str) -> None:
+        self.task_id = "assembly-stub-task"
+        self.title = title
+
+
 # ── Container invariants ──────────────────────────────────────────────
 
 
@@ -250,6 +260,44 @@ class TestDependencyInjection:
         assert bootstrap.container.get("skill_distributor") is skill_routes._distributor
         assert bootstrap.container.get("tool_platform") is tool_routes._registry
         assert bootstrap.container.get("execution_controller") is execution_routes._controller
+
+    def test_task_executor_shares_the_container_model_intelligence(self, client, bootstrap):
+        """task_executor's model_for/on_execution reach into Model
+        Intelligence's module-level singleton (backend/model_intelligence/
+        routes.py) rather than a rival instance — otherwise the container's
+        AdaptiveRouter and the one real executions actually feed would
+        silently diverge, the same bug class as HOS-065's other adopted
+        singletons above."""
+        from backend.model_intelligence import routes as mi_routes
+
+        executor = bootstrap.container.get("task_executor")
+        assert executor._model_for is not None
+        assert executor._on_execution is not None
+
+        router = mi_routes._get_router()
+        profiler = mi_routes._get_profiler()
+        assert bootstrap.container.get("model_intelligence") is router
+
+        async def fake_chat(*, messages, model):
+            return "a real completion"
+
+        try:
+            executor._chat = fake_chat  # hermetic: no live Ollama needed
+            outcome = executor.execute(_StubTask(title="Implement a REST endpoint"))
+        finally:
+            executor._chat = None
+
+        # The model actually used came from AdaptiveRouter, and is a real,
+        # installed tag (from config/models.yaml, not the fictional catalog
+        # HOS-065 shipped with) rather than the hardcoded qwen3:4b default.
+        assert outcome.model == router.recommend_for_text("Implement a REST endpoint").model_id
+
+        profile = profiler.get_profile(outcome.model)
+        assert profile is not None
+        assert profile.total_runs >= 1, (
+            "a real execution must move the profiler's counters — before this "
+            "wiring, nothing but the simulated BenchmarkScheduler ever did"
+        )
 
     def test_every_cross_app_shared_service_is_declared(self):
         """Sharing state between app instances must be deliberate.

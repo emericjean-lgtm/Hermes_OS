@@ -74,6 +74,15 @@ class ModelProfile:
     tags: list[str] = field(default_factory=list)
     last_used: str = ""
     benchmark_score: float = 0.0
+    # False only for embedding-only models (nomic-embed-text): they serve
+    # /api/embed, not /api/chat, and Ollama returns 400 Bad Request if asked
+    # to chat with one. AdaptiveRouter must exclude them from task-execution
+    # recommendations even though they belong in the general catalogue —
+    # found via a real POST /verification-free mission run, where nomic-
+    # embed-text won every recommendation on VRAM footprint alone (0.3GB,
+    # smallest of all twelve) with every other ranking signal still at its
+    # neutral untrained default.
+    chat_capable: bool = True
 
     def __post_init__(self) -> None:
         if not self.last_used:
@@ -226,6 +235,8 @@ def _build_predefined_models() -> dict[str, dict[str, Any]]:
             "vram_required_mb": int(float(role.get("vram_gb", 0)) * 1024),
             "available_backends": ["ollama"],
             "tags": [role_name, role.get("tier", "")],
+            # The embedding role serves /api/embed, not /api/chat.
+            "chat_capable": role_name != "embedding",
         }
     return models
 

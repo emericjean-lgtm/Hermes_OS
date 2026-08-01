@@ -194,6 +194,41 @@ class TestModelProfiler:
         assert profile is not None
         assert profile.total_runs >= 1
 
+    def test_update_performance_derives_real_tokens_per_second(self):
+        """tokens_per_second starts honest (0.0, never measured) and should
+        reflect a real completion, not the random.uniform() BenchmarkScheduler
+        fabricates and never persists (see its module docstring)."""
+        profiler = ModelProfiler()
+        assert profiler.get_profile("qwen3-coder:30b").tokens_per_second == 0.0
+
+        profiler.update_performance(ModelPerformanceRecord(
+            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+            duration_ms=2000, tokens_used=100, success=True,
+        ))
+        assert profiler.get_profile("qwen3-coder:30b").tokens_per_second == pytest.approx(50.0)
+
+    def test_update_performance_smooths_repeated_measurements(self):
+        profiler = ModelProfiler()
+        profiler.update_performance(ModelPerformanceRecord(
+            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+            duration_ms=1000, tokens_used=100, success=True,  # 100 tok/s
+        ))
+        profiler.update_performance(ModelPerformanceRecord(
+            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+            duration_ms=1000, tokens_used=200, success=True,  # 200 tok/s
+        ))
+        # A blend (0.7*100 + 0.3*200), not just the latest measurement —
+        # one slow/fast outlier shouldn't whiplash the estimate.
+        assert profiler.get_profile("qwen3-coder:30b").tokens_per_second == pytest.approx(130.0)
+
+    def test_update_performance_ignores_failed_runs_for_tps(self):
+        profiler = ModelProfiler()
+        profiler.update_performance(ModelPerformanceRecord(
+            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+            duration_ms=1000, tokens_used=0, success=False,
+        ))
+        assert profiler.get_profile("qwen3-coder:30b").tokens_per_second == 0.0
+
     def test_get_performance_history(self):
         profiler = ModelProfiler()
         profiler.update_performance(ModelPerformanceRecord(
@@ -387,6 +422,30 @@ class TestAdaptiveRouter:
         router.recommend(task)
         history = router.get_decision_history()
         assert len(history) >= 2
+
+    def test_never_recommends_the_embedding_only_model(self):
+        """nomic-embed-text serves /api/embed, not /api/chat — Ollama
+        returns 400 Bad Request if a task executor tries to chat with it.
+        It has the smallest VRAM footprint of all twelve real models
+        (0.3GB), so with every other ranking signal at its untrained
+        neutral default it won every recommendation before chat_capable
+        existed — found by actually running a mission end to end, not by
+        a unit test, which is exactly why this one exists now."""
+        router = AdaptiveRouter()
+        for description in ("Analyze requirements", "Write tests",
+                            "Document the solution", "Design solution architecture"):
+            decision = router.recommend_for_text(description, max_vram_mb=20000)
+            assert decision.model_id != "nomic-embed-text", description
+            assert "nomic-embed-text" not in [a["model_id"] for a in decision.alternatives]
+
+    def test_fallback_also_excludes_the_embedding_only_model(self):
+        """_fallback_decision has the same smallest-VRAM-wins logic as the
+        main path and is just as reachable (e.g. every candidate filtered
+        out by max_latency_ms) — it needs the same exclusion."""
+        router = AdaptiveRouter()
+        task = TaskContext(task_type=TaskType.CODE_GENERATION, max_latency_ms=1)
+        decision = router._fallback_decision(task)  # noqa: SLF001 - exercising the fallback directly
+        assert decision.model_id != "nomic-embed-text"
 
     def test_recommend_with_alternatives(self):
         router = AdaptiveRouter()

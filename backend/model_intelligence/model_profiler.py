@@ -51,6 +51,7 @@ class ModelProfiler:
                 task_scores=task_scores,
                 available_backends=backends,
                 tags=data.get("tags", []),
+                chat_capable=data.get("chat_capable", True),
             )
             self._profiles[model_id] = profile
 
@@ -81,6 +82,18 @@ class ModelProfiler:
                     profile.successful_runs / profile.total_runs
                 ) if profile.total_runs > 0 else 0.0
                 profile.last_used = datetime.now(timezone.utc).isoformat()
+
+                # tokens_per_second starts at the honest 0.0 (never measured)
+                # and is now a running average of real completions — not the
+                # random.uniform() BenchmarkScheduler fabricates and never
+                # persists (see its docstring). A single slow/fast outlier
+                # is smoothed rather than replacing the estimate outright.
+                if record.success and record.duration_ms > 0 and record.tokens_used > 0:
+                    observed_tps = record.tokens_used / (record.duration_ms / 1000.0)
+                    profile.tokens_per_second = (
+                        observed_tps if profile.tokens_per_second <= 0
+                        else profile.tokens_per_second * 0.7 + observed_tps * 0.3
+                    )
 
     def get_models_for_task(self, task_type: TaskType,
                             max_vram_mb: int = 8192,

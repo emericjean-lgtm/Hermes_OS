@@ -201,20 +201,31 @@ def test_confirmation_component_does_not_bypass_backend_authorisation():
 # ── Le contrat Validation reste honnête ───────────────────────────────
 
 
-def test_validation_center_does_not_invent_an_undocumented_payload():
-    """POST /verification/run n'a pas de schéma : aucun bouton ne doit l'appeler."""
+def test_verification_run_payload_is_actually_documented(client):
+    """This used to assert the opposite — that POST /verification/run had no
+    schema and that no button should call it. That premise was simply wrong:
+    VerificationRunRequest (backend/api/routes/verification.py) has always
+    had a full Pydantic schema, visible on this exact endpoint. Honesty now
+    means confirming the documented contract stays documented, not that the
+    Cockpit avoids a route it was mistaken about."""
+    schema = client.get("/openapi.json").json()
+    request_schema = schema["components"]["schemas"]["VerificationRunRequest"]
+    assert set(request_schema["required"]) == {"repo_path", "runner"}
+    assert "repo_path" in request_schema["properties"]
+    assert "runner" in request_schema["properties"]
+
+
+def test_validation_center_calls_the_documented_verification_run():
+    """The Validation Center's trigger form must post repo_path/runner —
+    the fields VerificationRunRequest actually requires — not a guessed
+    shape."""
     src = pathlib.Path(
         "frontend/src/features/validation/validation-center.tsx").read_text(
         encoding="utf-8")
-    # On cherche un *appel*, pas une mention : le Center documente
-    # volontairement l'absence de contrat dans un commentaire et à l'écran.
-    code = chr(10).join(line for line in src.splitlines()
-                        if not line.strip().startswith("//"))
-    assert "verification/run\"" not in code and "verification/run`" not in code, (
-        "le Validation Center appelle une route dont la charge utile n'est pas "
-        "documentée")
-    assert "undocumented" in src or "pas exposé" in src or "non exposé" in src, (
-        "l'absence de contrat doit être signalée à l'utilisateur")
+    assert "verification/run" not in src or "runVerification.mutate" in src, (
+        "the Center mentions /verification/run but never calls it")
+    assert "repo_path" in src and "runner:" in src, (
+        "the trigger must send the fields VerificationRunRequest requires")
 
 
 def test_verification_runners_is_served_under_the_canonical_namespace(client):

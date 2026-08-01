@@ -247,9 +247,55 @@ def _bind_kt_routes(c: Any, svc: Any) -> list[Any]:
 # task-execution engine in the process and every surface shares it (R-002 P1).
 
 def _make_task_executor(c: Any) -> Any:
-    from backend.execution.task_executor import RealTaskExecutor
+    """Wire the executor to Model Intelligence's AdaptiveRouter (HOS-065).
 
-    return RealTaskExecutor(on_event=_dispatcher(c, "task_executor"))
+    Before this, ``AdaptiveRouter.recommend()`` was reachable only through
+    ``POST /models/recommend`` — a real, working advisory endpoint the
+    Models Center calls, but one nothing in the actual mission/task
+    pipeline ever consulted. ``_resolve_model()`` always fell back to the
+    hardcoded ``default_model``, and the profiler's scores never moved
+    because nothing fed it a real outcome (the only thing that did,
+    ``BenchmarkScheduler``, fabricates every number with ``random.uniform``
+    and doesn't even persist them — see its module docstring). Routing
+    through ``mi_routes``' own module-level accessors (the same ones
+    ``_make_model_intelligence`` adopts below) rather than constructing a
+    second ``AdaptiveRouter`` keeps this the one shared instance the Models
+    Center's HTTP surface also reads from, so a real task execution now
+    shows up in ``/models/history`` and ``/models/performance`` too.
+    """
+    from backend.execution.task_executor import RealTaskExecutor
+    from backend.model_intelligence import routes as mi_routes
+    from backend.model_intelligence.model_intelligence_models import ModelPerformanceRecord
+
+    def _model_for(task: Any) -> Optional[str]:
+        title = getattr(task, "title", "") or ""
+        if not title:
+            return None
+        try:
+            decision = mi_routes._get_router().recommend_for_text(title)  # noqa: SLF001
+            return decision.model_id or None
+        except Exception:
+            return None
+
+    def _record_feedback(task: Any, model: str, duration_ms: float,
+                         tokens_used: int, success: bool) -> None:
+        if not model:
+            return
+        router = mi_routes._get_router()  # noqa: SLF001
+        task_type = router._infer_task_type(getattr(task, "title", "") or "")  # noqa: SLF001
+        mi_routes._get_profiler().update_performance(ModelPerformanceRecord(  # noqa: SLF001
+            model_id=model,
+            task_type=task_type,
+            duration_ms=round(duration_ms),
+            tokens_used=tokens_used,
+            success=success,
+        ))
+
+    return RealTaskExecutor(
+        on_event=_dispatcher(c, "task_executor"),
+        model_for=_model_for,
+        on_execution=_record_feedback,
+    )
 
 
 def _make_execution_engine(c: Any) -> Any:
@@ -769,7 +815,12 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         name="Real Task Executor",
         category=ComponentCategory.EXECUTION,
         factory=_make_task_executor,
-        dependencies=("event_dispatcher",),
+        # model_intelligence isn't consulted through the container (the
+        # factory reaches its module-level singleton directly, like
+        # _make_model_intelligence itself does) — declared here so the
+        # dependency graph reflects the real coupling introduced by
+        # model_for/on_execution rather than hiding it.
+        dependencies=("event_dispatcher", "model_intelligence"),
         produced_events=("execution.task_completed",),
         description="Performs the actual work for one task (R-001)",
         capabilities=("inference", "task_execution"),
