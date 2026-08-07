@@ -109,7 +109,21 @@ de revues du même type, à poursuivre sur les autres onglets).
   réel (chemin câblé vs repli legacy), décisions dérivées du plan,
   `AegisSecurityAdapter`, portes basées sur le risque, récupération de
   connaissances, champs de liaison de projet.
-- Suite complète (`tests/` + `backend/tests/`) : voir résultat ci-dessous.
+- Suite complète (`tests/` + `backend/tests/`) : **3463 passed, 3 skipped,
+  0 failed**.
+
+### Fixed (suite au retour utilisateur en conditions réelles)
+- Un objectif lié à un projet réel passe en `paused` (attendu) mais le
+  Cockpit sondait `/timeline` toutes les 3s **indéfiniment**, même une fois
+  l'état stabilisé (`resume_goal()` ne relance pas encore l'exécution, donc
+  rien ne pouvait plus changer) — donnant l'impression d'une boucle
+  infinie. Le sondage s'arrête maintenant dès qu'un objectif atteint un
+  état stable (`completed`/`failed`/`cancelled`/`paused`) ; un
+  pause/resume/cancel manuel invalide déjà le cache et redéclenche un vrai
+  rafraîchissement, donc rien n'est perdu.
+- Le message "Report unavailable" (rouge, façon erreur) s'affichait aussi
+  pour un objectif en pause qui n'a simplement jamais tourné — remplacé
+  par un message honnête et non alarmant pour ce cas précis.
 
 ## HOS-066C — Escalade cloud OpenRouter (modèles gratuits), local par défaut (2026-08-01)
 

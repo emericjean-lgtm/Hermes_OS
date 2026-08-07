@@ -248,7 +248,13 @@ export function AutonomousCenter() {
             {report.isLoading && (
               <div className="text-[10px] text-hermes-muted font-mono">Loading report…</div>
             )}
-            {report.isError && (
+            {report.isError && goal?.status === "paused" && (
+              <div className="text-[10px] text-hermes-amber font-mono">
+                No report yet — this goal is paused pending human validation
+                and hasn&apos;t run.
+              </div>
+            )}
+            {report.isError && goal?.status !== "paused" && (
               <div className="text-[10px] text-hermes-red font-mono">
                 Report unavailable
               </div>

@@ -450,11 +450,23 @@ export function useAutonomousGoal(goalId: string | undefined) {
   });
 }
 
+// A goal in one of these statuses will not change again on its own — no
+// autonomous re-planning happens after a pause (see AutonomousOrchestrator.
+// resume_goal(), which only flips the status flag). Polling past this point
+// just spends requests forever for a value that has already settled; a
+// manual pause/resume/cancel already invalidates ["autonomous"] itself
+// (useAutonomousAction), so stopping here doesn't lose any real update.
+const AUTONOMOUS_SETTLED_STATUSES = new Set(["completed", "failed", "cancelled", "paused"]);
+
 export function useAutonomousReport(goalId: string | undefined) {
   return useQuery({
     queryKey: ["autonomous", "report", goalId],
     queryFn: () => autonomousClient.report(goalId as string),
     enabled: Boolean(goalId),
+    // A goal that never reached execution (e.g. paused pending Aegis
+    // validation) will never produce a report — retrying a 404 that can
+    // only ever be a 404 just adds noise.
+    retry: false,
   });
 }
 
@@ -463,7 +475,10 @@ export function useAutonomousTimeline(goalId: string | undefined) {
     queryKey: ["autonomous", "timeline", goalId],
     queryFn: () => autonomousClient.timeline(goalId as string),
     enabled: Boolean(goalId),
-    refetchInterval: 3_000,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status && AUTONOMOUS_SETTLED_STATUSES.has(status) ? false : 3_000;
+    },
   });
 }
 
