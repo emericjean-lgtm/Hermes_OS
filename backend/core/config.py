@@ -88,6 +88,15 @@ class Settings(BaseSettings):
     # parallelism win into a swapping loss. Set to 1 for the previous
     # strictly-sequential behaviour.
     workflow_max_parallel: int = 4
+    # Same VRAM concern as workflow_max_parallel above, but deliberately
+    # its own, smaller setting (HOS-068) rather than reusing that one:
+    # mission DAG nodes can each recommend a *different* full-size role
+    # model (config/models.yaml — several already measured at 12-15GB on
+    # this ~17.16GB card, see HOS-065C's real benchmark data), which is a
+    # heavier VRAM footprint per concurrent task than a workflow's
+    # lighter-weight tool calls. 2 is the conservative default; raise it
+    # only on a card with real headroom to spare.
+    mission_max_parallel_tasks: int = 2
 
     # Hard whitelist Aegis enforces for every file_read/file_write/git_*
     # action (§17.1) — AegisEngine._is_within_whitelist() denies everything

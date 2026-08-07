@@ -61,8 +61,22 @@ class ExecutionStateMachine:
             return target in self.VALID_TRANSITIONS.get(self._state, set())
 
     def transition(self, target: ExecutionState, reason: str = "") -> ExecutionState:
-        """Attempt a state transition. Returns the new state or raises ValueError."""
+        """Attempt a state transition. Returns the new state or raises ValueError.
+
+        A transition to the state already current is a no-op, not an error
+        (HOS-068): this state machine can be shared across several tasks of
+        one execution, and MissionExecutor.execute_task() now runs its slow
+        inference call outside its own lock so genuinely concurrent tasks
+        can each try to mark the shared execution RUNNING (or VALIDATING) at
+        nearly the same moment. Neither call is wrong — the execution
+        legitimately is already in that state — so racing to set it again
+        must not raise. This does not weaken the graph for any other target:
+        a *different* target still goes through the full check below.
+        """
         with self._lock:
+            if target == self._state:
+                self._history.append((self._state, target, reason))
+                return self._state
             if target not in self.VALID_TRANSITIONS.get(self._state, set()):
                 allowed = self.VALID_TRANSITIONS.get(self._state, set())
                 raise ValueError(

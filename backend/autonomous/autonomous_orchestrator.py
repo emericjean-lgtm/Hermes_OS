@@ -9,6 +9,7 @@ User Goal → Interpretation → Memory Retrieval → Mission Planner
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import OrderedDict, deque
@@ -27,6 +28,8 @@ from .autonomous_models import (
     GoalStatus,
 )
 from .decision_engine import DecisionEngine
+
+logger = logging.getLogger("hermes_os.autonomous.orchestrator")
 
 
 class AutonomousOrchestrator:
@@ -461,7 +464,22 @@ class AutonomousOrchestrator:
             title=(goal.interpreted_goal or goal.user_request)[:100],
             objective=goal.user_request,
         )
+        mission.context.local_path = goal.local_path
+        mission.context.repository = goal.repository
+        mission.context.branch = goal.branch
         session.mission_id = mission.mission_id
+
+        # HOS-068: make this mission visible through /missions too — before
+        # this, build_mission() registered it with the GraphExecutor (so
+        # execution works) but never with mission/routes.py's own registry,
+        # so GET /missions never listed a mission Autonomous had started.
+        try:
+            from backend.mission import routes as mission_routes
+
+            mission_routes.register_mission(mission)
+        except Exception:
+            logger.debug("mission registration failed for %s", mission.mission_id, exc_info=True)
+
         return plan_decisions, mission
 
     def _decisions_from_plan(self, goal: AutonomousGoal, result: Any) -> list[AutonomousDecision]:

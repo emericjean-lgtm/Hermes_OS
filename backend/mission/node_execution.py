@@ -62,6 +62,18 @@ def make_node_executor(engine: Any) -> Callable[[MissionNode], bool]:
         try:
             state_machine = engine.prepare(meta, [task])
             outcome = engine.execute_task(state_machine, task.task_id)
+            # MissionExecutor.execute_task() resets task.status to PENDING
+            # and increments task.retries on ValidationOutcome.RETRY (up to
+            # its own max_retries=3), but never calls itself again — the
+            # counter moved and nothing else did. Looping here is what
+            # actually retries: ExecutionStateMachine already anticipates
+            # exactly this re-entry (VALIDATING -> RUNNING is a valid
+            # transition, see execution_state.py's own "retry" comment), so
+            # no state-machine change was needed, just driving it again.
+            # Naturally bounded: execute_task() itself stops returning
+            # PENDING once its own retry ceiling is hit.
+            while task.status == TaskExecutionStatus.PENDING:
+                outcome = engine.execute_task(state_machine, task.task_id)
         except Exception:
             # A node that raised has not succeeded. Report it and let the DAG
             # mark it failed; never swallow this into a success.

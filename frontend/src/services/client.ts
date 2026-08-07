@@ -1,6 +1,7 @@
 import type {
   Mission,
   MissionGraph,
+  MissionReport,
   MissionTimeline,
   Agent,
   CollaborationMessage,
@@ -189,6 +190,11 @@ function toMission(raw: Record<string, any>): Mission {
     progress: progressIsDetail ? progress.progress_pct ?? 0 : progress ?? 0,
     node_count: progressIsDetail ? progress.total : raw.nodes,
     completed_nodes: progressIsDetail ? progress.completed : undefined,
+    // MissionStatus (types/hermes.ts) is declared uppercase; the backend's
+    // MissionStatus enum values are lowercase ("running", "validated", ...).
+    // Without this, every status-keyed lookup (statusBadge, disabled-state
+    // checks) silently missed on every mission.
+    status: String(raw.status ?? "").toUpperCase(),
   } as Mission;
 }
 
@@ -209,6 +215,7 @@ export const missionsClient = {
   pause: (id: string) => fetchJSON<Mission>(`/missions/${id}/pause`, { method: "POST" }),
   resume: (id: string) => fetchJSON<Mission>(`/missions/${id}/resume`, { method: "POST" }),
   cancel: (id: string) => fetchJSON<Mission>(`/missions/${id}/cancel`, { method: "POST" }),
+  report: (id: string) => fetchJSON<MissionReport>(`/missions/${id}/report`),
 };
 
 // ── Agents ───────────────────────────────────────────

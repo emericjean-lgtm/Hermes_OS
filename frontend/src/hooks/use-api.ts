@@ -29,6 +29,7 @@ import {
 import type { ToolHealthSummary } from "@/services/client";
 import type {
   Mission,
+  MissionReport,
   Agent,
   CollaborationMessage,
   Delegation,
@@ -94,6 +95,13 @@ export function useCreateMission() {
   return useMutation({
     mutationFn: missionsClient.create,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["missions"] }),
+  });
+}
+export function useMissionReport(id: string | undefined) {
+  return useQuery<MissionReport | null>({
+    queryKey: ["missions", id, "report"],
+    queryFn: () => missionsClient.report(id as string),
+    enabled: Boolean(id),
   });
 }
 export function useMissionAction(id: string) {

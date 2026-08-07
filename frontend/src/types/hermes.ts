@@ -81,6 +81,7 @@ export interface Mission {
   title: string;
   // GET /missions (list) sends neither — only GET /missions/{id} does.
   description?: string;
+  objective?: string;
   status: MissionStatus;
   priority?: MissionPriority;
   type?: MissionType;
@@ -91,8 +92,34 @@ export interface Mission {
   estimated_duration_s?: number;
   node_count?: number;
   completed_nodes?: number;
+  // Project binding (HOS-068) — only GET /missions/{id} sends these, like
+  // description above.
+  local_path?: string;
+  repository?: string;
+  branch?: string;
 }
 
+// Mirrors backend/mission/mission_models.py's MissionReport.to_dict().
+export interface MissionReport {
+  mission_id: string;
+  title: string;
+  objective: string;
+  status: string;
+  summary: string;
+  success: boolean;
+  total_duration_ms: number;
+  tasks_total: number;
+  tasks_completed: number;
+  tasks_failed: number;
+  runtimes_used: string[];
+  outputs: string[];
+  errors: string[];
+  generated_at: string;
+}
+
+// Mirrors backend/mission/mission_models.py's MissionStatus values
+// (uppercased — see toMission() in services/client.ts, which is the only
+// place the lowercase wire value ever gets normalized).
 export type MissionStatus =
   | "CREATED"
   | "PLANNING"
@@ -100,7 +127,7 @@ export type MissionStatus =
   | "RUNNING"
   | "PAUSED"
   | "WAITING_APPROVAL"
-  | "VALIDATING"
+  | "VALIDATED"
   | "COMPLETED"
   | "FAILED"
   | "CANCELLED";

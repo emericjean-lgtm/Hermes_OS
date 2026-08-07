@@ -52,6 +52,29 @@ class TestExecutionStateMachine:
         with pytest.raises(ValueError):
             sm.transition(ExecutionState.RUNNING)  # CREATED → RUNNING invalid
 
+    def test_self_transition_is_a_no_op_not_an_error(self):
+        """HOS-068: a shared ExecutionStateMachine can now have concurrent
+        tasks each racing to mark it RUNNING (MissionExecutor.execute_task()
+        runs its slow work outside the lock). Reaching a state already
+        current must succeed, not raise — see TestThreadSafety::
+        test_concurrent_execution_control for the scenario this fixes."""
+        sm = ExecutionStateMachine()
+        sm.transition(ExecutionState.PLANNING)
+        sm.transition(ExecutionState.READY)
+        sm.transition(ExecutionState.RUNNING)
+        history_len = len(sm.history)
+        result = sm.transition(ExecutionState.RUNNING, "second task also running")
+        assert result == ExecutionState.RUNNING
+        assert sm.state == ExecutionState.RUNNING
+        assert len(sm.history) == history_len + 1  # still recorded
+
+    def test_self_transition_from_terminal_state_is_also_a_no_op(self):
+        sm = ExecutionStateMachine()
+        sm.transition(ExecutionState.PLANNING)
+        sm.transition(ExecutionState.CANCELLED)
+        result = sm.transition(ExecutionState.CANCELLED)
+        assert result == ExecutionState.CANCELLED
+
     def test_full_lifecycle(self):
         sm = ExecutionStateMachine()
         transitions = [

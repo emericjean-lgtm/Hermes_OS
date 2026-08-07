@@ -132,3 +132,15 @@ action_categories:
     path_based: false
     mandatory_validation: false
     min_autonomy_for_auto_allow: medium
+
+  # ── Missions (HOS-068) ──
+  # Same policy shape and reasoning as autonomous_goal_execute above,
+  # applied to /missions/{id}/start instead — the two entry points share
+  # the exact same underlying DAG pipeline, so they share the same gate
+  # policy rather than drifting into two different postures for the same
+  # class of action.
+  mission_execute:
+    mutating: true
+    path_based: false
+    mandatory_validation: false
+    min_autonomy_for_auto_allow: medium

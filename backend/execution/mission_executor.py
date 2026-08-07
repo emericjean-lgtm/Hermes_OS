@@ -114,7 +114,21 @@ class MissionExecutor:
             return sm
 
     def execute_task(self, sm: ExecutionStateMachine, task_id: str) -> dict[str, Any]:
-        """Execute a single task through the full pipeline."""
+        """Execute a single task through the full pipeline.
+
+        Locking is deliberately narrow (HOS-068): only the scheduler/
+        coordinator/state-machine bookkeeping — genuinely shared mutable
+        state — is held under ``self._lock``. The actual inference call
+        (``self._task_executor.execute``, which can run for tens of
+        seconds — see HOS-065C's real benchmark data) runs *outside* it.
+        Before this, the whole method was one ``with self._lock:`` block,
+        which meant calling this concurrently from multiple tasks (as
+        GraphExecutor now does for independent DAG nodes) would have just
+        serialized every task onto one lock, one at a time — real threads,
+        fake parallelism. ``task``/``assignment`` are safe to mutate lock-
+        free here: each is retrieved once per call and never touched by a
+        concurrent call for a *different* task_id.
+        """
         with self._lock:
             # The scheduler already keys tasks by id. This used to copy the whole
             # registry and linear-scan it, making each execution O(tasks-ever-
@@ -137,12 +151,14 @@ class MissionExecutor:
             task.status = TaskExecutionStatus.RUNNING
             task.started_at = datetime.now(timezone.utc)
 
-            # 2. Execute for real — this is the "calls the agent via runtime"
-            #    that the previous comment promised and never did. A task that
-            #    cannot run now fails; it does not report an invented result.
-            try:
-                outcome = self._task_executor.execute(task, assignment)
-            except RuntimeUnavailableError as exc:
+        # 2. Execute for real, lock-free — this is the "calls the agent via
+        #    runtime" that the previous comment promised and never did. A
+        #    task that cannot run now fails; it does not report an invented
+        #    result.
+        try:
+            outcome = self._task_executor.execute(task, assignment)
+        except RuntimeUnavailableError as exc:
+            with self._lock:
                 task.status = TaskExecutionStatus.FAILED
                 task.errors.append(str(exc))
                 task.completed_at = datetime.now(timezone.utc)
@@ -156,13 +172,14 @@ class MissionExecutor:
                 })
                 self._scheduler.update_task(task_id, task.status)
                 self._coordinator.release_agent(task_id)
-                return {
-                    "task_id": task_id,
-                    "status": task.status.value,
-                    "error": str(exc),
-                    "runtime_available": False,
-                }
+            return {
+                "task_id": task_id,
+                "status": task.status.value,
+                "error": str(exc),
+                "runtime_available": False,
+            }
 
+        with self._lock:
             task.result = outcome.result
             task.duration_ms = outcome.duration_ms
             task.assigned_runtime = outcome.runtime_id

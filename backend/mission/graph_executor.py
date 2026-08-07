@@ -7,9 +7,11 @@ Integrates with RuntimeOrchestrator (HOS-038) for node execution.
 from __future__ import annotations
 
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
+from backend.core.config import get_settings
 from backend.mission.dependency_resolver import DependencyResolver
 from backend.mission.mission_graph import MissionGraph
 from backend.mission.mission_models import (
@@ -31,12 +33,21 @@ class GraphExecutor:
         self,
         on_event: Optional[Callable] = None,
         execute_node: Optional[Callable[[MissionNode], bool]] = None,
+        max_parallel_tasks: Optional[int] = None,
     ) -> None:
         self._lock = threading.Lock()
         self._graph = MissionGraph()
         self._resolver = DependencyResolver()
         self._on_event = on_event
         self._execute_node = execute_node or (lambda n: True)
+        # HOS-068: bounded, deliberately small — see mission_max_parallel_tasks
+        # in backend/core/config.py for the VRAM-exhaustion rationale on this
+        # deployment's 16 GB card.
+        self._max_parallel = (
+            max_parallel_tasks
+            if max_parallel_tasks is not None
+            else get_settings().mission_max_parallel_tasks
+        )
 
     # ── Mission Lifecycle ───────────────────────────────────
 
@@ -89,13 +100,44 @@ class GraphExecutor:
         return True
 
     def execute_step(self, mission: Mission) -> int:
-        """Execute all ready nodes. Returns count of nodes executed."""
+        """Execute all ready nodes, up to ``self._max_parallel`` concurrently.
+
+        Nodes are dispatched to a thread pool (HOS-068) — genuine concurrency
+        is only possible because MissionExecutor.execute_task() no longer
+        holds its lock across the slow inference call (see mission_executor.py).
+        ``DependencyResolver``/``mission`` mutations are NOT performed from
+        worker threads: each worker only calls ``self._execute_node(node)``
+        (a self-contained, per-node call) and returns a bool; every
+        ``mark_completed``/``mark_failed`` and event publish happens back on
+        this calling thread after the futures resolve, so mission/graph state
+        is never written from more than one thread at a time.
+        """
         ready = self._resolver.get_ready_nodes(mission)
         count = 0
 
         for node in ready:
             node.status = NodeStatus.RUNNING
-            success = self._execute_node(node)
+
+        results: dict[str, bool] = {}
+        max_workers = min(len(ready), self._max_parallel) if ready else 0
+
+        if max_workers <= 1:
+            for node in ready:
+                results[node.node_id] = self._execute_node(node)
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                future_to_node = {
+                    pool.submit(self._execute_node, node): node for node in ready
+                }
+                for future in as_completed(future_to_node):
+                    node = future_to_node[future]
+                    try:
+                        results[node.node_id] = future.result()
+                    except Exception:
+                        results[node.node_id] = False
+
+        for node in ready:
+            success = results.get(node.node_id, False)
 
             if success:
                 self._resolver.mark_completed(mission, node.node_id)

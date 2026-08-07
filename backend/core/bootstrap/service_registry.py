@@ -458,7 +458,11 @@ def _make_mission_planner(c: Any) -> Any:
 
 def _bind_planner_routes(c: Any, svc: Any) -> list[Any]:
     from backend.mission.planner.routes import create_planner_routes
-    from backend.mission.routes import set_memory_manager, set_mission_planner
+    from backend.mission.routes import (
+        set_evolution_engine,
+        set_memory_manager,
+        set_mission_planner,
+    )
 
     # The /missions router needs the planner to turn a described goal into a
     # DAG, but route binders run inline as each service is built and the planner
@@ -470,6 +474,11 @@ def _bind_planner_routes(c: Any, svc: Any) -> list[Any]:
     # episodic memory from mission one (AutonomousMemoryLoop), /missions
     # never did, even though both share one execution engine (R-002 P1).
     set_memory_manager(c.get("memory_manager"))
+    # HOS-068: same reason again — mission completion now feeds
+    # EvolutionEngine.ingest_metrics() (detection-only, see routes.py's
+    # _feed_evolution_engine), mirroring what AutonomousMemoryLoop already
+    # does for /autonomous goals.
+    set_evolution_engine(c.get("evolution_engine"))
     return [create_planner_routes(svc)]
 
 
@@ -1014,11 +1023,15 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         name="Intelligent Mission Planner",
         category=ComponentCategory.MISSION,
         factory=_make_mission_planner,
-        # memory_manager isn't a planning dependency — it rides along here
-        # because _bind_planner_routes is the injection point that already
-        # reaches into backend.mission.routes' module state after both
-        # mission_executor and this service exist (see its docstring).
-        dependencies=("mission_executor", "event_dispatcher", "memory_manager"),
+        # memory_manager and evolution_engine aren't planning dependencies —
+        # they ride along here because _bind_planner_routes is the injection
+        # point that already reaches into backend.mission.routes' module
+        # state after both mission_executor and this service exist (see its
+        # docstring). HOS-068 adds evolution_engine for the same reason
+        # memory_manager is already here: mission completion now feeds
+        # EvolutionEngine.ingest_metrics(), mirroring the autonomous memory
+        # loop's write-back.
+        dependencies=("mission_executor", "event_dispatcher", "memory_manager", "evolution_engine"),
         route_binder=_bind_planner_routes,
         produced_events=("mission.created",),
         description="Mission decomposition and planning (HOS-042)",

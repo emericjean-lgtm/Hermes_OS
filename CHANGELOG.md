@@ -1,3 +1,169 @@
+## HOS-068 — Missions : visibilité croisée, sécurité, rapport, pause/resume réels, parallélisme borné (2026-08-07)
+
+Demande de l'utilisateur : deuxième onglet de la même série de revues
+(après Autonomous OS) — comparaison entre le fonctionnement attendu de
+l'onglet Missions (création → analyse → génération de DAG → affectation
+des ressources → vérification avant exécution → exécution → suivi temps
+réel → gestion des erreurs → fin de mission → apprentissage), présenté par
+l'utilisateur comme le "directeur des opérations" en aval du "chef
+d'orchestre" Autonomous OS, et le comportement réel du code. Après
+validation du plan en 5 phases par l'utilisateur ("Ok va y"), mise en
+œuvre complète.
+
+### Écarts trouvés (audit, avant tout code)
+- Une mission créée depuis `/autonomous` (HOS-067) construit son propre
+  `Mission` via le même `MissionPlanner`, mais ne rejoignait jamais le
+  dictionnaire interne de `mission/routes.py` — invisible depuis
+  `/missions` alors qu'elle tourne sur le même `GraphExecutor`.
+- `/missions/{id}/start` n'avait **aucune vérification de sécurité** —
+  contrairement à Autonomous (HOS-067), une mission liée à un vrai dossier
+  local ou dépôt pouvait s'exécuter sans jamais passer par Aegis.
+- La boucle de retry existait déjà dans `MissionExecutor.execute_task()`
+  (remet `task.status` à `PENDING`, incrémente `retries`) mais rien ne
+  rappelait `execute_task()` ensuite — le compteur bougeait, l'exécution
+  non.
+- Aucun rapport de fin de mission, aucun endpoint pause/resume malgré des
+  boutons déjà câblés côté client vers des routes inexistantes.
+- `GraphExecutor.execute_step()` exécutait les nœuds prêts en boucle
+  séquentielle malgré `DependencyResolver.get_parallel_groups()` calculant
+  déjà de vrais groupes parallèles — jamais utilisés.
+- Seule la mémoire épisodique était alimentée depuis `/missions` ; ni
+  mémoire procédurale, ni moteur d'évolution, contrairement à
+  `AutonomousMemoryLoop` côté Autonomous.
+
+### Added
+- `register_mission()` (mission/routes.py) — point d'entrée explicite
+  appelé par `AutonomousOrchestrator._plan_via_dag()` après
+  `build_mission()` : une mission créée depuis Autonomous devient visible
+  depuis `/missions` sans fusionner les deux points d'entrée.
+- `_check_mission_security()` — même porte Aegis basée sur le risque que
+  côté Autonomous (HOS-067) : ignorée pour une mission sans dossier local
+  ni dépôt ; sinon vérifie `file_read` sur `local_path` puis
+  `mission_execute` (`config/security.yaml`, même forme que
+  `autonomous_goal_execute`). `DENY` → `FAILED`, `REQUIRE_HUMAN_VALIDATION`
+  → `PAUSED` (pas `FAILED` — reprise possible via `/resume`), `ALLOW` →
+  exécution normale.
+- Boucle de retry réellement active (`node_execution.py`) : après le
+  premier `execute_task()`, une boucle `while task.status == PENDING:
+  execute_task()` — sûre par construction (`ExecutionStateMachine` accepte
+  déjà `VALIDATING → RUNNING`, et `execute_task()` a son propre plafond de
+  retries).
+- `MissionReport`/`build_mission_report()` (mission_models.py) et
+  `GET /missions/{id}/report` — dérivé entièrement de l'état déjà mesuré
+  de la mission (durée, sorties, erreurs, runtimes utilisés par nœud), rien
+  de nouveau à faire dériver.
+- `POST /missions/{id}/pause` / `.../resume` — réellement interruptibles :
+  la boucle d'exécution (`_run_mission_steps`) cède la main
+  (`await asyncio.sleep(0)`) entre chaque passe, ce qui permet à une
+  requête `/pause` concurrente d'être traitée avant la passe suivante —
+  avant ce correctif, tout tournait dans un seul handler `async def` sans
+  point de cession, donc `/pause` ne pouvait structurellement rien
+  interrompre. `/resume` relance réellement la marche du DAG (contrairement
+  au `/resume` actuel côté Autonomous, qui ne fait encore que changer le
+  statut — limite documentée là-bas).
+- Exécution parallèle bornée et réelle (Phase D, la plus délicate) :
+  - `MissionExecutor.execute_task()` — verrou resserré : seule la
+    coordination (planification, transitions d'état, écritures de statut)
+    reste sous `self._lock` ; l'appel d'inférence réel
+    (`self._task_executor.execute()`, potentiellement long — voir les
+    benchmarks réels HOS-065C) tourne désormais hors verrou. Avant ce
+    correctif, tout le corps de la méthode était sous un seul verrou :
+    paralléliser `GraphExecutor` par-dessus n'aurait donné qu'un vrai
+    thread pool sérialisé sur un faux parallélisme.
+  - `GraphExecutor.execute_step()` — les nœuds prêts sont désormais
+    exécutés via `ThreadPoolExecutor`/`as_completed`, bornés par
+    `mission_max_parallel_tasks`. Toutes les mutations de
+    `DependencyResolver`/`mission` restent sur le thread appelant, après
+    résolution des futures — jamais depuis un worker.
+  - `mission_max_parallel_tasks: int = 2` (config.py) — délibérément
+    distinct de `workflow_max_parallel` (moteur différent, charge VRAM
+    différente) : des nœuds de DAG de mission peuvent chacun recommander un
+    modèle de rôle différent, déjà mesuré à 12-15 Go sur les ~17,16 Go
+    utilisables de cette carte 16 Go (benchmarks réels HOS-065C) — 2 reste
+    la valeur par défaut prudente.
+- Écriture mémoire procédurale + moteur d'évolution (Phase E) : une mission
+  `COMPLETED` alimente `MemoryManager.store_procedure()` (séquence réelle
+  des titres de nœuds complétés) ; toute mission terminale alimente
+  `EvolutionEngine.ingest_metrics()` avec des métriques mesurées — même
+  geste que `AutonomousMemoryLoop`, jamais fait côté Missions avant cette
+  passe. Volontairement laissé en détection seule (`ingest_metrics`, pas
+  `run_full_pipeline()`) — même choix de gouvernance que côté Autonomous.
+- Câblage Cockpit (`mission-center.tsx`) : champs de liaison de projet
+  (dossier local/dépôt/branche) au formulaire de création, boutons
+  Start/Pause/Resume/Cancel réellement câblés avec états désactivés
+  corrects, panneau de rapport (tâches, durée, runtimes, erreurs), message
+  d'attente humaine pour une mission en pause par Aegis.
+
+### Bug trouvé et corrigé en cours de route
+- `MissionStatus` côté frontend (types/hermes.ts) était déclaré en
+  majuscules mais le backend renvoie ses valeurs en minuscules
+  (`MissionStatus(str, Enum)`) sans jamais être normalisé entre les deux —
+  chaque comparaison indexée par statut (badge, désactivation des boutons)
+  échouait silencieusement pour **toute** mission. Corrigé dans
+  `toMission()` (services/client.ts), le seul point de traduction
+  raw→normalisé déjà établi pour ce type de décalage backend/frontend.
+- Une mission mise en pause par Aegis **avant** d'avoir jamais démarré
+  (`_check_mission_security()` court-circuite `_executor.start_mission()`,
+  seul autre endroit qui pose `started_at`) ne recevait jamais de
+  `started_at` — trouvé en vérification manuelle dans le navigateur : une
+  mission reprise et réellement exécutée (~65s, 6 tâches) rapportait quand
+  même `total_duration_ms: 0.0`. `resume_mission()` pose maintenant
+  `started_at` s'il est encore `None` au moment de la reprise.
+- Régression trouvée par la suite complète (pas en vérification manuelle) :
+  `tests/architecture/test_execution.py::TestThreadSafety::
+  test_concurrent_execution_control` — un test préexistant qui partage une
+  seule `ExecutionStateMachine` entre deux threads exécutant chacun 10
+  tâches — se mettait à échouer avec `Invalid transition: running →
+  running` une fois le verrou de `MissionExecutor.execute_task()`
+  resserré : deux tâches différentes sous une même exécution peuvent
+  désormais réellement se chevaucher et tenter chacune de marquer
+  l'exécution `RUNNING` (ou `VALIDATING`) au même moment. Le chemin réel de
+  production (`node_execution.py`) ne partage jamais un `sm` entre tâches
+  concurrentes (un `prepare()` par nœud), donc ce n'était pas un risque en
+  production — mais la garantie que ce test encode reste réelle. Corrigé à
+  la racine, dans `ExecutionStateMachine.transition()`
+  (execution_state.py) : une transition vers l'état déjà courant est
+  désormais un no-op réussi plutôt qu'une erreur, sans affaiblir la
+  détection des transitions réellement invalides
+  (`test_invalid_transition_raises` reste vert).
+
+### Verified
+- Vérifié en conditions réelles dans le navigateur avec Ollama réel : une
+  mission sans liaison ("Add input validation to login form") décompose en
+  6 tâches réelles, s'exécute en ~22,9s avec deux appels `api/chat`
+  terminant à la même seconde (preuve d'un vrai chevauchement, pas d'un
+  parallélisme simulé) ; une mission liée à un vrai dossier local
+  ("Refactor logging module") passe correctement en `paused` avec le
+  message d'attente humaine attendu, puis reprise via `/resume` exécute
+  réellement ses 9 tâches (~65s) avec `started_at` et
+  `total_duration_ms` corrects après le correctif ci-dessus.
+- Nouveaux tests (`tests/architecture/test_mission_real_wiring.py`, 18
+  tests) : visibilité croisée, porte Aegis (allow/review/deny, dont le
+  cas `local_path` refusé avant même la vérification `mission_execute`),
+  génération de rapport, boucle de retry réellement rejouée, parallélisme
+  borné du `GraphExecutor` (chevauchement temporel mesuré, borne à 1 =
+  strictement séquentiel mesuré), verrou resserré de `MissionExecutor`
+  (deux tâches concurrentes chevauchent réellement), correctif
+  `started_at`, plus 2 tests de régression pour le correctif de
+  transition d'état ci-dessus (`tests/architecture/test_execution.py`).
+- Suite complète (`tests/` + `backend/tests/`) : **3479 passed, 3 skipped,
+  2 failed** (premier passage) après le correctif de transition d'état ;
+  les 2 échecs restants sont sans rapport avec cette passe —
+  `test_task_executor_shares_the_container_model_intelligence` est le
+  flake de test-ordering déjà documenté (HOS-067), reproductible seul en
+  isolation avec succès. Un second passage complet a ensuite révélé 7
+  échecs supplémentaires (`test_real_execution.py`,
+  `test_documents_endpoint.py::test_index_a_real_text_file`) — tous des
+  `httpx.ReadTimeout`, tous dans des fichiers hors du périmètre de cette
+  passe (aucun recoupement avec les fichiers modifiés). Confirmé
+  environnemental et non lié à ce diff : un appel direct à
+  `POST /api/chat` sur l'Ollama local (aucun code du dépôt impliqué) a
+  lui-même dépassé un délai de 30s sur le même modèle déjà chargé, alors
+  que `GET /api/ps` répondait instantanément — la file d'inférence
+  d'Ollama était bloquée au moment du test, pas le code testé. Non
+  poursuivi plus loin (action système sur un service que cette session
+  n'a ni démarré ni arrêté) ; signalé à l'utilisateur séparément.
+
 ## HOS-067 — Autonomous OS : décomposition, décisions et sécurité réelles (2026-08-01)
 
 Demande de l'utilisateur : point de comparaison entre le fonctionnement
