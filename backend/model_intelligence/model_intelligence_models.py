@@ -103,11 +103,26 @@ class ModelProfile:
 
     @property
     def overall_score(self) -> float:
+        """A rough, self-contained approximation of PerformanceAnalyzer.
+        compute_model_score() (HOS-071 Phase B) — same Quality 30 /
+        Reliability 25 / Speed 20 / Efficiency 15 / Benchmark 10 weights,
+        for any caller with only a bare profile and no analyzer to ask
+        (e.g. ModelEvolutionAdapter comparing two candidates). Not
+        interchangeable with the real formula: each factor here reads only
+        what this object carries (this profile's own success_rate/
+        benchmark_score, a linear speed curve) rather than the analyzer's
+        richer, shared inputs (per-model performance records, a real
+        cross-model benchmark history, human ratings) — the two can
+        legitimately disagree on the exact number. ModelProfiler/
+        ModelPredictor (HOS-071 Phase B) never read this property; they
+        always call compute_model_score() directly, which is the one score
+        that actually drives ranking and real recommendation."""
         quality = self.task_scores.get("quality", 0.5)
         speed = min(1.0, self.tokens_per_second / 100.0) if self.tokens_per_second > 0 else 0.5
         reliability = self.success_rate
         efficiency = 1.0 - (self.vram_required_mb / 80000.0) if self.vram_required_mb > 0 else 0.5
-        return (quality * 0.3 + speed * 0.2 + reliability * 0.3 + efficiency * 0.2 + self.benchmark_score * 0.1)
+        return (quality * 0.30 + speed * 0.20 + reliability * 0.25
+                + efficiency * 0.15 + self.benchmark_score * 0.10)
 
 
 @dataclass

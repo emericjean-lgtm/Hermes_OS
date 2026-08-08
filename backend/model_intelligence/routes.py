@@ -14,6 +14,7 @@ from .model_intelligence_models import RuntimeBackend, TaskContext, TaskType
 from .model_memory_adapter import ModelMemoryAdapter
 from .model_profiler import ModelProfiler
 from .model_predictor import ModelPredictor
+from .model_runtime_adapter import ModelRuntimeAdapter
 from .model_runtime_optimizer import ModelRuntimeOptimizer
 from .performance_analyzer import PerformanceAnalyzer
 
@@ -23,16 +24,49 @@ _predictor: ModelPredictor | None = None
 _router: AdaptiveRouter | None = None
 _scheduler: BenchmarkScheduler | None = None
 _optimizer: ModelRuntimeOptimizer | None = None
+_runtime_adapter: ModelRuntimeAdapter | None = None
 _memory: ModelMemoryAdapter | None = None
 _evolution: ModelEvolutionAdapter | None = None
 _cloud_catalog: CloudModelCatalog | None = None
 _cloud_catalog_checked = False
+_resource_manager: Any = None
+
+
+def set_resource_manager(resource_manager: Any) -> None:
+    """Inject the real ResourceManager (HOS-071) so recommendations reason
+    about VRAM that is actually free right now, not a static guess. None
+    (the default, e.g. in hermetic tests) falls back to the old fixed
+    8192MB ceiling everywhere that reads it — unchanged prior behaviour."""
+    global _resource_manager
+    _resource_manager = resource_manager
+
+
+def _real_vram_mb(*, total: bool = False) -> int | None:
+    """Real, current VRAM from the GPU monitor — free by default (what a
+    recommendation should actually be constrained by), or total when asked
+    (what a runtime/quantization comparison should be sized against). None
+    if no resource manager is wired or the GPU can't be read, so callers
+    can fall back to their own static default rather than pretending 0GB
+    is available."""
+    if _resource_manager is None:
+        return None
+    try:
+        gpu = _resource_manager.get_gpu_info()
+        if not gpu.available or gpu.vram_total_bytes <= 0:
+            return None
+        bytes_value = gpu.vram_total_bytes if total else gpu.vram_free_bytes
+        return max(0, int(bytes_value / (1024 * 1024)))
+    except Exception:
+        return None
 
 
 def _get_profiler() -> ModelProfiler:
     global _profiler
     if _profiler is None:
-        _profiler = ModelProfiler()
+        # HOS-071 Phase B: wires the analyzer so ranking uses the one real
+        # compute_model_score() formula instead of ModelProfile's own,
+        # separately-maintained overall_score property.
+        _profiler = ModelProfiler(analyzer=_get_analyzer())
     return _profiler
 
 
@@ -46,7 +80,10 @@ def _get_analyzer() -> PerformanceAnalyzer:
 def _get_predictor() -> ModelPredictor:
     global _predictor
     if _predictor is None:
-        _predictor = ModelPredictor()
+        # HOS-071 Phase B: same analyzer instance as _get_profiler(), so
+        # rank_models() (the real recommendation) and the ranking table
+        # agree on what "best" means.
+        _predictor = ModelPredictor(analyzer=_get_analyzer())
     return _predictor
 
 
@@ -99,6 +136,10 @@ def _get_router() -> AdaptiveRouter:
             profiler=_get_profiler(),
             analyzer=_get_analyzer(),
             predictor=_get_predictor(),
+            # HOS-071 Phase D: real combined model+runtime+quantization
+            # search instead of two independent heuristics — see
+            # set_runtime_optimizer()'s docstring.
+            runtime_optimizer=_get_optimizer(),
         )
         catalog = _get_cloud_catalog()
         if catalog is not None:
@@ -152,6 +193,19 @@ def _get_optimizer() -> ModelRuntimeOptimizer:
     return _optimizer
 
 
+def _get_runtime_adapter() -> ModelRuntimeAdapter:
+    """ModelRuntimeAdapter (HOS-065B) — real cross-runtime/quantization
+    comparison math, previously built but never called by anything outside
+    its own file and tests (HOS-071 audit). Shares the container's real
+    optimizer/profiler rather than building its own, disconnected pair."""
+    global _runtime_adapter
+    if _runtime_adapter is None:
+        _runtime_adapter = ModelRuntimeAdapter(
+            optimizer=_get_optimizer(), profiler=_get_profiler(),
+        )
+    return _runtime_adapter
+
+
 def _get_memory() -> ModelMemoryAdapter:
     global _memory
     if _memory is None:
@@ -191,7 +245,7 @@ def handle_get_ranking(task_type: str = "", limit: int = 5) -> dict[str, Any]:
                 "score": round(m.overall_score, 3),
                 "parameters_b": m.parameters_b,
                 "vram_mb": m.vram_required_mb,
-                "tps": m.tokens_per_second,
+                "tps": round(m.tokens_per_second, 1),
                 "success_rate": round(m.success_rate, 3),
                 "tags": m.tags,
             }
@@ -201,10 +255,21 @@ def handle_get_ranking(task_type: str = "", limit: int = 5) -> dict[str, Any]:
 
 
 def handle_recommend(task_description: str, language: str = "python",
-                     max_vram_mb: int = 8192) -> dict[str, Any]:
-    """POST /models/recommend"""
+                     max_vram_mb: int | None = None,
+                     task_type: str = "") -> dict[str, Any]:
+    """POST /models/recommend
+
+    ``max_vram_mb=None`` (the caller didn't specify one) now resolves to
+    the real, currently-free VRAM (HOS-071 Phase A) instead of a static
+    8192MB guess — falls back to that same 8192 default only when no
+    resource manager is wired. An explicit caller-supplied value is always
+    honoured as-is, same as before.
+    """
     router = _get_router()
-    decision = router.recommend_for_text(task_description, language, max_vram_mb)
+    resolved_vram = max_vram_mb if max_vram_mb is not None else (_real_vram_mb() or 8192)
+    decision = router.recommend_for_text(
+        task_description, language, resolved_vram, task_type_hint=task_type or None,
+    )
     return {
         "success": True,
         "decision": {
@@ -339,6 +404,35 @@ def handle_get_evolution(threshold: float = 0.7, suggest_for: str = "") -> dict[
     return result
 
 
+def handle_get_optimize(model_id: str) -> dict[str, Any]:
+    """GET /models/optimize?model_id=X (HOS-071 Phase D)
+
+    Real cross-runtime/quantization comparison for one model — from
+    ModelRuntimeAdapter.compare_runtimes()/ModelRuntimeOptimizer, real math
+    that already existed but had no route and no caller. Sized against the
+    real, current total VRAM (HOS-071 Phase A's resource manager) rather
+    than the adapter's own static 16GB default, when available.
+    """
+    profiler = _get_profiler()
+    profile = profiler.get_profile(model_id)
+    if not profile:
+        return {"success": False, "error": f"Model {model_id} not found"}
+
+    adapter = _get_runtime_adapter()
+    total_vram_mb = _real_vram_mb(total=True)
+    if total_vram_mb:
+        adapter.update_system_info({"vram_mb": total_vram_mb, "has_cuda": True})
+
+    comparisons = adapter.compare_runtimes(profile)
+    best = comparisons[0] if comparisons else None
+    return {
+        "success": True,
+        "model_id": model_id,
+        "comparisons": comparisons,
+        "best": best,
+    }
+
+
 def handle_get_cloud_status() -> dict[str, Any]:
     """GET /models/cloud/status
 
@@ -409,10 +503,20 @@ async def get_ranking(
 
 @router.post("/recommend")
 async def recommend(payload: dict = Body(...)) -> dict[str, Any]:
+    # HOS-071: accepts "task_description" (the documented/API-shape name,
+    # matching handle_recommend's own parameter) and "description" (what
+    # the Cockpit's Recommend tab actually sends) — found via audit that
+    # the Cockpit's payload key never matched what this route read, so
+    # every real click silently recommended for an empty string regardless
+    # of what the user typed. Both are accepted rather than picking one and
+    # leaving the other caller's text still lost.
+    description = payload.get("task_description") or payload.get("description") or ""
+    raw_max_vram = payload.get("max_vram_mb")
     return handle_recommend(
-        task_description=payload.get("task_description", ""),
+        task_description=description,
         language=payload.get("language", "python"),
-        max_vram_mb=int(payload.get("max_vram_mb", 8192)),
+        max_vram_mb=int(raw_max_vram) if raw_max_vram is not None else None,
+        task_type=payload.get("task_type", ""),
     )
 
 
@@ -455,3 +559,8 @@ async def get_evolution(
 @router.get("/cloud/status")
 async def get_cloud_status() -> dict[str, Any]:
     return handle_get_cloud_status()
+
+
+@router.get("/optimize")
+async def get_optimize(model_id: str = Query(...)) -> dict[str, Any]:
+    return handle_get_optimize(model_id)

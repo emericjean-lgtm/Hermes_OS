@@ -19,16 +19,33 @@ from .model_intelligence_models import (
     RuntimeBackend,
     TaskType,
 )
+from .performance_analyzer import PerformanceAnalyzer
 
 
 class ModelProfiler:
     """Creates, updates, and manages model performance profiles."""
 
-    def __init__(self) -> None:
+    def __init__(self, analyzer: Any = None) -> None:
+        """``analyzer`` (a PerformanceAnalyzer, HOS-071 Phase B): ranking
+        (list_profiles/get_top_models) always sorts by its
+        compute_model_score() — the one formula that matches the documented
+        Quality/Reliability/Speed/Efficiency/Benchmark weights — rather than
+        ModelProfile.overall_score's own, separately-maintained property,
+        whose per-factor math reads different data (e.g. reliability from
+        this profiler's own history vs. success_rate, benchmark from a
+        benchmarks list vs. a static field) and can diverge from
+        compute_model_score even at identical weights. None (the default)
+        builds a private PerformanceAnalyzer rather than falling back to
+        that property — callers who share the container's real analyzer
+        (routes.py's _get_profiler()) get its real benchmark history too;
+        callers who don't (bare construction in tests/other adapters) still
+        get the one correct formula, just without cross-model benchmark
+        data to draw on."""
         self._lock = threading.RLock()
         self._profiles: dict[str, ModelProfile] = {}
         self._performance_history: list[ModelPerformanceRecord] = []
         self._max_history = 1000
+        self._analyzer = analyzer or PerformanceAnalyzer()
         self._load_predefined()
 
     def _load_predefined(self) -> None:
@@ -63,9 +80,16 @@ class ModelProfiler:
         with self._lock:
             return self._profiles.get(model_id)
 
+    def _score(self, profile: ModelProfile) -> float:
+        """The one real ranking score for a profile (HOS-071 Phase B) —
+        always analyzer.compute_model_score(), fed this profiler's own real
+        performance history for the given model."""
+        records = [r for r in self._performance_history if r.model_id == profile.model_id]
+        return self._analyzer.compute_model_score(profile, records)
+
     def list_profiles(self) -> list[ModelProfile]:
         with self._lock:
-            return sorted(self._profiles.values(), key=lambda p: -p.overall_score)
+            return sorted(self._profiles.values(), key=lambda p: -self._score(p))
 
     def update_performance(self, record: ModelPerformanceRecord) -> None:
         with self._lock:
@@ -116,7 +140,7 @@ class ModelProfiler:
             if task_type:
                 profiles = [p for p in profiles
                            if task_type.value in p.task_scores]
-            return sorted(profiles, key=lambda p: -p.overall_score)[:limit]
+            return sorted(profiles, key=lambda p: -self._score(p))[:limit]
 
     def get_performance_history(self, model_id: str | None = None,
                                  limit: int = 100) -> list[dict[str, Any]]:
@@ -154,10 +178,10 @@ class ModelProfiler:
                         "name": p.name,
                         "parameters_b": p.parameters_b,
                         "vram_mb": p.vram_required_mb,
-                        "tps": p.tokens_per_second,
-                        "score": round(p.overall_score, 3),
+                        "tps": round(p.tokens_per_second, 1),
+                        "score": round(self._score(p), 3),
                         "success_rate": round(p.success_rate, 3),
                     }
-                    for p in sorted(self._profiles.values(), key=lambda x: -x.overall_score)
+                    for p in sorted(self._profiles.values(), key=lambda x: -self._score(x))
                 ],
             }

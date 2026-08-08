@@ -22,6 +22,7 @@ from .model_intelligence_models import (
 )
 from .model_predictor import ModelPredictor
 from .model_profiler import ModelProfiler
+from .model_runtime_optimizer import ModelRuntimeOptimizer
 from .performance_analyzer import PerformanceAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -55,11 +56,13 @@ class AdaptiveRouter:
     def __init__(self, profiler: ModelProfiler | None = None,
                  analyzer: PerformanceAnalyzer | None = None,
                  predictor: ModelPredictor | None = None,
-                 cloud: CloudGate | None = None) -> None:
+                 cloud: CloudGate | None = None,
+                 runtime_optimizer: ModelRuntimeOptimizer | None = None) -> None:
         self._profiler = profiler or ModelProfiler()
         self._analyzer = analyzer or PerformanceAnalyzer()
         self._predictor = predictor or ModelPredictor()
         self._cloud = cloud
+        self._runtime_optimizer = runtime_optimizer
         self._lock = threading.RLock()
         self._decisions: list[ModelDecision] = []
         self._max_history = 500
@@ -70,6 +73,16 @@ class AdaptiveRouter:
         already uses elsewhere. None (the default) keeps recommend() 100%
         local, unchanged from before this feature existed."""
         self._cloud = cloud
+
+    def set_runtime_optimizer(self, runtime_optimizer: ModelRuntimeOptimizer | None) -> None:
+        """Wire (or clear) the real model+runtime+quantization co-optimizer
+        (HOS-071 Phase D). ModelRuntimeOptimizer already existed with real,
+        working combinatorial scoring across every viable runtime/
+        quantization pair — it was simply never consulted by recommend(),
+        which picked runtime and quantization with two small, independent
+        heuristics instead (_select_runtime/_select_quantization below).
+        None (the default) keeps those heuristics, unchanged."""
+        self._runtime_optimizer = runtime_optimizer
 
     def recommend(self, task: TaskContext, *, allow_cloud: bool = True) -> ModelDecision:
         """Recommend the best model for a given task context.
@@ -126,8 +139,7 @@ class AdaptiveRouter:
 
         best = ranked[0]
         profile = self._profiler.get_profile(best["model_id"])
-        runtime = self._select_runtime(profile, task)
-        quantization = self._select_quantization(profile, task)
+        runtime, quantization = self._select_runtime_and_quantization(profile, task)
 
         alternatives = []
         for alt in ranked[1:4]:
@@ -217,9 +229,25 @@ class AdaptiveRouter:
     def recommend_for_text(self, task_description: str,
                            language: str = "python",
                            max_vram_mb: int = 8192,
-                           *, allow_cloud: bool = True) -> ModelDecision:
-        """Recommend model from a text description of the task."""
-        task_type = self._infer_task_type(task_description)
+                           *, allow_cloud: bool = True,
+                           task_type_hint: TaskType | str | None = None) -> ModelDecision:
+        """Recommend model from a text description of the task.
+
+        ``task_type_hint``: a caller-supplied, already-structured task type
+        (e.g. a mission node's own ``type`` field, HOS-070) takes priority
+        over re-inferring one from keyword-matching ``task_description`` —
+        found via audit that a real, more precise signal existed and was
+        silently discarded in favour of a weaker one. Falls back to keyword
+        inference when absent or unrecognised, unchanged from before.
+        """
+        if task_type_hint:
+            try:
+                task_type = (task_type_hint if isinstance(task_type_hint, TaskType)
+                            else TaskType(task_type_hint))
+            except ValueError:
+                task_type = self._infer_task_type(task_description)
+        else:
+            task_type = self._infer_task_type(task_description)
         complexity = self._infer_complexity(task_description)
         task = TaskContext(
             task_type=task_type,
@@ -228,6 +256,24 @@ class AdaptiveRouter:
             max_vram_mb=max_vram_mb,
         )
         return self.recommend(task, allow_cloud=allow_cloud)
+
+    def _select_runtime_and_quantization(
+        self, profile: ModelProfile | None, task: TaskContext,
+    ) -> tuple[RuntimeBackend, Quantization]:
+        """The real combinatorial search (HOS-071 Phase D) when
+        ModelRuntimeOptimizer is wired — every viable runtime/quantization
+        pair, scored together against this task's real VRAM ceiling, not
+        two independent single-shot heuristics guessing at each dimension
+        separately. Falls back to those heuristics when unwired (bare
+        construction, hermetic tests) or when the optimizer finds nothing
+        viable (e.g. profile has no available_backends registered)."""
+        if self._runtime_optimizer is not None and profile is not None:
+            best = self._runtime_optimizer.get_best(
+                profile, task, system_vram_mb=task.max_vram_mb, has_gpu=True,
+            )
+            if best is not None:
+                return best.runtime, best.quantization
+        return self._select_runtime(profile, task), self._select_quantization(profile, task)
 
     def _select_runtime(self, profile: ModelProfile | None,
                         task: TaskContext) -> RuntimeBackend:

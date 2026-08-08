@@ -285,12 +285,40 @@ def _make_task_executor(c: Any) -> Any:
         an invented number."""
         return _vram_by_model.get(model)
 
+    def _max_vram_mb_now() -> int:
+        """Real, currently-free VRAM (HOS-071 Phase A) — replaces the
+        static 8192MB default every recommendation used to reason against
+        regardless of the card's real size or what else is resident right
+        now. Falls back to that same 8192 default if the resource manager
+        can't report real numbers (GPU unavailable), unchanged prior
+        behaviour."""
+        resource_manager = c.get("resource_manager")
+        if resource_manager is None:
+            return 8192
+        try:
+            gpu = resource_manager.get_gpu_info()
+            if not gpu.available or gpu.vram_total_bytes <= 0:
+                return 8192
+            return max(0, int(gpu.vram_free_bytes / (1024 * 1024)))
+        except Exception:
+            return 8192
+
+    def _task_type_hint(task: Any) -> Optional[str]:
+        """The already-structured task type (HOS-070's TaskExecution.task_type,
+        threaded from MissionNode.type) — a real, more precise signal than
+        re-inferring one from keyword-matching the task's title text
+        (HOS-071 Phase C). Empty/absent falls through to that same keyword
+        inference, unchanged prior behaviour."""
+        return getattr(task, "task_type", "") or None
+
     def _model_for(task: Any) -> Optional[str]:
         title = getattr(task, "title", "") or ""
         if not title:
             return None
         try:
-            decision = mi_routes._get_router().recommend_for_text(title)  # noqa: SLF001
+            decision = mi_routes._get_router().recommend_for_text(  # noqa: SLF001
+                title, max_vram_mb=_max_vram_mb_now(), task_type_hint=_task_type_hint(task),
+            )
             return decision.model_id or None
         except Exception:
             return None
@@ -306,7 +334,9 @@ def _make_task_executor(c: Any) -> Any:
         if not title:
             return None
         try:
-            decision = mi_routes._get_router().recommend_for_text(title)  # noqa: SLF001
+            decision = mi_routes._get_router().recommend_for_text(  # noqa: SLF001
+                title, max_vram_mb=_max_vram_mb_now(), task_type_hint=_task_type_hint(task),
+            )
             return decision.num_ctx or None
         except Exception:
             return None
@@ -322,7 +352,9 @@ def _make_task_executor(c: Any) -> Any:
         if not title:
             return None
         try:
-            decision = mi_routes._get_router().recommend_for_text(title)  # noqa: SLF001
+            decision = mi_routes._get_router().recommend_for_text(  # noqa: SLF001
+                title, max_vram_mb=_max_vram_mb_now(), task_type_hint=_task_type_hint(task),
+            )
             return decision.runtime.value
         except Exception:
             return None
@@ -337,7 +369,8 @@ def _make_task_executor(c: Any) -> Any:
             return None
         try:
             decision = mi_routes._get_router().recommend_for_text(  # noqa: SLF001
-                title, allow_cloud=False,
+                title, max_vram_mb=_max_vram_mb_now(), allow_cloud=False,
+                task_type_hint=_task_type_hint(task),
             )
             return decision.model_id or None
         except Exception:
@@ -843,9 +876,14 @@ def _make_model_intelligence(c: Any) -> Any:
 
 
 def _bind_model_intelligence_routes(c: Any, svc: Any) -> list[Any]:
-    from backend.model_intelligence.routes import create_model_intelligence_routes
+    from backend.model_intelligence import routes as mi_routes
 
-    return [create_model_intelligence_routes(svc)]
+    # HOS-071: real ResourceManager so /models/recommend's own default (no
+    # explicit max_vram_mb) and /models/optimize reason about VRAM that is
+    # actually free/total right now, not a static guess — same
+    # set_trust_engine()-style optional injection HOS-070 used for Agents.
+    mi_routes.set_resource_manager(c.get("resource_manager"))
+    return [mi_routes.create_model_intelligence_routes(svc)]
 
 
 # ── Integrations ──────────────────────────────────────────────────────
@@ -1282,6 +1320,12 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         category=ComponentCategory.SYSTEM,
         factory=_make_model_intelligence,
         route_binder=_bind_model_intelligence_routes,
+        # resource_manager is a route-binder-only dependency (HOS-071,
+        # same pattern as agent_supervisor's security_engine dependency in
+        # HOS-070): the factory itself doesn't need it, but
+        # _bind_model_intelligence_routes does, and the dependency graph
+        # should reflect that real coupling rather than hide it.
+        dependencies=("resource_manager",),
         produced_events=("model.profiled", "model.recommended"),
         description="Model profiling, prediction, adaptive routing (HOS-065)",
         adopts_module_singleton=True,

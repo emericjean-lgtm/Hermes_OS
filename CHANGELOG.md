@@ -1,3 +1,159 @@
+## HOS-071 — Model Intelligence : VRAM réelle, un seul scoring, optimiseur câblé (2026-08-08)
+
+Demande de l'utilisateur : cinquième onglet de la même série de revues
+(après Autonomous OS, Missions, Execution, Agents) — "Model Intelligence".
+Spécification détaillée fournie : sélection modèle+runtime+quantification
+pilotée par la tâche (pas juste le modèle), exemple chiffré sur sa propre
+RX 6800 16 Go, formule de scoring à 5 facteurs (Quality 30% / Reliability
+25% / Speed 20% / Efficiency 15% / Benchmark 10%) avec apprentissage dans
+le temps, méthodologie de benchmark strictement séquentielle avec métriques
+réelles, conscience de la VRAM libre en temps réel au moment de la
+décision, apprentissage depuis l'exécution réelle, intégration avec Agents
+et Autonomous, Cockpit détaillé (vue d'ensemble, classement, panneau de
+recommandation). Point de fermeture explicite : par défaut, l'utilisateur
+ne devrait presque jamais avoir à choisir un modèle manuellement — Hermes
+doit gérer Tâche → Agent → Modèle → Runtime → Quantification → Ressources →
+Exécution → Résultat → Apprentissage automatiquement. Après audit et
+validation du plan en 5 phases par l'utilisateur ("ok va y"), mise en
+œuvre complète.
+
+### Constat principal (audit, avant tout code)
+
+Contrairement aux quatre onglets précédents, Model Intelligence n'avait pas
+de pipeline fantôme complet — `AdaptiveRouter.recommend()` est réellement
+la décision unique consultée à chaque tâche réelle (`RealTaskExecutor` via
+`model_for`/`num_ctx_for`/`runtime_for`/`local_fallback_for`), le
+benchmarking avait déjà été rendu réel (HOS-065C), et `ModelAutonomousAdapter`
+avait été délibérément cantonné à un rôle de reporting plutôt que de
+décision (voir `AutonomousOrchestrator.set_model_adapter()`). Mais le même
+problème structurel réapparaissait sous une autre forme : **trois formules
+de scoring différentes répondaient à « quel est le meilleur modèle », et
+aucune n'était celle décrite par l'utilisateur** :
+- `ModelProfile.overall_score` (property) — quality 30 / speed 20 /
+  **reliability 30** / **efficiency 20** / benchmark 10 — pilotait le
+  classement du Cockpit (`/models/ranking`).
+- `ModelPredictor.rank_models()` — task_fit 35 / success_prob 35 / tps 15 /
+  vram_eff 15, aucun facteur "benchmark" — pilotait **la vraie
+  recommandation de production** (`recommend()`, donc chaque tâche réelle).
+- `PerformanceAnalyzer.compute_model_score()` — quality 30 / reliability 25
+  / speed 20 / efficiency 15 / benchmark 10, exactement la formule décrite
+  par l'utilisateur — réelle, correcte, mais utilisée par un seul endpoint
+  de lecture (`GET /models/performance?model_id=X`), jamais pour classer ni
+  recommander.
+
+### Autres écarts trouvés
+- VRAM libre en temps réel absente de la décision (spec section 7) :
+  `recommend()`/`_model_for()` filtraient toujours contre un plafond
+  statique `max_vram_mb=8192` — jamais interrogé auprès de
+  `ResourceManager`. Le vrai contrôle VRAM (`_check_vram_admission`,
+  HOS-069) n'intervenait qu'*après* le choix du modèle, comme une attente
+  bloquante, jamais comme critère de sélection. Sur la RX 6800 16 Go de
+  l'utilisateur, chaque recommandation raisonnait par défaut sur un
+  plafond deux fois trop bas.
+- `ModelRuntimeOptimizer` (recherche combinée model+runtime+quantization,
+  exactement la section 6 de la spec) était réel et complet, mais mort :
+  `_get_optimizer()` n'était appelé par aucun handler, aucune route.
+  `AdaptiveRouter._select_runtime()`/`_select_quantization()` utilisaient
+  deux heuristiques séparées bien plus simples.
+- `ModelRuntimeAdapter` (`simulate_execution`/`compare_runtimes`) — réel,
+  bien construit, zéro appelant en dehors de son propre fichier et de ses
+  tests.
+- `_model_for()` réinférait le type de tâche via des mots-clés sur
+  `task.title`, en ignorant `task.task_type` déjà structuré (ajouté par
+  HOS-070 depuis `MissionNode.type`).
+- `ModelEvolutionAdapter.update_weights()` mort — rien ne l'appelait
+  jamais.
+- Bug trouvé pendant l'audit, pas dans la spec : le Cockpit envoyait
+  `{task_type, description}` à `POST /models/recommend`, mais la route ne
+  lisait que `payload.get("task_description")` — chaque clic réel
+  recommandait donc pour une chaîne vide, quel que soit le texte tapé par
+  l'utilisateur.
+- Cockpit très éloigné de la maquette : pas de widget VRAM libre en temps
+  réel, pas de "meilleur par catégorie", pas d'onglet History (l'endpoint
+  existait, jamais surfacé), l'onglet Benchmark affichait du JSON brut,
+  l'onglet "Optimizer" ne consultait jamais le vrai `ModelRuntimeOptimizer`.
+
+### Added
+- **Phase A — VRAM réelle dans la décision** : `ResourceManager.get_gpu_info()`
+  câblé dans `_model_for`/`_num_ctx_for`/`_runtime_for`/`_local_fallback_for`
+  (`service_registry.py`) — chaque recommandation de production utilise
+  désormais la VRAM réellement libre à l'instant T, plus un plafond statique.
+  Même câblage pour `POST /models/recommend` (nouveau `set_resource_manager()`
+  dans `routes.py`, appelé par le route-binder) : un appel sans
+  `max_vram_mb` explicite utilise la VRAM libre réelle plutôt que 8192 codé
+  en dur.
+- **Phase B — Un seul scoring** : `ModelProfiler`/`ModelPredictor`
+  construisent désormais toujours un `PerformanceAnalyzer` réel (partagé
+  via `routes.py`, ou privé si construits nus) et appellent
+  `compute_model_score()` — le classement du Cockpit et la vraie
+  recommandation de production lisent enfin la même formule.
+  `ModelProfile.overall_score` (repli pour tout appelant sans analyzer,
+  ex. `ModelEvolutionAdapter`) corrigé aux mêmes poids 30/25/20/15/10 —
+  toujours une approximation (données différentes : records/benchmarks vs
+  champs bruts du profil), documenté comme tel plutôt que de prétendre à
+  une parité exacte.
+- **Phase C — Signal de tâche structuré** : `recommend_for_text()` accepte
+  désormais `task_type_hint` — `_model_for` et les trois autres callbacks
+  du bootstrap le préfèrent à la ré-inférence par mots-clés sur le titre.
+  Bug du payload `/models/recommend` corrigé (accepte `task_description`
+  *et* `description`, et lit désormais `task_type` du payload).
+- **Phase D — Optimiseur réel câblé** : `AdaptiveRouter` accepte
+  `runtime_optimizer` (`set_runtime_optimizer()`) — `recommend()` consulte
+  désormais la vraie recherche combinatoire de `ModelRuntimeOptimizer` pour
+  choisir runtime + quantification ensemble, au lieu de deux heuristiques
+  indépendantes ; repli sur ces heuristiques si l'optimiseur ne trouve rien
+  ou n'est pas câblé. Nouvelle route `GET /models/optimize?model_id=X`
+  (`ModelRuntimeAdapter.compare_runtimes()`, câblé pour la première fois) —
+  comparaison réelle cross-runtime/quantification, sizée sur la VRAM totale
+  réelle quand disponible.
+- **Phase E — Cockpit Model Intelligence** : refonte —
+  widget VRAM/GPU temps réel (réutilise `useMonitoringResources`), cartes
+  "Meilleur global / Plus rapide / Plus efficient (VRAM)", onglet Recommend
+  avec sélecteur de type de tâche explicite, onglet Benchmark réel
+  (déclencheur `POST /models/benchmark` + tableau des résultats stockés, au
+  lieu d'un dump JSON brut), onglet Optimizer réel (comparaison
+  cross-runtime via la nouvelle route, au lieu de reformater le modèle #1
+  du classement), nouvel onglet History (`GET /models/history`, jamais
+  surfacé auparavant).
+
+### Bugs trouvés et corrigés en cours de route
+- `/models/recommend` : clé de payload jamais alignée entre frontend
+  (`description`) et backend (`task_description`) — chaque recommandation
+  réelle depuis le Cockpit ignorait silencieusement le texte de la tâche.
+- `ModelProfile.overall_score` utilisait des poids 30/20/**30**/**20**/10 —
+  déjà différent des 30/25/20/15/10 documentés avant même la question du
+  scoring "à trois formules".
+- `tps` non arrondi dans les réponses `/models/ranking` et `GET /models`
+  (`ModelProfiler.get_stats()`) — visible une fois la télémétrie réelle
+  alimentée par un benchmark réel (ex. "30.41897838148077 TPS").
+
+### Verified
+- Vérifié en conditions réelles dans le navigateur avec Ollama réel et
+  backend complet (34/34 sous-systèmes assemblés) : widget VRAM affichant
+  "AMD Radeon RX 6800, 2.1–3.0 / 16.0 Go, 13–14 Go libres — c'est ce que
+  les recommandations utilisent désormais" ; onglet Recommend avec un vrai
+  texte de tâche + type explicite produisant une vraie décision
+  (`qwen3:1.7b`, ollama/q4_k_m, confiance 50%, alternatives réelles avec
+  scores distincts) confirmée via le payload réseau (`task_description`
+  bien transmis) ; onglet Benchmark déclenchant un vrai appel Ollama
+  (`qwen3:1.7b`/chat, 5227ms, 225.2 TPS, quality "ok") qui met à jour en
+  direct le classement et les compteurs "1 RUNS"/"MEILLEUR GLOBAL" ; onglet
+  Optimizer renvoyant une vraie comparaison à 4 runtimes avec des VRAM
+  estimées distinctes selon le modèle sélectionné ; onglet History
+  affichant la vraie décision de recommandation. Tous les appels réseau
+  `/models/*` en 200 OK.
+- Nouveaux tests hermétiques (aucun Ollama réel requis) :
+  `tests/architecture/test_model_intelligence_hos071.py` (18 tests — VRAM
+  temps réel, unification du scoring avec/sans analyzer partagé, priorité
+  du task_type structuré sur l'inférence par mots-clés, correction du bug
+  de payload, câblage de l'optimiseur et de la route `/models/optimize`).
+- Suite complète (`tests/` + `backend/tests/`) : **3542 passed, 3 skipped,
+  0 failed** en 13m26s — propre de bout en bout, y compris le flake de
+  test-ordering déjà documenté aux passes précédentes
+  (`test_task_executor_shares_the_container_model_intelligence`), qui
+  passe cette fois sans problème. Aucun échec lié à Ollama malgré les
+  appels réels effectués pendant la vérification navigateur.
+
 ## HOS-070 — Agents : activité réelle, sélection unifiée, confiance réelle (2026-08-08)
 
 Demande de l'utilisateur : quatrième onglet de la même série de revues

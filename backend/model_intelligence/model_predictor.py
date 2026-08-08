@@ -14,14 +14,25 @@ from .model_intelligence_models import (
     ModelProfile,
     TaskContext,
 )
+from .performance_analyzer import PerformanceAnalyzer
 
 
 class ModelPredictor:
     """Predicts model performance for specific tasks."""
 
-    def __init__(self) -> None:
+    def __init__(self, analyzer: Any = None) -> None:
+        """``analyzer`` (a PerformanceAnalyzer, HOS-071 Phase B): rank_models()'s
+        overall score is always built from compute_model_score() — the same
+        formula ModelProfiler._score() uses for the Cockpit's ranking table
+        — blended with this task's own type-fit. Replaces an independent
+        third formula that used to decide every real recommendation without
+        ever agreeing with either the ranking table or the documented
+        Quality/Reliability/Speed/Efficiency/Benchmark weights. None (the
+        default) builds a private PerformanceAnalyzer rather than reviving
+        that old formula — same reasoning as ModelProfiler's own default."""
         self._lock = threading.RLock()
         self._predictions: list[dict[str, Any]] = []
+        self._analyzer = analyzer or PerformanceAnalyzer()
 
     def predict_latency(self, profile: ModelProfile,
                         task: TaskContext) -> float:
@@ -69,7 +80,12 @@ class ModelPredictor:
                 continue
 
             task_score = profile.task_scores.get(task.task_type.value, 0.5)
-            overall = task_score * 0.35 + success_prob * 0.35 + (tps / 100.0) * 0.15 + (1.0 - vram / task.max_vram_mb) * 0.15
+            # The same general "how good is this model" score the Cockpit's
+            # ranking table shows (HOS-071 Phase B), with this task's own
+            # type-fit layered on top — the one per-task dimension the
+            # general score deliberately doesn't carry.
+            general_score = self._analyzer.compute_model_score(profile, records)
+            overall = general_score * 0.75 + task_score * 0.25
 
             scored.append({
                 "model_id": profile.model_id,

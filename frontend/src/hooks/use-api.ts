@@ -552,7 +552,7 @@ export function useModelRanking() {
  *  600–1000 ms and return a hard-coded decision (R-002 P3/P5). */
 export function useRecommendModel() {
   return useMutation({
-    mutationFn: (payload: { task_type: string; description: string }) =>
+    mutationFn: (payload: { task_type?: string; task_description: string; max_vram_mb?: number }) =>
       modelIntelligenceClient.recommend(payload),
   });
 }
@@ -561,6 +561,40 @@ export function useModelHistory(limit = 50) {
   return useQuery({
     queryKey: ["models", "history", limit],
     queryFn: () => modelIntelligenceClient.history(limit),
+  });
+}
+
+/** Real, stored benchmark results (HOS-065) — no longer a fresh batch of
+ *  random.uniform() numbers regenerated on every call. */
+export function useModelBenchmarks(modelId?: string) {
+  return useQuery({
+    queryKey: ["models", "benchmarks", modelId ?? "all"],
+    queryFn: () => modelIntelligenceClient.benchmarks(modelId),
+  });
+}
+
+/** Triggers one real benchmark run (a real Ollama call) — slow by
+ *  construction, see BenchmarkScheduler's own docstring. */
+export function useRunBenchmark() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { model_id: string; task_type: string }) =>
+      modelIntelligenceClient.runBenchmark(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "benchmarks"] });
+      qc.invalidateQueries({ queryKey: ["models", "ranking"] });
+    },
+  });
+}
+
+/** Real cross-runtime/quantization comparison for one model (HOS-071
+ *  Phase D) — ModelRuntimeOptimizer's own math, wired to a route for the
+ *  first time. */
+export function useModelOptimize(modelId: string | undefined) {
+  return useQuery({
+    queryKey: ["models", "optimize", modelId],
+    queryFn: () => modelIntelligenceClient.optimize(modelId as string),
+    enabled: !!modelId,
   });
 }
 

@@ -819,19 +819,73 @@ export interface CloudStatusDTO {
   reserve_daily_requests?: number;
 }
 
+// HOS-071 Phase D: real cross-runtime/quantization comparison for one
+// model — ModelRuntimeOptimizer's own real combinatorial search, wired to
+// a route (GET /models/optimize) for the first time.
+export interface RuntimeComparisonDTO {
+  runtime: string;
+  quantization: string;
+  estimated_vram_mb: number;
+  estimated_tokens_per_second: number;
+  risk_level: "low" | "medium" | "high";
+  feasible: boolean;
+}
+
+export interface OptimizeResultDTO {
+  success: boolean;
+  model_id?: string;
+  comparisons?: RuntimeComparisonDTO[];
+  best?: RuntimeComparisonDTO;
+  error?: string;
+}
+
+export interface ModelHistoryEntryDTO {
+  model_id: string;
+  model_name: string;
+  runtime: string;
+  confidence: number;
+  reason: string;
+  estimated_latency_ms: number;
+}
+
+export interface BenchmarkResultDTO {
+  benchmark_id: string;
+  model_id: string;
+  task_type: string;
+  latency_ms: number;
+  tokens_per_second: number;
+  vram_usage_mb: number;
+  quality_score: number;
+}
+
 export const modelIntelligenceClient = {
   models: () => fetchJSON<ModelIntelligenceDTO>("/models"),
   ranking: () =>
     fetchJSON<{ success: boolean; models: ModelRankingEntryDTO[] }>("/models/ranking"),
   performance: () => fetchJSON<ModelIntelligenceDTO>("/models/performance"),
   history: (limit = 50) =>
-    fetchJSON<Record<string, unknown>>(`/models/history?limit=${limit}`),
-  benchmarks: () => fetchJSON<Record<string, unknown>>("/models/benchmarks"),
-  recommend: (payload: { task_type: string; description: string }) =>
+    fetchJSON<{ success: boolean; decisions: ModelHistoryEntryDTO[] }>(
+      `/models/history?limit=${limit}`,
+    ),
+  benchmarks: (modelId?: string) =>
+    fetchJSON<{ success: boolean; benchmarks: BenchmarkResultDTO[] }>(
+      `/models/benchmarks${modelId ? `?model_id=${encodeURIComponent(modelId)}` : ""}`,
+    ),
+  runBenchmark: (payload: { model_id: string; task_type: string }) =>
+    fetchJSON<{ success: boolean; benchmark?: BenchmarkResultDTO }>("/models/benchmark", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  // "task_description" is the documented/route-shape key; earlier code sent
+  // "description", which the route silently dropped (HOS-071 Phase C) — the
+  // route now accepts both, but new callers should use the documented name.
+  recommend: (payload: { task_type?: string; task_description: string; max_vram_mb?: number }) =>
     fetchJSON<{ success: boolean; decision: ModelDecisionDTO }>("/models/recommend", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  optimize: (modelId: string) =>
+    fetchJSON<OptimizeResultDTO>(`/models/optimize?model_id=${encodeURIComponent(modelId)}`),
   cloudStatus: () => fetchJSON<CloudStatusDTO>("/models/cloud/status"),
 };
 

@@ -3,14 +3,18 @@
 import React, { useState } from "react";
 import {
   useCloudStatus,
+  useModelBenchmarks,
+  useModelHistory,
   useModelIntelligence,
+  useModelOptimize,
   useModelRanking,
+  useMonitoringResources,
   useRecommendModel,
+  useRunBenchmark,
 } from "@/hooks/use-api";
-import { modelIntelligenceClient } from "@/services/client";
-import { useQuery } from "@tanstack/react-query";
 import { CenterHeader } from "@/components/center-scaffold";
-import { Badge } from "@/components/ui/card";
+import { Badge, Card } from "@/components/ui/card";
+import type { ResourceStatus } from "@/types/hermes";
 
 // Every figure in this Center used to come from two module-level constants.
 // MOCK_MODELS listed five models with invented scores and success rates;
@@ -20,32 +24,65 @@ import { Badge } from "@/components/ui/card";
 // Optimizer tab was static text ("Qwen3-Coder 30B", "16,200 MB VRAM", "0.87",
 // "Top 1 of 12 configurations"). /api/v1/models, /models/ranking and
 // /models/recommend served real data throughout (R-002 P3).
+//
+// HOS-071 audit/rebuild: /models/recommend's own payload key never matched
+// what this Center sent ("description" vs. the route's "task_description"),
+// so every real click silently recommended for an empty string — fixed at
+// the route (accepts both) and here (sends the documented key). The
+// Benchmark tab dumped raw JSON and the Optimizer tab only restated the
+// top-ranked model's own numbers without ever calling the real
+// ModelRuntimeOptimizer/ModelRuntimeAdapter — both now real: a real
+// trigger + stored-results table, and a real cross-runtime/quantization
+// comparison via the new GET /models/optimize.
 
-const TABS = ["ranking", "recommend", "benchmark", "optimizer"] as const;
+const TASK_TYPES = [
+  "code_generation", "code_review", "debug", "refactor", "analysis",
+  "chat", "documentation", "optimization", "reasoning", "general",
+] as const;
+
+function bytesToGB(bytes: number): string {
+  return (bytes / 1024 ** 3).toFixed(1);
+}
+
+const TABS = ["ranking", "recommend", "benchmark", "optimizer", "history"] as const;
 
 export default function ModelIntelligenceCenter() {
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>("ranking");
   const [taskInput, setTaskInput] = useState("");
+  const [recommendTaskType, setRecommendTaskType] = useState<string>("code_generation");
+  const [benchmarkModelId, setBenchmarkModelId] = useState<string>("");
+  const [benchmarkTaskType, setBenchmarkTaskType] = useState<string>("code_generation");
+  const [optimizeModelId, setOptimizeModelId] = useState<string>("");
 
   const overview = useModelIntelligence();
   const ranking = useModelRanking();
   const recommend = useRecommendModel();
   const cloudStatus = useCloudStatus();
-  const benchmarks = useQuery({
-    queryKey: ["models", "benchmarks"],
-    queryFn: () => modelIntelligenceClient.benchmarks(),
-    enabled: activeTab === "benchmark",
-  });
+  const resources = useMonitoringResources() as { data?: ResourceStatus };
+  const benchmarks = useModelBenchmarks(benchmarkModelId || undefined);
+  const runBenchmark = useRunBenchmark();
+  const history = useModelHistory(30);
 
   const models = ranking.data?.models ?? [];
   const decision = recommend.data?.decision;
   const summary = overview.data?.data;
   const topModel = models[0];
+  const fastestModel = models.length
+    ? models.reduce((a, b) => (b.tps > a.tps ? b : a))
+    : undefined;
+  const mostEfficientModel = models.filter((m) => m.vram_mb > 0).length
+    ? models.filter((m) => m.vram_mb > 0).reduce((a, b) => (b.vram_mb < a.vram_mb ? b : a))
+    : undefined;
+
+  const optimizeTarget = optimizeModelId || topModel?.model_id || "";
+  const optimize = useModelOptimize(optimizeTarget || undefined);
+
+  const gpu = resources.data?.gpu;
 
   const runRecommend = () => {
     const text = taskInput.trim();
     if (!text) return;
-    recommend.mutate({ task_type: "code", description: text });
+    recommend.mutate({ task_type: recommendTaskType, task_description: text });
   };
 
   return (
@@ -70,6 +107,70 @@ export default function ModelIntelligenceCenter() {
           )
         }
       />
+
+      {/* Meilleurs par catégorie + VRAM temps réel (HOS-071) — la spec
+          demande explicitement que la décision voie la VRAM réellement
+          libre, pas un plafond statique. */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card title="Meilleur global">
+          {topModel ? (
+            <>
+              <div className="text-hermes-text-bright font-mono text-sm truncate">{topModel.name}</div>
+              <div className="text-hermes-cyan font-mono text-lg mt-1">{topModel.score.toFixed(3)}</div>
+            </>
+          ) : (
+            <div className="text-hermes-muted text-xs">—</div>
+          )}
+        </Card>
+        <Card title="Plus rapide">
+          {fastestModel ? (
+            <>
+              <div className="text-hermes-text-bright font-mono text-sm truncate">{fastestModel.name}</div>
+              <div className="text-hermes-green font-mono text-lg mt-1">{fastestModel.tps.toFixed(1)} TPS</div>
+            </>
+          ) : (
+            <div className="text-hermes-muted text-xs">—</div>
+          )}
+        </Card>
+        <Card title="Plus efficient (VRAM)">
+          {mostEfficientModel ? (
+            <>
+              <div className="text-hermes-text-bright font-mono text-sm truncate">{mostEfficientModel.name}</div>
+              <div className="text-hermes-amber font-mono text-lg mt-1">
+                {mostEfficientModel.vram_mb.toLocaleString()} MB
+              </div>
+            </>
+          ) : (
+            <div className="text-hermes-muted text-xs">—</div>
+          )}
+        </Card>
+        <Card title="VRAM réelle (GPU)">
+          {gpu ? (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-[10px] font-mono">
+                <span className="text-hermes-muted">{gpu.name || "GPU"}</span>
+                <span className="text-hermes-text">
+                  {bytesToGB(gpu.vram_used_bytes)} / {bytesToGB(gpu.vram_total_bytes)} GB
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-hermes-elevated overflow-hidden">
+                <div
+                  className="h-full bg-hermes-cyan"
+                  style={{
+                    width: `${gpu.vram_total_bytes ? (gpu.vram_used_bytes / gpu.vram_total_bytes) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+              <div className="text-hermes-green text-[10px] font-mono">
+                {bytesToGB(gpu.vram_free_bytes)} GB libres — c&apos;est ce que les
+                recommandations utilisent désormais, pas un plafond fixe.
+              </div>
+            </div>
+          ) : (
+            <div className="text-hermes-muted text-[10px] font-mono py-2">Indisponible</div>
+          )}
+        </Card>
+      </div>
 
       {/* Cloud escalation status (HOS-066C) — read-only, GET /models/cloud/status.
           Local stays the default in every case; this is visibility, not a control. */}
@@ -190,12 +291,23 @@ export default function ModelIntelligenceCenter() {
         </div>
       )}
 
-      {/* Recommend Tab — a real POST /models/recommend */}
+      {/* Recommend Tab — a real POST /models/recommend, with an explicit
+          task_type so the router doesn't have to keyword-guess it from the
+          description alone (HOS-071 Phase C) */}
       {activeTab === "recommend" && (
         <div className="space-y-4">
           <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
             <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Model Recommender</h2>
             <div className="flex gap-3">
+              <select
+                value={recommendTaskType}
+                onChange={(e) => setRecommendTaskType(e.target.value)}
+                className="bg-hermes-bg-deep/50 border border-hermes-border rounded-lg px-3 py-3 text-sm text-hermes-text-bright focus:outline-none focus:border-hermes-cyan/50"
+              >
+                {TASK_TYPES.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
               <input
                 type="text"
                 value={taskInput}
@@ -282,67 +394,202 @@ export default function ModelIntelligenceCenter() {
         </div>
       )}
 
-      {/* Benchmark Tab — reads the real benchmark record */}
+      {/* Benchmark Tab — a real trigger (POST /models/benchmark, one real
+          Ollama call) and the real, stored results table, not a raw JSON
+          dump and not random.uniform() (HOS-065/HOS-071) */}
       {activeTab === "benchmark" && (
         <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
           <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Benchmarks</h2>
+          <div className="flex gap-3 mb-4">
+            <select
+              value={benchmarkModelId}
+              onChange={(e) => setBenchmarkModelId(e.target.value)}
+              className="bg-hermes-bg-deep/50 border border-hermes-border rounded-lg px-3 py-2.5 text-sm text-hermes-text-bright focus:outline-none focus:border-hermes-cyan/50"
+            >
+              <option value="">All models</option>
+              {models.map((m) => (
+                <option key={m.model_id} value={m.model_id}>{m.name}</option>
+              ))}
+            </select>
+            <select
+              value={benchmarkTaskType}
+              onChange={(e) => setBenchmarkTaskType(e.target.value)}
+              className="bg-hermes-bg-deep/50 border border-hermes-border rounded-lg px-3 py-2.5 text-sm text-hermes-text-bright focus:outline-none focus:border-hermes-cyan/50"
+            >
+              {TASK_TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => benchmarkModelId && runBenchmark.mutate({ model_id: benchmarkModelId, task_type: benchmarkTaskType })}
+              disabled={!benchmarkModelId || runBenchmark.isPending}
+              className="px-4 py-2.5 bg-hermes-cyan/20 text-hermes-cyan rounded-lg text-sm font-medium hover:bg-hermes-cyan/30 transition-all disabled:opacity-30"
+              title={!benchmarkModelId ? "Select a model to benchmark first" : undefined}
+            >
+              {runBenchmark.isPending ? "Running… (real inference, may take a moment)" : "Run Benchmark"}
+            </button>
+          </div>
+          {runBenchmark.isError && (
+            <div className="text-hermes-red text-sm mb-3">
+              {runBenchmark.error instanceof Error ? runBenchmark.error.message : "Benchmark failed"}
+            </div>
+          )}
+
           {benchmarks.isLoading && (
             <div className="text-hermes-muted text-sm">Loading benchmarks…</div>
           )}
           {benchmarks.isError && (
-            <div className="text-hermes-red text-sm">
-              Could not reach /models/benchmarks
+            <div className="text-hermes-red text-sm">Could not reach /models/benchmarks</div>
+          )}
+          {benchmarks.data && benchmarks.data.benchmarks.length === 0 && (
+            <div className="text-hermes-muted text-sm py-2">
+              No benchmark has been run yet{benchmarkModelId ? " for this model" : ""} — real
+              results appear here after "Run Benchmark" completes.
             </div>
           )}
-          {benchmarks.data && (
-            <pre className="text-xs text-hermes-text font-mono whitespace-pre-wrap max-h-[320px] overflow-y-auto bg-hermes-bg-deep/50 rounded-lg p-3">
-              {JSON.stringify(benchmarks.data, null, 2)}
-            </pre>
+          {benchmarks.data && benchmarks.data.benchmarks.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-hermes-border">
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Model</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Task</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Latency</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">TPS</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">VRAM</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Quality</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {benchmarks.data.benchmarks.map((b) => (
+                    <tr key={b.benchmark_id} className="border-b border-hermes-border/50">
+                      <td className="py-2 px-3 text-hermes-text-bright font-mono">{b.model_id}</td>
+                      <td className="py-2 px-3 text-hermes-muted">{b.task_type}</td>
+                      <td className="py-2 px-3 text-right text-hermes-muted font-mono">{b.latency_ms.toFixed(0)}ms</td>
+                      <td className="py-2 px-3 text-right text-hermes-muted font-mono">{b.tokens_per_second.toFixed(1)}</td>
+                      <td className="py-2 px-3 text-right text-hermes-muted font-mono">{b.vram_usage_mb.toLocaleString()} MB</td>
+                      <td className="py-2 px-3 text-right font-mono">
+                        <span className={b.quality_score > 0 ? "text-hermes-green" : "text-hermes-red"}>
+                          {b.quality_score > 0 ? "ok" : "empty"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
 
-      {/* Optimizer Tab — derived from the live ranking, not static text */}
+      {/* Optimizer Tab — real cross-runtime/quantization comparison
+          (GET /models/optimize, HOS-071 Phase D) via ModelRuntimeOptimizer/
+          ModelRuntimeAdapter, previously built but never called by
+          anything. Estimated, not a guarantee that a runtime is actually
+          installed — same caveat the underlying adapter always carried. */}
       {activeTab === "optimizer" && (
         <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Runtime Optimizer</h2>
-          {!topModel ? (
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-hermes-text-bright">Runtime Optimizer</h2>
+            <select
+              value={optimizeTarget}
+              onChange={(e) => setOptimizeModelId(e.target.value)}
+              className="bg-hermes-bg-deep/50 border border-hermes-border rounded-lg px-3 py-2 text-sm text-hermes-text-bright focus:outline-none focus:border-hermes-cyan/50"
+            >
+              {models.map((m) => (
+                <option key={m.model_id} value={m.model_id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+          {!optimizeTarget ? (
             <div className="text-hermes-muted text-sm">
               No ranked model available to optimise for.
             </div>
+          ) : optimize.isLoading ? (
+            <div className="text-hermes-muted text-sm py-2">Comparing runtimes…</div>
+          ) : optimize.isError || !optimize.data?.success ? (
+            <div className="text-hermes-red text-sm py-2">
+              Could not compare runtimes for {optimizeTarget}.
+            </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-hermes-bg-deep/50 rounded-lg p-4">
-                <div className="text-hermes-muted text-xs uppercase mb-2">Top-ranked model</div>
-                <div className="text-hermes-text-bright font-mono text-sm">{topModel.name}</div>
-                <div className="text-hermes-muted text-xs mt-1">
-                  {topModel.parameters_b}B parameters
-                </div>
-                <div className="text-hermes-green text-xs mt-1">
-                  tags: {topModel.tags.join(", ") || "none"}
-                </div>
-              </div>
-              <div className="bg-hermes-bg-deep/50 rounded-lg p-4">
-                <div className="text-hermes-muted text-xs uppercase mb-2">Measured profile</div>
-                <div className="text-hermes-text-bright font-mono text-sm">
-                  {topModel.vram_mb.toLocaleString()} MB VRAM
-                </div>
-                <div className="text-hermes-muted text-xs mt-1">
-                  {topModel.tps} TPS
-                </div>
-                <div className="text-hermes-muted text-xs mt-1">
-                  success {(topModel.success_rate * 100).toFixed(0)}%
-                </div>
-              </div>
-              <div className="bg-hermes-bg-deep/50 rounded-lg p-4">
-                <div className="text-hermes-muted text-xs uppercase mb-2">Score</div>
-                <div className="text-hermes-cyan font-mono text-lg">
-                  {topModel.score.toFixed(3)}
-                </div>
-                <div className="text-hermes-muted text-xs mt-1">
-                  ranked 1 of {models.length}
-                </div>
-              </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-hermes-border">
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Runtime</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Quantization</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Est. VRAM</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Est. TPS</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Risk</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Feasible</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(optimize.data.comparisons ?? []).map((c, i) => (
+                    <tr key={`${c.runtime}-${c.quantization}`} className={`border-b border-hermes-border/50 ${i === 0 ? "bg-hermes-cyan/5" : ""}`}>
+                      <td className="py-2 px-3 text-hermes-text-bright font-mono">
+                        {c.runtime}{i === 0 && <span className="ml-2 text-[10px] text-hermes-amber">best</span>}
+                      </td>
+                      <td className="py-2 px-3 text-hermes-muted font-mono">{c.quantization}</td>
+                      <td className="py-2 px-3 text-right text-hermes-muted font-mono">{c.estimated_vram_mb.toLocaleString()} MB</td>
+                      <td className="py-2 px-3 text-right text-hermes-muted font-mono">{c.estimated_tokens_per_second.toFixed(1)}</td>
+                      <td className="py-2 px-3">
+                        <Badge variant={c.risk_level === "low" ? "success" : c.risk_level === "medium" ? "warning" : "danger"}>
+                          {c.risk_level}
+                        </Badge>
+                      </td>
+                      <td className="py-2 px-3 text-hermes-muted">{c.feasible ? "yes" : "no"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* History Tab — real routing decisions (GET /models/history),
+          previously built but never surfaced anywhere in the Cockpit. */}
+      {activeTab === "history" && (
+        <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
+          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Recent Decisions</h2>
+          {history.isLoading && (
+            <div className="text-hermes-muted text-sm py-2">Loading history…</div>
+          )}
+          {history.isError && (
+            <div className="text-hermes-red text-sm py-2">Could not reach /models/history</div>
+          )}
+          {history.data && history.data.decisions.length === 0 && (
+            <div className="text-hermes-muted text-sm py-2">
+              No recommendation has run yet in this process.
+            </div>
+          )}
+          {history.data && history.data.decisions.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-hermes-border">
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Model</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Runtime</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Confidence</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Est. latency</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...history.data.decisions].reverse().map((d, i) => (
+                    <tr key={i} className="border-b border-hermes-border/50">
+                      <td className="py-2 px-3 text-hermes-text-bright font-mono">{d.model_name || d.model_id}</td>
+                      <td className="py-2 px-3 text-hermes-muted font-mono">{d.runtime}</td>
+                      <td className="py-2 px-3 text-right text-hermes-cyan font-mono">
+                        {(d.confidence * 100).toFixed(0)}%
+                      </td>
+                      <td className="py-2 px-3 text-right text-hermes-muted font-mono">{d.estimated_latency_ms}ms</td>
+                      <td className="py-2 px-3 text-hermes-muted">{d.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
