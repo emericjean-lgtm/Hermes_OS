@@ -54,6 +54,46 @@ class TestNumCtx:
         role = router._roles["reasoning_escalation"]  # noqa: SLF001
         assert role.get("num_ctx", 8192) == 8192
 
+
+class TestForcedRole:
+    """HOS-075 — manual model choice / reasoning-effort presets from the
+    Assistant: the role *is* the decision, bypassing candidate ranking."""
+
+    def test_decision_for_role_returns_the_roles_real_config(self, router):
+        decision = router.decision_for_role("orchestrator", "conversation")
+        assert decision.role == "orchestrator"
+        assert decision.model == router.model_for_role("orchestrator")
+        assert decision.num_ctx == 16384
+
+    def test_thinking_none_keeps_the_task_types_own_policy(self, router):
+        auto = router.select_model("planning")
+        forced = router.decision_for_role("orchestrator", "planning", thinking=None)
+        assert forced.thinking == auto.thinking
+
+    def test_thinking_true_overrides_a_task_type_that_would_be_false(self, router):
+        auto = router.select_model("conversation")
+        assert auto.thinking is False  # conversation doesn't normally reason
+        forced = router.decision_for_role("standard", "conversation", thinking=True)
+        assert forced.thinking is True
+
+    def test_thinking_false_overrides_a_task_type_that_would_be_true(self, router):
+        auto = router.select_model("planning")
+        assert auto.thinking is True  # planning normally reasons
+        forced = router.decision_for_role("orchestrator", "planning", thinking=False)
+        assert forced.thinking is False
+
+    def test_unknown_role_raises_key_error_not_a_silent_fallback(self, router):
+        with pytest.raises(KeyError):
+            router.decision_for_role("not-a-real-role", "conversation")
+
+    def test_known_roles_lists_every_configured_role(self, router):
+        roles = router.known_roles()
+        assert "swift" in roles
+        assert "reasoning_escalation" in roles
+        assert roles == sorted(roles)
+
+
+class TestNumCtxDefaults:
     def test_num_ctx_defaults_to_8192_for_a_role_missing_the_field(self):
         """A role that predates this pass (or a test config without
         num_ctx) must not crash — it degrades to the old global default,

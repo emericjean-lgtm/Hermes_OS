@@ -65,6 +65,9 @@ async def system_models() -> dict:
                 "vram_gb": spec.get("vram_gb"),
                 "always_loaded": bool(spec.get("always_loaded")),
                 "loaded": _is_loaded(tag),
+                # HOS-075: the Assistant's manual model picker shows this
+                # verbatim rather than inventing its own blurb per role.
+                "description": (spec.get("description") or "").strip(),
             }
         )
 

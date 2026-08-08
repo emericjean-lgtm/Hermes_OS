@@ -201,6 +201,14 @@ async def stream_message(payload: dict = Body(...)) -> StreamingResponse:
     mgr = _get_manager()
     session_id, model_messages, intent = mgr.begin_stream(session_id, message)
 
+    # HOS-075: manual model choice / reasoning-effort presets. `role` names
+    # a real config/models.yaml role (validated below, never a raw model
+    # string a client could invent) — None keeps automatic routing exactly
+    # as before this existed.
+    forced_role = payload.get("role") or None
+    forced_thinking_raw = payload.get("thinking")
+    forced_thinking = bool(forced_thinking_raw) if forced_thinking_raw is not None else None
+
     decision = None
     events: AsyncIterator[Any] | None = None
     try:
@@ -209,6 +217,15 @@ async def stream_message(payload: dict = Body(...)) -> StreamingResponse:
         agent = get_agent_registry().get(str(payload.get("agent") or "hermes_prime"))
         decision, events = await agent.respond_events(
             model_messages, task_type=payload.get("task_type") or None,
+            forced_role=forced_role, forced_thinking=forced_thinking,
+        )
+    except KeyError as exc:
+        mgr.finish_stream(session_id, "")
+        return StreamingResponse(
+            iter([json.dumps({"kind": "error", "session_id": session_id,
+                              "error": f"unknown role {forced_role!r}: {exc}"},
+                             ensure_ascii=False) + "\n"]),
+            media_type="application/x-ndjson",
         )
     except Exception as exc:
         # The model could not even be reached — say so as a real error
@@ -242,10 +259,21 @@ async def stream_message(payload: dict = Body(...)) -> StreamingResponse:
             mgr.finish_stream(session_id, answer, metadata={
                 "model": decision.model, "intent": intent.intent.value,
             })
+        # Context-window usage (HOS-075): an honest estimate (~4 chars/token,
+        # the same approximation RealTaskExecutor already uses when a
+        # runtime doesn't report real counts — see _estimate_tokens in
+        # backend/execution/task_executor.py) over what was actually sent —
+        # the prompt this turn plus the answer just generated — against the
+        # role's real, benchmarked num_ctx (HOS-065C). Not a token-exact
+        # count: Ollama's own tokenizer isn't exposed without a real call
+        # per message, and an honest estimate beats a silent omission.
+        prompt_chars = sum(len(m.get("content", "")) for m in model_messages)
+        used_tokens = max(1, (prompt_chars + len(answer)) // 4)
         yield json.dumps({
             "kind": "done", "session_id": session_id,
             "intent": {"type": intent.intent.value, "confidence": intent.confidence,
                        "domain": intent.domain},
+            "context": {"used_tokens_estimate": used_tokens, "window": decision.num_ctx},
         }, ensure_ascii=False) + "\n"
 
     return StreamingResponse(

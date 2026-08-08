@@ -45,11 +45,25 @@ class BaseAgent(ABC):
         """Task type used to look up a model in the routing matrix when the
         caller doesn't specify one explicitly."""
 
-    async def routing_decision(self, task_type: str | None = None) -> RoutingDecision:
+    async def routing_decision(
+        self, task_type: str | None = None, *,
+        forced_role: str | None = None, forced_thinking: bool | None = None,
+    ) -> RoutingDecision:
+        """``forced_role`` (HOS-075 — manual model choice / reasoning effort
+        from the Assistant) bypasses ranking entirely: the named role *is*
+        the decision. Still resolved through the same ``RoutingDecision``
+        shape as automatic routing, so a manual pick is exactly as visible
+        in the audit log and the "why this model?" panel as an automatic
+        one — never a second, undocumented code path."""
+        resolved_task_type = task_type or self.default_task_type
+        if forced_role is not None:
+            return self._router.decision_for_role(
+                forced_role, resolved_task_type, thinking=forced_thinking,
+            )
         running = await self._ollama.list_running_models()
         loaded_tags = self._router.running_model_tags(running)
         return self._router.select_model(
-            task_type or self.default_task_type,
+            resolved_task_type,
             loaded_models=loaded_tags,
         )
 
@@ -82,12 +96,16 @@ class BaseAgent(ABC):
         *,
         task_type: str | None = None,
         sensitivity: str = "standard",
+        forced_role: str | None = None,
+        forced_thinking: bool | None = None,
     ) -> tuple[RoutingDecision, AsyncIterator[StreamChunk]]:
         """Same as `respond`, but the reasoning phase is surfaced instead
         of discarded — for callers with a human on the other end, who
         would otherwise face a silent wait as long as the reasoning takes
         (measured: 42 s on a code_analysis task)."""
-        decision = await self.routing_decision(task_type)
+        decision = await self.routing_decision(
+            task_type, forced_role=forced_role, forced_thinking=forced_thinking,
+        )
         params = self.generation_params(sensitivity)
         # Constructed here, in a plain async method, not inside the
         # generator below — chat_events() is itself an async generator

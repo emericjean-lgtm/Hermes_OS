@@ -170,7 +170,22 @@ export const systemClient = {
     } as SystemStatistics;
   },
   // GET /version n'existe pas (404) : méthode retirée (P-002 §7).
+  /** HOS-075 — le rôle → modèle réel de config/models.yaml, croisé avec ce
+   *  qu'Ollama tient réellement chargé. Alimente le sélecteur de modèle
+   *  manuel de l'Assistant : chaque rôle proposé est un vrai modèle avec
+   *  un vrai num_ctx, pas une liste inventée côté frontend. */
+  models: () => fetchJSON<{ roles: SystemModelRoleDTO[]; loaded_count: number }>("/system/models"),
 };
+
+export interface SystemModelRoleDTO {
+  role: string;
+  model: string;
+  tier: string;
+  vram_gb: number | null;
+  always_loaded: boolean;
+  loaded: boolean;
+  description: string;
+}
 
 // ── Missions ─────────────────────────────────────────
 /** GET /api/v1/missions returns `mission_id` and a bare `progress` number

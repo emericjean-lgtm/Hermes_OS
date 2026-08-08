@@ -3,14 +3,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Brain, ChevronDown, Copy, Check, Cpu, HardDrive, Info,
+  Brain, ChevronDown, Copy, Check, Cpu, Globe, HardDrive, Info,
   MessageSquarePlus, RefreshCw, Send, Sparkles, Square, User, Zap,
 } from "lucide-react";
-import { conversationClient } from "@/services/client";
-import { streamConversation, type StreamRouting } from "@/services/conversation-stream";
+import { conversationClient, systemClient, type SystemModelRoleDTO } from "@/services/client";
+import { streamConversation, type ContextUsage, type StreamRouting } from "@/services/conversation-stream";
 import { useMonitoringResources } from "@/hooks/use-api";
 import type { ResourceStatus } from "@/types/hermes";
 import { MarkdownMessage } from "./markdown-message";
+import { ContextMeter, ModelPicker, type ModelSelection } from "./model-picker";
+import { matchSlashCommands, SessionPicker, SlashCommandMenu, type SlashCommand } from "./slash-commands";
+import { AttachButton, AttachmentChips, buildAttachmentPreamble, type Attachment } from "./attachments";
+import { WebPreviewPanel } from "./web-preview";
 
 /**
  * Assistant Hermes (HOS-074) — conversation-first console.
@@ -34,12 +38,16 @@ interface ChatMessage {
   content: string;
   thinking?: string;
   routing?: StreamRouting;
+  context?: ContextUsage;
+  attachments?: Attachment[];
   timestamp: string;
   /** Set when the user stopped generation — the partial answer is real and
    *  kept, but must not read as a complete reply. */
   interrupted?: boolean;
   error?: string;
 }
+
+const AUTO_SELECTION: ModelSelection = { role: "" };
 
 const SESSION_STORAGE_KEY = "hermes.assistant.session";
 
@@ -61,6 +69,13 @@ export default function ConversationCenter() {
   const [sessionId, setSessionId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
+  const [roles, setRoles] = useState<SystemModelRoleDTO[]>([]);
+  const [selection, setSelection] = useState<ModelSelection>(AUTO_SELECTION);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [webPreviewOpen, setWebPreviewOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -78,6 +93,11 @@ export default function ConversationCenter() {
     () => [...messages].reverse().find((m) => m.routing)?.routing,
     [messages],
   );
+  const lastContext = useMemo(
+    () => [...messages].reverse().find((m) => m.context)?.context,
+    [messages],
+  );
+  const slashMatches = useMemo(() => matchSlashCommands(input), [input]);
 
   /* ── Session lifecycle ─────────────────────────────────────────── */
 
@@ -124,6 +144,22 @@ export default function ConversationCenter() {
     return () => { cancelled = true; };
   }, [loadHistory]);
 
+  // The manual model picker and effort presets are both real config/models.yaml
+  // roles, never a hardcoded list — a role Hermes doesn't actually have would
+  // otherwise be selectable and fail with a confusing error mid-stream.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await systemClient.models();
+        if (!cancelled) setRoles(data.roles);
+      } catch {
+        // Non-fatal: the picker falls back to "Auto"-only until the next mount.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const newConversation = useCallback(async () => {
     abortRef.current?.abort();
     setStreaming(false);
@@ -137,6 +173,30 @@ export default function ConversationCenter() {
       setError("Impossible d'ouvrir une nouvelle session.");
     }
   }, []);
+
+  const switchSession = useCallback(async (id: string) => {
+    setSessionPickerOpen(false);
+    setInput("");
+    if (id === sessionId) return;
+    abortRef.current?.abort();
+    setStreaming(false);
+    setError(null);
+    const ok = await loadHistory(id);
+    setSessionId(id);
+    window.localStorage.setItem(SESSION_STORAGE_KEY, id);
+    if (!ok) setMessages([]);
+  }, [sessionId, loadHistory]);
+
+  const runSlashCommand = useCallback((command: SlashCommand) => {
+    setInput("");
+    if (command.cmd === "/clean") {
+      void newConversation();
+    } else if (command.cmd === "/resume") {
+      setSessionPickerOpen(true);
+    } else if (command.cmd === "/compact") {
+      setNotice(command.description);
+    }
+  }, [newConversation]);
 
   /* ── Scrolling ─────────────────────────────────────────────────── */
 
@@ -156,10 +216,14 @@ export default function ConversationCenter() {
 
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || streaming || !sessionId) return;
+    if ((!trimmed && attachments.length === 0) || streaming || !sessionId) return;
+
+    const pendingAttachments = attachments;
+    const wireMessage = buildAttachmentPreamble(pendingAttachments) + trimmed;
 
     const userMsg: ChatMessage = {
-      id: uid(), role: "user", content: trimmed,
+      id: uid(), role: "user", content: trimmed || "(pièce jointe sans message)",
+      attachments: pendingAttachments.length ? pendingAttachments : undefined,
       timestamp: new Date().toISOString(),
     };
     const assistantId = uid();
@@ -168,6 +232,7 @@ export default function ConversationCenter() {
       timestamp: new Date().toISOString(),
     }]);
     setInput("");
+    setAttachments([]);
     setError(null);
     setStreaming(true);
     pinnedRef.current = true;
@@ -180,11 +245,16 @@ export default function ConversationCenter() {
 
     try {
       await streamConversation(
-        { sessionId, message: trimmed, signal: controller.signal },
+        {
+          sessionId, message: wireMessage, signal: controller.signal,
+          ...(selection.role ? { role: selection.role } : {}),
+          ...(selection.thinking !== undefined ? { thinking: selection.thinking } : {}),
+        },
         {
           onRouting: (routing) => patch((m) => ({ ...m, routing })),
           onThinking: (t) => patch((m) => ({ ...m, thinking: (m.thinking ?? "") + t })),
           onContent: (t) => patch((m) => ({ ...m, content: m.content + t })),
+          onDone: (payload) => patch((m) => ({ ...m, context: payload.context })),
           onError: (message) => patch((m) => ({ ...m, error: message })),
         },
       );
@@ -197,7 +267,7 @@ export default function ConversationCenter() {
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [sessionId, streaming]);
+  }, [sessionId, streaming, selection, attachments]);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
@@ -210,6 +280,28 @@ export default function ConversationCenter() {
   }, [messages, send]);
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashMatches.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashIndex((i) => (i + 1) % slashMatches.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashIndex((i) => (i - 1 + slashMatches.length) % slashMatches.length);
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        runSlashCommand(slashMatches[slashIndex] ?? slashMatches[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setInput("");
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void send(input);
@@ -217,7 +309,7 @@ export default function ConversationCenter() {
       e.preventDefault();
       stop();
     }
-  }, [input, send, streaming, stop]);
+  }, [input, send, streaming, stop, slashMatches, slashIndex, runSlashCommand]);
 
   // Auto-grow the composer, capped so it never eats the transcript.
   useEffect(() => {
@@ -255,6 +347,15 @@ export default function ConversationCenter() {
               <RoutingBadge routing={lastRouting} />
             )}
             <button
+              onClick={() => setWebPreviewOpen(true)}
+              title="Aperçu web — rendu en direct d'une page locale"
+              className="flex items-center gap-1.5 rounded-lg border border-hermes-border px-2.5 py-1.5
+                font-mono text-[10px] uppercase tracking-wider text-hermes-muted transition-all
+                hover:border-hermes-cyan/40 hover:text-hermes-cyan"
+            >
+              <Globe size={12} /> Aperçu
+            </button>
+            <button
               onClick={newConversation}
               title="Nouvelle conversation"
               className="flex items-center gap-1.5 rounded-lg border border-hermes-border px-2.5 py-1.5
@@ -280,6 +381,13 @@ export default function ConversationCenter() {
           </div>
         )}
 
+        {notice && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-hermes-amber/30 bg-hermes-amber/10 px-3 py-2 text-[11px] text-hermes-amber">
+            <span>ℹ</span>{notice}
+            <button onClick={() => setNotice(null)} className="ml-auto text-hermes-amber/70 hover:text-hermes-amber">✕</button>
+          </div>
+        )}
+
         <div
           ref={scrollRef}
           onScroll={onScroll}
@@ -301,8 +409,16 @@ export default function ConversationCenter() {
 
         {/* ── Composer ──────────────────────────────────────────── */}
         <div className="border-t border-hermes-border/70 px-1 pt-3">
-          {!isEmpty && !streaming && (
-            <div className="mb-2 flex justify-end">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <ModelPicker roles={roles} value={selection} onChange={setSelection} />
+              <AttachButton
+                onFiles={(files) => setAttachments((prev) => [...prev, ...files])}
+                onError={setError}
+              />
+              {lastContext && <ContextMeter used={lastContext.used_tokens_estimate} window={lastContext.window} />}
+            </div>
+            {!isEmpty && !streaming && (
               <button
                 onClick={regenerate}
                 className="flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[10px]
@@ -310,14 +426,23 @@ export default function ConversationCenter() {
               >
                 <RefreshCw size={10} /> Régénérer
               </button>
-            </div>
-          )}
+            )}
+          </div>
+          <AttachmentChips
+            attachments={attachments}
+            onRemove={(id) => setAttachments((prev) => prev.filter((a) => a.id !== id))}
+          />
           <div className="group relative rounded-xl border border-hermes-border bg-hermes-elevated/50
             transition-all focus-within:border-hermes-cyan/50 focus-within:shadow-glow-cyan">
+            <AnimatePresence>
+              {slashMatches.length > 0 && (
+                <SlashCommandMenu matches={slashMatches} activeIndex={slashIndex} onPick={runSlashCommand} />
+              )}
+            </AnimatePresence>
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => { setInput(e.target.value); setSlashIndex(0); }}
               onKeyDown={onKeyDown}
               rows={1}
               placeholder={streaming ? "Hermes répond… (Échap pour interrompre)" : "Posez votre question ou donnez une instruction…"}
@@ -340,7 +465,7 @@ export default function ConversationCenter() {
               ) : (
                 <button
                   onClick={() => void send(input)}
-                  disabled={!input.trim() || !sessionId}
+                  disabled={(!input.trim() && attachments.length === 0) || !sessionId}
                   className="flex items-center gap-1.5 rounded-lg border border-hermes-cyan/50 bg-hermes-cyan/15
                     px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-hermes-cyan
                     transition-all hover:bg-hermes-cyan/25 disabled:pointer-events-none disabled:opacity-30"
@@ -421,6 +546,18 @@ export default function ConversationCenter() {
           </motion.aside>
         )}
       </AnimatePresence>
+
+      {sessionPickerOpen && (
+        <SessionPicker
+          currentSessionId={sessionId}
+          onPick={(id) => void switchSession(id)}
+          onClose={() => setSessionPickerOpen(false)}
+        />
+      )}
+
+      <AnimatePresence>
+        {webPreviewOpen && <WebPreviewPanel onClose={() => setWebPreviewOpen(false)} />}
+      </AnimatePresence>
     </div>
   );
 }
@@ -454,9 +591,23 @@ function MessageRow({ message, streaming }: { message: ChatMessage; streaming: b
 
       <div className={`min-w-0 ${isUser ? "max-w-[78%]" : "max-w-[calc(100%-2.75rem)] flex-1"}`}>
         {isUser ? (
-          <div className="rounded-2xl rounded-tr-sm border border-hermes-cyan/25 bg-hermes-cyan/[0.09]
-            px-4 py-2.5 text-[13.5px] leading-relaxed text-hermes-text-bright">
-            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          <div>
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+                {message.attachments.map((a) => (
+                  <span key={a.id} className="rounded-md border border-hermes-cyan/25 bg-hermes-cyan/[0.06]
+                    px-2 py-1 font-mono text-[9.5px] text-hermes-muted">{a.name}</span>
+                ))}
+              </div>
+            )}
+            <div className="rounded-2xl rounded-tr-sm border border-hermes-cyan/25 bg-hermes-cyan/[0.09]
+              px-4 py-2.5 text-[13.5px] leading-relaxed text-hermes-text-bright">
+              {/* A reloaded session's history has no client-side attachment
+                  chips — it only has the raw text that was actually sent,
+                  fenced code and all, so it goes through the same markdown
+                  renderer as the answer rather than showing literal backticks. */}
+              <MarkdownMessage content={message.content} />
+            </div>
           </div>
         ) : (
           <div className="min-w-0">

@@ -140,3 +140,33 @@ class ModelRouter:
         among ranked candidates (e.g. Aegis's own advisory pass, always
         the `security` role, never competing against `reasoning`)."""
         return self._roles[role_name]["model"]
+
+    def known_roles(self) -> list[str]:
+        return sorted(self._roles)
+
+    def decision_for_role(
+        self, role_name: str, task_type: str, *, thinking: bool | None = None,
+    ) -> RoutingDecision:
+        """A user-forced role (HOS-075 — manual model choice / reasoning
+        effort presets from the Assistant), bypassing candidate ranking
+        entirely: the role *is* the decision, not a preference among
+        several. ``thinking`` overrides the task_type's own policy when
+        given explicitly — the whole point of a manual "effort" pick is to
+        force reasoning on or off regardless of what the task type would
+        normally get.
+
+        Raises ``KeyError`` for an unknown role — the route layer turns
+        that into a real 4xx rather than silently falling back to auto
+        routing, which would make a manual pick sometimes not apply.
+        """
+        role = self._roles[role_name]
+        return RoutingDecision(
+            task_type=task_type,
+            role=role_name,
+            model=role["model"],
+            tier=role["tier"],
+            reason="modèle choisi manuellement" if thinking is None
+                   else "effort de réflexion choisi manuellement",
+            thinking=self.thinking_for(task_type) if thinking is None else thinking,
+            num_ctx=int(role.get("num_ctx", 8192)),
+        )

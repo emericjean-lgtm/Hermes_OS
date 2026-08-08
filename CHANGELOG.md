@@ -1,3 +1,100 @@
+## HOS-075 — Assistant v2 : choix manuel du modèle, contexte, commandes, pièces jointes, aperçu web (2026-08-08)
+
+Demande de l'utilisateur, après HOS-074 : liste de fonctionnalités manquantes
+face à un LLM comme Claude Code — choix manuel du modèle, pourcentage de la
+fenêtre de contexte, paliers d'effort de réflexion, menu de commandes rapides
+(`/clean`, `/compact`, `/resume`...), pièces jointes, terminal, aperçu web en
+direct du frontend, fonction « artefact ». Avec, à nouveau, demande explicite
+d'un avis critique avant implémentation.
+
+### Décisions de conception (avis critique demandé, approuvé par « ok va y »)
+- **Choix manuel du modèle et paliers d'effort fusionnés dans un seul
+  sélecteur** : les deux reposent sur le même mécanisme backend
+  (`ModelRouter.decision_for_role`, un rôle réel de `config/models.yaml`,
+  éventuellement avec un forçage du raisonnement). Le proposer comme deux
+  contrôles séparés aurait été une distinction sans différence réelle.
+- **Paliers d'effort réels, pas un curseur continu** : Hermes ne module pas
+  « combien » un modèle réfléchit à l'intérieur d'un même modèle — il
+  **change de modèle** (Rapide → `standard`, Réfléchi → `reasoning`,
+  Approfondi → `reasoning_escalation`). Un curseur continu aurait prétendu
+  à une capacité qui n'existe pas sous le capot.
+- **Terminal explicitement refusé pour cette passe** : un shell non
+  sandboxé accessible depuis le chat, sans appel d'outils réellement gaté,
+  est un vecteur d'exécution arbitraire. Nécessite une conception de
+  sécurité dédiée — signalé à l'utilisateur, pas construit à la place d'un
+  autre contrôle.
+- **Fonction « artefact » (rendu sandboxé de code généré) reportée** :
+  sujet à part entière (sandboxing, cycle de vie, persistance), pas une
+  case à cocher dans cette passe.
+- **`/compact` affiché mais honnête** : aucun résumé d'historique n'existe
+  côté serveur. La commande apparaît dans le menu (découvrabilité) mais
+  répond « pas encore implémenté » plutôt que de ne rien faire silencieusement
+  ou de faire autre chose à la place.
+- **Pièces jointes texte/code uniquement** : aucune entrée vision dans le
+  chemin d'inférence (`BaseAgent.respond_events`, `/api/chat` d'Ollama)
+  aujourd'hui, et un zip n'a pas de comportement défini une fois ouvert —
+  construire l'un ou l'autre aurait été un contrôle mentant sur ce qu'il fait.
+- **Aperçu web comme alternative sûre au terminal** : `<iframe>` sandboxé
+  avec sa propre barre d'adresse — même frontière de confiance qu'un onglet
+  de navigateur, sans nouveau chemin d'exécution privilégié.
+
+### Added
+- **Choix manuel du modèle + paliers d'effort** : `ModelRouter.known_roles()`
+  / `decision_for_role(role, task_type, thinking=)` (nouveau, contourne le
+  classement automatique pour un rôle déterministe) ; `BaseAgent.routing_decision()`
+  / `respond_events()` acceptent `forced_role`/`forced_thinking` ;
+  `POST /conversation/stream` lit `role`/`thinking` du payload, répond par une
+  vraie erreur NDJSON (`kind: error`) sur un rôle inconnu plutôt qu'un repli
+  silencieux. `GET /system/models` expose désormais `description` par rôle.
+  Sélecteur `ModelPicker` (frontend) : Auto, 3 paliers d'effort, et la liste
+  complète des rôles réels (jamais codée en dur — `systemClient.models()`).
+- **Pourcentage de fenêtre de contexte** : l'événement `done` du stream
+  porte `context: {used_tokens_estimate, window}` (même convention
+  d'estimation ~4 car./token que `task_executor.py`) ; `ContextMeter` affiche
+  le pourcentage réel par rapport au `num_ctx` du rôle actif.
+- **Menu de commandes** (`/` dans le composer) : `/clean` (nouvelle
+  conversation), `/resume` (sélecteur de session réel, `GET
+  /conversation/sessions` — endpoint préexistant, jamais exposé dans l'UI),
+  `/compact` (bannière honnête « pas encore implémenté »). Navigation
+  clavier (flèches, Échap) et sélection à la souris.
+- **Pièces jointes texte/code** : lecture 100 % côté client (`FileReader`,
+  plafond 200 Ko, détection de binaire via octet NUL / caractère de
+  remplacement), repliées en bloc de code balisé et préfixées au message
+  envoyé. Puces retirables avant envoi, rendu dans le fil de discussion
+  après envoi et après rechargement (le contenu réellement envoyé passe
+  maintenant par le même rendu Markdown que les réponses, y compris côté
+  utilisateur — sinon un historique rechargé affichait les balises de code
+  brutes au lieu d'un bloc coloré).
+- **Aperçu web en direct** : panneau plein écran, barre d'adresse (URL
+  http(s) uniquement, normalisation automatique), `<iframe>` sandboxé,
+  rechargement, ouverture dans un nouvel onglet, fermeture par Échap ou clic
+  sur le fond.
+
+### Verified
+- TypeScript propre (`tsc --noEmit`) après chaque phase.
+- Vérifié en conditions réelles (navigateur + backend complet + Ollama) :
+  sélecteur de modèle affichant les rôles réels avec leur `num_ctx`
+  (`qwen3.5:9b`, `deepseek-r1:14b`, `deepseek-r1:32b`, etc.) ; forçage du
+  rôle confirmé de bout en bout — sélection « Rapide » → badge de routage
+  passant à `qwen3.5:9b` ; compteur de contexte affichant un vrai
+  pourcentage après réponse ; les trois commandes slash exécutées
+  (`/clean` → nouvelle session confirmée, `/resume` → sélecteur listant les
+  sessions réelles avec horodatage et nombre de messages, `/compact` →
+  bannière honnête affichée) ; pièce jointe `note.py` envoyée sans message
+  additionnel, modèle répondant correctement sur son contenu (« le nom de la
+  fonction est `greet` ») ; aperçu web chargeant le Cockpit lui-même en
+  direct dans l'iframe.
+- Nouveaux tests hermétiques : `tests/architecture/test_model_router.py`
+  (+6, forçage de rôle), `tests/architecture/test_base_agent_forced_role.py`
+  (7, nouveau), `tests/architecture/test_conversation_streaming.py` (+3,
+  payload de route — rôle forcé, contexte dans `done`, erreur sur rôle
+  inconnu). 38 tests, tous passants.
+- Suite complète (`tests/` + `backend/tests/`) : **3603 passed, 3 skipped**
+  en 13m36s — le seul échec du run complet
+  (`test_task_executor_shares_the_container_model_intelligence`) est le
+  flake de test-ordering déjà documenté aux passes précédentes, revérifié
+  passant seul en isolation (1 passed).
+
 ## HOS-074 — Assistant : streaming réel, mémoire de conversation, refonte premium (2026-08-08)
 
 Demande de l'utilisateur : septième onglet de la série — l'Assistant (chat).

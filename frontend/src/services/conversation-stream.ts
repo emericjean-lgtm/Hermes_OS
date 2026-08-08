@@ -24,12 +24,26 @@ export interface StreamRouting {
   intent: string;
 }
 
+/** Real, honest estimate (~4 chars/token) of how much of the model's
+ *  actual context window this turn used — see the backend's own
+ *  ``used_tokens_estimate``/``window`` docstring for why this isn't an
+ *  exact token count. */
+export interface ContextUsage {
+  used_tokens_estimate: number;
+  window: number;
+}
+
 export interface StreamHandlers {
   onRouting?: (routing: StreamRouting) => void;
   onThinking?: (text: string) => void;
   onContent?: (text: string) => void;
-  /** Terminal signal from the server, carrying the analysed intent. */
-  onDone?: (payload: { session_id: string; intent?: { type: string; confidence: number; domain: string } }) => void;
+  /** Terminal signal from the server, carrying the analysed intent and
+   *  real context-window usage for this turn. */
+  onDone?: (payload: {
+    session_id: string;
+    intent?: { type: string; confidence: number; domain: string };
+    context?: ContextUsage;
+  }) => void;
   onError?: (message: string) => void;
 }
 
@@ -38,13 +52,19 @@ export interface StreamRequest {
   message: string;
   agent?: string;
   taskType?: string;
+  /** A real config/models.yaml role (HOS-075) forcing the model choice —
+   *  "auto" or omitted keeps automatic ModelRouter selection. */
+  role?: string;
+  /** Forces the reasoning channel on/off regardless of the task type's own
+   *  policy — undefined keeps that policy. */
+  thinking?: boolean;
   /** Aborting mid-stream is a first-class action, not an error: the backend
    *  persists whatever was generated, so the transcript stays truthful. */
   signal?: AbortSignal;
 }
 
 export async function streamConversation(
-  { sessionId, message, agent, taskType, signal }: StreamRequest,
+  { sessionId, message, agent, taskType, role, thinking, signal }: StreamRequest,
   handlers: StreamHandlers,
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/conversation/stream`, {
@@ -55,6 +75,8 @@ export async function streamConversation(
       message,
       ...(agent ? { agent } : {}),
       ...(taskType ? { task_type: taskType } : {}),
+      ...(role ? { role } : {}),
+      ...(thinking !== undefined ? { thinking } : {}),
     }),
     signal,
   });
@@ -91,7 +113,10 @@ export async function streamConversation(
 
       for (const line of lines) {
         if (!line.trim()) continue;
-        let event: { kind: string; text?: string; error?: string; session_id?: string; intent?: any };
+        let event: {
+          kind: string; text?: string; error?: string; session_id?: string;
+          intent?: any; context?: ContextUsage;
+        };
         try {
           event = JSON.parse(line);
         } catch {
@@ -108,6 +133,7 @@ export async function streamConversation(
             handlers.onDone?.({
               session_id: event.session_id ?? sessionId,
               intent: event.intent,
+              context: event.context,
             });
             break;
           case "error":
