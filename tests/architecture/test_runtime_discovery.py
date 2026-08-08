@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 
+import httpx
 import pytest
 
 from backend.runtime.discovery.benchmark_engine import BenchmarkEngine
@@ -23,6 +24,43 @@ from backend.runtime.discovery.discovery_models import (
     Quantization,
 )
 from backend.runtime.discovery.model_registry import ModelRegistry
+
+# HOS-072: OllamaConnector now queries a real Ollama /api/tags instead of a
+# hardcoded catalogue — tests inject a fake transport rather than requiring
+# a live server, the same pattern used for the real chat/benchmark clients
+# elsewhere in this codebase.
+_FAKE_TAGS_RESPONSE = {
+    "models": [
+        {
+            "name": "qwen3.5:9b",
+            "size": 5_721_139_200,
+            "details": {"family": "qwen3", "parameter_size": "9.3B",
+                        "quantization_level": "Q4_K_M"},
+        },
+        {
+            "name": "nomic-embed-text",
+            "size": 274_302_450,
+            "details": {"family": "nomic-bert", "parameter_size": "137M",
+                        "quantization_level": "F16"},
+        },
+    ]
+}
+
+
+def _fake_ollama_client(response: dict | None = None) -> httpx.Client:
+    payload = response if response is not None else _FAKE_TAGS_RESPONSE
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    return httpx.Client(base_url="http://fake-ollama", transport=httpx.MockTransport(handler))
+
+
+def _unreachable_ollama_client() -> httpx.Client:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    return httpx.Client(base_url="http://fake-ollama", transport=httpx.MockTransport(handler))
 
 
 # ─── Fixtures ───────────────────────────────────────────────
@@ -131,6 +169,7 @@ class TestCompatibilityAnalyzer:
 
 class TestDiscoveryEngine:
     def test_discover_from_ollama(self, discovery: DiscoveryEngine):
+        discovery.register_connector(OllamaConnector(client=_fake_ollama_client()))
         run = discovery.discover(sources=[DiscoverySource.OLLAMA])
         assert run.models_found > 0
         assert run.new_models > 0
@@ -142,14 +181,26 @@ class TestDiscoveryEngine:
         assert any(m.source == DiscoverySource.HUGGINGFACE for m in run.models)
 
     def test_discover_all(self, discovery: DiscoveryEngine):
+        discovery.register_connector(OllamaConnector(client=_fake_ollama_client()))
         run = discovery.discover()
         assert run.models_found > 0
         assert len(discovery.get_discovery_runs()) == 1
 
     def test_duplicate_detection(self, discovery: DiscoveryEngine):
+        discovery.register_connector(OllamaConnector(client=_fake_ollama_client()))
         discovery.discover(sources=[DiscoverySource.OLLAMA])
         run2 = discovery.discover(sources=[DiscoverySource.OLLAMA])
         assert run2.new_models == 0
+
+    def test_discover_from_ollama_unreachable_returns_empty_not_fabricated(
+        self, discovery: DiscoveryEngine,
+    ):
+        """HOS-072: an unreachable Ollama must report zero real models,
+        never the old hardcoded catalogue standing in for them."""
+        discovery.register_connector(OllamaConnector(client=_unreachable_ollama_client()))
+        run = discovery.discover(sources=[DiscoverySource.OLLAMA])
+        assert run.models_found == 0
+        assert run.models == []
 
     def test_connectors(self, discovery: DiscoveryEngine):
         connectors = discovery.get_connectors()
@@ -162,10 +213,23 @@ class TestDiscoveryEngine:
 
 class TestConnectors:
     def test_ollama_connector(self):
-        connector = OllamaConnector()
+        connector = OllamaConnector(client=_fake_ollama_client())
         models = connector.discover()
-        assert len(models) >= 10
+        assert len(models) == 2
         assert all(m.source == DiscoverySource.OLLAMA for m in models)
+
+    def test_ollama_connector_reads_real_fields_not_a_guess(self):
+        connector = OllamaConnector(client=_fake_ollama_client())
+        models = {m.name: m for m in connector.discover()}
+        qwen = models["qwen3.5:9b"]
+        assert qwen.architecture == "qwen3"
+        assert qwen.parameter_count_b == 9.3
+        assert qwen.quantization == Quantization.Q4_K_M
+        assert qwen.size_bytes == 5_721_139_200
+
+    def test_ollama_connector_unreachable_returns_empty(self):
+        connector = OllamaConnector(client=_unreachable_ollama_client())
+        assert connector.discover() == []
 
     def test_huggingface_connector(self):
         connector = HuggingFaceConnector()

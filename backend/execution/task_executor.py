@@ -108,6 +108,12 @@ class RealTaskExecutor:
             measured telemetry. The bootstrap wires this to Model
             Intelligence's profiler (HOS-065), which otherwise never learned
             from a single real execution (see CHANGELOG).
+        on_runtime_result: ``(runtime_id, duration_ms, success) -> None``,
+            called alongside ``on_execution`` with the runtime that actually
+            served (or was attempted for) this call. The bootstrap wires
+            this to the RAL runtime registry's health monitor (HOS-072),
+            which otherwise never learned from a real execution either —
+            ``GET /api/v1/runtimes`` reported permanently-empty metrics.
         num_ctx_for: maps a task to the context window to request — the
             per-role value real benchmarks informed (HOS-065C), not the one
             global default every call used to fall back to regardless of
@@ -141,6 +147,12 @@ class RealTaskExecutor:
             ``RuntimeUnavailableError`` rather than risking the exact
             VRAM-exhaustion GraphExecutor's bounded parallelism (HOS-068)
             was already built to avoid.
+        list_running_for / unload_for: real resident-model listing and
+            active unload (HOS-072) — past the halfway point of the VRAM
+            wait above, actively frees another resident model's VRAM
+            instead of only ever waiting for its own keep_alive timer
+            (up to 10 minutes by default). None (the default) builds real
+            Ollama calls on demand; tests inject fakes to stay hermetic.
     """
 
     def __init__(
@@ -151,6 +163,7 @@ class RealTaskExecutor:
         workspace_manager: Any = None,
         on_event: Optional[Callable] = None,
         on_execution: Optional[Callable[[Any, str, float, int, bool], None]] = None,
+        on_runtime_result: Optional[Callable[[str, float, bool], None]] = None,
         num_ctx_for: Optional[Callable[[Any], Optional[int]]] = None,
         cloud_chat: Optional[Callable[..., Any]] = None,
         runtime_for: Optional[Callable[[Any], Optional[str]]] = None,
@@ -161,12 +174,15 @@ class RealTaskExecutor:
         vram_gb_for: Optional[Callable[[str], Optional[float]]] = None,
         vram_wait_s: float = 20.0,
         vram_poll_interval_s: float = 1.0,
+        list_running_for: Optional[Callable[[], Any]] = None,
+        unload_for: Optional[Callable[[str], Any]] = None,
     ) -> None:
         self._chat = chat
         self._model_for = model_for
         self._workspace = workspace_manager
         self._on_event = on_event
         self._on_execution = on_execution
+        self._on_runtime_result = on_runtime_result
         self._num_ctx_for = num_ctx_for
         self._cloud_chat = cloud_chat
         self._runtime_for = runtime_for
@@ -177,6 +193,8 @@ class RealTaskExecutor:
         self._vram_gb_for = vram_gb_for
         self._vram_wait_s = vram_wait_s
         self._vram_poll_interval_s = vram_poll_interval_s
+        self._list_running_for = list_running_for
+        self._unload_for = unload_for
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
@@ -293,24 +311,28 @@ class RealTaskExecutor:
                 except Exception as exc2:
                     self._record_failure()
                     self._report_execution(task, fallback_model,
-                                           (time.perf_counter() - started) * 1000.0, 0, False)
+                                           (time.perf_counter() - started) * 1000.0, 0, False,
+                                           runtime_id="ollama")
                     raise RuntimeUnavailableError(
                         f"cloud runtime failed ({type(exc).__name__}: {exc}) and "
                         f"the local fallback also failed: {type(exc2).__name__}: {exc2}"
                     ) from exc2
             elif isinstance(exc, RuntimeUnavailableError):
                 self._record_failure()
-                self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
+                self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False,
+                                       runtime_id=runtime_id)
                 raise
             elif isinstance(exc, asyncio.TimeoutError):
                 self._record_failure()
-                self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
+                self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False,
+                                       runtime_id=runtime_id)
                 raise RuntimeUnavailableError(
                     f"runtime {runtime_id!r} timed out after {self._timeout_s:.0f}s"
                 ) from exc
             else:
                 self._record_failure()
-                self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False)
+                self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False,
+                                       runtime_id=runtime_id)
                 # Anything the runtime layer raises means the work did not happen.
                 raise RuntimeUnavailableError(
                     f"runtime {runtime_id!r} could not execute task "
@@ -322,7 +344,7 @@ class RealTaskExecutor:
 
         if not content.strip():
             self._record_failure()
-            self._report_execution(task, model, duration_ms, 0, False)
+            self._report_execution(task, model, duration_ms, 0, False, runtime_id=runtime_id)
             raise RuntimeUnavailableError(
                 f"runtime {runtime_id!r} returned an empty completion"
             )
@@ -351,7 +373,8 @@ class RealTaskExecutor:
         )
         outcome.artifact_path = self._persist_artifact(task, outcome)
         self._report_execution(task, outcome.model, duration_ms,
-                                outcome.prompt_tokens + outcome.completion_tokens, True)
+                                outcome.prompt_tokens + outcome.completion_tokens, True,
+                                runtime_id=outcome.runtime_id)
 
         with self._lock:
             self._executions += 1
@@ -406,6 +429,39 @@ class RealTaskExecutor:
             except Exception:  # pragma: no cover - best-effort cleanup
                 logger.debug("closing Ollama client failed", exc_info=True)
 
+    async def _default_list_running(self) -> list[dict[str, Any]]:
+        """Real resident models, from Ollama's own /api/ps (HOS-072) —
+        used by ``_try_free_vram_actively`` to pick which model to unload.
+        Same client-construction pattern as ``_default_chat``."""
+        from backend.connectors.ollama_client import OllamaClient
+        from backend.core.config import get_settings
+
+        settings = get_settings()
+        client = OllamaClient(settings.ollama_api_url, timeout=10.0)
+        try:
+            return await client.list_running_models()
+        finally:
+            try:
+                await client.aclose()
+            except Exception:  # pragma: no cover - best-effort cleanup
+                logger.debug("closing Ollama client failed", exc_info=True)
+
+    async def _default_unload(self, model: str) -> None:
+        """Actively free ``model``'s VRAM now (HOS-072) — see
+        ``OllamaClient.unload_model``'s own docstring."""
+        from backend.connectors.ollama_client import OllamaClient
+        from backend.core.config import get_settings
+
+        settings = get_settings()
+        client = OllamaClient(settings.ollama_api_url, timeout=15.0)
+        try:
+            await client.unload_model(model)
+        finally:
+            try:
+                await client.aclose()
+            except Exception:  # pragma: no cover - best-effort cleanup
+                logger.debug("closing Ollama client failed", exc_info=True)
+
     def _resolve_runtime(self, task: Any) -> Optional[str]:
         if self._runtime_for is not None:
             try:
@@ -447,6 +503,7 @@ class RealTaskExecutor:
 
         deadline = time.monotonic() + self._vram_wait_s
         reason = "insufficient VRAM"
+        tried_unload = False
         while True:
             result = self._resource_manager.can_allocate(
                 bytes_requested, "ollama", model_name=model,
@@ -454,12 +511,49 @@ class RealTaskExecutor:
             if result.success:
                 return
             reason = result.reason or reason
-            if time.monotonic() >= deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 raise RuntimeUnavailableError(
                     f"no VRAM admission for {model!r} ({vram_gb:.1f}GB "
                     f"requested) after {self._vram_wait_s:.0f}s: {reason}"
                 )
+            # HOS-072: past the halfway point with still no admission,
+            # actively free VRAM instead of only ever waiting for another
+            # resident model's own keep_alive timer to expire (up to 10
+            # minutes by default — far longer than this admission wait).
+            # Once per call: a second, different resident model failing to
+            # help isn't worth repeating.
+            if not tried_unload and remaining <= self._vram_wait_s / 2:
+                tried_unload = True
+                self._try_free_vram_actively(exclude_model=model)
             time.sleep(self._vram_poll_interval_s)
+
+    def _try_free_vram_actively(self, *, exclude_model: str) -> None:
+        """Unload the largest *other* resident Ollama model to free real
+        VRAM now (HOS-072), instead of passively waiting for its own
+        keep_alive timer. Best-effort and silent on any failure — a task
+        that could not free extra VRAM this way still gets the rest of its
+        normal admission wait, unaffected."""
+        list_running = self._list_running_for or self._default_list_running
+        unload = self._unload_for or self._default_unload
+        try:
+            resident = self._run_coro(list_running(), 10.0)
+            victims = [
+                m for m in resident
+                if str(m.get("name") or m.get("model") or "") != exclude_model
+            ]
+            if not victims:
+                return
+            victim = max(victims, key=lambda m: int(m.get("size_vram", 0) or 0))
+            victim_name = str(victim.get("name") or victim.get("model") or "")
+            if not victim_name:
+                return
+            self._run_coro(unload(victim_name), 15.0)
+            logger.info(
+                "proactively unloaded %r to free VRAM for %r", victim_name, exclude_model,
+            )
+        except Exception:
+            logger.debug("proactive VRAM unload failed", exc_info=True)
 
     def _resolve_model(self, task: Any, assignment: Any) -> str:
         # HOS-069: on a genuine retry (task.retries > 0 — MissionExecutor
@@ -575,7 +669,13 @@ class RealTaskExecutor:
             self._failures += 1
 
     def _report_execution(self, task: Any, model: str, duration_ms: float,
-                          tokens_used: int, success: bool) -> None:
+                          tokens_used: int, success: bool,
+                          runtime_id: str = "") -> None:
+        if runtime_id and self._on_runtime_result is not None:
+            try:
+                self._on_runtime_result(runtime_id, duration_ms, success)
+            except Exception:  # pragma: no cover - feedback must never break execution
+                logger.debug("runtime health feedback failed", exc_info=True)
         if self._on_execution is None:
             return
         try:

@@ -171,6 +171,28 @@ export function useResourceStatus() {
   return useQuery<ResourceStatus>({ queryKey: ["runtime", "resources"], queryFn: runtimeClient.resources });
 }
 
+/** Real, currently-resident models (HOS-072) — Ollama's own /api/ps,
+ *  distinct from the (always-empty in practice, see backend module
+ *  docstring) allocation bookkeeping. */
+export function useLoadedModels() {
+  return useQuery({
+    queryKey: ["runtime", "loaded-models"],
+    queryFn: runtimeClient.loadedModels,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useUnloadModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: runtimeClient.unloadModel,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["runtime", "loaded-models"] });
+      qc.invalidateQueries({ queryKey: ["runtime", "resources"] });
+    },
+  });
+}
+
 // ── Memory ───────────────────────────────────────────
 export function useMemorySearch(q: string, mode: "hybrid" | "graph" | "keyword" = "hybrid") {
   return useQuery<SearchResult[]>({

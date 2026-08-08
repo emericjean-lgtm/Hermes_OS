@@ -28,6 +28,20 @@ class RuntimeOrchestrator:
 
     Through configurable callbacks, keeping the architecture decoupled.
     Thread-safe.
+
+    HOS-072 audit finding: real, tested, with its own working REST API
+    (backend/runtime/orchestrator/routes.py) — but not what actually
+    selects a runtime for a real task. That decision is made directly and
+    simply inside RealTaskExecutor (backend/execution/task_executor.py):
+    Ollama, with the model chosen by Model Intelligence. This orchestrator
+    is consulted only for: SimulationEngine's what-if comparisons
+    (backend/runtime/simulation/), AutonomousOrchestrator's DecisionEngine
+    generating advisory alternative-runtime names for a decision
+    explanation report (never used to route execution), and name
+    registration during bootstrap seeding. Routing real inference through
+    this orchestrator instead is a separate, materially larger rewiring —
+    the same scope judgment the SecurityEngine gate got in HOS-070 — not
+    attempted here.
     """
 
     def __init__(

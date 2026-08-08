@@ -1,11 +1,13 @@
 // ── Runtime ──────────────────────────────────────────
-/** GET /api/v1/runtimes renvoie en réalité :
+/** GET /api/v1/runtimes renvoie :
  *  `{name, runtime_name, version, capabilities[], healthy, status, is_active,
- *    is_fallback}` — pas `type`, `health` ni `metrics`, et `status` vaut
- *  `"started"`/`"stopped"` (cycle de vie du runtime), pas `"AVAILABLE"`.
- *  Les champs absents restent optionnels plutôt que déclarés obligatoires :
- *  les annoncer requis faisait passer le compilateur alors que la valeur
- *  était `undefined` à l'exécution. */
+ *    is_fallback, metrics, health}` — `status` vaut `"started"`/`"stopped"`
+ *  (cycle de vie du runtime), pas `"AVAILABLE"`. `metrics`/`health` (HOS-072)
+ *  sont `null` tant qu'aucune tâche réelle n'est passée par ce runtime — un
+ *  runtime jamais utilisé est non mesuré, pas mesuré à zéro. Champs alignés
+ *  sur ce que RuntimeHealthMonitor (backend/ral/runtime_health.py) sait
+ *  réellement calculer — pas de avg_tokens_per_sec/circuit_breaker
+ *  fabriqués, ces concepts n'existent pas côté backend. */
 export interface RuntimeInfo {
   name: string;
   status: RuntimeStatus;
@@ -16,8 +18,8 @@ export interface RuntimeInfo {
   healthy?: boolean;
   is_active?: boolean;
   is_fallback?: boolean;
-  health?: RuntimeHealth;
-  metrics?: RuntimeMetrics;
+  health?: RuntimeHealth | null;
+  metrics?: RuntimeMetrics | null;
 }
 
 export type RuntimeStatus =
@@ -26,10 +28,8 @@ export type RuntimeStatus =
 
 export interface RuntimeHealth {
   status: RuntimeStatus;
-  last_check: string;
+  last_check: string | null;
   latency_ms: number;
-  success_rate: number;
-  circuit_breaker: "CLOSED" | "OPEN" | "HALF_OPEN";
 }
 
 export interface RuntimeMetrics {
@@ -37,9 +37,7 @@ export interface RuntimeMetrics {
   success_count: number;
   failure_count: number;
   avg_latency_ms: number;
-  avg_tokens_per_sec: number;
   reliability: number;
-  performance: number;
 }
 
 export interface RuntimeDecision {

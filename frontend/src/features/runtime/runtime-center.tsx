@@ -1,11 +1,11 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useRuntimes, useResourceStatus } from "@/hooks/use-api";
-import { Card, Badge, ProgressBar, Beacon } from "@/components/ui/card";
+import { useRuntimes, useResourceStatus, useLoadedModels, useUnloadModel } from "@/hooks/use-api";
+import { Card, Badge, ProgressBar, Beacon, Button } from "@/components/ui/card";
 import { CenterHeader, PanelLoading } from "@/components/center-scaffold";
 import type { RuntimeInfo, RuntimeStatus } from "@/types/hermes";
-import { Cpu, HardDrive, Thermometer, Layers, Gauge } from "lucide-react";
+import { Cpu, HardDrive, Thermometer, Layers, Gauge, Brain, Power } from "lucide-react";
 
 /** Le badge acceptait uniquement AVAILABLE/DEGRADED/UNAVAILABLE alors que
  *  l'API renvoie le cycle de vie du runtime (`started`, `stopped`…). Un
@@ -27,6 +27,8 @@ const gib = (n: number | undefined | null) =>
 export function RuntimeCenter() {
   const { data: runtimes, isLoading, isError, error } = useRuntimes();
   const { data: resources, isError: resErr } = useResourceStatus();
+  const { data: loaded, isLoading: loadedLoading, isError: loadedErr } = useLoadedModels();
+  const unloadModel = useUnloadModel();
 
   // Chaque bloc est facultatif : l'endpoint peut très bien rapporter la RAM
   // sans GPU. Lire `resources.ram.usage_pct` sans garde faisait planter tout
@@ -96,6 +98,59 @@ export function RuntimeCenter() {
           </span>
         </div>
       )}
+
+      {/* ── Modèles chargés (HOS-072) — Ollama /api/ps réel, avec une
+          vraie action pour décharger un modèle immédiatement plutôt que
+          d'attendre son keep_alive. ─────────────────────────────────── */}
+      <Card title="Modèle(s) chargé(s)" className="mb-6">
+        {loadedLoading ? (
+          <PanelLoading />
+        ) : loadedErr || !loaded?.success ? (
+          <div className="text-[11px] text-hermes-muted font-mono py-2">
+            Ollama injoignable — impossible de savoir quels modèles sont chargés.
+          </div>
+        ) : loaded.models.length === 0 ? (
+          <div className="flex items-center gap-2 justify-center py-6">
+            <span className="text-hermes-dim font-mono">◇</span>
+            <span className="text-[11px] text-hermes-muted font-mono">
+              Aucun modèle chargé en VRAM actuellement
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {loaded.models.map((m) => (
+              <div
+                key={m.name}
+                className="flex items-center justify-between gap-3 rounded-lg bg-hermes-bg-deep/60 border border-hermes-border/50 px-3 py-2"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Brain size={14} className="text-hermes-cyan/70 shrink-0" />
+                  <span className="text-[12px] font-mono text-hermes-text-bright truncate">{m.name}</span>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-[10px] font-mono text-hermes-muted">
+                    {gib(m.size_vram_bytes)} GB VRAM
+                  </span>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    icon={<Power size={11} />}
+                    disabled={unloadModel.isPending}
+                    onClick={() => unloadModel.mutate(m.name)}
+                  >
+                    Décharger
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {unloadModel.isError && (
+          <div className="text-[10px] text-hermes-red font-mono mt-2">
+            Échec du déchargement.
+          </div>
+        )}
+      </Card>
 
       {/* ── Runtimes ───────────────────────────────────────────────── */}
       {isLoading ? (
@@ -238,10 +293,14 @@ function RuntimeCard({ runtime, index }: { runtime: RuntimeInfo; index: number }
             </div>
           ) : null}
 
-          {metrics && (
+          {metrics ? (
             <div className="grid grid-cols-2 gap-2">
-              <MetricTile label="Fiabilité" value={(metrics.reliability ?? 0) * 100} />
-              <MetricTile label="Performance" value={(metrics.performance ?? 0) * 100} />
+              <MetricTile label="Fiabilité" value={metrics.reliability * 100} />
+              <MetricTile label="Latence moy." value={metrics.avg_latency_ms} unit="ms" />
+            </div>
+          ) : (
+            <div className="text-[10px] text-hermes-dim font-mono py-1">
+              Aucune tâche réelle exécutée sur ce runtime pour l&apos;instant
             </div>
           )}
 
@@ -268,7 +327,7 @@ function RuntimeCard({ runtime, index }: { runtime: RuntimeInfo; index: number }
   );
 }
 
-function MetricTile({ label, value }: { label: string; value: number }) {
+function MetricTile({ label, value, unit = "%" }: { label: string; value: number; unit?: string }) {
   return (
     <div className="rounded-lg bg-hermes-bg-deep/60 border border-hermes-border/50 p-2.5">
       <div className="flex items-center gap-1.5 text-[10px] text-hermes-muted font-mono">
@@ -276,9 +335,9 @@ function MetricTile({ label, value }: { label: string; value: number }) {
         {label}
       </div>
       <div className="text-sm font-bold font-mono text-hermes-text tabular-nums mt-1">
-        {value.toFixed(0)}%
+        {value.toFixed(unit === "%" ? 0 : 1)}{unit === "%" ? "%" : ` ${unit}`}
       </div>
-      <ProgressBar value={value} size="sm" className="mt-1.5" />
+      {unit === "%" && <ProgressBar value={value} size="sm" className="mt-1.5" />}
     </div>
   );
 }

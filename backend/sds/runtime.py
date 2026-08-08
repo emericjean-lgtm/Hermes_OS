@@ -227,6 +227,29 @@ def get_runtime_registry() -> RuntimeRegistry:
         return _REGISTRY
 
 
+_HEALTH_MONITOR: "Optional[RuntimeHealthMonitor]" = None
+
+
+def get_runtime_health_monitor() -> "RuntimeHealthMonitor":
+    """Return the module-level singleton ``RuntimeHealthMonitor`` (HOS-072).
+
+    Bound to the same registry ``get_runtime_registry()`` returns, so real
+    execution feedback (wired from ``RealTaskExecutor.on_runtime_result``,
+    see ``service_registry.py``) and ``GET /api/v1/runtimes`` (which reads
+    this monitor's metrics, see ``sds/routes.py``) share one source of
+    truth instead of the metrics fields staying permanently empty.
+    """
+    global _HEALTH_MONITOR  # noqa: PLW0603
+    if _HEALTH_MONITOR is not None:
+        return _HEALTH_MONITOR
+    with _RTF_LOCK:
+        if _HEALTH_MONITOR is None:
+            from backend.ral.runtime_health import RuntimeHealthMonitor
+
+            _HEALTH_MONITOR = RuntimeHealthMonitor(registry=get_runtime_registry())
+        return _HEALTH_MONITOR
+
+
 def get_runtime_factory() -> RuntimeFactory:
     """Return the module-level singleton ``RuntimeFactory``.
 

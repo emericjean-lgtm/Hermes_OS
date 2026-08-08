@@ -313,5 +313,29 @@ class OllamaClient:
     async def list_local_models(self) -> list[dict[str, Any]]:
         return (await self._get_json_with_retry("/api/tags")).get("models", [])
 
+    async def unload_model(self, model: str) -> None:
+        """Actively free ``model``'s VRAM now, instead of waiting for its
+        keep_alive timer to expire (HOS-072). ``keep_alive: 0`` with no
+        ``prompt`` is Ollama's own documented signal to unload immediately
+        after the (empty) request completes. Best-effort: raises
+        OllamaUnavailableError only on a genuine connection failure, same
+        as every other real call here — a model that was never resident is
+        not an error, Ollama just returns normally."""
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                response = await self._client.post(
+                    "/api/generate", json={"model": model, "keep_alive": 0},
+                )
+                response.raise_for_status()
+                return
+            except _CONNECTION_ERRORS as exc:
+                if attempt >= self._max_attempts:
+                    raise OllamaUnavailableError(
+                        _unavailable_message(self._base_url, attempt, exc)
+                    ) from exc
+                await asyncio.sleep(_backoff_delay(attempt))
+
     async def aclose(self) -> None:
         await self._client.aclose()

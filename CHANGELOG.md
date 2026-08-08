@@ -1,3 +1,152 @@
+## HOS-072 — Runtime : découverte honnête, télémétrie réelle, déchargement VRAM actif (2026-08-08)
+
+Demande de l'utilisateur : sixième onglet de la même série de revues
+(après Autonomous OS, Missions, Execution, Agents, Model Intelligence) —
+"Runtime", la couche qui transforme le choix abstrait d'un modèle
+(Model Intelligence) en décision d'exécution réelle : runtime disponible,
+VRAM/RAM suffisantes, quantification, gestion du chargement/déchargement
+pour éviter la "catastrophe" de plusieurs modèles chargés simultanément
+sur une RX 6800 16 Go. Spécification détaillée fournie : chaîne
+Autonomous/Mission → Model Intelligence → **Runtime** → Ollama/GPU,
+sélection de runtime qui ne doit jamais se déclarer disponible juste
+parce qu'une classe existe dans le code, allocation avec file
+load→execute→unload, apprentissage depuis l'exécution réelle, Cockpit
+avec hardware/runtimes actifs/modèle chargé/historique/actions
+(refresh, charger, décharger, libérer la VRAM, benchmark...). Après audit
+et validation du plan en 5 phases par l'utilisateur ("ok va y"), mise en
+œuvre complète.
+
+### Constat principal (audit, avant tout code)
+
+Contrairement à ce qu'un seul "Runtime Center" suggère, il existe **trois
+systèmes de sélection de runtime séparés, aucun consulté par l'exécution
+réelle, plus un complètement mort** :
+- `backend/ral/` (RuntimeRegistry/Selector/Router/Decision) — exposé via
+  l'ancien module `backend/sds/` à `/api/v1/runtimes`, exactement ce que
+  lit le frontend. Un vrai `HermesOllamaRuntime` y est enregistré au
+  démarrage, mais sa logique de sélection/routage n'est jamais consultée
+  par une exécution réelle — un commentaire dans `main.py` le dit
+  explicitement : *"does not yet route real inference through this
+  registry ... that remains a separate, larger rewiring."*
+- `backend/runtime/orchestrator/` (`RuntimeOrchestrator`) — réel, testé,
+  ses propres routes, mais consulté seulement pour : la simulation
+  "what-if", des alternatives *advisory* dans les explications de
+  décision Autonomous, et l'enregistrement de noms. Jamais pour choisir
+  le runtime d'une vraie tâche.
+- `backend/services/mission_control.py` (`MissionControlService`) — une
+  **troisième** façade enveloppant la totalité de `ral`, dont le router
+  n'est monté nulle part dans `main.py`. Complètement mort, pas juste
+  orphelin.
+- La vraie sélection, dans `RealTaskExecutor` (le seul chemin qui exécute
+  réellement), est en fait triviale : toujours Ollama, modèle choisi par
+  Model Intelligence (HOS-071).
+
+### Autres écarts trouvés
+- Le bug WMI "4 Go" mentionné par l'utilisateur est déjà trouvé et corrigé
+  (commit `c9ffe6b1`, `gpu_monitor.py` lit `HardwareInformation.qwMemorySize`
+  dans le registre Windows, pas `Win32_VideoController.AdapterRAM`) —
+  confirmé, rien à refaire.
+- Aucun runtime n'était jamais réellement sondé : `discovery_engine.py`
+  déclarait "disponible" via un catalogue Python codé en dur (12 modèles
+  Ollama génériques ne correspondant même pas à ce qui est réellement
+  installé — du `qwen3:8b`/`deepseek-r1:32b` inventés, pas le vrai
+  `qwen3.5:9b`/`gemma4:12b`). `ral/runtime_health.py` documente lui-même
+  qu'il ne contacte "aucun backend concret" — la santé était un statut
+  auto-déclaré. Pire : `HermesOllamaRuntime.start()` mettait STARTED
+  inconditionnellement, sans jamais vérifier qu'Ollama répondait — le
+  `GET /api/v1/runtimes` que lit le Cockpit pouvait donc dire "actif" pour
+  un serveur mort.
+- Pas de cycle load→execute→unload actif — la VRAM se libérait
+  passivement via le `keep_alive` d'Ollama (10 min par défaut), jamais via
+  un déchargement déclenché par Hermes.
+- La boucle d'apprentissage (`backend/runtime/intelligence/`,
+  `LearningEngine`) est entièrement orpheline — ses handlers
+  (`on_runtime_completed`, etc.) ne sont abonnés à rien.
+- `GET /runtime/resources/allocations` et `POST /runtime/resources/release`
+  sont honnêtement toujours vides en production : `ResourceManager.
+  reserve_resources()`, la seule méthode qui peuple `_allocations`, n'est
+  appelée nulle part dans le vrai chemin d'exécution (l'admission VRAM de
+  HOS-069 n'utilise que le `can_allocate()` en lecture seule).
+- Le frontend était un pur tableau de bord en lecture seule (vérifié en
+  lisant le fichier en entier) : jauges RAM/VRAM/température réelles, mais
+  zéro bouton d'action — pas de charger/décharger/benchmark/bloquer.
+
+### Added
+- **Phase A — Découverte et démarrage honnêtes** : `OllamaConnector`
+  (`discovery_engine.py`) interroge désormais réellement `/api/tags` de
+  l'endpoint Ollama configuré au lieu d'un catalogue statique — liste vide
+  (jamais fabriquée) si injoignable. `HermesOllamaRuntime.start()` vérifie
+  désormais la joignabilité réelle (`list_local_models()`) avant de passer
+  à STARTED ; passe à ERROR (sans jamais lever, pour ne pas casser le
+  démarrage de l'app) si Ollama ne répond pas.
+- **Phase B — Télémétrie réelle synchronisée** : nouveau
+  `RealTaskExecutor.on_runtime_result` (callback dédié, à côté de
+  `on_execution` qui alimente Model Intelligence) — appelé après chaque
+  tentative réelle, succès ou échec, avec le runtime effectivement utilisé.
+  Câblé sur `RuntimeHealthMonitor.record_execution()`
+  (`backend/sds/runtime.get_runtime_health_monitor()`, nouveau singleton
+  partagé), qui alimente à son tour `GET /api/v1/runtimes` — `metrics`/
+  `health` étaient absents de la réponse (le type frontend le documentait
+  déjà : *"pas health ni metrics"*), désormais réels quand un runtime a
+  vraiment servi une tâche, `null` explicite sinon (non mesuré ≠ mesuré à
+  zéro). `RuntimeOrchestrator`/`MissionControlService` documentés
+  honnêtement (statut réel, jamais consultés pour l'exécution) plutôt que
+  de tenter le rewiring complet déjà signalé comme "chantier séparé" dans
+  le code.
+- **Phase C — Déchargement VRAM actif** : nouveau
+  `OllamaClient.unload_model()` (keep_alive: 0, signal réel d'Ollama pour
+  décharger immédiatement). `RealTaskExecutor._check_vram_admission`
+  tente désormais, une fois passé la moitié du délai d'attente sans
+  admission, de décharger activement le plus gros autre modèle résident
+  au lieu d'attendre uniquement le timeout passif d'Ollama (jusqu'à 10 min
+  par défaut).
+- **Phase D — Actions réelles dans le Cockpit** : nouvelles routes réelles
+  `GET /runtime/resources/loaded-models` (modèles réellement résidents,
+  `/api/ps` d'Ollama) et `POST /runtime/resources/unload` (décharge un
+  modèle immédiatement) — documentées comme l'alternative réelle aux
+  `allocations`/`release` toujours vides (voir "Autres écarts trouvés").
+  Nouvelle carte "Modèle(s) chargé(s)" dans le Runtime Center avec un vrai
+  bouton "Décharger" par modèle.
+- **Phase E — Cockpit** : les tuiles "Fiabilité"/"Performance" (jamais
+  rendues, `metrics` étant toujours `undefined`) deviennent "Fiabilité"/
+  "Latence moy." avec de vraies données, ou un message honnête "aucune
+  tâche réelle exécutée" tant qu'aucune tâche n'est passée par ce runtime.
+
+### Bugs trouvés et corrigés en cours de route
+- `HermesOllamaRuntime.start()` ne vérifiait jamais la joignabilité réelle
+  d'Ollama avant de déclarer STARTED — trouvé pendant l'audit, corrigé en
+  Phase A.
+- Types frontend `RuntimeMetrics`/`RuntimeHealth` déclaraient des champs
+  fabriqués (`avg_tokens_per_sec`, `circuit_breaker`, `performance`) que
+  le backend n'a jamais su calculer — corrigés pour correspondre
+  exactement à ce que `RuntimeHealthMonitor` sait réellement mesurer.
+
+### Verified
+- Vérifié en conditions réelles dans le navigateur avec Ollama réel et
+  backend complet (34/34 sous-systèmes assemblés) : Runtime Center
+  affichant VRAM/RAM/GPU réels (AMD Radeon RX 6800) ; carte "Modèle(s)
+  chargé(s)" listant `qwen3:1.7b` (2.1 GB VRAM) via la vraie route
+  `/runtime/resources/loaded-models` ; clic sur "Décharger" → requête
+  réelle `POST /runtime/resources/unload` → 200 OK → VRAM affichée
+  passant de 13.0 % (2.1/16.0 Go) à 0.0 % (0.0/16.0 Go) et la carte
+  affichant honnêtement "Aucun modèle chargé" — déchargement réel
+  confirmé de bout en bout sur le matériel de l'utilisateur.
+- Nouveaux tests hermétiques (aucun Ollama réel requis) :
+  `tests/architecture/test_runtime_health_feedback.py` (6 — callback
+  `on_runtime_result` sur succès/échec/timeout/fallback cloud→local),
+  `tests/architecture/test_ollama_unload.py` (2 — requête réelle
+  `keep_alive: 0`), `tests/architecture/test_runtime_resources_loaded_models.py`
+  (5 — nouvelles routes), extensions de `test_vram_admission.py` (5 —
+  déchargement actif une fois passé la moitié du délai), de
+  `test_runtime_discovery.py` (4 — découverte réelle vs catalogue),
+  `test_hermes_ollama_runtime.py` (2 — démarrage honnête) et
+  `test_runtime_sds.py` (2 — métriques réelles dans `/runtimes`).
+- Suite complète (`tests/` + `backend/tests/`) : **3566 passed, 3 skipped,
+  0 échec réel** en 15m58s — le seul échec du run complet
+  (`test_task_executor_shares_the_container_model_intelligence`) est le
+  flake de test-ordering déjà documenté aux passes précédentes,
+  reproductible seul en isolation avec succès (revérifié).
+
 ## HOS-071 — Model Intelligence : VRAM réelle, un seul scoring, optimiseur câblé (2026-08-08)
 
 Demande de l'utilisateur : cinquième onglet de la même série de revues

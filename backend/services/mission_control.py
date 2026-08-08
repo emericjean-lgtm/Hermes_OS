@@ -209,6 +209,16 @@ class MissionControlService:
     The service is thread-safe and delegates every operation to the
     appropriate kernel module without duplicating business logic.
 
+    HOS-072 audit finding: this facade's own router (backend/api/router.py's
+    MissionControlRouter/MissionControlAPI, backend/api/hos_routes.py) is
+    not mounted anywhere in backend/main.py, and neither this class nor its
+    router is referenced from backend/core/bootstrap/service_registry.py.
+    It is not merely unconsulted by real execution (like RuntimeOrchestrator
+    or the RAL registry it wraps) — it has no live HTTP surface at all in
+    the running app. The real, mounted runtime status surface is
+    backend/sds/routes.py (GET /api/v1/runtimes), and the real execution
+    path is backend/execution/task_executor.py's RealTaskExecutor.
+
     Args:
         supervisor: Multi-agent supervisor for mission lifecycle.
         lifecycle: Agent lifecycle manager.

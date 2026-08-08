@@ -39,6 +39,7 @@ async def _test_lifespan(_app: FastAPI) -> None:
     _sds_runtime._RT_HOLDER = None
     _sds_runtime._REGISTRY = None
     _sds_runtime._FACTORY = None
+    _sds_runtime._HEALTH_MONITOR = None
 
     # Use a unique temporary file for the SQLite event bus.
     tmp_dir = tempfile.mkdtemp(prefix="hos_008_")
@@ -103,6 +104,41 @@ def test_get_runtime_returns_stub(app: FastAPI) -> None:
         assert data["version"] == "0.1.0"
         assert "chat" in data["capabilities"]
         assert data["healthy"] is True
+
+
+def test_list_runtimes_metrics_absent_when_never_used(app: FastAPI) -> None:
+    """HOS-072: a runtime with no recorded execution reports metrics/health
+    as null — unmeasured, not measured-at-zero."""
+    with TestClient(app) as client:
+        response = client.get("/api/hermes-os/runtimes")
+        data = response.json()
+        stub = next(r for r in data["runtimes"] if r["name"] == "stub")
+        assert stub["metrics"] is None
+        assert stub["health"] is None
+
+
+def test_list_runtimes_metrics_reflect_real_execution(app: FastAPI) -> None:
+    """HOS-072: GET /runtimes' metrics/health come from the real health
+    monitor, fed by RealTaskExecutor.on_runtime_result — before this fix
+    these fields were always absent regardless of real task volume."""
+    with TestClient(app) as client:
+        # Recorded only after the lifespan has run — it resets
+        # _HEALTH_MONITOR to None on startup, same as the other singletons.
+        _sds_runtime.get_runtime_health_monitor().record_execution(
+            "stub", latency_ms=120, success=True,
+        )
+        _sds_runtime.get_runtime_health_monitor().record_execution(
+            "stub", latency_ms=80, success=False,
+        )
+        response = client.get("/api/hermes-os/runtimes")
+        data = response.json()
+        stub = next(r for r in data["runtimes"] if r["name"] == "stub")
+        assert stub["metrics"]["total_executions"] == 2
+        assert stub["metrics"]["success_count"] == 1
+        assert stub["metrics"]["failure_count"] == 1
+        assert stub["metrics"]["avg_latency_ms"] == 100.0
+        assert stub["metrics"]["reliability"] == 0.5
+        assert stub["health"]["latency_ms"] == 100.0
 
 
 def test_get_unknown_runtime_returns_404(app: FastAPI) -> None:

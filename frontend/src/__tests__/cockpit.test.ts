@@ -153,25 +153,21 @@ describe("Type Guards (compile-time validated)", () => {
         status: "AVAILABLE",
         last_check: new Date().toISOString(),
         latency_ms: 42,
-        success_rate: 0.98,
-        circuit_breaker: "CLOSED",
       },
       metrics: {
         total_executions: 1000,
         success_count: 980,
         failure_count: 20,
         avg_latency_ms: 45,
-        avg_tokens_per_sec: 50,
         reliability: 0.98,
-        performance: 0.85,
       },
     };
     expect(rt.name).toBe("ollama");
-    // `health` est facultatif : GET /api/v1/runtimes ne le renvoie pas du
-    // tout (il expose `healthy`, `capabilities`, `is_active`…). Le type le
-    // déclarait obligatoire, ce qui laissait passer des lectures qui valaient
-    // `undefined` à l'exécution.
-    expect(rt.health?.success_rate).toBe(0.98);
+    // `health`/`metrics` sont facultatifs et `null` tant qu'aucune tâche
+    // réelle n'est passée par ce runtime (HOS-072) — un runtime jamais
+    // utilisé est non mesuré, pas mesuré à zéro.
+    expect(rt.health?.latency_ms).toBe(42);
+    expect(rt.metrics?.reliability).toBe(0.98);
   });
 
   it("Mission shape is correct", () => {

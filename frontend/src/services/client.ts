@@ -307,7 +307,25 @@ export const runtimeClient = {
     }),
   // POST /runtime/select n'existe pas côté backend (404). La méthode a été
   // retirée plutôt que laissée à pointer dans le vide (P-002 §7).
+  // HOS-072: modèle(s) réellement chargés dans Ollama (/api/ps), et action
+  // réelle pour en décharger un immédiatement — contrairement à
+  // `allocations`/`release` ci-dessus, jamais alimentés par le vrai chemin
+  // d'exécution (voir le docstring du module backend).
+  loadedModels: () =>
+    fetchJSON<{ success: boolean; models: LoadedModelDTO[] }>("/runtime/resources/loaded-models"),
+  unloadModel: (model: string) =>
+    fetchJSON<{ success: boolean; model?: string; error?: string }>("/runtime/resources/unload", {
+      method: "POST",
+      body: JSON.stringify({ model }),
+    }),
 };
+
+export interface LoadedModelDTO {
+  name: string;
+  size_bytes: number;
+  size_vram_bytes: number;
+  expires_at: string | null;
+}
 
 // ── Memory ───────────────────────────────────────────
 export const memoryClient = {

@@ -398,10 +398,23 @@ def _make_task_executor(c: Any) -> Any:
             model, task_type.value, success,
         )
 
+    def _record_runtime_health(runtime_id: str, duration_ms: float, success: bool) -> None:
+        """Feeds the RAL runtime registry's health monitor (HOS-072) — the
+        real source GET /api/v1/runtimes reads for its metrics/health
+        fields. Before this, nothing outside the SDS module's own routes
+        ever called record_execution(), so every runtime's metrics stayed
+        permanently empty regardless of how many real tasks it served."""
+        from backend.sds.runtime import get_runtime_health_monitor
+
+        get_runtime_health_monitor().record_execution(
+            runtime_id, latency_ms=round(duration_ms), success=success,
+        )
+
     return RealTaskExecutor(
         on_event=_dispatcher(c, "task_executor"),
         model_for=_model_for,
         on_execution=_record_feedback,
+        on_runtime_result=_record_runtime_health,
         num_ctx_for=_num_ctx_for,
         cloud_chat=_make_cloud_chat(),
         runtime_for=_runtime_for,

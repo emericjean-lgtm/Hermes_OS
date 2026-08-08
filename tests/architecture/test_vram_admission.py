@@ -91,6 +91,91 @@ class TestVramAdmissionGate:
         with pytest.raises(RuntimeUnavailableError, match="VRAM"):
             ex._check_vram_admission("qwen3.5:14b")
 
+class TestActiveVramUnload:
+    """HOS-072: past the halfway point of the wait with still no admission,
+    _check_vram_admission actively unloads another resident model instead
+    of only ever waiting for its own keep_alive timer."""
+
+    def test_unloads_the_largest_other_resident_model_once(self):
+        # 11 denied attempts before success, polled every 50ms against a
+        # 600ms ceiling: the halfway point (300ms) is crossed by roughly
+        # the 7th check, leaving several denied checks afterward before
+        # success on the 11th — enough margin against timing jitter that
+        # the unload trigger is reliably exercised before it succeeds.
+        rm = _FakeResourceManager([False] * 10 + [True])
+        resident = [
+            {"name": "small-model", "size_vram": 2_000_000_000},
+            {"name": "target-model", "size_vram": 9_000_000_000},  # excluded
+            {"name": "big-model", "size_vram": 8_000_000_000},
+        ]
+        unload_calls: list[str] = []
+
+        async def list_running():
+            return resident
+
+        async def unload(name: str):
+            unload_calls.append(name)
+
+        ex = _executor(
+            rm, vram_gb_for=lambda m: 9.0,
+            vram_wait_s=0.6, vram_poll_interval_s=0.05,
+            list_running_for=list_running, unload_for=unload,
+        )
+        ex._check_vram_admission("target-model")
+        # "big-model" (8GB), not "small-model" (2GB) or "target-model" itself.
+        assert unload_calls == ["big-model"]
+
+    def test_never_tries_to_unload_the_target_model_itself(self):
+        rm = _FakeResourceManager([False] * 10 + [True])
+        resident = [{"name": "target-model", "size_vram": 9_000_000_000}]
+        unload_calls: list[str] = []
+
+        async def list_running():
+            return resident
+
+        async def unload(name: str):
+            unload_calls.append(name)
+
+        ex = _executor(
+            rm, vram_gb_for=lambda m: 9.0,
+            vram_wait_s=0.6, vram_poll_interval_s=0.05,
+            list_running_for=list_running, unload_for=unload,
+        )
+        ex._check_vram_admission("target-model")
+        assert unload_calls == []  # nothing else was resident to unload
+
+    def test_quick_admission_never_attempts_an_unload(self):
+        rm = _FakeResourceManager([True])
+        unload_calls: list[str] = []
+
+        async def list_running():
+            return [{"name": "other", "size_vram": 1}]
+
+        async def unload(name: str):
+            unload_calls.append(name)
+
+        ex = _executor(
+            rm, vram_gb_for=lambda m: 9.0,
+            list_running_for=list_running, unload_for=unload,
+        )
+        ex._check_vram_admission("target-model")
+        assert unload_calls == []
+
+    def test_unload_failure_does_not_break_the_wait(self):
+        """Best-effort: a broken list/unload callable must not prevent the
+        normal poll-wait from eventually succeeding or failing honestly."""
+        rm = _FakeResourceManager([False] * 10 + [True])
+
+        async def list_running():
+            raise ConnectionError("ollama unreachable")
+
+        ex = _executor(
+            rm, vram_gb_for=lambda m: 9.0,
+            vram_wait_s=0.6, vram_poll_interval_s=0.05,
+            list_running_for=list_running, unload_for=None,
+        )
+        ex._check_vram_admission("target-model")  # must not raise
+
     def test_execute_raises_runtime_unavailable_when_vram_never_frees(self):
         """End-to-end through execute(): the local chat call must never be
         attempted when admission never succeeds — VRAM exhaustion, not a

@@ -43,6 +43,7 @@ class FakeOllamaClient:
     def __init__(self) -> None:
         self.chat_calls: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
         self.stream_calls: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
+        self.list_local_models_calls = 0
 
     async def chat(
         self,
@@ -77,6 +78,7 @@ class FakeOllamaClient:
         return []
 
     async def list_local_models(self) -> list[dict[str, Any]]:
+        self.list_local_models_calls += 1
         return []
 
 
@@ -167,6 +169,38 @@ async def test_status_is_started_after_start(runtime: HermesOllamaRuntime) -> No
     await runtime.start()
     assert runtime.status == RuntimeStatus.STARTED
     await runtime.stop()
+
+
+async def test_start_verifies_reachability_before_reporting_started(
+    fake_client: FakeOllamaClient, config: RuntimeConfig,
+) -> None:
+    """HOS-072: start() used to set STARTED unconditionally — the runtime
+    registry (GET /api/v1/runtimes, what the Runtime Center reads) reported
+    "available" purely because start() had been called, never because
+    Ollama was actually reachable. A real reachability call must happen."""
+    runtime = HermesOllamaRuntime(config=config, ollama_client=fake_client, event_bus=None)
+    await runtime.start()
+    assert runtime.status == RuntimeStatus.STARTED
+    # list_local_models() is the real reachability probe start() now uses.
+    assert fake_client.list_local_models_calls == 1
+
+
+async def test_start_sets_error_status_when_ollama_unreachable(
+    config: RuntimeConfig,
+) -> None:
+    """An unreachable Ollama must produce a real ERROR status — and must
+    never raise, since init_runtime_registry_in_holder calls start() with
+    no surrounding try/except at app boot."""
+
+    class UnreachableOllamaClient(FakeOllamaClient):
+        async def list_local_models(self) -> list[dict[str, Any]]:
+            raise ConnectionError("Ollama is not running")
+
+    runtime = HermesOllamaRuntime(
+        config=config, ollama_client=UnreachableOllamaClient(), event_bus=None,
+    )
+    await runtime.start()  # must not raise
+    assert runtime.status == RuntimeStatus.ERROR
 
 
 async def test_status_is_stopped_after_stop(runtime: HermesOllamaRuntime) -> None:

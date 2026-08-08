@@ -150,7 +150,35 @@ class HermesOllamaRuntime:
     # -- RuntimeInterface lifecycle -----------------------------------------
 
     async def start(self) -> None:
-        """Transition to STARTED and publish ``RUNTIME_STARTED``."""
+        """Verify the endpoint is actually reachable, then transition to
+        STARTED and publish ``RUNTIME_STARTED``.
+
+        Before this, ``start()`` set STARTED unconditionally — the runtime
+        registry (and therefore ``GET /api/v1/runtimes``, what the Runtime
+        Center reads) reported "available" purely because ``start()`` had
+        been called, never because Ollama was actually reachable (HOS-072
+        audit finding, matching the user's own complaint: a runtime must
+        never be declared available just because its class exists). Never
+        raises: an unreachable Ollama at boot must produce a real ERROR
+        status, not crash app startup (``init_runtime_registry_in_holder``
+        calls this with no surrounding try/except).
+        """
+        try:
+            await self._client.list_local_models()
+        except Exception as exc:
+            self._status = RuntimeStatus.ERROR
+            logger.warning(
+                "HermesOllamaRuntime could not reach %s: %s",
+                self._config.endpoint, exc,
+            )
+            if self._bus is not None:
+                self._bus.publish(
+                    Topic.RUNTIME_HEALTH,
+                    payload={"runtime": "hermes-ollama", "status": "error",
+                             "error": str(exc)},
+                )
+            return
+
         self._status = RuntimeStatus.STARTED
         if self._bus is not None:
             self._bus.publish(

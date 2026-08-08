@@ -23,7 +23,7 @@ from backend.sds.dependencies import (
     get_runtime_factory_dep,
     get_runtime_registry_dep,
 )
-from backend.sds.runtime import get_holder, get_runtime_holder
+from backend.sds.runtime import get_holder, get_runtime_health_monitor, get_runtime_holder
 
 SDS_ROUTER = APIRouter(prefix="/api/hermes-os", tags=["hermes-os"])
 
@@ -125,7 +125,37 @@ def _runtime_summary(
     active_name: str | None,
     fallback_name: str | None,
 ) -> dict:
-    """Build a runtime summary dict used by ``list_runtimes`` and ``get_runtime``."""
+    """Build a runtime summary dict used by ``list_runtimes`` and ``get_runtime``.
+
+    ``metrics``/``health`` (HOS-072) come from the real health monitor, fed
+    by ``RealTaskExecutor.on_runtime_result`` (service_registry.py) — before
+    this, these fields were simply absent from the response (the frontend's
+    own type comment documented it: "pas `health` ni `metrics`"), and the
+    Runtime Center's reliability/performance tiles never rendered anything.
+    Absent (no entry at all) rather than zeroed when no real execution has
+    gone through this runtime yet — a runtime never used is unmeasured, not
+    measured-at-zero.
+    """
+    metrics_obj = None
+    health_obj = None
+    try:
+        raw = get_runtime_health_monitor().get_metrics(name)
+        if raw.executions > 0:
+            metrics_obj = {
+                "total_executions": raw.executions,
+                "success_count": raw.executions - raw.failures,
+                "failure_count": raw.failures,
+                "avg_latency_ms": round(raw.avg_latency_ms, 1),
+                "reliability": round(1.0 - raw.failure_rate, 3),
+            }
+            health_obj = {
+                "status": rt.status.value if rt.status else "unknown",
+                "last_check": raw.last_check.isoformat() if raw.last_check else None,
+                "latency_ms": round(raw.avg_latency_ms, 1),
+            }
+    except Exception:
+        pass
+
     return {
         "name": name,
         "runtime_name": rt.name,
@@ -135,6 +165,8 @@ def _runtime_summary(
         "status": rt.status.value if rt.status else "unknown",
         "is_active": name == active_name,
         "is_fallback": name == fallback_name,
+        "metrics": metrics_obj,
+        "health": health_obj,
     }
 
 
