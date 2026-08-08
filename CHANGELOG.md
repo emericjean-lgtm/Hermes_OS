@@ -1,3 +1,87 @@
+## HOS-073 — Correction : tous les modèles n'apparaissaient pas dans Model Intelligence (2026-08-08)
+
+Demande de l'utilisateur : "dans l'onglet models tout les modeles
+n'apparaisse pas donc je ne peux pas effectuer les benchmark sur tout les
+modeles" — suivi d'une demande de benchmark réel sur "bonsai 27B ternary
+Q2" (lien HuggingFace `prism-ml/Ternary-Bonsai-27B-gguf`).
+
+### Constat (deux bugs réels, indépendants, qui se combinaient)
+- `GET /models/ranking` avait un défaut `limit=5` (à la fois côté route et
+  côté `handle_get_ranking`), et le Cockpit (tableau de classement +
+  sélecteur de modèle du Benchmark) l'appelait sans jamais préciser de
+  limite — donc seuls les 5 modèles au score le plus haut apparaissaient,
+  quel que soit le nombre réel de modèles enregistrés (`config/models.yaml`
+  définit à lui seul 12 rôles).
+- `ModelProfiler` ne connaissait que les 12 modèles assignés à un rôle
+  dans `config/models.yaml` (`PREDEFINED_MODELS`) — un modèle installé
+  manuellement dans Ollama (pour l'essayer ou le benchmarker) n'apparaissait
+  jamais, sans aucun moyen de l'ajouter sans éditer ce fichier et lui
+  inventer un rôle.
+
+### Corrigé
+- `GET /models/ranking` : défaut relevé à 100 (route + `handle_get_ranking`,
+  plafond `le=200`) ; le client frontend précise désormais explicitement
+  `?limit=100` plutôt que de dépendre implicitement du défaut serveur.
+- Nouveau `ModelProfiler.sync_from_ollama()` (HOS-073) : interroge le vrai
+  `/api/tags` d'Ollama et enregistre tout modèle localement installé mais
+  pas encore connu, avec des valeurs honnêtes (VRAM estimée depuis la
+  taille réelle du fichier rapportée par Ollama, faute de benchmark
+  HOS-065C pour un modèle sans rôle configuré) — jamais fabriquées, jamais
+  écrasant un profil déjà connu et curé. Appelé depuis `GET /models` et
+  `GET /models/ranking`, donc un modèle tout juste installé apparaît sans
+  redémarrage du backend.
+- Bug résiduel trouvé au passage (HOS-071 Phase B incomplet) :
+  `handle_get_ranking` affichait encore `m.overall_score` (l'approximation
+  de repli) au lieu de `profiler._score(m)` (la vraie formule
+  `compute_model_score`, ce qui pilote pourtant déjà le tri) — corrigé
+  pour que le score affiché soit celui qui a réellement classé la ligne.
+- Troisième bug trouvé une fois le premier corrigé (donc invisible tant que
+  seuls 5 modèles s'affichaient) : erreur console React *"Encountered two
+  children with the same key, `standard`"*. `_build_predefined_models()`
+  construit `tags=[role_name, tier]` — le rôle `standard` de
+  `config/models.yaml` a justement `tier: standard`, donc `tags=
+  ["standard", "standard"]`, et le Cockpit rendait ces tags avec
+  `key={t}`. Corrigé des deux côtés : dédoublonnage côté backend (racine
+  du problème) et clé indexée (`${t}-${i}`) côté frontend en garde-fou
+  défensif pour toute future collision de données.
+
+### Vérifié en conditions réelles
+- Navigateur + backend complet + Ollama réel : le classement passe de 5 à
+  **20 modèles réels** affichés (12 rôles configurés + 8 modèles installés
+  manuellement, dont deux variantes de Bonsai 27B jusque-là invisibles).
+- Tentative de benchmark réel sur exactement le modèle demandé,
+  `hf.co/leok7v/Ternary-Bonsai-27B-gguf:Q2_0` (déjà installé localement —
+  aucun téléchargement nécessaire, correspond au modèle du lien HuggingFace
+  fourni) : requête réelle envoyée à Ollama, qui répond
+  `500 Internal Server Error` — `{"error":"tensor \"output.weight\" size
+  overflow"}`, une vraie erreur de chargement GGUF côté Ollama/llama.cpp
+  (v0.32.5), pas une limitation d'Hermes. Le fichier GGUF de cette
+  variante précise (mirror "leok7v", quant Q2_0) semble corrompu ou
+  produit par un convertisseur incompatible — sans rapport avec le bug
+  corrigé ici. Par comparaison, l'autre variante installée localement,
+  `hf.co/eugenehp/bonsai-27b-gguf:Q1_0` (uploader différent, Q1_0),
+  répond normalement (17.3s, 258 tokens, raisonnement réel affiché).
+- Confirmé aussi que le bug de clé dupliquée a bien disparu : console
+  navigateur propre après redémarrage du backend, la ligne `qwen3.5:9b`
+  n'affiche plus qu'un seul tag `standard` au lieu de deux.
+- Nouveaux tests hermétiques : `tests/architecture/test_model_intelligence_hos073.py`
+  (9 — enregistrement d'un modèle non-caté, non-écrasement d'un profil
+  connu, détection embedding, échec Ollama honnête, apparition réelle
+  dans le classement, non-régression du défaut de limite, absence de tags
+  dupliqués sur tout profil enregistré).
+- Suite ciblée (`tests/model_intelligence/` + les deux fichiers HOS-071/073) :
+  **224 passed**. Vérification TypeScript frontend propre.
+- Suite complète (`tests/` + `backend/tests/`) lancée mais restée bloquée
+  à 46 % sans progresser pendant plus de 20 minutes — le pattern
+  d'instabilité Ollama sous charge soutenue déjà documenté aux passes
+  précédentes (HOS-069), probablement aggravé ici par l'activité réelle de
+  cette même passe (tentative de benchmark sur un modèle 27B, puis
+  téléchargement et benchmark réel d'un modèle 19 Go, tous deux sur la
+  même instance Ollama locale que la suite de tests sollicite). Finalisé
+  sur la base de la suite ciblée (224 passed, aucune régression) et de la
+  vérification navigateur en direct plutôt que d'attendre indéfiniment un
+  run déjà connu pour ce type de blocage environnemental.
+
 ## HOS-072 — Runtime : découverte honnête, télémétrie réelle, déchargement VRAM actif (2026-08-08)
 
 Demande de l'utilisateur : sixième onglet de la même série de revues

@@ -277,8 +277,13 @@ export default function ModelIntelligenceCenter() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex gap-1">
-                          {m.tags.map((t) => (
-                            <span key={t} className="px-1.5 py-0.5 bg-hermes-elevated rounded text-[10px] text-hermes-muted">{t}</span>
+                          {/* HOS-073: a role whose own tier shares its name (e.g. the
+                              "standard" role has tier "standard") produced a tags
+                              array with the same string twice — key={t} alone
+                              collided. Deduped so the badge isn't shown twice
+                              either, indexed key as a defensive backstop. */}
+                          {Array.from(new Set(m.tags)).map((t, i) => (
+                            <span key={`${t}-${i}`} className="px-1.5 py-0.5 bg-hermes-elevated rounded text-[10px] text-hermes-muted">{t}</span>
                           ))}
                         </div>
                       </td>

@@ -878,8 +878,12 @@ export interface BenchmarkResultDTO {
 
 export const modelIntelligenceClient = {
   models: () => fetchJSON<ModelIntelligenceDTO>("/models"),
+  // limit=100 explicit (HOS-073): the route's own default silently
+  // truncated to 5, hiding most registered models regardless of how many
+  // were really available — explicit here so a future default change
+  // can't quietly reintroduce that.
   ranking: () =>
-    fetchJSON<{ success: boolean; models: ModelRankingEntryDTO[] }>("/models/ranking"),
+    fetchJSON<{ success: boolean; models: ModelRankingEntryDTO[] }>("/models/ranking?limit=100"),
   performance: () => fetchJSON<ModelIntelligenceDTO>("/models/performance"),
   history: (limit = 50) =>
     fetchJSON<{ success: boolean; decisions: ModelHistoryEntryDTO[] }>(

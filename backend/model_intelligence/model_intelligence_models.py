@@ -268,7 +268,12 @@ def _build_predefined_models() -> dict[str, dict[str, Any]]:
             "parameters_b": _infer_parameters_b(tag),
             "vram_required_mb": int(float(role.get("vram_gb", 0)) * 1024),
             "available_backends": ["ollama"],
-            "tags": [role_name, role.get("tier", "")],
+            # HOS-073: deduped — a role whose own tier shares its name
+            # (config/models.yaml's "standard" role has tier "standard")
+            # produced the literal string twice, which the Cockpit's tags
+            # list renders with key={tag}, colliding as a React duplicate
+            # key ("Encountered two children with the same key, `standard`").
+            "tags": list(dict.fromkeys(t for t in (role_name, role.get("tier", "")) if t)),
             # The embedding role serves /api/embed, not /api/chat.
             "chat_capable": role_name != "embedding",
             # HOS-065C: the operational context window chosen for this role

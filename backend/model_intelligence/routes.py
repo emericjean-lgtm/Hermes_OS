@@ -222,18 +222,40 @@ def _get_evolution_adapter() -> ModelEvolutionAdapter:
     return _evolution
 
 
+def _sync_profiler_from_ollama(profiler: ModelProfiler) -> None:
+    """Best-effort real-time catalogue refresh (HOS-073) — see
+    ModelProfiler.sync_from_ollama()'s own docstring. Called from the
+    Cockpit's two real listing entry points so a model the user just
+    pulled shows up without a backend restart."""
+    from backend.core.config import get_settings
+
+    try:
+        profiler.sync_from_ollama(get_settings().ollama_api_url)
+    except Exception:
+        pass
+
+
 def handle_get_intelligence() -> dict[str, Any]:
     """GET /models/intelligence"""
     profiler = _get_profiler()
+    _sync_profiler_from_ollama(profiler)
     return {
         "success": True,
         "data": profiler.get_stats(),
     }
 
 
-def handle_get_ranking(task_type: str = "", limit: int = 5) -> dict[str, Any]:
-    """GET /models/ranking"""
+def handle_get_ranking(task_type: str = "", limit: int = 100) -> dict[str, Any]:
+    """GET /models/ranking
+
+    ``limit`` default raised from 5 to 100 (HOS-073) — the Cockpit's own
+    ranking table and benchmark model-select called this with no explicit
+    limit at all, so only the top 5 of every registered model ever
+    appeared, silently hiding the rest regardless of how many were really
+    available.
+    """
     profiler = _get_profiler()
+    _sync_profiler_from_ollama(profiler)
     tt = TaskType(task_type) if task_type and task_type in TaskType._value2member_map_ else None
     top = profiler.get_top_models(tt, limit)
     return {
@@ -242,7 +264,7 @@ def handle_get_ranking(task_type: str = "", limit: int = 5) -> dict[str, Any]:
             {
                 "model_id": m.model_id,
                 "name": m.name,
-                "score": round(m.overall_score, 3),
+                "score": round(profiler._score(m), 3),  # noqa: SLF001
                 "parameters_b": m.parameters_b,
                 "vram_mb": m.vram_required_mb,
                 "tps": round(m.tokens_per_second, 1),
@@ -496,7 +518,7 @@ async def get_intelligence() -> dict[str, Any]:
 @router.get("/ranking")
 async def get_ranking(
     task_type: str = Query(""),
-    limit: int = Query(5, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=200),
 ) -> dict[str, Any]:
     return handle_get_ranking(task_type, limit)
 

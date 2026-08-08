@@ -18,6 +18,8 @@ from .model_intelligence_models import (
     Quantization,
     RuntimeBackend,
     TaskType,
+    _infer_architecture,
+    _infer_parameters_b,
 )
 from .performance_analyzer import PerformanceAnalyzer
 
@@ -75,6 +77,57 @@ class ModelProfiler:
     def register_model(self, profile: ModelProfile) -> None:
         with self._lock:
             self._profiles[profile.model_id] = profile
+
+    def sync_from_ollama(self, ollama_api_url: str, *, timeout: float = 5.0) -> int:
+        """Register any locally-installed Ollama model not already known
+        (HOS-073) — before this, PREDEFINED_MODELS only ever contained the
+        12 tags assigned a role in config/models.yaml, so a model the user
+        pulled manually (to try it, or to benchmark it) never appeared in
+        Model Intelligence at all: no ranking row, no way to select it for
+        a benchmark. Best-effort and silent on failure (an unreachable
+        Ollama must not break whatever page triggered this): VRAM is
+        estimated from Ollama's own reported file size, since no HOS-065C
+        benchmark exists yet for a model nobody configured a role for —
+        honest until a real benchmark replaces it. Returns the number of
+        newly-registered profiles.
+        """
+        import httpx
+
+        try:
+            with httpx.Client(base_url=ollama_api_url.rstrip("/"), timeout=timeout) as client:
+                response = client.get("/api/tags")
+                response.raise_for_status()
+                payload = response.json()
+        except Exception:
+            return 0
+
+        new_count = 0
+        with self._lock:
+            for entry in payload.get("models") or []:
+                tag = str(entry.get("name") or entry.get("model") or "")
+                if not tag or tag in self._profiles:
+                    continue
+                details = entry.get("details") or {}
+                try:
+                    arch = ModelArchitecture(_infer_architecture(tag))
+                except ValueError:
+                    arch = ModelArchitecture.OTHER
+                is_embedding = (
+                    "embed" in tag.lower()
+                    or "embed" in str(details.get("family") or "").lower()
+                )
+                self._profiles[tag] = ModelProfile(
+                    model_id=tag,
+                    name=tag,
+                    architecture=arch,
+                    parameters_b=_infer_parameters_b(tag),
+                    vram_required_mb=max(1, int(entry.get("size") or 0) // (1024 * 1024)),
+                    available_backends=[RuntimeBackend.OLLAMA],
+                    tags=["auto-discovered"],
+                    chat_capable=not is_embedding,
+                )
+                new_count += 1
+        return new_count
 
     def get_profile(self, model_id: str) -> ModelProfile | None:
         with self._lock:
