@@ -407,11 +407,31 @@ def _make_cloud_chat() -> Optional[Any]:
 
 
 def _make_execution_engine(c: Any) -> Any:
+    from backend.agents.capability_matcher import CapabilityMatcher
     from backend.execution.mission_executor import MissionExecutor
 
+    agent_registry = c.get("agent_supervisor").registry
     return MissionExecutor(
         task_executor=c.get("task_executor"),
         on_event=_dispatcher(c, "execution_engine"),
+        # HOS-070: the real AgentRegistry (backend/agents/), the one
+        # GET /api/v1/agents and the Cockpit's Agent Center actually read
+        # from. Without this, every agent showed its initial "READY, 0
+        # tasks" state forever, regardless of how many real missions ran —
+        # nothing updated it outside of agent create/stop.
+        agent_registry=agent_registry,
+        # HOS-070: the real, multi-criteria selection engine (HOS-043),
+        # wrapping the same registry — replaces AgentCoordinator's own
+        # simpler keyword scoring instead of leaving two disconnected
+        # selection engines, only one of which was ever actually reachable.
+        capability_matcher=CapabilityMatcher(agent_registry),
+        # HOS-070: real per-agent trust scoring — AgentTrustEngine.
+        # record_result() existed and was never called by anything. Not the
+        # full SecurityEngine.check_access() gate (see MissionExecutor's
+        # own docstring for why: no default permissions/policies are
+        # configured anywhere, so that gate would default-deny every real
+        # mission today).
+        trust_engine=c.get("security_engine").trust,
     )
 
 
@@ -515,8 +535,11 @@ def _make_agent_supervisor(c: Any) -> Any:
 
 
 def _bind_agent_routes(c: Any, svc: Any) -> list[Any]:
-    from backend.agents.routes import create_agent_routes
+    from backend.agents.routes import create_agent_routes, set_trust_engine
 
+    # HOS-070: real trust scores (fed by MissionExecutor — see
+    # _make_execution_engine) surfaced through GET /api/v1/agents.
+    set_trust_engine(c.get("security_engine").trust)
     return [create_agent_routes(svc)]
 
 
@@ -1033,7 +1056,12 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         name="Task Execution Pipeline",
         category=ComponentCategory.EXECUTION,
         factory=_make_execution_engine,
-        dependencies=("task_executor", "event_dispatcher"),
+        # agent_supervisor is a real dependency since HOS-070: its registry
+        # is what a real task execution now syncs status/metrics into.
+        # security_engine likewise: its AgentTrustEngine now gets fed real
+        # outcomes.
+        dependencies=("task_executor", "event_dispatcher", "agent_supervisor",
+                      "security_engine"),
         produced_events=(
             "execution.started", "execution.planning", "execution.task_started",
             "execution.task_completed", "execution.completed", "execution.failed",
@@ -1084,7 +1112,11 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         name="Agent Supervisor",
         category=ComponentCategory.AGENT,
         factory=_make_agent_supervisor,
-        dependencies=("event_dispatcher",),
+        # security_engine is a real dependency of the *route binder*
+        # (HOS-070: injects the real AgentTrustEngine into agents/routes.py),
+        # not of the factory itself — declared here so build order puts it
+        # first regardless.
+        dependencies=("event_dispatcher", "security_engine"),
         route_binder=_bind_agent_routes,
         produced_events=("agent.registered", "agent.state_changed", "agent.failed"),
         description="Agent lifecycle and dispatch (HOS-043)",

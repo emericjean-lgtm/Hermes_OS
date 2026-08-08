@@ -323,7 +323,7 @@ export function DashboardView() {
                     variant={
                       a.status === "READY" ? "success"
                       : a.status === "BUSY" ? "purple"
-                      : a.status === "ERROR" ? "danger"
+                      : a.status === "FAILED" ? "danger"
                       : "default"
                     }
                   >

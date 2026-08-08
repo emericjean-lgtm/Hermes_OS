@@ -52,6 +52,19 @@ class TaskDispatcher:
         self._ctx_manager = context_manager
         self._matcher = matcher
         self._on_event = on_event
+        # HOS-070 audit finding: this default fabricates success for every
+        # task without doing any real work — the exact defect R-001 exists
+        # to remove elsewhere (see RealTaskExecutor's module docstring).
+        # Currently harmless only because nothing in the real Mission/
+        # Autonomous execution path ever calls dispatch()/dispatch_node()/
+        # execute_mission_step()/execute_full_mission() at all — confirmed
+        # by a repo-wide search, no caller exists outside agent_supervisor.py
+        # itself and this class's own tests, which rely on this exact
+        # default as a happy-path stub. Left unchanged rather than fixed
+        # here specifically *because* of that: changing it would only
+        # matter the day someone wires this dispatcher into real traffic,
+        # at which point a real execute_callback must be supplied — same
+        # as RealTaskExecutor already requires today.
         self._execute_callback = execute_callback or (lambda a, n: True)
         self._results: dict[str, list[ExecutionResult]] = {}
 

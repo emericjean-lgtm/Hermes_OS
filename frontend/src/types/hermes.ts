@@ -192,17 +192,40 @@ export interface Agent {
   current_mission?: string;
   current_task?: string;
   current_task_id?: string;
+  current_mission_id?: string;
   runtime?: string;
   preferred_runtime?: string;
   preferred_model?: string;
   success_rate?: number;
   total_tasks?: number;
+  successful_tasks?: number;
+  failed_tasks?: number;
+  // Real per-agent trust score (HOS-070) — AgentTrustEngine, fed by real
+  // task outcomes. null when no trust engine is wired (never fabricated).
+  trust_score?: number | null;
+  trust_level?: string | null;
   metrics?: AgentMetrics;
   created_at?: string;
   last_active_at?: string;
 }
 
-export type AgentStatus = "CREATED" | "STARTING" | "READY" | "BUSY" | "PAUSED" | "ERROR" | "STOPPED" | "COMPLETED";
+// Mirrors backend/agents/agent_models.py's AgentStatus values (uppercased
+// — see toAgent() in services/client.ts, the only place the lowercase wire
+// value is normalized). "ERROR" never existed on the backend; real values
+// are CREATED/STARTING/READY/BUSY/PAUSED/COMPLETED/FAILED/STOPPING/
+// STOPPED/RECOVERING — every status-keyed lookup against the old "ERROR"
+// silently missed for every agent that ever actually failed.
+export type AgentStatus =
+  | "CREATED"
+  | "STARTING"
+  | "READY"
+  | "BUSY"
+  | "PAUSED"
+  | "COMPLETED"
+  | "FAILED"
+  | "STOPPING"
+  | "STOPPED"
+  | "RECOVERING";
 
 export interface AgentMetrics {
   tasks_completed: number;

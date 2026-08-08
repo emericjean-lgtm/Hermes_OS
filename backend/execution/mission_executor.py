@@ -55,7 +55,9 @@ class MissionExecutor:
     #: Diagnostic event tail kept in memory. See ``_events``.
     MAX_RETAINED_EVENTS = 2000
 
-    def __init__(self, task_executor: Any = None, on_event: Any = None) -> None:
+    def __init__(self, task_executor: Any = None, on_event: Any = None,
+                 agent_registry: Any = None, capability_matcher: Any = None,
+                 trust_engine: Any = None) -> None:
         """
         Args:
             task_executor: performs the actual work for one task. Injected so the
@@ -63,13 +65,39 @@ class MissionExecutor:
                 separation the simulated step used to blur. Defaults to
                 :class:`~backend.execution.task_executor.RealTaskExecutor`.
             on_event: the shared event dispatcher.
+            agent_registry: the real ``backend.agents.agent_registry.AgentRegistry``
+                (HOS-070) — the one ``GET /api/v1/agents`` and the Cockpit's
+                Agent Center actually read from. None (the default) disables
+                the sync entirely: every agent then keeps showing its
+                initial "READY, 0 tasks" state forever, which was the
+                previous behaviour for every real mission ever run — nothing
+                ever updated this registry outside of agent create/stop.
+            capability_matcher: the real ``CapabilityMatcher`` (HOS-070) —
+                passed straight through to the internal ``AgentCoordinator``.
+                None (the default) keeps the coordinator's own simpler
+                keyword-based selection, matching prior behaviour.
+            trust_engine: the real ``backend.security.agent_trust_engine.
+                AgentTrustEngine`` (HOS-070) — fed a real outcome per task so
+                an agent's trust score means something. Deliberately *not*
+                the full ``SecurityEngine.check_access()`` gate: that engine
+                has no default permissions/policies configured anywhere
+                (confirmed — ``PermissionManager.check_permission()`` and
+                ``evaluate_policies()`` both default-deny with nothing
+                granted), so wiring it into mandatory dispatch today would
+                silently block every real mission. Building the missing
+                policy-configuration layer (the SecurityEngine equivalent of
+                Aegis's config/security.yaml) is a separate, materially
+                larger initiative than this pass — see the HOS-070 CHANGELOG
+                entry.
         """
         self._lock = threading.RLock()
         self._scheduler = TaskScheduler()
-        self._coordinator = AgentCoordinator()
+        self._coordinator = AgentCoordinator(capability_matcher=capability_matcher)
         self._validator = ValidationEngine()
         self._feedback = FeedbackLoop()
         self._optimizer = OptimizationEngine()
+        self._agent_registry = agent_registry
+        self._trust_engine = trust_engine
         # Ring buffer: this is a diagnostic tail for get_events(), not an
         # archive. Unbounded, it grew 5 entries per mission forever — 4000
         # dicts after 800 missions, the single largest allocation site in a
@@ -85,6 +113,84 @@ class MissionExecutor:
 
             task_executor = RealTaskExecutor(on_event=on_event)
         self._task_executor = task_executor
+
+    # ── Agent registry sync (HOS-070) ──────────────────────────
+
+    def _sync_agent_started(self, agent_name: str, mission_id: str, task_id: str) -> None:
+        """Reflect a real task assignment in the Cockpit's agent registry.
+
+        Best-effort — telemetry must never fail the task it describes.
+        Idempotent to call again on a retry re-entry (still the same
+        agent, still busy). Simplification, documented rather than hidden:
+        a single status field, last-write-wins — if the same named agent
+        is genuinely dispatched to two tasks concurrently (nothing hard-
+        prevents that today; AgentCoordinator only *penalizes* a loaded
+        agent in scoring, it does not exclude it), the second BUSY/READY
+        transition wins. Good enough for a Cockpit display, not a
+        scheduling invariant.
+        """
+        if self._agent_registry is None or not agent_name:
+            return
+        try:
+            from backend.agents.agent_models import AgentStatus
+
+            agent = self._agent_registry.find_by_name(agent_name)
+            if agent is None:
+                return
+            agent.current_task_id = task_id
+            agent.current_mission_id = mission_id
+            self._agent_registry.update_status(agent.agent_id, AgentStatus.BUSY)
+        except Exception:
+            logger.debug("agent registry sync (start) failed for %s",
+                         agent_name, exc_info=True)
+
+    def _sync_agent_released(self, agent_name: str, duration_ms: float,
+                             status: TaskExecutionStatus) -> None:
+        """Counterpart to ``_sync_agent_started`` — called once per attempt,
+        alongside every existing ``self._coordinator.release_agent()`` call.
+
+        Only a terminal outcome (COMPLETED/FAILED) counts toward the
+        agent's real success rate — a PENDING retry re-enters
+        ``execute_task()`` immediately (see node_execution.py's loop) and
+        is not a distinct, countable attempt from the Cockpit's point of
+        view; the agent stays marked BUSY throughout. NEEDS_REVIEW
+        (WAITING_APPROVAL) frees the agent without counting a win or a
+        loss — a human decides next, not a metric.
+        """
+        if not agent_name:
+            return
+        is_terminal = status in (TaskExecutionStatus.COMPLETED, TaskExecutionStatus.FAILED)
+        success = status == TaskExecutionStatus.COMPLETED
+
+        # HOS-070: AgentTrustEngine.record_result() existed and was never
+        # called by anything — every agent's trust score stayed at its
+        # default (a brand-new AgentTrustScore) no matter how many real
+        # tasks it completed or failed. Independent of agent_registry
+        # below — either integration works whether or not the other is
+        # wired.
+        if is_terminal and self._trust_engine is not None:
+            try:
+                self._trust_engine.record_result(agent_name, success)
+            except Exception:
+                logger.debug("trust engine sync failed for %s", agent_name, exc_info=True)
+
+        if self._agent_registry is None:
+            return
+        try:
+            from backend.agents.agent_models import AgentStatus
+
+            agent = self._agent_registry.find_by_name(agent_name)
+            if agent is None:
+                return
+            if is_terminal:
+                self._agent_registry.update_metrics(agent.agent_id, duration_ms, success)
+            if status != TaskExecutionStatus.PENDING:
+                agent.current_task_id = ""
+                agent.current_mission_id = ""
+                self._agent_registry.update_status(agent.agent_id, AgentStatus.READY)
+        except Exception:
+            logger.debug("agent registry sync (release) failed for %s",
+                         agent_name, exc_info=True)
 
     # ── Public API ──
 
@@ -191,6 +297,7 @@ class MissionExecutor:
             task.assigned_tools = assignment.tool_ids
             task.status = TaskExecutionStatus.RUNNING
             task.started_at = datetime.now(timezone.utc)
+            self._sync_agent_started(task.assigned_agent, sm._meta.mission_id, task_id)
 
         # 2. Execute for real, lock-free — this is the "calls the agent via
         #    runtime" that the previous comment promised and never did. A
@@ -232,6 +339,7 @@ class MissionExecutor:
                     })
                 self._scheduler.update_task(task_id, task.status)
                 self._coordinator.release_agent(task_id)
+                self._sync_agent_released(task.assigned_agent, task.duration_ms, task.status)
                 # This early-exit path used to leave sm stuck at RUNNING
                 # forever on a terminal failure — a runtime-unavailable
                 # failure never transitioned it to a terminal state at all,
@@ -298,6 +406,7 @@ class MissionExecutor:
 
             # Release agent
             self._coordinator.release_agent(task_id)
+            self._sync_agent_released(task.assigned_agent, task.duration_ms, task.status)
 
             self._maybe_finalize_state(sm)
 

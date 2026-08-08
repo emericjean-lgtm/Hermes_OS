@@ -36,13 +36,17 @@ class AgentCoordinator:
     #: Past assignments retained for release_agent()/get_assignment() lookups.
     MAX_RETAINED_ASSIGNMENTS = 2000
 
-    def __init__(self) -> None:
+    def __init__(self, capability_matcher: Any = None) -> None:
         self._lock = threading.RLock()
         self._agents: dict[str, dict[str, Any]] = {}        # agent_id → capabilities
         self._runtimes: dict[str, dict[str, Any]] = {}      # runtime_id → specs
         self._skills: dict[str, dict[str, Any]] = {}        # skill_id → metadata
         self._tools: dict[str, dict[str, Any]] = {}         # tool_id → metadata
         self._agent_loads: dict[str, int] = {}              # concurrent tasks per agent
+        # HOS-070: the real, multi-criteria CapabilityMatcher (backend/agents/,
+        # HOS-043) — see _select_best_agent()'s docstring for why this
+        # coordinator prefers it over its own keyword scoring when wired.
+        self._capability_matcher = capability_matcher
         # task_id → assignment. Bounded: one entry per task executed, and
         # nothing pruned it, so this grew for the process lifetime (RC3 P5).
         self._assignments: OrderedDict[str, AgentAssignment] = OrderedDict()
@@ -123,7 +127,31 @@ class AgentCoordinator:
     # ── private selection methods ──
 
     def _select_best_agent(self, task: TaskExecution) -> str:
-        """Match task title/requirements against agent capabilities with scoring."""
+        """Select the best agent for a task.
+
+        HOS-070 audit finding: this class's own keyword-overlap scoring
+        below and ``backend.agents.capability_matcher.CapabilityMatcher``
+        (HOS-043 — real multi-criteria scoring: capability match 30%, load
+        25%, availability 20%, historical success rate 15%, runtime
+        preference 10%) were two disconnected agent-selection engines, and
+        only this simpler one was ever actually reachable from real
+        execution. Delegates to the real matcher when one is wired
+        (bootstrap; see service_registry.py) instead of running both —
+        the keyword scoring below remains only as the fallback for
+        callers that construct ``AgentCoordinator()`` bare (the standalone
+        ``/execution/start`` path, and every existing hermetic test that
+        predates this), not as a second live decision-maker.
+        """
+        if self._capability_matcher is not None:
+            agent = self._capability_matcher.select_best(
+                task_type=task.task_type or "task",
+                required_skills=list(task.assigned_skills or []),
+                preferred_runtime=task.assigned_runtime,
+                preferred_agent=task.preferred_agent,
+            )
+            if agent is not None:
+                return agent.name
+
         best = ""
         best_score = -1.0
         keywords = set(task.title.lower().split() + [task.title.lower()])

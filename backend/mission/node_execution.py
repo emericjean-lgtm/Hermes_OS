@@ -60,6 +60,10 @@ def make_node_executor(controller: Any) -> Callable[[MissionNode], bool]:
             status=TaskExecutionStatus.PENDING,
             assigned_runtime=getattr(node, "preferred_runtime", "") or "",
             assigned_skills=list(getattr(node, "required_skills", []) or []),
+            # HOS-070: feeds AgentCoordinator's real-matcher path
+            # (CapabilityMatcher) when wired — see agent_coordinator.py.
+            task_type=getattr(node, "type", "") or "",
+            preferred_agent=getattr(node, "preferred_agent", "") or "",
         )
         meta = ExecutionMeta(
             mission_id=getattr(node, "mission_id", "") or node.node_id,

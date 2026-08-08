@@ -50,6 +50,24 @@ class AgentRegistry:
         with self._lock:
             return self._agents.get(agent_id)
 
+    def find_by_name(self, name: str) -> Optional[Agent]:
+        """Look up an agent by its human-readable name (e.g. "aegis"),
+        not its UUID ``agent_id``.
+
+        HOS-070: the real execution path (AgentCoordinator, backend/execution/)
+        identifies agents by name — the same string ``register_agent()``
+        was seeded with at bootstrap (see registry_seeding.py's
+        ``_seed_coordinator``) — never by this registry's own random
+        ``agent_id``. A linear scan is fine here: this registry holds a
+        handful of agents, and lookups happen at most once or twice per
+        task execution, not in a hot loop.
+        """
+        with self._lock:
+            for agent in self._agents.values():
+                if agent.name == name:
+                    return agent
+            return None
+
     def list_all(self) -> list[Agent]:
         with self._lock:
             return list(self._agents.values())

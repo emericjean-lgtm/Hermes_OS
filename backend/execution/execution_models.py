@@ -101,6 +101,17 @@ class TaskExecution:
     task_id: str = ""
     node_id: str = ""
     title: str = ""
+    # HOS-070: mirrors MissionNode.type (mission/mission_models.py) — the
+    # input CapabilityMatcher's task-type -> capability map expects
+    # ("analysis", "implementation", ...). Empty for a task that did not
+    # originate from a Mission node (e.g. the standalone /execution/start
+    # API), which AgentCoordinator's real-matcher path treats the same way
+    # CapabilityMatcher itself does: falls back to AgentCapability.CUSTOM.
+    task_type: str = ""
+    # Mirrors MissionNode.preferred_agent — a scoring hint, not a hard
+    # requirement (CapabilityMatcher still checks capability/availability
+    # first).
+    preferred_agent: str = ""
     status: TaskExecutionStatus = TaskExecutionStatus.PENDING
     assigned_agent: str = ""
     assigned_runtime: str = ""

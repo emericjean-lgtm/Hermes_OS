@@ -36,6 +36,23 @@ class AgentSupervisor:
 
     Coordinates agent lifecycle, task dispatch, execution tracking,
     and metrics collection. Thread-safe.
+
+    HOS-070 audit finding: this class's own ``dispatch_node()``/
+    ``execute_mission_step()``/``execute_full_mission()`` (and the
+    ``TaskDispatcher``/``CapabilityMatcher`` selection they drive) are real
+    but are not the path a real Mission or Autonomous goal actually takes —
+    confirmed by a repo-wide search, nothing outside this file's own
+    methods and its tests ever calls any of the three. The real execution
+    path is ``backend/execution/mission_executor.py``'s ``MissionExecutor``,
+    reached through ``GraphExecutor``/``node_execution.py``; since HOS-070
+    it also syncs this class's own ``registry`` (status, load, metrics) and
+    ``CapabilityMatcher`` (real agent selection) so this supervisor's data
+    is accurate for the Cockpit even though its own dispatch methods are
+    not what ran the task. What remains genuinely unused here: multi-node
+    orchestration through this class's own DAG walk
+    (``execute_mission_step``/``execute_full_mission``) and reassignment on
+    failure (``reassign_node``) — GraphExecutor has its own, separate DAG
+    walker and retry logic for those.
     """
 
     def __init__(

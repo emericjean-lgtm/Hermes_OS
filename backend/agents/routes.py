@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Body
 
@@ -12,6 +12,7 @@ from backend.agents.agent_supervisor import AgentSupervisor
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 _supervisor: Optional[AgentSupervisor] = None
+_trust_engine: Optional[Any] = None
 
 
 def create_agent_routes(supervisor: AgentSupervisor) -> APIRouter:
@@ -20,10 +21,30 @@ def create_agent_routes(supervisor: AgentSupervisor) -> APIRouter:
     return router
 
 
+def set_trust_engine(trust_engine: Any) -> None:
+    """Inject the real AgentTrustEngine (HOS-070) so the Cockpit's Agent
+    Center can show a trust score fed by real task outcomes instead of a
+    permanently-fresh default score."""
+    global _trust_engine
+    _trust_engine = trust_engine
+
+
 def _ensure_supervisor():
     if _supervisor is None:
         from fastapi import HTTPException
         raise HTTPException(503, "Agent supervisor not initialized")
+
+
+def _trust_fields(agent_name: str) -> dict:
+    """Real trust score/level for an agent, or a clearly-labelled absence
+    rather than a fabricated number when no trust engine is wired."""
+    if _trust_engine is None:
+        return {"trust_score": None, "trust_level": None}
+    try:
+        score = _trust_engine.get_score(agent_name)
+        return {"trust_score": score.score, "trust_level": score.level.value}
+    except Exception:
+        return {"trust_score": None, "trust_level": None}
 
 
 # ── Agent CRUD ───────────────────────────────────────────────
@@ -44,7 +65,18 @@ async def list_agents():
                 "preferred_model": a.preferred_model,
                 "success_rate": a.success_rate,
                 "total_tasks": a.total_tasks,
+                # HOS-070: were only on the /{agent_id} detail response —
+                # the Cockpit's list view reads the row it already has
+                # rather than re-fetching detail per selection, so a
+                # successful agent's own list row showed "0 ok, 0 failed"
+                # even at 100% success (found via manual browser
+                # verification: a dispatched agent's list row and its
+                # success_rate visibly disagreed).
+                "successful_tasks": a.successful_tasks,
+                "failed_tasks": a.failed_tasks,
                 "current_task_id": a.current_task_id,
+                "current_mission_id": a.current_mission_id,
+                **_trust_fields(a.name),
             }
             for a in agents
         ],
@@ -131,6 +163,7 @@ async def get_agent(agent_id: str):
         "last_active_at": agent.last_active_at.isoformat() if agent.last_active_at else None,
         "history": _supervisor.get_agent_history(agent_id),
         "tasks": _supervisor.get_agent_tasks(agent_id),
+        **_trust_fields(agent.name),
     }
 
 

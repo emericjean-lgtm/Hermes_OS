@@ -43,6 +43,25 @@ class CollaborationEngine:
     - ConflictResolver: detection and resolution of conflicts
 
     Thread-safe.
+
+    HOS-070 audit finding, documented rather than silently left as-is: this
+    engine is real and fully functional, wired to its own
+    ``/api/v1/collaboration/*`` routes — but nothing in the real Mission or
+    Autonomous execution path (``backend/execution/mission_executor.py``,
+    the one actually driven by ``GraphExecutor``/``node_execution.py``)
+    ever publishes a message, shares context, delegates, or requests a
+    review through it. A real mission's tasks run independently, each
+    through its own isolated ``MissionExecutor.execute_task()`` call —
+    there is currently no point in that pipeline where one task's agent
+    could ask another for help, hand off a partial result, or have its
+    work checked by a third. The Cockpit's Collaboration panel will
+    therefore show real data if something calls this engine directly (its
+    HTTP surface works), but always "no messages" for an ordinary mission.
+    Wiring real collaboration into the execution pipeline (e.g. a
+    validation agent reviewing another agent's completed node before the
+    DAG proceeds) is a separate, materially larger initiative than this
+    pass — it changes when/how a mission's own DAG walk proceeds, not just
+    what gets recorded alongside it.
     """
 
     def __init__(self, on_event: Optional[Callable] = None) -> None:

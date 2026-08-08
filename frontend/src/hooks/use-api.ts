@@ -121,7 +121,14 @@ export function useMissionAction(id: string) {
 
 // ── Agents ───────────────────────────────────────────
 export function useAgents() {
-  return useQuery<Agent[]>({ queryKey: ["agents"], queryFn: agentsClient.list });
+  return useQuery<Agent[]>({
+    queryKey: ["agents"],
+    queryFn: agentsClient.list,
+    // Real activity now changes agent status/load (HOS-070) — before this,
+    // nothing ever updated it after the initial registration, so polling
+    // would have been pointless.
+    refetchInterval: 5_000,
+  });
 }
 export function useAgent(id: string | null) {
   return useQuery<Agent | null>({

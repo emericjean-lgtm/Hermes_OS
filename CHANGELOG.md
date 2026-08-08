@@ -1,3 +1,158 @@
+## HOS-070 — Agents : activité réelle, sélection unifiée, confiance réelle (2026-08-08)
+
+Demande de l'utilisateur : quatrième onglet de la même série de revues
+(après Autonomous OS, Missions, Execution) — "le centre de gestion de la
+main-d'œuvre agentique". Spécification détaillée fournie : registre
+d'agents, chaîne d'attribution des tâches (Decision Engine → Agent
+Selection avec capacités/spécialisation/skills/outils/confiance/charge),
+supervision (détection de blocage/lenteur/erreurs), collaboration
+multi-agents, porte de sécurité par agent (Trust → Permission → Policy →
+Threat → Isolation), Cockpit avec vue globale et vue détaillée par agent
+(Performance, Trust, Tools). Après audit et validation du plan en 5 phases
+par l'utilisateur ("ok va y"), mise en œuvre complète.
+
+### Constat principal (audit, avant tout code)
+Le registre d'agents (`AgentRegistry`, `backend/agents/`) n'est **jamais
+mis à jour par une vraie exécution**. `update_status()`/`update_metrics()`
+ne sont appelés que depuis `TaskDispatcher.dispatch()`, lui-même appelé
+uniquement par `AgentSupervisor.dispatch_node()`/`execute_mission_step()`/
+`execute_full_mission()` — et une recherche exhaustive dans tout le dépôt
+confirme que rien d'autre n'appelle jamais ces trois méthodes. Le vrai
+pipeline (`GraphExecutor` → `MissionExecutor` → `AgentCoordinator`, module
+`execution/`) ne passe jamais par `AgentSupervisor` pour exécuter —
+seulement pour l'enregistrement initial au démarrage. Résultat : chaque
+agent affichait pour toujours son état initial ("READY", 0 tâche, 0%
+succès, "Idle") quel que soit le nombre de missions réellement exécutées —
+déjà observé sans le remarquer pendant HOS-068/069.
+
+### Autres écarts trouvés
+- Deux moteurs de sélection d'agent coexistaient, déconnectés :
+  `AgentCoordinator` (utilisé réellement) faisait une correspondance de
+  mots-clés simpliste ; `CapabilityMatcher` (`backend/agents/`, HOS-043) —
+  un moteur à score multi-critères bien plus riche (capacités 30%, charge
+  25%, disponibilité 20%, historique de succès 15%, préférence runtime
+  10%) — n'était jamais appelé par le vrai chemin.
+- Mine dormante : `TaskDispatcher.__init__` avait
+  `execute_callback or (lambda a, n: True)` — un callback par défaut qui
+  fabrique un succès sans rien exécuter, exactement le défaut R-001 déjà
+  corrigé ailleurs. Inoffensif tant que ce chemin reste mort (confirmé),
+  documenté plutôt que changé (le changer casserait plusieurs tests
+  préexistants qui s'appuient sciemment sur ce défaut comme stub).
+- Aucune vraie porte de sécurité par agent. `SecurityEngine`
+  (`backend/security/security_engine.py`, HOS-057) correspond exactement à
+  la chaîne décrite — Permission → Trust → Threat → Isolation → Allow/
+  Reject/Review — réellement construit et branché à ses propres routes.
+  Mais **aucune permission ni politique par défaut n'est configurée nulle
+  part** — `PermissionManager.check_permission()`/`evaluate_policies()`
+  refusent tout par défaut sans rien d'accordé. Câbler la porte complète
+  dans le dispatch obligatoire aurait donc silencieusement bloqué chaque
+  mission réelle dès aujourd'hui — construire la couche de configuration de
+  politique manquante (l'équivalent, pour `SecurityEngine`, du
+  `config/security.yaml` d'Aegis) est un chantier séparé et nettement plus
+  gros que cette passe.
+- La collaboration multi-agents (`CollaborationEngine`, message bus,
+  délégation, consensus — `backend/agents/collaboration/`) est réelle et
+  fonctionnelle, branchée à ses propres routes, mais rien dans une vraie
+  mission ne l'utilise jamais.
+
+### Added
+- **Phase A — Refléter la vraie activité** : `MissionExecutor` reçoit
+  désormais le vrai `AgentRegistry` (`backend/agents/`) et synchronise
+  statut (BUSY pendant l'exécution, READY après), tâche/mission en cours,
+  et métriques réelles (`update_metrics`) à chaque exécution de tâche —
+  best-effort, jamais capable de faire échouer la tâche qu'elle décrit.
+  Nouvelle méthode `AgentRegistry.find_by_name()` : le vrai chemin
+  d'exécution identifie les agents par nom (ex. "atlas"), pas par l'UUID
+  interne du registre. Un retry transitoire (timeout Ollama puis succès)
+  compte comme une seule réussite logique, pas un échec suivi d'un succès —
+  `task.errors` repart vide à chaque nouvelle tentative (déjà corrigé pour
+  la validation en HOS-069 ; étendu ici à la conséquence sur les
+  métriques agent).
+- **Phase B — Un seul cerveau de sélection** : `AgentCoordinator` délègue
+  désormais au vrai `CapabilityMatcher` quand il est câblé, au lieu de
+  faire tourner deux moteurs déconnectés. La correspondance par mots-clés
+  reste le repli pour les appelants qui construisent `AgentCoordinator()`
+  nu (le chemin autonome `/execution/start`, les tests hermétiques
+  existants) — un repli documenté, pas un second décideur vivant. Nouveaux
+  champs `TaskExecution.task_type`/`preferred_agent` (miroir de
+  `MissionNode.type`/`preferred_agent`), transmis par `node_execution.py`.
+  Conséquence réelle mesurée : un agent réellement occupé (`BUSY`, grâce à
+  la Phase A) est désormais exclu de la sélection, pas seulement pénalisé
+  dans un score.
+- **Phase C — Confiance réelle** : `AgentTrustEngine.record_result()`
+  (HOS-057) existait et n'était jamais appelé — chaque score de confiance
+  restait à sa valeur par défaut. `MissionExecutor` l'alimente désormais
+  avec chaque résultat réel, indépendamment de `AgentRegistry` (l'un
+  fonctionne même sans l'autre). Le vrai score/niveau de confiance est
+  exposé par `GET /api/v1/agents` et `/agents/{id}` (`trust_score`,
+  `trust_level` — `null` explicite, jamais fabriqué, quand aucun moteur de
+  confiance n'est câblé). La porte complète `SecurityEngine.check_access()`
+  reste délibérément non câblée dans le dispatch obligatoire — voir
+  "Autres écarts trouvés" ci-dessus.
+- **Phase D — Documentation honnête** : `CollaborationEngine`,
+  `AgentSupervisor` (ses propres `dispatch_node()`/
+  `execute_mission_step()`/`execute_full_mission()`) et le callback par
+  défaut fabricant de `TaskDispatcher` documentent maintenant clairement
+  leur statut réel : fonctionnels, mais hors du chemin d'exécution réel
+  d'une Mission/Autonomous aujourd'hui.
+- **Phase E — Cockpit Agent Center** : refonte — compteurs de statut réels,
+  ressources réelles (VRAM/GPU, réutilise `useMonitoringResources` déjà
+  existant), activité réelle (missions actives, tâches en cours/terminées/
+  échouées, réutilise les statistiques d'Execution du HOS-069), panneau de
+  détail par agent avec Performance et Trust réels, message honnête pour le
+  panneau Collaboration (voir Phase D). Le type `AgentStatus` du frontend
+  déclarait `"ERROR"`, une valeur qui n'a **jamais existé** côté backend
+  (les vraies valeurs : `FAILED`, plus `STOPPING`/`RECOVERING` absentes) —
+  remplacé pour correspondre exactement à l'énumération réelle.
+
+### Bugs trouvés et corrigés en cours de route
+- Même bug que Missions (HOS-068) et Execution (HOS-069), un quatrième
+  onglet plus tard toujours pas généralisé : `AgentStatus` déclaré en
+  majuscules côté frontend, le backend renvoie ses valeurs en minuscules,
+  rien ne normalisait entre les deux — chaque lookup indexé par statut
+  (badge, comptage du tableau de bord) échouait silencieusement pour
+  **tout** agent. Corrigé dans `toAgent()` (`services/client.ts`), le même
+  point de traduction déjà établi pour Mission/Execution.
+- `GET /api/v1/agents` (liste) omettait `successful_tasks`/`failed_tasks`
+  — seul `GET /api/v1/agents/{id}` (détail) les avait. Le Cockpit sélectionne
+  un agent depuis la ligne de liste déjà en cache plutôt que de re-fetcher
+  le détail, donc un agent réellement réussi à 100% affichait "0 ok, 0
+  failed" — trouvé en vérification manuelle dans le navigateur (le succès
+  rate affichait 100% à côté d'un décompte "0 ok" incohérent). Corrigé en
+  ajoutant les mêmes champs (plus `current_mission_id`) à la réponse de
+  liste.
+
+### Verified
+- Vérifié en conditions réelles dans le navigateur avec Ollama réel : une
+  mission de 6 tâches exécutée via `/missions/{id}/start` fait apparaître
+  dans l'Agent Center les agents réellement sélectionnés (aegis, atlas,
+  echo, hermes_prime, kronos, veritas — 6 sur 10, correspondant aux 6
+  tâches) avec `total_tasks: 1`, `success_rate: 100%`, `trust_score: 75.1`,
+  `trust_level: "high"` — tandis que les 4 agents jamais sélectionnés
+  affichent honnêtement `trust_score: 50.0`, `trust_level: "unknown"` (la
+  valeur par défaut d'un agent sans historique). Panneau de détail vérifié
+  après le correctif ci-dessus : "1 ok, 0 failed" cohérent avec 100% de
+  succès. VRAM réelle affichée (AMD Radeon RX 6800, 3.0/16.0 Go).
+- Nouveaux tests hermétiques (aucun Ollama réel requis) :
+  `tests/architecture/test_agent_registry_sync.py` (6 tests — sync statut/
+  métriques, agent marqué BUSY pendant l'exécution, retry ne compte pas en
+  double, no-op sans registre/agent inconnu),
+  `tests/architecture/test_agent_selection_consolidation.py` (5 tests —
+  délégation au vrai matcher, agent occupé exclu, repli sans capacité
+  correspondante, repli sans matcher du tout),
+  `tests/architecture/test_agent_trust_sync.py` (5 tests — enregistrement
+  réel des victoires/défaites, indépendance vis-à-vis d'AgentRegistry, pas
+  de double comptage sur retry), `tests/architecture/
+  test_agent_routes_real_fields.py` (3 tests — liste et détail d'accord sur
+  les mêmes compteurs, `trust_score: null` explicite sans moteur câblé).
+- Suite complète (`tests/` + `backend/tests/`) : **3522 passed, 3 skipped,
+  1 failed** — le seul échec est
+  `test_task_executor_shares_the_container_model_intelligence`, le flake de
+  test-ordering déjà documenté (HOS-067), reproductible seul en isolation
+  avec succès (revérifié une nouvelle fois dans cette passe). Aucun échec
+  lié à Ollama cette fois — suite complète propre de bout en bout en
+  13m42s.
+
 ## HOS-069 — Execution : reconnexion au vrai moteur, VRAM réelle, retry intelligent (2026-08-07)
 
 Demande de l'utilisateur : troisième onglet de la même série de revues

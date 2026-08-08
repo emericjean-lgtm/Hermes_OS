@@ -234,6 +234,11 @@ function toAgent(raw: Record<string, any>): Agent {
     type: raw.type ?? raw.preferred_model ?? "",
     runtime: raw.runtime ?? raw.preferred_runtime ?? "",
     capabilities: Array.isArray(raw.capabilities) ? raw.capabilities : [],
+    // AgentStatus (types/hermes.ts) is declared uppercase; the backend's
+    // AgentStatus enum values are lowercase ("ready", "busy", ...). Without
+    // this, every status-keyed lookup (statusBadge, dashboard counts,
+    // disabled-state checks) silently missed for every agent.
+    status: String(raw.status ?? "").toUpperCase(),
   } as Agent;
 }
 
@@ -242,7 +247,7 @@ export const agentsClient = {
     fetchJSON<unknown>("/agents")
       .then((d) => unwrap<Record<string, any>>(d, "agents"))
       .then((rows) => rows.map(toAgent)),
-  get: (id: string) => fetchJSON<Agent>(`/agents/${id}`),
+  get: (id: string) => fetchJSON<Record<string, any>>(`/agents/${id}`).then(toAgent),
   create: (data: Partial<Agent>) =>
     fetchJSON<Agent>("/agents", { method: "POST", body: JSON.stringify(data) }),
   start: (id: string) => fetchJSON<Agent>(`/agents/${id}/start`, { method: "POST" }),
