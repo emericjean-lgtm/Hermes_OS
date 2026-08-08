@@ -105,6 +105,10 @@ class TaskExecution:
     assigned_agent: str = ""
     assigned_runtime: str = ""
     assigned_skills: list[str] = field(default_factory=list)
+    # AgentCoordinator's recommendation, surfaced to the model as a text
+    # hint in the system prompt (see RealTaskExecutor._build_messages()) —
+    # NOT a real tool/MCP invocation (HOS-069 audit finding). No tool named
+    # here is ever actually called.
     assigned_tools: list[str] = field(default_factory=list)
     result: Any = None
     errors: list[str] = field(default_factory=list)

@@ -217,15 +217,16 @@ class TestNodeExecutionRetryLoop:
 
         calls = {"n": 0}
 
-        class _FakeSM:
-            pass
+        class _FakeController:
+            """Mirrors ExecutionController's shape (HOS-069): start()/
+            execute_task(execution_id, task_id)/finalize(), not the raw
+            engine's prepare()/execute_task(sm, task_id)."""
 
-        class _FakeEngine:
-            def prepare(self, meta, tasks):
+            def start(self, meta, tasks):
                 self._task = tasks[0]
-                return _FakeSM()
+                return object()
 
-            def execute_task(self, sm, task_id):
+            def execute_task(self, execution_id, task_id):
                 calls["n"] += 1
                 if calls["n"] < 3:
                     # Mirrors MissionExecutor: RETRY resets status to PENDING.
@@ -236,8 +237,11 @@ class TestNodeExecutionRetryLoop:
                 self._task.duration_ms = 5.0
                 return {"task_id": task_id, "status": "completed"}
 
-        engine = _FakeEngine()
-        executor = make_node_executor(engine)
+            def finalize(self, execution_id):
+                return None
+
+        controller = _FakeController()
+        executor = make_node_executor(controller)
         node = MissionNode(node_id="n1", title="Retry me")
         result = executor(node)
 
@@ -245,7 +249,7 @@ class TestNodeExecutionRetryLoop:
         assert calls["n"] == 3  # retried twice before succeeding
         assert "done" in node.result_summary
 
-    def test_no_engine_reports_failure_not_success(self):
+    def test_no_controller_reports_failure_not_success(self):
         from backend.mission.node_execution import make_node_executor
 
         executor = make_node_executor(None)

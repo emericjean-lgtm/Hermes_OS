@@ -263,9 +263,27 @@ def _make_task_executor(c: Any) -> Any:
     Center's HTTP surface also reads from, so a real task execution now
     shows up in ``/models/history`` and ``/models/performance`` too.
     """
+    from backend.core.config import load_models_config
     from backend.execution.task_executor import RealTaskExecutor
     from backend.model_intelligence import routes as mi_routes
     from backend.model_intelligence.model_intelligence_models import ModelPerformanceRecord
+
+    # HOS-069: config/models.yaml's roles.*.vram_gb is HOS-065C's real,
+    # measured VRAM footprint per model — not a guess. Loaded once here
+    # (models.yaml is small and cached by load_models_config's lru_cache
+    # anyway) into a flat model-tag -> vram_gb map for the admission check
+    # below, decoupled from whichever router object picked the model.
+    _vram_by_model: dict[str, float] = {}
+    for _role in load_models_config().get("roles", {}).values():
+        if isinstance(_role, dict) and _role.get("model") and _role.get("vram_gb"):
+            _vram_by_model[_role["model"]] = float(_role["vram_gb"])
+
+    def _vram_gb_for(model: str) -> Optional[float]:
+        """Real, benchmarked VRAM footprint for a resolved model tag
+        (HOS-069). None for a tag with no matching role entry — the
+        admission check is then a safe no-op for it rather than blocking on
+        an invented number."""
+        return _vram_by_model.get(model)
 
     def _model_for(task: Any) -> Optional[str]:
         title = getattr(task, "title", "") or ""
@@ -355,6 +373,8 @@ def _make_task_executor(c: Any) -> Any:
         cloud_chat=_make_cloud_chat(),
         runtime_for=_runtime_for,
         local_fallback_for=_local_fallback_for,
+        resource_manager=c.get("resource_manager"),
+        vram_gb_for=_vram_gb_for,
     )
 
 
@@ -403,13 +423,17 @@ def _make_graph_executor(c: Any) -> Any:
     ``execute_node`` has always been an injection point and nothing ever used
     it, so it fell back to ``lambda n: True`` — every node of every mission was
     declared successful without any work being done (R-002 P1).
+
+    HOS-069: bound to ``execution_controller``, not ``execution_engine``
+    directly, so a real node execution registers where ``/api/v1/execution``
+    can see it — see node_execution.py's module docstring.
     """
     from backend.mission.graph_executor import GraphExecutor
     from backend.mission.node_execution import make_node_executor
 
     return GraphExecutor(
         on_event=_dispatcher(c, "mission_executor"),
-        execute_node=make_node_executor(c.get("execution_engine")),
+        execute_node=make_node_executor(c.get("execution_controller")),
     )
 
 
@@ -608,10 +632,22 @@ def _bind_security_routes(c: Any, svc: Any) -> list[Any]:
 # ── Execution ─────────────────────────────────────────────────────────
 
 def _make_execution_controller(c: Any) -> Any:
-    """Adopt the controller `backend.execution.routes` already built."""
-    from backend.execution import routes as execution_routes
+    """Wrap the *shared* execution engine (HOS-069), not a private one.
 
-    return execution_routes._controller  # noqa: SLF001 - deliberate adoption
+    This used to "adopt" execution_routes' own module-level controller —
+    built at import time around its own freshly-constructed
+    ``MissionExecutor()``, completely disconnected from ``execution_engine``
+    (the shared instance ``node_execution.py`` and
+    ``AutonomousOrchestrator``'s DAG path drive directly). Every real task
+    ever run through Missions or Autonomous executed on the shared engine;
+    this controller's own ``_executions``/``_reports`` registries never saw
+    any of it, so ``/execution/*`` and the Cockpit's Execution Center could
+    never show real activity — "Aucune exécution enregistrée" was an
+    accurate report of a structurally empty registry, not a display bug.
+    """
+    from backend.execution.execution_controller import ExecutionController
+
+    return ExecutionController(c.get("execution_engine"))
 
 
 def _bind_execution_routes(c: Any, svc: Any) -> list[Any]:
@@ -984,8 +1020,10 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         # factory reaches its module-level singleton directly, like
         # _make_model_intelligence itself does) — declared here so the
         # dependency graph reflects the real coupling introduced by
-        # model_for/on_execution rather than hiding it.
-        dependencies=("event_dispatcher", "model_intelligence"),
+        # model_for/on_execution rather than hiding it. resource_manager is
+        # a real dependency (HOS-069): real VRAM admission checking before
+        # each local inference call.
+        dependencies=("event_dispatcher", "model_intelligence", "resource_manager"),
         produced_events=("execution.task_completed",),
         description="Performs the actual work for one task (R-001)",
         capabilities=("inference", "task_execution"),
@@ -1010,9 +1048,12 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         name="Mission Graph Executor",
         category=ComponentCategory.MISSION,
         factory=_make_graph_executor,
-        # execution_engine is what its execute_node hook delegates to; without
-        # it the DAG would fall back to declaring every node successful.
-        dependencies=("event_dispatcher", "execution_engine"),
+        # execution_controller is what its execute_node hook delegates to
+        # (HOS-069 — it wraps the same shared execution_engine, but routing
+        # through it is what makes a real node execution visible to
+        # /api/v1/execution); without it the DAG would fall back to
+        # declaring every node successful.
+        dependencies=("event_dispatcher", "execution_controller"),
         route_binder=_bind_mission_routes,
         produced_events=("mission.started", "mission.completed", "mission.failed"),
         description="Mission DAG execution (HOS-041)",
@@ -1139,10 +1180,12 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         name="Autonomous Mission Execution",
         category=ComponentCategory.EXECUTION,
         factory=_make_execution_controller,
+        # HOS-069: wraps the shared execution_engine rather than a private
+        # instance — see _make_execution_controller's docstring.
+        dependencies=("execution_engine",),
         route_binder=_bind_execution_routes,
         produced_events=("execution.started", "execution.completed", "checkpoint.saved"),
         description="Execution state machine and controller (HOS-050)",
-        adopts_module_singleton=True,
         capabilities=("execution", "checkpointing"),
     ),
     # ── Autonomy, evolution, conversation, explainability ──

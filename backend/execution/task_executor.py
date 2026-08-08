@@ -27,6 +27,13 @@ Design constraints it has to respect:
 * **Real telemetry.** Latency is measured with ``perf_counter``; token counts
   and the model actually used come from the runtime's own response, not from an
   estimate.
+
+Known, documented limitation (HOS-069 audit, not fixed here — see
+``_build_messages()``'s own docstring for the detail): this executor performs
+one chat completion per task. ``assigned_tools`` (AgentCoordinator's pick) is
+mentioned to the model as a text hint, never invoked as a real tool/MCP call.
+Nothing here bypasses Aegis's tool-call security gate, because no real tool
+call exists on this path for it to gate.
 """
 
 from __future__ import annotations
@@ -119,6 +126,21 @@ class RealTaskExecutor:
             different runtime is not fabrication — it is the automatic
             cloud-to-local fallback the escalation feature exists for.
         timeout_s: hard ceiling on one inference call.
+        resource_manager: real GPU/VRAM telemetry (HOS-069,
+            backend/runtime/resources/resource_manager.py — already existed,
+            was never consulted by anything in the execution path). None
+            (the default) disables admission checking entirely, matching
+            prior behaviour: a task never waited for VRAM before this.
+        vram_gb_for: maps a resolved model tag to its measured VRAM
+            footprint (config/models.yaml's ``vram_gb``, from HOS-065C's
+            real benchmarks — not a guess). Required alongside
+            ``resource_manager`` for admission checking to actually run;
+            either alone is a no-op.
+        vram_wait_s / vram_poll_interval_s: how long to wait for VRAM to
+            free up (another task finishing) before failing the task as
+            ``RuntimeUnavailableError`` rather than risking the exact
+            VRAM-exhaustion GraphExecutor's bounded parallelism (HOS-068)
+            was already built to avoid.
     """
 
     def __init__(
@@ -135,6 +157,10 @@ class RealTaskExecutor:
         local_fallback_for: Optional[Callable[[Any], Optional[str]]] = None,
         timeout_s: float = 180.0,
         default_model: str = "qwen3:4b",
+        resource_manager: Any = None,
+        vram_gb_for: Optional[Callable[[str], Optional[float]]] = None,
+        vram_wait_s: float = 20.0,
+        vram_poll_interval_s: float = 1.0,
     ) -> None:
         self._chat = chat
         self._model_for = model_for
@@ -147,6 +173,10 @@ class RealTaskExecutor:
         self._local_fallback_for = local_fallback_for
         self._timeout_s = timeout_s
         self._default_model = default_model
+        self._resource_manager = resource_manager
+        self._vram_gb_for = vram_gb_for
+        self._vram_wait_s = vram_wait_s
+        self._vram_poll_interval_s = vram_poll_interval_s
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
@@ -235,6 +265,8 @@ class RealTaskExecutor:
         started = time.perf_counter()
         try:
             active_chat = self._cloud_chat if use_cloud else chat
+            if not use_cloud:
+                self._check_vram_admission(model)
             response = self._run_coro(
                 active_chat(messages=messages, model=model, num_ctx=num_ctx), self._timeout_s
             )
@@ -251,6 +283,7 @@ class RealTaskExecutor:
                 )
                 fallback_model = self._resolve_local_fallback(task) or self._default_model
                 try:
+                    self._check_vram_admission(fallback_model)
                     response = self._run_coro(
                         chat(messages=messages, model=fallback_model, num_ctx=num_ctx),
                         self._timeout_s,
@@ -389,7 +422,61 @@ class RealTaskExecutor:
                 logger.debug("local_fallback_for callback failed", exc_info=True)
         return None
 
+    def _check_vram_admission(self, model: str) -> None:
+        """Wait for real VRAM headroom before starting local inference
+        (HOS-069) — the check GraphExecutor's bounded parallelism (HOS-068)
+        reduced the *odds* of needing but never actually performed.
+
+        Conservative by construction: it does not know whether ``model`` is
+        already resident in Ollama (that isn't introspected here), so it
+        always asks for its full footprint — occasionally waiting when the
+        model was already loaded and would have needed no more VRAM, never
+        the other way around. A no-op unless both ``resource_manager`` and
+        ``vram_gb_for`` are wired (opt-in; prior behaviour otherwise).
+        """
+        if self._resource_manager is None or self._vram_gb_for is None:
+            return
+        try:
+            vram_gb = self._vram_gb_for(model)
+        except Exception:
+            logger.debug("vram_gb_for callback failed for %s", model, exc_info=True)
+            return
+        if not vram_gb or vram_gb <= 0:
+            return
+        bytes_requested = int(vram_gb * 1024 ** 3)
+
+        deadline = time.monotonic() + self._vram_wait_s
+        reason = "insufficient VRAM"
+        while True:
+            result = self._resource_manager.can_allocate(
+                bytes_requested, "ollama", model_name=model,
+            )
+            if result.success:
+                return
+            reason = result.reason or reason
+            if time.monotonic() >= deadline:
+                raise RuntimeUnavailableError(
+                    f"no VRAM admission for {model!r} ({vram_gb:.1f}GB "
+                    f"requested) after {self._vram_wait_s:.0f}s: {reason}"
+                )
+            time.sleep(self._vram_poll_interval_s)
+
     def _resolve_model(self, task: Any, assignment: Any) -> str:
+        # HOS-069: on a genuine retry (task.retries > 0 — MissionExecutor
+        # already re-invokes this whole method for a RETRY outcome or a
+        # RuntimeUnavailableError), prefer a real alternative over asking
+        # the same primary-model call to fail the same way again. Reuses
+        # local_fallback_for rather than adding a second recommendation
+        # path — the same real, local-only (allow_cloud=False) ranking
+        # already wired for HOS-066C's cloud-to-local fallback, just
+        # consulted first instead of only after a cloud failure.
+        if getattr(task, "retries", 0) > 0 and self._local_fallback_for is not None:
+            try:
+                fallback = self._local_fallback_for(task)
+                if fallback:
+                    return str(fallback)
+            except Exception:
+                logger.debug("local_fallback_for callback failed on retry", exc_info=True)
         if self._model_for is not None:
             try:
                 chosen = self._model_for(task)
@@ -409,6 +496,26 @@ class RealTaskExecutor:
 
     @staticmethod
     def _build_messages(task: Any, assignment: Any) -> list[dict[str, Any]]:
+        """Build the one chat completion this execution actually is.
+
+        HOS-069 audit finding, documented rather than silently left as-is:
+        ``tools`` below is a *text hint* in the system prompt ("Available
+        tools: X, Y"), not a real tool-calling mechanism. This method never
+        passes an OpenAI/Ollama-style ``tools=[...]`` schema to the runtime,
+        and nothing downstream parses the model's response for a function
+        call and actually invokes anything — no filesystem, git, or MCP
+        call is ever made from this execution path. A model asked to "use"
+        a tool can only produce text that *looks* like a tool invocation
+        (e.g. a line reading ``klaatcode.analyze_project --config-file
+        ...``), which is then stored as the task's real, honestly-reported
+        result — text output, not a tool's actual return value. Aegis's
+        Policy/Permission/Trust gate for tool calls is therefore never
+        bypassed by this path: there is no real tool call here for it to
+        gate. Wiring genuine tool-calling (a real function-call loop, each
+        call gated by Aegis before it runs) is a separate, materially
+        larger initiative — not something to half-implement inside this
+        method.
+        """
         title = getattr(task, "title", "") or getattr(task, "task_id", "task")
         agent = getattr(assignment, "agent_id", "") or getattr(task, "assigned_agent", "")
         skills = list(getattr(assignment, "skill_ids", None)

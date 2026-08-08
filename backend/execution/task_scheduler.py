@@ -29,8 +29,23 @@ class SchedulePlan:
 class TaskScheduler:
     """Determines which tasks can run now, which are blocked, and the optimal order.
 
-    Supports: parallel execution, dependencies, priorities, resource limits.
-    Integrates with RuntimeResourceManager for GPU limits.
+    Supports: parallel execution, dependencies, priorities.
+
+    Does NOT integrate with RuntimeResourceManager, despite an earlier
+    version of this docstring claiming it did — ``max_parallel``/
+    ``max_gpu_tasks``/``get_ready_tasks()``'s ``gpu_only`` parameter are all
+    accepted but never read anywhere in this class (found during the
+    HOS-069 Execution Center audit). Real, GPU-telemetry-backed VRAM
+    admission checking lives in ``RealTaskExecutor._check_vram_admission()``
+    (task_executor.py) instead, gated by a real ``ResourceManager``
+    (backend/runtime/resources/resource_manager.py) wired at bootstrap — it
+    runs per real inference call, not per scheduling decision, because the
+    model a task will use isn't known until deep inside execution (agent
+    coordination -> model resolution), well past this scheduler's own
+    get_ready_tasks()/build_plan(). Those two methods, along with priority
+    ordering, are also not on the path real Mission/Autonomous executions
+    take at all — see GraphExecutor's own DependencyResolver, a separate,
+    independent dependency graph this scheduler's is a near-duplicate of.
     """
 
     #: Tasks retained after completion. The scheduler is a live work queue, not
@@ -47,6 +62,8 @@ class TaskScheduler:
                            TaskExecutionStatus.FAILED})
 
     def __init__(self, max_parallel: int = 8, max_gpu_tasks: int = 2) -> None:
+        # max_parallel/max_gpu_tasks: accepted for API compatibility with
+        # existing callers/tests, but unused — see the class docstring.
         self._lock = threading.RLock()
         self._max_parallel = max_parallel
         self._max_gpu_tasks = max_gpu_tasks
@@ -187,6 +204,25 @@ class TaskScheduler:
             if not self._tasks:
                 return True
             return all(t.status in self._TERMINAL for t in self._tasks.values())
+
+    def all_done(self, task_ids: list[str]) -> bool:
+        """Like ``is_all_done()`` but scoped to a specific set of tasks.
+
+        HOS-069: this scheduler is shared by every execution in the process
+        (one registry, many callers), so ``is_all_done()`` only answers "is
+        literally every task ever registered here terminal" — with more than
+        one execution in flight (real since HOS-068's parallel GraphExecutor
+        dispatch), that is almost never true for any *one* of them.
+        MissionExecutor.execute_task() needs "are this execution's own tasks
+        done", which is what this answers instead.
+        """
+        with self._lock:
+            if not task_ids:
+                return False
+            return all(
+                (t := self._tasks.get(tid)) is not None and t.status in self._TERMINAL
+                for tid in task_ids
+            )
 
     # ── private ──
 

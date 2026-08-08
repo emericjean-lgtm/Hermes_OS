@@ -43,7 +43,8 @@ import type {
   PolicyRule,
   ApprovalRequest,
   AuditEntry,
-  ExecutionState,
+  ExecutionSummary,
+  ExecutionStatistics,
   SystemHealth,
   SystemStatistics,
   SystemEvent,
@@ -251,10 +252,17 @@ export function useAuditLog(params?: Record<string, string>) {
 
 // ── Execution ────────────────────────────────────────
 export function useExecutions() {
-  return useQuery<ExecutionState[]>({ queryKey: ["executions"], queryFn: executionClient.list });
+  return useQuery<ExecutionSummary[]>({
+    queryKey: ["executions"],
+    queryFn: executionClient.list,
+    // Real activity now arrives here as Missions run (HOS-069) — poll while
+    // any task is genuinely in flight, matching the pattern already used
+    // for Autonomous/Mission timelines.
+    refetchInterval: 5_000,
+  });
 }
 export function useExecution(id: string | null) {
-  return useQuery<ExecutionState | null>({
+  return useQuery<ExecutionSummary | null>({
     queryKey: ["executions", id],
     queryFn: () => (id ? executionClient.get(id) : null),
     enabled: !!id,
@@ -643,9 +651,9 @@ export function useRuntimeIntelligence() {
 }
 
 export function useExecutionStatistics() {
-  return useQuery({
+  return useQuery<ExecutionStatistics>({
     queryKey: ["execution", "statistics"],
-    queryFn: () => monitoringClient.executionStatistics(),
+    queryFn: () => executionClient.statistics(),
     refetchInterval: 10_000,
   });
 }

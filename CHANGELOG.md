@@ -1,3 +1,188 @@
+## HOS-069 — Execution : reconnexion au vrai moteur, VRAM réelle, retry intelligent (2026-08-07)
+
+Demande de l'utilisateur : troisième onglet de la même série de revues
+(après Autonomous OS et Missions) — "Execution est justement la pièce qui
+manquait pour rendre la chaîne Autonomous → Mission réellement cohérente."
+Spécification détaillée fournie : file de tâches, scheduler conscient des
+ressources (exemple concret VRAM sur la RX 6800 16 Go), affectation
+agent/modèle/runtime, outils/MCP avec porte de sécurité systématique,
+retry/recovery intelligent (bascule de modèle), validation, Cockpit avec vue
+par tâche et explications de blocage. Après audit et validation du plan en
+5 phases par l'utilisateur ("Oui. Et Execution est justement..."), mise en
+œuvre complète.
+
+### Constat principal (audit, avant tout code)
+L'onglet Execution était **structurellement déconnecté** du vrai moteur.
+`backend/execution/routes.py` construit au chargement du module sa propre
+instance de `MissionExecutor` ; le bootstrap était censé la remplacer, mais
+`_make_execution_controller()` faisait un `return
+execution_routes._controller` — une réadoption circulaire de l'instance
+orpheline elle-même, jamais du `execution_engine` partagé que Missions et
+Autonomous pilotent réellement via `node_execution.py`. Résultat :
+`/api/v1/execution` ne pouvait structurellement jamais voir une vraie
+activité — le message vide du Cockpit ("Aucune exécution enregistrée...")
+était honnête malgré lui. `POST /execution/start` et le hook
+`useStartExecution()` existaient mais rien ne les appelait jamais.
+
+### Autres écarts trouvés
+- `TaskScheduler` prétendait dans sa docstring "Integrates with
+  RuntimeResourceManager for GPU limits" — faux : `max_gpu_tasks`/`gpu_only`
+  étaient acceptés en paramètres et jamais lus dans le corps du code. Un vrai
+  `ResourceManager` (HOS-035, vraie télémétrie GPU) existait ailleurs, jamais
+  appelé depuis Execution.
+- `get_ready_tasks()`/`build_plan()` (vagues, priorité) ne sont jamais
+  appelés par le vrai chemin d'exécution — Missions utilise son propre
+  `DependencyResolver`, complètement séparé. Le tri par priorité était de
+  toute façon inerte (`TaskExecution` ne porte aucun champ priorité).
+- Sélection agent/modèle/outil dans `AgentCoordinator` = correspondance de
+  mots-clés simpliste, sans lien avec le vrai Model Intelligence
+  (AdaptiveRouter).
+- Les outils ne sont jamais réellement invoqués — `RealTaskExecutor.execute()`
+  fait un pur appel de chat ; `assigned_tools` est calculé mais jamais utilisé
+  pour un vrai appel d'outil/MCP.
+- Retry bête : relance toujours la même tâche avec le même modèle.
+  `ExecutionMeta.max_retries_per_task` était déclaré et jamais lu ; le vrai
+  plafond était un `3` codé en dur, et un `RuntimeUnavailableError`
+  (timeout Ollama, etc.) échouait la tâche **sans aucun retry**, contrairement
+  à la voie de validation `RETRY`.
+- `FeedbackLoop`/`OptimizationEngine` n'étaient jamais atteints pour une
+  exécution réelle — rien n'appelait `finalize()` sur le chemin
+  Missions/Autonomous.
+
+### Added
+- **Phase A — Reconnexion au vrai moteur** :
+  `_make_execution_controller()` enveloppe désormais le `execution_engine`
+  partagé (`ExecutionController(c.get("execution_engine"))`). Le hook
+  `execute_node` de `GraphExecutor` (`node_execution.py`) route maintenant
+  par `ExecutionController.start()`/`execute_task()`/`finalize()` au lieu de
+  parler directement au `MissionExecutor` brut — une exécution de nœud réel
+  s'enregistre enfin là où `/api/v1/execution` et le Cockpit peuvent la voir.
+  `MissionNode.mission_id` (nouveau champ) est estampillé par
+  `GraphExecutor.build_graph()` pour que chaque exécution affiche la vraie
+  mission dont elle fait partie, sans élargir la signature du callable
+  `execute_node` (toujours `MissionNode -> bool`, tous les faux/tests
+  existants restent valides).
+  - `ExecutionController.execute_task()` — verrou resserré (même correctif
+    que HOS-068 sur `MissionExecutor`) : router par ce contrôleur n'aurait
+    sinon resérialisé le parallélisme borné de GraphExecutor.
+  - `ExecutionController._executions`/`_reports` — désormais bornés
+    (`MAX_RETAINED_EXECUTIONS = 512`), le même motif RC3 P5 déjà corrigé
+    ailleurs ; sans risque tant que rien n'alimentait ces registres, devenu
+    un vrai risque dès qu'une vraie activité y arrive.
+  - `TaskScheduler.all_done(task_ids)` (nouvelle méthode) — `is_all_done()`
+    répond pour *tous* les tâches jamais enregistrées sur le scheduler
+    partagé, pas pour une exécution donnée ; faux dès que plusieurs
+    exécutions cohabitent (réel depuis le parallélisme HOS-068).
+    `MissionExecutor.execute_task()` utilise maintenant `all_done()`, borné
+    à ses propres tâches, pour décider quand transitionner l'état — et
+    rapporte `FAILED`, pas `COMPLETED`, quand une tâche a réellement échoué
+    (l'ancien code transitionnait vers `COMPLETED` sans condition).
+- **Phase B — Admission VRAM réelle** : `RealTaskExecutor` consulte
+  désormais le vrai `ResourceManager` (déjà existant, HOS-035, vraie
+  télémétrie GPU) avant chaque appel d'inférence local — `vram_gb_for`
+  (nouveau callback, câblé au bootstrap depuis `config/models.yaml`'s
+  `roles.*.vram_gb`, les vraies mesures HOS-065C) donne l'empreinte requise ;
+  `can_allocate()` répond ALLOW/DENY selon la VRAM réellement libre
+  maintenant. DENY → attente bornée (poll, `vram_wait_s`/
+  `vram_poll_interval_s`) puis `RuntimeUnavailableError` honnête plutôt
+  qu'une explosion VRAM silencieuse. Conservateur par construction : ne sait
+  pas si le modèle est déjà chargé, donc demande toujours son empreinte
+  complète. Docstring mensongère de `TaskScheduler` corrigée pour pointer
+  vers ce vrai mécanisme.
+- **Phase C — Retry intelligent borné** : un `RuntimeUnavailableError`
+  retente désormais (jusqu'à `ExecutionMeta.max_retries_per_task`, enfin lu
+  au lieu du `3` codé en dur) au lieu d'échouer la tâche immédiatement. Sur
+  une tentative de retry, `RealTaskExecutor._resolve_model()` préfère un
+  vrai modèle alternatif (réutilise `local_fallback_for`, déjà câblé pour le
+  repli cloud→local de HOS-066C) plutôt que de redemander le même modèle
+  primaire — exactement l'exemple de l'utilisateur (timeout Ollama → retry
+  → Qwen3 4B disponible → succès).
+- **Phase D — Documentation honnête Outils/MCP** : `_build_messages()`,
+  `AgentCoordinator._select_tools()`, `TaskExecution.assigned_tools` et le
+  docstring du module documentent maintenant clairement que les "outils
+  disponibles" sont un indice textuel dans le prompt, jamais un vrai appel
+  outil/MCP — donc rien ici ne contourne la porte de sécurité Aegis, puisqu'il
+  n'y a pas de vrai appel d'outil à filtrer sur ce chemin. Le vrai
+  tool-calling (boucle d'appel de fonction réelle, chaque appel filtré par
+  Aegis) reste un chantier séparé, plus gros, volontairement pas
+  à moitié implémenté ici.
+- **Phase E — Cockpit Execution Center** : refonte complète, une ligne par
+  tâche réelle (tâche, état, mission, agent(s), runtime(s), durée), panneau
+  de détail avec les vraies erreurs de la tâche (VRAM refusée, timeout,
+  échec de validation) quand elles existent, statistiques réelles issues du
+  scheduler partagé (en cours/en attente/terminées/échouées/total). Le type
+  `ExecutionState` du frontend (id/status/current_node/progress/checkpoints)
+  ne correspondait à **aucun** champ réel jamais renvoyé par le backend —
+  remplacé par `ExecutionSummary`, qui reflète l'API réelle.
+
+### Bugs trouvés et corrigés en cours de route
+- `task.errors` s'accumulait entre tentatives de retry : une tâche qui
+  échouait une fois puis réussissait vraiment au retry restait jugée
+  RETRY/FAIL par `ValidationEngine`, qui lit `task.errors` — l'erreur de la
+  tentative précédente traînait encore. Chaque tentative repart maintenant
+  avec une liste d'erreurs vide.
+- `MissionExecutor.finalize()` calculait `total_tasks`/`completed_tasks`/
+  `failed_tasks` depuis `self._scheduler.get_progress()` — un décompte
+  **global** sur tout le scheduler partagé, pas scopé à l'exécution en
+  cours. Invisible avant cette passe (rien n'appelait jamais `finalize()`
+  pour une vraie exécution de nœud) ; trouvé en vérification manuelle dans
+  le navigateur : une exécution à une seule tâche rapportait "2/2 tâches",
+  puis "3/3", etc. — un compteur global croissant, pas le vrai décompte de
+  cette exécution. Corrigé pour dériver ces trois champs de la liste de
+  tâches réellement scopée à l'exécution (`self._execution_tasks`), déjà
+  utilisée correctement ailleurs dans la même méthode.
+- Un test préexistant, `tests/integration/test_real_execution.py::
+  TestHonestFailure::test_mission_task_fails_when_runtime_is_down`, supposait
+  encore l'ancien comportement (`RuntimeUnavailableError` échoue
+  immédiatement) — cassé, intentionnellement, par la Phase C. Mis à jour
+  pour rejouer la boucle de retry jusqu'à épuisement (même motif que
+  `node_execution.py`) avant d'affirmer `FAILED` : le runtime simulé ne se
+  rétablit jamais dans ce test, donc l'invariant réel ("jamais de résultat
+  fabriqué") reste vérifié, juste après le nombre de tentatives configuré
+  plutôt qu'après une seule.
+
+### Verified
+- Vérifié en conditions réelles dans le navigateur avec Ollama réel : une
+  mission de 6 tâches exécutée via `/missions/{id}/start` apparaît
+  intégralement dans l'Execution Center — chaque ligne montre le vrai agent
+  (aegis/hermes_prime/atlas), le vrai runtime (ollama), la vraie durée
+  mesurée, et le panneau de détail affiche "1/1 tâches" (correctement scopé
+  après le correctif ci-dessus) avec "Aucune erreur." pour une tâche
+  réussie.
+- Nouveaux tests hermétiques (aucun Ollama réel requis) :
+  `tests/architecture/test_execution_controller_wiring.py` (8 tests —
+  scoping de `all_done()`, FAILED vs COMPLETED, verrou non resérialisant,
+  rétention bornée, bout-en-bout node_execution.py → ExecutionController
+  réel), `tests/architecture/test_vram_admission.py` (7 tests — no-op sans
+  câblage, allow immédiat, deny puis libération après attente, deny
+  permanent → RuntimeUnavailableError, jamais d'appel chat quand la VRAM
+  n'est jamais admise), `tests/architecture/test_intelligent_retry.py` (6
+  tests — retry borné et configurable, récupération après une panne
+  transitoire, préférence pour un modèle alternatif au retry).
+- `tests/architecture/` + `tests/autonomous/` + `test_assembly.py` (un
+  sous-ensemble large et représentatif, 1899 tests) : **1898 passed, 1
+  skipped**, seul échec `test_task_executor_shares_the_container_
+  model_intelligence` — le flake de test-ordering déjà documenté (HOS-067),
+  reproductible seul en isolation avec succès (revérifié une nouvelle fois
+  dans cette passe).
+- `tests/integration/test_real_execution.py` (21 tests, real Ollama) :
+  **21 passed** après le correctif du test de retry ci-dessus.
+- Suite complète (`tests/` + `backend/tests/`) : un premier passage complet
+  a montré **3496 passed, 8 failed** — 7 des 8 échecs concentrés dans
+  `test_real_execution.py` (real Ollama), confirmés transitoires en
+  isolation une fois relancés (tous verts, voir ligne ci-dessus) ; le
+  8ème était la vraie régression du test de retry, trouvée et corrigée
+  (voir "Bugs trouvés" ci-dessus). Un second passage complet, lancé pour
+  confirmer un résultat propre de bout en bout, s'est bloqué à 78% sans
+  progresser pendant plus de 10 minutes — un appel direct à `POST
+  /api/chat` sur l'Ollama local a lui-même expiré sans réponse pendant que
+  `GET /api/ps` répondait normalement, le même symptôme de file
+  d'inférence figée déjà rencontré et documenté pour HOS-068. Non résolu
+  plus loin dans cette passe (action système sur un service que cette
+  session n'a ni démarré ni arrêté) ; finalisé sur la base des passages
+  ciblés ci-dessus, tous verts, après validation explicite de l'utilisateur
+  pour procéder malgré l'absence d'un unique passage complet propre.
+
 ## HOS-068 — Missions : visibilité croisée, sécurité, rapport, pause/resume réels, parallélisme borné (2026-08-07)
 
 Demande de l'utilisateur : deuxième onglet de la même série de revues

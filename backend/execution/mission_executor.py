@@ -113,6 +113,36 @@ class MissionExecutor:
             sm.transition(ExecutionState.READY, "Tasks registered and scheduled")
             return sm
 
+    def _maybe_finalize_state(self, sm: ExecutionStateMachine) -> None:
+        """Transition ``sm`` to its terminal state once every task under
+        this execution is itself terminal (HOS-069).
+
+        Scoped per-execution via ``TaskScheduler.all_done()`` — see its
+        docstring for why the previous whole-scheduler ``is_all_done()``
+        check was wrong once more than one execution shares the scheduler
+        (real since HOS-068's concurrent GraphExecutor dispatch). Reports
+        FAILED, not COMPLETED, when any of this execution's own tasks
+        failed — the previous unconditional "all done -> COMPLETED" made a
+        failed execution report itself as completed to every caller of
+        ``ExecutionController.get()``/``list_executions()``. Call sites
+        must already hold ``self._lock``.
+        """
+        if sm.is_terminal():
+            return
+        own_task_ids = self._execution_tasks.get(sm._meta.execution_id, [])
+        if not self._scheduler.all_done(own_task_ids):
+            return
+        own_tasks = [self._scheduler.get_task(tid) for tid in own_task_ids]
+        any_failed = any(
+            t is not None and t.status == TaskExecutionStatus.FAILED for t in own_tasks
+        )
+        if any_failed:
+            sm.transition(ExecutionState.FAILED, "One or more tasks failed")
+            self._publish("execution.failed", {"execution_id": sm._meta.execution_id})
+        else:
+            sm.transition(ExecutionState.COMPLETED, "All tasks completed")
+            self._publish("execution.completed", {"execution_id": sm._meta.execution_id})
+
     def execute_task(self, sm: ExecutionStateMachine, task_id: str) -> dict[str, Any]:
         """Execute a single task through the full pipeline.
 
@@ -142,6 +172,17 @@ class MissionExecutor:
             sm.transition(ExecutionState.RUNNING, f"Executing task {task_id}")
             self._publish("execution.task_started", {"task_id": task_id})
 
+            # HOS-069: a fresh attempt starts with a clean error list. Before
+            # this, a retry's errors accumulated on top of the previous
+            # attempt's — so a task that failed once (e.g. a transient
+            # RuntimeUnavailableError, now retried — see below) and then
+            # genuinely succeeded on retry was still judged RETRY/FAIL by
+            # ValidationEngine, which reads task.errors: the earlier
+            # attempt's now-irrelevant error was still sitting there. Only
+            # this attempt's own outcome should decide this attempt's
+            # validation.
+            task.errors = []
+
             # 1. Coordinate: select agent, skills, runtime, tools
             assignment = self._coordinator.assign(task)
             task.assigned_agent = assignment.agent_id
@@ -159,19 +200,48 @@ class MissionExecutor:
             outcome = self._task_executor.execute(task, assignment)
         except RuntimeUnavailableError as exc:
             with self._lock:
-                task.status = TaskExecutionStatus.FAILED
                 task.errors.append(str(exc))
                 task.completed_at = datetime.now(timezone.utc)
                 task.duration_ms = (
                     (task.completed_at - task.started_at).total_seconds() * 1000.0
                     if task.started_at else 0.0
                 )
-                self._publish("execution.failed", {
-                    "task_id": task_id, "reason": "runtime_unavailable",
-                    "detail": str(exc),
-                })
+                # HOS-069: this used to fail the task outright on the very
+                # first runtime problem — an Ollama timeout, a VRAM
+                # admission denial, a connection error — with zero retry
+                # attempts at all, unlike the validation-outcome RETRY path
+                # below. A transient failure (the model finishes loading, a
+                # concurrent task frees VRAM, a network blip passes) got no
+                # second chance. Same bounded ceiling, same PENDING re-entry
+                # node_execution.py's retry loop already drives; the next
+                # attempt also gets a real alternative model — see
+                # RealTaskExecutor._resolve_model()'s retry branch.
+                max_retries = sm._meta.max_retries_per_task
+                if task.retries < max_retries:
+                    task.retries += 1
+                    task.status = TaskExecutionStatus.PENDING
+                    self._publish("execution.retry", {
+                        "task_id": task_id, "reason": "runtime_unavailable",
+                        "detail": str(exc), "attempt": task.retries,
+                    })
+                else:
+                    task.status = TaskExecutionStatus.FAILED
+                    self._publish("execution.failed", {
+                        "task_id": task_id, "reason": "runtime_unavailable",
+                        "detail": str(exc),
+                    })
                 self._scheduler.update_task(task_id, task.status)
                 self._coordinator.release_agent(task_id)
+                # This early-exit path used to leave sm stuck at RUNNING
+                # forever on a terminal failure — a runtime-unavailable
+                # failure never transitioned it to a terminal state at all,
+                # unlike the validation-outcome path below. That made this
+                # execution permanently "active" to ExecutionController.get()/
+                # list_executions() even though nothing was ever going to run
+                # it again. A no-op here while task.status is PENDING (not
+                # yet terminal) — correctly leaves sm active until the retry
+                # itself resolves.
+                self._maybe_finalize_state(sm)
             return {
                 "task_id": task_id,
                 "status": task.status.value,
@@ -207,7 +277,9 @@ class MissionExecutor:
                               {"task_id": task_id, "outcome": "pass"},
                               dispatch=False)
             elif outcome == ValidationOutcome.RETRY:
-                if task.retries < 3:  # max_retries
+                # HOS-069: was a hardcoded 3 — ExecutionMeta.max_retries_per_task
+                # existed as a field and was never actually read anywhere.
+                if task.retries < sm._meta.max_retries_per_task:
                     task.retries += 1
                     task.status = TaskExecutionStatus.PENDING
                     task.errors.append("Retry after validation")
@@ -227,9 +299,7 @@ class MissionExecutor:
             # Release agent
             self._coordinator.release_agent(task_id)
 
-            if self._scheduler.is_all_done():
-                sm.transition(ExecutionState.COMPLETED, "All tasks completed")
-                self._publish("execution.completed", {"execution_id": sm._meta.execution_id})
+            self._maybe_finalize_state(sm)
 
             return {
                 "task_id": task_id,
@@ -246,8 +316,6 @@ class MissionExecutor:
     def finalize(self, sm: ExecutionStateMachine) -> ExecutionReport:
         """Produce final report and trigger feedback + optimization."""
         with self._lock:
-            progress = self._scheduler.get_progress()
-
             # Every figure below is measured. total_duration_ms used to be
             # `42.0 * progress["total"]` — a constant per task, marked
             # "# simulated" — and this report is fed straight into
@@ -261,15 +329,31 @@ class MissionExecutor:
             skills = _unique(s for t in tasks for s in (t.assigned_skills or []))
             tools = _unique(s for t in tasks for s in (t.assigned_tools or []))
             agents = _unique(t.assigned_agent for t in tasks) or list(sm._meta.tags)
+            # HOS-069: this used to default to empty — a failed task's
+            # actual reason (VRAM admission denial, Ollama timeout,
+            # validation failure) never reached the report at all, so
+            # /execution/{id} and the Cockpit could show FAILED with no
+            # explanation of why.
+            errors = [t.errors[-1] for t in tasks if t.errors]
 
             report = ExecutionReport(
                 execution_id=sm._meta.execution_id,
                 mission_id=sm._meta.mission_id,
                 state=sm.state,
-                total_tasks=progress["total"],
-                completed_tasks=progress["completed"],
-                failed_tasks=progress["failed"],
+                # HOS-069: was self._scheduler.get_progress()["total"/"completed"/
+                # "failed"] — counts over *every* task on the shared scheduler
+                # (up to its retention cap), not this execution's own. Invisible
+                # before this phase because nothing ever called finalize() for a
+                # real node execution; once it does (real Mission activity),
+                # every report showed a growing global count instead of this
+                # execution's actual 1 (or few) task(s) — e.g. "2/2 tasks" for
+                # a single-task execution that happened to be the 2nd to finish
+                # process-wide.
+                total_tasks=len(tasks),
+                completed_tasks=sum(1 for t in tasks if t.status == TaskExecutionStatus.COMPLETED),
+                failed_tasks=sum(1 for t in tasks if t.status == TaskExecutionStatus.FAILED),
                 total_duration_ms=sum(t.duration_ms or 0.0 for t in tasks),
+                errors=errors,
                 agents_used=agents,
                 runtimes_used=runtimes,
                 skills_used=skills,

@@ -186,7 +186,16 @@ class TestHonestFailure:
         assert stats["executions"] == 0
 
     def test_mission_task_fails_when_runtime_is_down(self):
-        """MissionExecutor must fail the task, not invent a result."""
+        """MissionExecutor must fail the task, not invent a result.
+
+        HOS-069: a RuntimeUnavailableError now retries (bounded by
+        ExecutionMeta.max_retries_per_task) before failing, instead of
+        failing on the very first attempt — the same node_execution.py
+        drives (``while task.status == PENDING: execute_task(...)``). The
+        runtime here never recovers, so this still ends in FAILED with no
+        fabricated result; it just takes the configured number of attempts
+        to get there instead of one.
+        """
         from backend.execution.execution_models import (
             ExecutionMeta,
             TaskExecution,
@@ -204,6 +213,8 @@ class TestHonestFailure:
             task = TaskExecution(task_id="t0", node_id="n0", title="do a thing")
             sm = engine.prepare(meta, [task])
             result = engine.execute_task(sm, "t0")
+            while task.status == TaskExecutionStatus.PENDING:
+                result = engine.execute_task(sm, "t0")
         finally:
             executor.close()
 

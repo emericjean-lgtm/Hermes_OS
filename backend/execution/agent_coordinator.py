@@ -163,7 +163,14 @@ class AgentCoordinator:
         return selected[:5]
 
     def _select_tools(self, task: TaskExecution) -> list[str]:
-        """Select tools needed for task execution."""
+        """Recommend tools by keyword match against task.title.
+
+        HOS-069 audit finding: this is a recommendation only. Nothing
+        downstream (RealTaskExecutor.execute()) actually invokes any tool
+        named here — see its module docstring for the honest account of
+        what this path really does (one chat completion, tools mentioned
+        as a text hint).
+        """
         selected = []
         keywords = task.title.lower().split()
         for tid, meta in self._tools.items():

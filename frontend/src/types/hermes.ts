@@ -428,16 +428,39 @@ export interface SystemEvent {
 export type EventSeverity = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
 
 // ── Execution ────────────────────────────────────────
-export interface ExecutionState {
-  id: string;
+// Mirrors backend/execution/execution_controller.py's ExecutionController.get()
+// (HOS-069) — one row per real task execution (a mission node, or a legacy
+// /execution/start call), not per mission. The previous shape here
+// (id/status/current_node/progress/checkpoints) never matched what the
+// backend actually returns and was never exercised against it.
+export interface ExecutionSummary {
+  execution_id: string;
+  state: string; // created|planning|ready|running|waiting_approval|paused|validating|completed|failed|cancelled
   mission_id: string;
-  status: MissionStatus;
-  current_node?: string;
-  progress: number;
-  started_at?: string;
-  paused_at?: string;
-  completed_at?: string;
-  checkpoints: Checkpoint[];
+  user_goal: string;
+  is_terminal: boolean;
+  is_active: boolean;
+  report?: {
+    total_tasks: number;
+    completed_tasks: number;
+    failed_tasks: number;
+    duration_ms: number;
+    agents_used: string[];
+    runtimes_used: string[];
+    errors: string[];
+  };
+}
+
+export interface ExecutionStatistics {
+  active_executions: number;
+  completed_executions: number;
+  total_executions: number;
+  executor_stats: {
+    scheduler?: { total: number; completed: number; failed: number; running: number; pending: number; percent: number };
+    coordinator?: { agents_registered: number; runtimes_available: number; active_assignments: number };
+    validator?: { total_validated: number; outcomes: Record<string, number> };
+    events_published?: number;
+  };
 }
 
 export interface Checkpoint {

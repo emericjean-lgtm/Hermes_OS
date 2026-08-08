@@ -61,6 +61,11 @@ class MissionNode:
     """A single task node in the mission DAG."""
 
     node_id: str = field(default_factory=lambda: uuid4().hex)
+    # Stamped by GraphExecutor.build_graph() (HOS-069) — lets node_execution.py
+    # report which mission a real execution belongs to without widening the
+    # execute_node callable's signature (still just MissionNode -> bool,
+    # unchanged since every existing caller/test/fake depends on that arity).
+    mission_id: str = ""
     title: str = ""
     description: str = ""
     type: str = "task"

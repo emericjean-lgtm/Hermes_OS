@@ -58,6 +58,10 @@ class GraphExecutor:
         edges: list[MissionEdge],
     ) -> list[str]:
         """Build and validate a mission DAG."""
+        # HOS-069: so node_execution.py can report which mission a real
+        # execution belongs to (see MissionNode.mission_id's docstring).
+        for node in nodes:
+            node.mission_id = mission.mission_id
         self._graph.build_graph(mission, nodes, edges)
         issues = self._graph.validate_graph(mission)
         if not issues:

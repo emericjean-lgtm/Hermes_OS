@@ -24,7 +24,8 @@ import type {
   ApprovalRequest,
   AuditEntry,
   SystemEvent,
-  ExecutionState,
+  ExecutionSummary,
+  ExecutionStatistics,
   SystemHealth,
   SystemStatistics,
   AlexandrieStatus,
@@ -422,22 +423,27 @@ export const governanceClient = {
 };
 
 // ── Execution ────────────────────────────────────────
+// One row per real task execution (a mission node, driven through
+// ExecutionController since HOS-069 — see execution_controller.py), not
+// per mission. /execution/start (below) registers tasks directly against
+// the standalone controller but nothing in the Cockpit currently calls it;
+// real activity arrives here via Missions/Autonomous instead.
 export const executionClient = {
-  start: (data: { goal: string; mission_type?: string; priority?: string }) =>
-    fetchJSON<ExecutionState>("/execution/start", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  get: (id: string) => fetchJSON<ExecutionState>(`/execution/${id}`),
-  list: () => fetchJSON<ExecutionState[]>("/execution"),
+  start: (data: { goal: string; tasks: unknown[]; mission_id?: string; priority?: string }) =>
+    fetchJSON<{ execution_id: string; state: string; tasks_registered: number; user_goal: string }>(
+      "/execution/start",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+  get: (id: string) => fetchJSON<ExecutionSummary>(`/execution/${id}`),
+  list: () => fetchJSON<ExecutionSummary[]>("/execution"),
   pause: (id: string) =>
-    fetchJSON<ExecutionState>(`/execution/${id}/pause`, { method: "POST" }),
+    fetchJSON<{ execution_id: string; paused: boolean }>(`/execution/${id}/pause`, { method: "POST" }),
   resume: (id: string) =>
-    fetchJSON<ExecutionState>(`/execution/${id}/resume`, { method: "POST" }),
+    fetchJSON<{ execution_id: string; resumed: boolean }>(`/execution/${id}/resume`, { method: "POST" }),
   cancel: (id: string) =>
-    fetchJSON<ExecutionState>(`/execution/${id}/cancel`, { method: "POST" }),
+    fetchJSON<{ execution_id: string; cancelled: boolean }>(`/execution/${id}/cancel`, { method: "POST" }),
   timeline: (id: string) => fetchJSON<MissionTimeline>(`/execution/${id}/timeline`),
-  statistics: () => fetchJSON<SystemStatistics>("/execution/statistics"),
+  statistics: () => fetchJSON<ExecutionStatistics>("/execution/statistics"),
 };
 
 // ── Events ───────────────────────────────────────────
