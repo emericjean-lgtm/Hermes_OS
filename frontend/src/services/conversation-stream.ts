@@ -1,0 +1,127 @@
+/**
+ * Streaming client for the Assistant (HOS-074).
+ *
+ * The Cockpit used to POST `/conversation/message` and wait for the whole
+ * answer: on a local model at ~13 tok/s a 400-token reply is 30 s of a
+ * bouncing-dots animation with nothing to read. `POST /conversation/stream`
+ * returns NDJSON — one `{kind, text}` object per line — carrying the
+ * reasoning channel separately from the answer, plus the real routing
+ * decision in `X-Hermes-*` headers.
+ */
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+
+/** The real routing decision behind a reply — the same ModelRouter output
+ *  `/chat` exposes, surfaced so the Assistant can answer "why this model?"
+ *  with the actual reason rather than a plausible-looking guess. */
+export interface StreamRouting {
+  session_id: string;
+  model: string;
+  tier: string;
+  role: string;
+  reason: string;
+  thinking: boolean;
+  intent: string;
+}
+
+export interface StreamHandlers {
+  onRouting?: (routing: StreamRouting) => void;
+  onThinking?: (text: string) => void;
+  onContent?: (text: string) => void;
+  /** Terminal signal from the server, carrying the analysed intent. */
+  onDone?: (payload: { session_id: string; intent?: { type: string; confidence: number; domain: string } }) => void;
+  onError?: (message: string) => void;
+}
+
+export interface StreamRequest {
+  sessionId: string;
+  message: string;
+  agent?: string;
+  taskType?: string;
+  /** Aborting mid-stream is a first-class action, not an error: the backend
+   *  persists whatever was generated, so the transcript stays truthful. */
+  signal?: AbortSignal;
+}
+
+export async function streamConversation(
+  { sessionId, message, agent, taskType, signal }: StreamRequest,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/conversation/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: sessionId,
+      message,
+      ...(agent ? { agent } : {}),
+      ...(taskType ? { task_type: taskType } : {}),
+    }),
+    signal,
+  });
+
+  if (!response.ok || !response.body) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(`Hermes n'a pas pu répondre (${response.status}) : ${detail}`);
+  }
+
+  handlers.onRouting?.({
+    session_id: response.headers.get("X-Hermes-Session") ?? sessionId,
+    model: response.headers.get("X-Hermes-Model") ?? "",
+    tier: response.headers.get("X-Hermes-Tier") ?? "",
+    role: response.headers.get("X-Hermes-Role") ?? "",
+    reason: response.headers.get("X-Hermes-Reason") ?? "",
+    thinking: response.headers.get("X-Hermes-Thinking") === "true",
+    intent: response.headers.get("X-Hermes-Intent") ?? "",
+  });
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  // A network chunk can split a line anywhere, so the tail is held back
+  // until its newline arrives — parsing a half-line would drop tokens.
+  let buffer = "";
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let event: { kind: string; text?: string; error?: string; session_id?: string; intent?: any };
+        try {
+          event = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        switch (event.kind) {
+          case "thinking":
+            handlers.onThinking?.(event.text ?? "");
+            break;
+          case "content":
+            handlers.onContent?.(event.text ?? "");
+            break;
+          case "done":
+            handlers.onDone?.({
+              session_id: event.session_id ?? sessionId,
+              intent: event.intent,
+            });
+            break;
+          case "error":
+            handlers.onError?.(event.error ?? "erreur inconnue");
+            break;
+        }
+      }
+    }
+  } catch (err) {
+    // An abort is the user pressing stop — the caller decides what that
+    // means, and it must not surface as a failure.
+    if ((err as Error)?.name === "AbortError") return;
+    throw err;
+  } finally {
+    reader.releaseLock?.();
+  }
+}

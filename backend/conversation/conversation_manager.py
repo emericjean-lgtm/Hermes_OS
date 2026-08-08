@@ -70,6 +70,111 @@ class ConversationManager:
         with self._lock:
             return self._sessions.get(session_id)
 
+    # ── Streaming (HOS-074) ─────────────────────────────────────────
+
+    #: How many prior messages travel with a new one. The chat used to send
+    #: none at all (see ``build_model_messages``), so this is the first
+    #: bound that has ever applied; generous enough for a real conversation,
+    #: finite so a long session cannot silently overflow the context window.
+    MAX_HISTORY_MESSAGES = 20
+
+    def begin_stream(self, session_id: str, content: str) -> tuple[
+            str, list[dict[str, str]], IntentResult]:
+        """Record the user's message and return what the model needs.
+
+        Split deliberately from :meth:`finish_stream`: the inference itself
+        happens *between* the two, outside this manager's lock. Holding it
+        across a 30–120 s generation (what ``handle_message`` does) blocks
+        every other session operation app-wide for the whole duration — the
+        same defect HOS-069 fixed in ``ExecutionController``.
+
+        Returns ``(session_id, model_messages, intent)``. ``session_id`` is
+        returned because an unknown one opens a fresh session, exactly as
+        ``handle_message`` does.
+        """
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if not session:
+                session = self.create_session()
+                session_id = session.session_id
+
+            session.messages.append(Message(role=MessageRole.USER, content=content))
+            session.status = ConversationStatus.PROCESSING
+            session.updated_at = datetime.now(timezone.utc).isoformat()
+
+            intent = self._intent_analyzer.analyze(content)
+            session.context = self._context_builder.build_context(content, session.context)
+            model_messages = self.build_model_messages(session)
+
+        return session_id, model_messages, intent
+
+    def build_model_messages(self, session: ConversationSession) -> list[dict[str, str]]:
+        """The conversation as the model should see it.
+
+        HOS-074: ``ResponseGenerator._ask_model`` only ever sent
+        ``[system, user]`` — the prior turns were stored in the session and
+        never transmitted, so the model answered every message as if it were
+        the first one ("et le deuxième ?" had nothing to refer back to).
+        Roles are mapped to what an OpenAI/Ollama-shaped API expects:
+        Hermes's own ``hermes``/``agent`` roles are both ``assistant``.
+        """
+        history = session.messages[-self.MAX_HISTORY_MESSAGES:]
+        messages = [{"role": "system", "content": self._system_prompt(session)}]
+        for message in history:
+            if message.role == MessageRole.USER:
+                role = "user"
+            elif message.role == MessageRole.SYSTEM:
+                role = "system"
+            else:
+                role = "assistant"
+            if message.content.strip():
+                messages.append({"role": role, "content": message.content})
+        return messages
+
+    def _system_prompt(self, session: ConversationSession) -> str:
+        """Hermes's own real state, so answers are situated rather than generic."""
+        ctx = session.context
+        parts = [
+            "Tu es Hermes, l'assistant de développement de Hermes OS. "
+            "Réponds directement, précisément, dans la langue de l'utilisateur. "
+            "Utilise du Markdown (titres, listes, blocs de code annotés du "
+            "langage) quand cela aide à la lecture. Pas de préambule inutile.",
+        ]
+        if ctx.active_agents:
+            parts.append(f"Agents actifs : {', '.join(ctx.active_agents)}.")
+        if ctx.active_mission_id:
+            parts.append(f"Mission en cours : {ctx.active_mission_id}.")
+        if ctx.current_model:
+            parts.append(f"Modèle courant : {ctx.current_model}.")
+        return " ".join(parts)
+
+    def finish_stream(self, session_id: str, content: str,
+                      metadata: dict[str, Any] | None = None) -> None:
+        """Persist the assistant's completed answer into the session.
+
+        Called once the stream is exhausted — including when it was cut
+        short by the user, in which case the partial text is what actually
+        happened and is stored as such (an interrupted answer the model
+        never sees again would silently corrupt the next turn's history).
+        Never raises: losing a transcript line must not surface as a failed
+        response the user already received.
+        """
+        try:
+            with self._lock:
+                session = self._sessions.get(session_id)
+                if session is None:
+                    return
+                if content.strip():
+                    session.messages.append(Message(
+                        role=MessageRole.HERMES,
+                        content=content,
+                        metadata=metadata or {},
+                    ))
+                session.status = ConversationStatus.ACTIVE
+                session.updated_at = datetime.now(timezone.utc).isoformat()
+        except Exception:  # pragma: no cover - bookkeeping must never break a reply
+            pass
+
     def handle_message(self, session_id: str, content: str) -> ConversationResponse:
         with self._lock:
             session = self._sessions.get(session_id)

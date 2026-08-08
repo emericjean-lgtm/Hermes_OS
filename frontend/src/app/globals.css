@@ -386,3 +386,52 @@ body > div {
   }
   body::after { animation: none; }
 }
+
+/* ── Chat markdown + syntax highlighting (HOS-074) ────────────────────
+   highlight.js emits `hljs-*` classes; rather than ship one of its stock
+   themes (all designed for a white or generic-dark page), the palette is
+   mapped onto the cockpit's own signal colours so a code block reads as
+   part of Hermes rather than a pasted-in widget. */
+.hermes-md .hljs { color: #e6ecf7; background: transparent; }
+.hermes-md .hljs-comment,
+.hermes-md .hljs-quote { color: #4d5876; font-style: italic; }
+.hermes-md .hljs-keyword,
+.hermes-md .hljs-selector-tag,
+.hermes-md .hljs-literal,
+.hermes-md .hljs-doctag { color: #ff2d92; }
+.hermes-md .hljs-string,
+.hermes-md .hljs-regexp,
+.hermes-md .hljs-addition { color: #2bff88; }
+.hermes-md .hljs-number,
+.hermes-md .hljs-symbol,
+.hermes-md .hljs-bullet { color: #ffb020; }
+.hermes-md .hljs-title,
+.hermes-md .hljs-section,
+.hermes-md .hljs-name { color: #00e5ff; }
+.hermes-md .hljs-attr,
+.hermes-md .hljs-attribute,
+.hermes-md .hljs-variable,
+.hermes-md .hljs-template-variable { color: #a855f7; }
+.hermes-md .hljs-type,
+.hermes-md .hljs-class .hljs-title,
+.hermes-md .hljs-built_in { color: #3b82f6; }
+.hermes-md .hljs-meta { color: #7b88a6; }
+.hermes-md .hljs-deletion { color: #ff3355; }
+.hermes-md .hljs-emphasis { font-style: italic; }
+.hermes-md .hljs-strong { font-weight: 600; }
+
+/* The streaming caret: a block that trails the last token while the answer
+   is still arriving, so a pause in generation reads as "still working"
+   rather than "finished". */
+@keyframes hermes-caret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0; } }
+.hermes-caret::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: #00e5ff;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+  animation: hermes-caret 1.1s steps(1) infinite;
+}

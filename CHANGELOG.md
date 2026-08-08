@@ -1,3 +1,129 @@
+## HOS-074 — Assistant : streaming réel, mémoire de conversation, refonte premium (2026-08-08)
+
+Demande de l'utilisateur : septième onglet de la série — l'Assistant (chat).
+Maquette fournie transformant le chat en « console opérationnelle », avec
+demande explicite d'un avis critique et de propositions. Puis carte blanche :
+« je veux au final avoir une interface premium et avec toutes les
+fonctionnalités d'un LLM comme Claude ou GPT fonctionnel », design poussé au
+maximum sur cet onglet.
+
+### Constat principal (audit, avant tout code)
+
+Un pipeline de chat **streaming complet et réel existait déjà** —
+`POST /chat` (`backend/api/routes/chat.py`) : streaming token par token,
+canal de raisonnement séparé (`include_thinking` → NDJSON), décision de
+routage réelle exposée en en-têtes `X-Hermes-*`, télémétrie d'audit
+(`first_token_ms`, `tokens_per_second`), publication d'événements
+`chat.token`. Côté frontend, un client complet `streamChat()`
+(`lib/api.ts`) avec gestion NDJSON et reprise de ligne partielle.
+
+**L'onglet Assistant n'utilisait ni l'un ni l'autre.** Il passait par
+`POST /conversation/message`, bloquant, et `streamChat()` avait **zéro
+appelant** — code mort. Même schéma « deux cerveaux » que les six onglets
+précédents. Vérifié en direct avant correction : `curl` sur `/chat`
+renvoyait bien `transfer-encoding: chunked` + `x-hermes-model: qwen3.5:9b`.
+
+### Autres écarts trouvés
+- **Le chat n'avait aucune mémoire.** `ResponseGenerator._ask_model()`
+  n'envoyait que `[system, user]` : les tours précédents étaient stockés
+  dans la session et **jamais transmis au modèle**. Chaque message était
+  traité comme le premier — « quel est mon chiffre préféré ? » n'avait rien
+  à quoi se référer.
+- **Faille XSS réelle** : les réponses passaient par
+  `dangerouslySetInnerHTML` alimenté par deux `String.replace()` regex. Un
+  modèle émettant `<img src=x onerror=...>` exécutait du JS arbitraire dans
+  le Cockpit. Le rendu ne comprenait par ailleurs que `**gras**` et les
+  retours à la ligne : blocs de code, tableaux et listes — l'essentiel de ce
+  que répond un assistant de développement — s'affichaient à plat.
+- **Verrou global tenu pendant toute l'inférence.** `handle_message()`
+  gardait le `RLock` du manager pendant l'appel modèle (30–120 s sur un
+  modèle local), sérialisant toute opération de session à l'échelle de
+  l'application — exactement le défaut corrigé en HOS-069 pour
+  `ExecutionController`.
+- **Aucune interruption possible**, aucune persistance de session
+  (l'endpoint d'historique existait, n'était jamais appelé : chaque
+  rechargement repartait d'une conversation vide au-dessus d'une session
+  qui gardait pourtant son transcript côté serveur).
+
+### Décisions de conception (carte blanche)
+- **Consolidation plutôt qu'un troisième pipeline** : la nouvelle route
+  `POST /conversation/stream` garde la sémantique du module conversation
+  (session, historique, intention, approbation) et **délègue l'inférence à
+  la même machinerie que `/chat`** (`BaseAgent.respond_events` : décision
+  ModelRouter réelle, canal de raisonnement, repli cloud).
+- **Panneau outils non construit, délibérément.** L'audit HOS-069 a établi
+  que ce chemin n'effectue aucun appel d'outil réel (`assigned_tools` n'est
+  qu'un indice textuel dans le prompt). Un interrupteur « activer les
+  outils » aurait été exactement le type de tableau de bord mensonger
+  corrigé sur les six onglets précédents.
+- **Visualisation multi-agents non construite** : `CollaborationEngine` est
+  réel mais n'est jamais invoqué par une vraie mission (HOS-070).
+- **Densité maîtrisée** : conversation plein écran par défaut, rail
+  contextuel repliable ne portant que des données réelles (runtime/VRAM
+  HOS-072, décision de routage réelle), plutôt qu'un mur permanent de 15
+  widgets.
+
+### Added
+- **Streaming réel** : `POST /conversation/stream`, corps NDJSON
+  (`{"kind": "thinking"|"content"|"done"|"error"}`), en-têtes de routage
+  réels (`X-Hermes-Model/Tier/Role/Reason/Thinking/Intent/Session`) et
+  anti-bufferisation (`X-Accel-Buffering: no`). Nouveau client
+  `services/conversation-stream.ts` avec `AbortSignal`.
+- **Mémoire de conversation** : `ConversationManager.build_model_messages()`
+  transmet l'historique réel (borné à 20 tours), avec mapping des rôles
+  internes (`hermes`/`agent` → `assistant`) et prompt système enrichi de
+  l'état réel (mission active, agents, modèle courant).
+- **Verrou resserré** : `begin_stream()`/`finish_stream()` encadrent
+  l'inférence, qui se déroule **hors** du verrou. Une réponse interrompue
+  est conservée telle quelle (une réponse partielle affichée mais absente de
+  l'historique désynchroniserait le tour suivant).
+- **Rendu Markdown sûr** : `react-markdown` + `remark-gfm` +
+  `rehype-highlight` (arbre React, pas d'injection HTML — le HTML brut d'un
+  modèle est inerte par construction). Blocs de code avec étiquette de
+  langage, coloration syntaxique mappée sur la palette Hermes, et bouton
+  Copier. Tableaux, listes, titres, citations stylés.
+- **Interruption** : bouton Stop et raccourci Échap pendant la génération,
+  la réponse partielle étant conservée et annoncée comme telle.
+- **Persistance de session** : restauration via `localStorage` +
+  chargement de l'historique réel au montage ; bouton Nouvelle conversation.
+- **Explicabilité du routage** : badge modèle avec panneau « Pourquoi ce
+  modèle ? » (modèle, tier, rôle, raisonnement, intention, motif réel du
+  ModelRouter — ex. « model already loaded in VRAM, reused to avoid reload »).
+- **Refonte visuelle** : curseur de streaming, blocs de raisonnement
+  repliables, état vide avec actions rapides, auto-scroll respectant la
+  lecture (désactivé dès que l'utilisateur remonte), composer auto-extensible,
+  actions au survol (copier, régénérer), rail contextuel animé.
+
+### Bugs trouvés et corrigés
+- Chat sans mémoire (historique jamais transmis au modèle).
+- XSS via `dangerouslySetInnerHTML` sur la sortie du modèle.
+- Verrou du manager tenu pendant l'inférence.
+- Session jamais restaurée malgré un endpoint d'historique existant.
+
+### Verified
+- Vérifié en conditions réelles (navigateur + backend complet + Ollama) :
+  streaming token par token confirmé (curseur visible, 4311 caractères
+  arrivés progressivement) ; **mémoire confirmée de bout en bout** — « Mon
+  chiffre préféré est 42 » puis « Quel est mon chiffre préféré ? » →
+  « Votre chiffre préféré est **42**. », et dans l'UI « Comment s'appelait
+  la fonction que tu viens d'écrire ? » → « fib » ; Markdown réel (titre,
+  paragraphe, bloc Python coloré avec étiquette PYTHON et bouton COPIER) ;
+  Stop réel en cours de génération → « ⏹ INTERROMPU — RÉPONSE PARTIELLE »
+  avec le texte déjà reçu conservé ; persistance vérifiée par rechargement
+  complet de la page (8 messages restaurés, session `conv_160135c6cde0`) ;
+  panneau « Pourquoi ce modèle ? » affichant la vraie décision.
+- Nouveaux tests hermétiques :
+  `tests/architecture/test_conversation_streaming.py` (12 — historique
+  réellement transmis, mapping des rôles, bornage, prompt système situé,
+  cycle begin/finish, réponse interrompue conservée, et un test de
+  concurrence vérifiant que le manager reste utilisable pendant l'inférence).
+- Suite conversation complète : **118 passed**. TypeScript propre.
+- Suite complète (`tests/` + `backend/tests/`) : **3587 passed, 3 skipped,
+  0 échec réel** en 14m46s — le seul échec du run complet
+  (`test_task_executor_shares_the_container_model_intelligence`) est le
+  flake de test-ordering déjà documenté aux passes précédentes,
+  reproductible seul en isolation avec succès (revérifié).
+
 ## HOS-073 — Correction : tous les modèles n'apparaissaient pas dans Model Intelligence (2026-08-08)
 
 Demande de l'utilisateur : "dans l'onglet models tout les modeles
