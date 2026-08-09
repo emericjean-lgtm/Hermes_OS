@@ -48,6 +48,7 @@ class KlaatCodeClient:
         self._lock = threading.RLock()
         self._klaatcode_path = klaatcode_path or self._detect_installation()
         self._version: Optional[str] = None
+        self._last_health_check_at: Optional[float] = None
         self._history: list[KlaatCodeResponse] = []
         self._max_history = 500
 
@@ -83,12 +84,25 @@ class KlaatCodeClient:
 
         return None
 
-    def is_installed(self) -> bool:
-        """Return True if KlaatCode is detected on the system."""
+    def _candidate_located(self) -> bool:
+        """A runner (klaatcode/bunx/npx) exists on PATH — necessary but not
+        sufficient. Presence of a package RUNNER is not presence of the
+        klaatcode PACKAGE itself (R-006 Phase 6): ``npx``/``bunx`` existing
+        proves nothing about whether ``npx klaatcode`` actually resolves."""
         with self._lock:
             if self._klaatcode_path is None:
                 self._klaatcode_path = self._detect_installation()
             return self._klaatcode_path is not None
+
+    def is_installed(self) -> bool:
+        """True only once a real invocation has actually succeeded.
+
+        Before R-006 this returned True merely because a package runner was
+        on PATH, so the Cockpit showed "Installed: yes" for a provider whose
+        every real command failed. A candidate runner is required to attempt
+        anything, but "installed" now means a genuine health check answered.
+        """
+        return self.get_version() is not None
 
     # ── Command execution ────────────────────────────────────
 
@@ -106,7 +120,12 @@ class KlaatCodeClient:
         response = KlaatCodeResponse(request_id=request.id)
 
         with self._lock:
-            if not self.is_installed():
+            # Not self.is_installed(): that now calls get_version(), which
+            # calls health_check(), which calls execute() again — using it
+            # here would recurse on the very first health check. A located
+            # runner is all a real attempt needs; is_installed() itself is
+            # answered by this attempt's own outcome, not asked of it first.
+            if not self._candidate_located():
                 response.status = KlaatCodeStatus.ERROR
                 response.error = "KlaatCode is not installed or not found on PATH"
                 response.duration_ms = (time.monotonic() - start) * 1000
@@ -237,10 +256,29 @@ class KlaatCodeClient:
         )
         return self.execute(request)
 
+    # Retry a failing health check at most this often. Without a cooldown, a
+    # provider that never succeeds (R-006 Phase 6's is_installed() now calls
+    # this on every check) would re-run a real subprocess on every single
+    # status poll or is_installed() call — precisely the "every 15s poll
+    # retries a failing command forever" behaviour observed for Oh My Pi.
+    _HEALTH_CHECK_COOLDOWN_S = 30.0
+
     def get_version(self) -> Optional[str]:
-        """Return the detected KlaatCode version, or None."""
+        """Return the detected KlaatCode version, or None.
+
+        Real subprocess call on first use and thereafter no more often than
+        every ``_HEALTH_CHECK_COOLDOWN_S`` — a success caches permanently
+        (the version does not change mid-process); a failure is retried on
+        a cooldown rather than never or on every call.
+        """
         with self._lock:
-            if self._version is None:
+            now = time.monotonic()
+            stale = (
+                self._last_health_check_at is None
+                or (now - self._last_health_check_at) >= self._HEALTH_CHECK_COOLDOWN_S
+            )
+            if self._version is None and stale:
+                self._last_health_check_at = now
                 resp = self.health_check()
                 if resp.status == KlaatCodeStatus.SUCCESS and isinstance(resp.data, dict):
                     self._version = resp.data.get("version", "")

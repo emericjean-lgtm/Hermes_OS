@@ -155,6 +155,78 @@ class TestRouterSelection:
         assert "scores" in d
 
 
+class TestHermesNativeRouting:
+    """R-006 Phase 3: the third routing candidate."""
+
+    def test_disabled_by_default_preserves_pre_r006_behaviour(self, router):
+        """A bare CodeIntelligenceRouter().decide(task) — every existing
+        caller and test — must keep routing exactly as it did before
+        Hermes-native existed."""
+        task = CodeIntelligenceTask(task_type=CodeIntelligenceTaskType.CODE_GENERATION)
+        decision = router.decide(task)
+        assert decision.selected_provider != CodeProvider.HERMES_NATIVE
+
+    def test_available_but_not_default_preferred(self, router):
+        """With no history, KlaatCode/Oh My Pi's tool-specific task_fit beats
+        the generic completion path for every eligible task type — a real
+        scoring outcome, not a hardcoded exclusion (unlike the ineligible
+        task types below, hermes_native IS a real scored candidate here)."""
+        task = CodeIntelligenceTask(task_type=CodeIntelligenceTaskType.CODE_GENERATION)
+        decision = router.decide(task, hermes_native_available=True)
+        assert "hermes_native_score" in decision.metadata
+        assert decision.metadata["hermes_native_score"] > 0
+
+    def test_wins_after_real_history_favours_it(self, router):
+        """The router genuinely adapts: enough recorded klaatcode/ohmypi
+        failures alongside hermes_native successes must flip the winner —
+        proof this is live scoring, not a static preference order."""
+        for _ in range(20):
+            router.record_result(CodeProvider.KLATCODE, False, "code_generation")
+            router.record_result(CodeProvider.OHMYPI, False, "code_generation")
+            router.record_result(CodeProvider.HERMES_NATIVE, True, "code_generation")
+        task = CodeIntelligenceTask(task_type=CodeIntelligenceTaskType.CODE_GENERATION)
+        decision = router.decide(task, hermes_native_available=True)
+        assert decision.selected_provider == CodeProvider.HERMES_NATIVE
+
+    def test_ineligible_task_types_never_selected_even_when_available(self, router):
+        """DEBUGGING has no real one-shot-completion equivalent — it must
+        never be offered Hermes-native, regardless of the available flag."""
+        task = CodeIntelligenceTask(task_type=CodeIntelligenceTaskType.DEBUGGING, requires_dap=True)
+        decision = router.decide(task, hermes_native_available=True)
+        assert decision.selected_provider != CodeProvider.HERMES_NATIVE
+
+    def test_lsp_requirement_rules_out_hermes_native(self, router):
+        task = CodeIntelligenceTask(
+            task_type=CodeIntelligenceTaskType.CODE_ANALYSIS, requires_lsp=True,
+        )
+        decision = router.decide(
+            task, klaatcode_available=False, hermes_native_available=True,
+        )
+        assert decision.selected_provider == CodeProvider.OHMYPI
+
+    def test_force_hermes_native(self, router):
+        task = CodeIntelligenceTask(task_type=CodeIntelligenceTaskType.CODE_ANALYSIS)
+        decision = router.decide(task, force_provider=CodeProvider.HERMES_NATIVE)
+        assert decision.selected_provider == CodeProvider.HERMES_NATIVE
+
+    def test_hermes_native_history_affects_decision(self, router):
+        for _ in range(10):
+            router.record_result(CodeProvider.HERMES_NATIVE, False, "code_analysis")
+        task = CodeIntelligenceTask(task_type=CodeIntelligenceTaskType.CODE_ANALYSIS)
+        decision = router.decide(
+            task, klaatcode_available=False, ohmypi_available=False,
+            hermes_native_available=True,
+        )
+        # Still the only candidate, but its score must reflect the losses.
+        assert decision.metadata["hermes_native_score"] < 0.6
+
+    def test_stats_report_hermes_native(self, router):
+        router.record_result(CodeProvider.HERMES_NATIVE, True, "code_generation")
+        stats = router.stats()
+        assert stats["hermes_native"]["total"] == 1
+        assert stats["hermes_native"]["success_count"] == 1
+
+
 # ── Test Router History ──────────────────────────────────────
 
 class TestRouterHistory:
@@ -289,14 +361,29 @@ class TestCIAgentTaskExecution:
         assert "hybrid" in result.details.get("strategy", "")
 
     def test_execute_with_force_provider(self, ci_agent):
+        """"debugging" has no real KlaatCode equivalent (KlaatCodeTaskType
+        has no DEBUGGING member at all — see CI_TO_KLAATCODE_TASK_TYPE,
+        R-006 Phase 4) — forcing it there must fail honestly rather than the
+        stub adapter papering over a combination that would 500 in
+        production. "code_analysis" is a real, mapped capability."""
+        ci_agent.start()
+        result = ci_agent.execute_task(
+            "code_analysis",
+            {},
+            force_provider=CodeProvider.KLATCODE,
+        )
+        assert result.outcome == TaskOutcome.SUCCESS
+        assert "klaatcode" in result.details.get("provider", "")
+
+    def test_force_provider_onto_an_unsupported_task_type_fails_honestly(self, ci_agent):
         ci_agent.start()
         result = ci_agent.execute_task(
             "debugging",
             {"requires_dap": True},
             force_provider=CodeProvider.KLATCODE,
         )
-        assert result.outcome == TaskOutcome.SUCCESS
-        assert "klaatcode" in result.details.get("provider", "")
+        assert result.outcome == TaskOutcome.FAILURE
+        assert "no real capability" in result.error_message
 
     def test_metrics_updated(self, ci_agent):
         ci_agent.start()
@@ -320,6 +407,81 @@ class TestCIAgentTaskExecution:
         ci_agent.execute_task("refactoring", {"requires_ast": True})
         history = ci_agent.get_task_history()
         assert len(history) >= 2
+
+
+class TestCIAgentSandboxGuard:
+    """R-006 Phase 9: refactoring/code_generation would write through a real
+    external CLI. ToolPolicy.evaluate()'s WRITE branch is a documented
+    no-op and neither MCP adapter's execute() ever consults its
+    ToolSandbox, so nothing beneath CodeIntelligenceAgent actually stops a
+    write — this guard is the only real enforcement today."""
+
+    def test_refactor_forced_to_klaatcode_is_refused(self, ci_agent):
+        ci_agent.start()
+        result = ci_agent.execute_task(
+            "refactoring", {}, force_provider=CodeProvider.KLATCODE,
+        )
+        assert result.outcome == TaskOutcome.FAILURE
+        assert "sandbox" in result.error_message
+
+    def test_refactor_forced_to_ohmypi_is_refused(self, ci_agent):
+        ci_agent.start()
+        result = ci_agent.execute_task(
+            "refactoring", {}, force_provider=CodeProvider.OHMYPI,
+        )
+        assert result.outcome == TaskOutcome.FAILURE
+        assert "sandbox" in result.error_message
+
+    def test_code_generation_forced_to_ohmypi_is_refused(self, ci_agent):
+        ci_agent.start()
+        result = ci_agent.execute_task(
+            "code_generation", {}, force_provider=CodeProvider.OHMYPI,
+        )
+        assert result.outcome == TaskOutcome.FAILURE
+        assert "sandbox" in result.error_message
+
+    def test_a_sandbox_id_does_not_bypass_the_refusal(self, ci_agent):
+        """No real provisioning path validates a caller-supplied id yet —
+        supplying one must not silently unlock execution."""
+        ci_agent.start()
+        result = ci_agent.execute_task(
+            "refactoring", {"sandbox_id": "sb-123"}, force_provider=CodeProvider.KLATCODE,
+        )
+        assert result.outcome == TaskOutcome.FAILURE
+
+    def test_refactor_forced_to_hermes_native_is_not_blocked(self, ci_agent):
+        """Hermes-native never touches a file — pure text generation — so
+        the write guard must not apply to it."""
+        ci_agent.start()
+        result = ci_agent.execute_task(
+            "refactoring", {}, force_provider=CodeProvider.HERMES_NATIVE,
+        )
+        # Not blocked by the sandbox guard specifically — whatever the
+        # executor itself returns is fine, but never the sandbox message.
+        assert "sandbox" not in (result.error_message or "")
+
+    def test_read_only_task_types_are_never_blocked(self, ci_agent):
+        ci_agent.start()
+        for task_type in ("code_analysis", "code_review", "documentation"):
+            result = ci_agent.execute_task(
+                task_type, {}, force_provider=CodeProvider.KLATCODE,
+            )
+            assert "sandbox" not in (result.error_message or "")
+
+    def test_refused_write_is_still_recorded_in_history(self, ci_agent):
+        """A refusal is a real, honest outcome — it must not vanish from
+        the audit trail the way the old fabricated-success path did."""
+        ci_agent.start()
+        ci_agent.execute_task("refactoring", {}, force_provider=CodeProvider.KLATCODE)
+        history = ci_agent.get_task_history()
+        assert any(h["task_type"] == "refactoring" and not h["success"] for h in history)
+
+    def test_hybrid_review_task_still_reaches_execution(self, ci_agent):
+        """code_review is read-only on both providers — the guard must not
+        over-block hybrid strategies for task types that never write."""
+        ci_agent.start()
+        result = ci_agent.execute_task("code_review", {"complexity": 0.9})
+        assert "sandbox" not in (result.error_message or "")
 
 
 # ── Test Agent Events ────────────────────────────────────────

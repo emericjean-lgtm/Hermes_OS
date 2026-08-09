@@ -329,15 +329,22 @@ class KlaatCodeMCPAdapter:
 
     def get_status(self) -> dict:
         """Return a status snapshot of the KlaatCode adapter."""
+        from backend.tools.mcp.mcp_status import derive_mcp_status
+
         with self._lock:
+            installed = self._client.is_installed()
+            version = self._client.get_version()
             client_stats = self._client.stats()
             return {
-                "installed": self._client.is_installed(),
-                "version": self._client.get_version(),
+                "installed": installed,
+                "version": version,
                 "tools_count": len(self._tool_definitions),
                 "capabilities": [c.name for c in self._capabilities],
                 "client_stats": client_stats,
                 "server_bound": self._server is not None,
+                "mcp_status": derive_mcp_status(
+                    installed=installed, version=version, server=self._server,
+                ),
             }
 
     def get_capability_list(self) -> list[dict]:

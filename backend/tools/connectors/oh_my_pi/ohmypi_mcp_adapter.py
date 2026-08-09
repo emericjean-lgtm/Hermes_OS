@@ -7,8 +7,9 @@ Exposes Oh My Pi tools as MCP tools. Every call passes through:
 from __future__ import annotations
 
 import threading
-from typing import Any
+from typing import Any, Optional
 
+from backend.tools.mcp.mcp_models import MCPServer
 from backend.tools.tool_models import (
     ToolDefinition, ToolPermission, ToolRequest, ToolType, ToolCategory,
 )
@@ -57,7 +58,20 @@ class OhMyPiMCPAdapter:
         self._lock = threading.RLock()
         self._tool_definitions: dict[str, ToolDefinition] = {}
         self._capabilities: list[OhMyPiCapability] = []
+        self._server: Optional[MCPServer] = None
         self._register_tools()
+
+    # ── Server binding (R-006 Phase 5 — this used to not exist at all,
+    #    so "MCP bound" was always false by construction regardless of
+    #    real registration state) ───────────────────────────────────
+
+    def bind_server(self, server: MCPServer) -> None:
+        with self._lock:
+            self._server = server
+
+    def get_server(self) -> Optional[MCPServer]:
+        with self._lock:
+            return self._server
 
     def _register_tools(self) -> None:
         for spec in OHMYPI_MCP_TOOLS:
@@ -117,10 +131,20 @@ class OhMyPiMCPAdapter:
         return response
 
     def get_status(self) -> dict:
-        return {"installed": self._client.is_installed(), "version": self._client.get_version(),
-                "tools_count": len(self._tool_definitions),
-                "capabilities": [c.name for c in self._capabilities],
-                "client_stats": self._client.stats()}
+        from backend.tools.mcp.mcp_status import derive_mcp_status
+
+        installed = self._client.is_installed()
+        version = self._client.get_version()
+        with self._lock:
+            server = self._server
+        return {
+            "installed": installed, "version": version,
+            "tools_count": len(self._tool_definitions),
+            "capabilities": [c.name for c in self._capabilities],
+            "client_stats": self._client.stats(),
+            "server_bound": server is not None,
+            "mcp_status": derive_mcp_status(installed=installed, version=version, server=server),
+        }
 
     def _publish(self, event_type: str, payload: dict, severity: str = "info") -> None:
         if self._event_bus is None:

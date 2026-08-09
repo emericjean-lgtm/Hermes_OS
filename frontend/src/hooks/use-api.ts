@@ -19,6 +19,9 @@ import {
   subsystemClient,
   klaatcodeClient,
   ohmypiClient,
+  codeIntelligenceClient,
+  type CodeIntelligenceTaskKind,
+  type CodeIntelligenceTaskRequest,
   autonomousClient,
   modelIntelligenceClient,
   conversationClient,
@@ -471,6 +474,52 @@ export function useOhMyPiCapabilities() {
   return useQuery({
     queryKey: ["ohmypi", "capabilities"],
     queryFn: () => ohmypiClient.capabilities(),
+  });
+}
+
+// ── Code Intelligence (R-006) ─────────────────────────────
+// CodeIntelligenceAgent/Router were real but never instantiated in
+// production, so the Center rendered no routing decision at all. These call
+// the real /api/v1/code-intelligence surface built to fix that.
+
+export function useCodeIntelligenceStatus() {
+  return useQuery({
+    queryKey: ["code-intelligence", "status"],
+    queryFn: () => codeIntelligenceClient.status(),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useCodeIntelligenceCapabilities() {
+  return useQuery({
+    queryKey: ["code-intelligence", "capabilities"],
+    queryFn: () => codeIntelligenceClient.capabilities(),
+  });
+}
+
+export function useCodeIntelligenceProviders() {
+  return useQuery({
+    queryKey: ["code-intelligence", "providers"],
+    queryFn: () => codeIntelligenceClient.providers(),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useCodeIntelligenceHistory(limit = 50) {
+  return useQuery({
+    queryKey: ["code-intelligence", "history", limit],
+    queryFn: () => codeIntelligenceClient.history(limit),
+  });
+}
+
+export function useRunCodeIntelligenceTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, body }: { kind: CodeIntelligenceTaskKind; body: CodeIntelligenceTaskRequest }) =>
+      codeIntelligenceClient.runTask(kind, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["code-intelligence"] });
+    },
   });
 }
 

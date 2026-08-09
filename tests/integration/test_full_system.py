@@ -59,10 +59,18 @@ class TestDevelopmentMission:
         agent.stop()
 
     def test_code_agent_selects_provider(self):
+        """Refactoring routes to Oh My Pi (LSP-capable, boosted further by
+        requires_ast) — the routing decision is real and unchanged. The
+        outcome itself is now a real, honest refusal rather than a stub
+        success: refactoring writes through an external CLI, and neither
+        ToolPolicy nor ToolSandbox actually enforces a sandbox beneath it
+        (R-006 Phase 9) — so CodeIntelligenceAgent refuses outright rather
+        than claiming a write happened that didn't go through one."""
         ci = create_code_intelligence_agent()
         result = ci.execute_task("refactoring", {"language": "python", "requires_ast": True})
-        assert result.outcome == TaskOutcome.SUCCESS
         assert "ohmypi" in result.details.get("provider", "") or True  # Allow fallback
+        assert result.outcome == TaskOutcome.FAILURE
+        assert "sandbox" in result.error_message
 
     def test_workspace_sandbox_ready(self):
         workspace_info = {"sandboxed": True, "git_branch": "refactor-auth", "path": "/tmp/ws"}

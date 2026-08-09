@@ -93,6 +93,7 @@ jamais appelés en production. Le composition root les appelle désormais.
 | J-4 | Câbler le `WorkspaceManager` dans l'exécuteur pour des artefacts sur disque | 🟡 Mineure |
 | J-5 | Validation réelle de syntaxe/politique/sécurité des sorties générées | 🟡 Mineure |
 | J-6 | Diffuser les résultats vers les 5 couches de mémoire | 🟡 Mineure |
+| M-14 | `backend/runtime/code_intelligence/ci_scorer.py` (`CIRuntimeScorer`) reste orphelin — audité en R-006 Phase 10. Son docstring annonce une intégration au Runtime Orchestrator (HOS-038) qui n'a jamais existé ; zéro appelant en dehors de son propre package. Décision : ne pas le câbler — `CodeIntelligenceRouter._score_klaatcode/_score_ohmypi` fait déjà le même calcul (mêmes 5 facteurs pondérés) pour le vrai routage, et le Runtime Orchestrator réel arbitre des runtimes Ollama/GPU, pas des outils CLI externes — l'y brancher confondrait deux domaines de décision distincts. À supprimer ou à réutiliser explicitement si un vrai besoin apparaît ; ne pas laisser trainer indéfiniment. | ⚪ Cosmétique |
 
 ---
 

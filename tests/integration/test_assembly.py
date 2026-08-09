@@ -334,6 +334,141 @@ class TestDependencyInjection:
         assert orchestrator._model_adapter._router is mi_routes._get_router()
         assert bootstrap.container.get("model_intelligence") is mi_routes._get_router()
 
+    # ── R-006: CodeIntelligenceAgent/Router composition (Phase 1/2) ──────
+    #
+    # Before this, CodeIntelligenceAgent/CodeIntelligenceRouter were never
+    # instantiated anywhere in a running code path (importable, unused).
+    # These must run before test_every_cross_app_shared_service_is_declared
+    # below: that test (like this class's own duplication check) builds
+    # extra raw HermesBootstrap() instances, and code_intelligence's route
+    # module binds through the same last-build-wins module global every
+    # other adopted route module does (see the `bootstrap` fixture's
+    # docstring) — asserting module-global identity after that point would
+    # compare against whichever bootstrap ran last, not this app's.
+
+    def test_code_intelligence_agent_is_built_and_ready(self, client, bootstrap):
+        from backend.agents.agent_models import AgentStatus
+
+        agent = bootstrap.container.get("code_intelligence")
+        assert agent.status == AgentStatus.READY
+        assert agent.is_available
+
+    def test_code_intelligence_reuses_the_adopted_klaatcode_adapter(self, client, bootstrap):
+        """Not a second, unbound KlaatCodeMCPAdapter — the one klaatcode.routes
+        and GET /klaatcode/status already serve."""
+        agent = bootstrap.container.get("code_intelligence")
+        assert agent._klaatcode_agent._mcp_adapter is bootstrap.container.get("klaatcode")
+
+    def test_code_intelligence_reuses_the_adopted_ohmypi_adapter(self, client, bootstrap):
+        agent = bootstrap.container.get("code_intelligence")
+        assert agent._ohmypi_agent._mcp_adapter is bootstrap.container.get("ohmypi")
+
+    def test_code_intelligence_shares_the_container_memory_manager(self, client, bootstrap):
+        agent = bootstrap.container.get("code_intelligence")
+        mm = bootstrap.container.get("memory_manager")
+        assert agent._memory_manager is mm
+        assert agent._klaatcode_agent._memory_manager is mm
+        assert agent._ohmypi_agent._memory_manager is mm
+
+    def test_code_intelligence_sub_agents_share_the_container_workspace_manager(self, client, bootstrap):
+        agent = bootstrap.container.get("code_intelligence")
+        wm = bootstrap.container.get("workspace_manager")
+        assert agent._klaatcode_agent._workspace_manager is wm
+        assert agent._ohmypi_agent._workspace_manager is wm
+
+    def test_code_intelligence_router_is_real_and_actually_used(self, client, bootstrap):
+        """The router genuinely scores/decides per task type — not a stub
+        returning a constant provider regardless of input."""
+        from backend.integrations.code_intelligence.code_intelligence_models import (
+            CodeIntelligenceTask,
+            CodeIntelligenceTaskType,
+            CodeProvider,
+        )
+
+        agent = bootstrap.container.get("code_intelligence")
+        review = agent._router.decide(
+            CodeIntelligenceTask(task_id="t1", task_type=CodeIntelligenceTaskType.ARCHITECTURE_REVIEW),
+        )
+        debugging = agent._router.decide(
+            CodeIntelligenceTask(task_id="t2", task_type=CodeIntelligenceTaskType.DEBUGGING),
+        )
+        assert review.selected_provider == CodeProvider.KLATCODE
+        assert debugging.selected_provider == CodeProvider.OHMYPI
+
+    def test_code_intelligence_has_a_real_hermes_native_executor(self, client, bootstrap):
+        from backend.agents.specialized.code_intelligence.hermes_native_executor import (
+            HermesNativeExecutor,
+        )
+
+        agent = bootstrap.container.get("code_intelligence")
+        assert isinstance(agent._hermes_native_executor, HermesNativeExecutor)
+        assert agent._hermes_native_executor.is_available
+
+    def test_klaatcode_adapter_is_really_bound_to_its_mcp_server(self, client, bootstrap):
+        """R-006 Phase 5: register_klaatcode() used to build its own
+        throwaway adapter (since registry_seeding.py called it without
+        adapter=), binding a server nobody reads. The real adapter
+        container['klaatcode'] and GET /klaatcode/status share must show
+        server_bound=True after a real bootstrap build."""
+        adapter = bootstrap.container.get("klaatcode")
+        assert adapter.get_server() is not None
+        assert adapter.get_status()["server_bound"] is True
+
+    def test_ohmypi_adapter_is_really_bound_to_its_mcp_server(self, client, bootstrap):
+        adapter = bootstrap.container.get("ohmypi")
+        assert adapter.get_server() is not None
+        assert adapter.get_status()["server_bound"] is True
+
+    def test_status_route_is_reachable_through_the_real_app(self, client, bootstrap):
+        """R-006's literal complaint: Hermes exposed no
+        /api/v1/code-intelligence endpoints at all. This hits the real
+        mounted app, not a hand-built router."""
+        resp = client.get(f"{API_V1}/code-intelligence/status")
+        assert resp.status_code == 200
+        assert resp.json()["agent_id"] == bootstrap.container.get("code_intelligence").agent_id
+
+    def test_events_reach_the_real_system_event_bus(self, client, bootstrap):
+        """R-006 Phase 11: ci.* events were declared in CI_EVENTS since
+        HOS-055D but CodeIntelligenceAgent was never instantiated in
+        production, so on_event was always None and every publish call was
+        a no-op — nothing ever reached the real bus. Now it's wired with a
+        real dispatcher (Phase 1); this proves the events genuinely arrive,
+        not just that the code compiles."""
+        from backend.integrations.code_intelligence.code_intelligence_models import (
+            CodeProvider,
+        )
+
+        bus = bootstrap.container.get("system_event_bus")
+
+        agent = bootstrap.container.get("code_intelligence")
+        # KlaatCode, not Hermes-native: a real klaatcode subprocess call is
+        # ~1s, a real Ollama generation is ~30s — this suite stays hermetic
+        # and fast (tests.support.fake_inference exists for exactly this
+        # reason), and the events this test checks are published either way.
+        agent.execute_task("code_analysis", {}, force_provider=CodeProvider.KLATCODE)
+
+        events = bus.query()
+        types = {e.type for e in events if e.source == "code_intelligence"}
+
+        # task_started existed in CI_EVENTS since HOS-055D with zero
+        # publish() call sites anywhere — the literal gap this phase fixes.
+        assert "ci.task.started" in types
+        assert "ci.routing.decided" in types
+        assert ("ci.task.completed" in types) or ("ci.task.failed" in types)
+
+    def test_second_bootstrap_does_not_duplicate_code_intelligence(self, client, bootstrap):
+        """Guards the same class of bug test_every_cross_app_shared_service_is_declared
+        checks for the older adopted singletons: code_intelligence is *not*
+        adopts_module_singleton (it's genuinely built once per app, unlike
+        klaatcode/ohmypi), so a second bootstrap must get its own instance —
+        while still pointing at the *same* underlying klaatcode/ohmypi adapters."""
+        second = HermesBootstrap()
+        second.build()
+        first_agent = bootstrap.container.get("code_intelligence")
+        second_agent = second.container.get("code_intelligence")
+        assert first_agent is not second_agent
+        assert first_agent._klaatcode_agent._mcp_adapter is second_agent._klaatcode_agent._mcp_adapter
+
     def test_every_cross_app_shared_service_is_declared(self):
         """Sharing state between app instances must be deliberate.
 
@@ -342,6 +477,11 @@ class TestDependencyInjection:
         silently sharing a process-global object without the flag, so the
         dependency report described them as isolated per-app when they were not.
         This asserts the invariant instead of a list.
+
+        Kept last in the class deliberately: it (like the test above) builds
+        extra raw HermesBootstrap() instances that steal every adopted route
+        module's last-build-wins global, so nothing after this point may
+        still assume a route module points at `bootstrap`'s instance.
         """
         first, second = HermesBootstrap(), HermesBootstrap()
         first.build()

@@ -9,6 +9,26 @@ Factors considered:
 - Resource consumption
 - Task complexity match
 - Provider availability
+
+ORPHANED (audited R-006 Phase 10, ROADMAP.md M-14): the "Runtime
+Orchestrator (HOS-038)" integration above was never built — CIRuntimeScorer
+has no caller anywhere outside this package, and grep confirms it. It was
+deliberately NOT wired into either of the two real candidates that
+audit considered:
+
+* CodeIntelligenceRouter._score_klaatcode/_score_ohmypi already computes
+  the same 5-factor weighted score for the routing decision that actually
+  runs — wiring this in too would be the exact scoring logic duplicated,
+  not reused.
+* The real RuntimeOrchestrator (backend/runtime/orchestrator/) arbitrates
+  Ollama/GPU inference runtimes. KlaatCode/Oh My Pi are external CLI tools,
+  not inference runtimes — treating them as runtime candidates there would
+  conflate two different decisions the rest of Hermes keeps separate.
+
+Left in place rather than deleted in case a real, distinct use for a
+Runtime-Orchestrator-facing view of these two providers appears later —
+but it should not be treated as live code until something actually calls
+it.
 """
 
 from __future__ import annotations

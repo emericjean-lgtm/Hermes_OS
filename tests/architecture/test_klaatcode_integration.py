@@ -268,6 +268,24 @@ class TestKlaatCodeMCPAdapter:
         for mt in adapter.get_mcp_tools().values():
             assert mt.server_id == server.id
 
+    def test_status_mcp_status_field_reflects_binding(self, policy, sandbox):
+        """R-006 Phase 5: an explicit state, not a bare boolean the frontend
+        has to interpret on its own. Uses a fake client with deterministic
+        installed/version so this doesn't depend on whether the real
+        klaatcode CLI happens to be reachable on the machine running the
+        suite."""
+        class _FakeClient:
+            def is_installed(self): return True
+            def get_version(self): return "9.9.9"
+            def stats(self): return {}
+
+        adapter = KlaatCodeMCPAdapter(_FakeClient(), policy, sandbox)
+        assert adapter.get_status()["mcp_status"] == "unbound"
+        adapter.bind_server(MCPServer(name="klaatcode-server"))
+        # Default MCPServer.status is DISCONNECTED — no code here performs a
+        # live MCP handshake, so "disconnected" is the honest post-bind state.
+        assert adapter.get_status()["mcp_status"] == "disconnected"
+
     def test_unknown_action(self, adapter):
         resp = adapter.execute("unknown_action", {})
         assert resp.status == KlaatCodeStatus.ERROR

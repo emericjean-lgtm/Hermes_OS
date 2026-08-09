@@ -941,6 +941,77 @@ def _bind_ohmypi_routes(c: Any, svc: Any) -> list[Any]:
     return [ohmypi_router]
 
 
+def _make_code_intelligence(c: Any) -> Any:
+    """Wire CodeIntelligenceAgent onto the same provider instances the
+    ``klaatcode``/``ohmypi`` services and their HTTP routes already use
+    (R-006). ``c.get("klaatcode")``/``c.get("ohmypi")`` return the exact
+    adopted MCP adapters from ``_make_klaatcode``/``_make_ohmypi`` above —
+    building fresh clients here would give the CI agent a second, unbound
+    view of each provider instead of the live one.
+    """
+    from backend.agents.specialized.code_intelligence.code_intelligence_agent import (
+        create_code_intelligence_agent,
+    )
+    from backend.agents.specialized.code_intelligence.hermes_native_executor import (
+        HermesNativeExecutor,
+    )
+    from backend.agents.specialized.klaatcode.klaatcode_agent import KlaatCodeAgent
+    from backend.agents.specialized.ohmypi.ohmypi_agent import OhMyPiAgent
+    from backend.connectors.ollama_client import OllamaClient
+    from backend.core.config import get_settings, load_models_config
+    from backend.core.router import ModelRouter
+
+    memory_manager = c.get("memory_manager")
+    workspace_manager = c.get("workspace_manager")
+
+    klaatcode_agent = KlaatCodeAgent(
+        on_event=_dispatcher(c, "klaatcode_agent"),
+        mcp_adapter=c.get("klaatcode"),
+        memory_manager=memory_manager,
+        workspace_manager=workspace_manager,
+    )
+    klaatcode_agent.start()
+
+    ohmypi_agent = OhMyPiAgent(
+        on_event=_dispatcher(c, "ohmypi_agent"),
+        mcp_adapter=c.get("ohmypi"),
+        memory_manager=memory_manager,
+        workspace_manager=workspace_manager,
+    )
+    ohmypi_agent.start()
+
+    # Same construction as _make_mission_planner's TaskDecomposer: every real
+    # inference path builds its own ModelRouter/OllamaClient pair from the
+    # same settings/config rather than sharing a container-wide singleton,
+    # since neither is stateful in a way that needs single-instance sharing.
+    settings = get_settings()
+    models_config = load_models_config()
+    ollama_client = OllamaClient(
+        settings.ollama_api_url,
+        keep_alive=getattr(settings, "ollama_keep_alive", "10m"),
+        default_num_ctx=getattr(settings, "ollama_num_ctx", 8192),
+    )
+    hermes_native_executor = HermesNativeExecutor(
+        ollama_client=ollama_client,
+        model_router=ModelRouter(models_config),
+        on_event=_dispatcher(c, "hermes_native_executor"),
+    )
+
+    return create_code_intelligence_agent(
+        on_event=_dispatcher(c, "code_intelligence"),
+        klaatcode_agent=klaatcode_agent,
+        ohmypi_agent=ohmypi_agent,
+        hermes_native_executor=hermes_native_executor,
+        memory_manager=memory_manager,
+    )
+
+
+def _bind_code_intelligence_routes(c: Any, svc: Any) -> list[Any]:
+    from backend.api.routes.code_intelligence import create_code_intelligence_routes
+
+    return [create_code_intelligence_routes(svc)]
+
+
 # ── Monitoring ────────────────────────────────────────────────────────
 
 def _make_system_monitor(c: Any) -> Any:
@@ -1376,6 +1447,21 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         description="Oh My Pi capabilities bridge (HOS-055C)",
         adopts_module_singleton=True,
         capabilities=("shell", "automation"),
+    ),
+    ServiceSpec(
+        key="code_intelligence",
+        name="Code Intelligence Agent",
+        category=ComponentCategory.AGENT,
+        factory=_make_code_intelligence,
+        dependencies=("klaatcode", "ohmypi", "memory_manager", "workspace_manager", "event_dispatcher"),
+        route_binder=_bind_code_intelligence_routes,
+        produced_events=(
+            "ci.agent.ready", "ci.routing.decided", "ci.task.started",
+            "ci.task.completed", "ci.task.failed", "ci.hybrid.executed",
+            "ci.memory.recorded",
+        ),
+        description="Routes code tasks to KlaatCode/Oh My Pi (HOS-055D, R-006)",
+        capabilities=("code_routing", "code_analysis", "code_execution"),
     ),
     # ── Monitoring ──
     ServiceSpec(

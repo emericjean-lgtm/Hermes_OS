@@ -36,6 +36,7 @@ class OhMyPiClient:
         self._lock = threading.RLock()
         self._omp_path = omp_path or self._detect_installation()
         self._version: Optional[str] = None
+        self._last_health_check_at: Optional[float] = None
         self._history: list[OhMyPiResponse] = []
         self._max_history = 500
 
@@ -49,18 +50,31 @@ class OhMyPiClient:
                 return candidate
         return None
 
-    def is_installed(self) -> bool:
+    def _candidate_located(self) -> bool:
+        """A runner (omp/bunx/npx) exists on PATH — necessary but not
+        sufficient (R-006 Phase 6): the real ``omp`` npm package can be
+        published but not resolve to a runnable executable via npx, exactly
+        what's observed on this machine ("could not determine executable to
+        run") despite a runner being present."""
         with self._lock:
             if self._omp_path is None:
                 self._omp_path = self._detect_installation()
             return self._omp_path is not None
+
+    def is_installed(self) -> bool:
+        """True only once a real invocation has actually succeeded — see
+        KlaatCodeClient.is_installed()'s identical reasoning."""
+        return self.get_version() is not None
 
     def execute(self, request: OhMyPiRequest) -> OhMyPiResponse:
         start = time.monotonic()
         response = OhMyPiResponse(request_id=request.id)
 
         with self._lock:
-            if not self.is_installed():
+            # Not self.is_installed(): see KlaatCodeClient.execute()'s
+            # identical comment — that would recurse through
+            # get_version()/health_check()/execute() on the first call.
+            if not self._candidate_located():
                 response.status = OhMyPiStatus.ERROR
                 response.error = "Oh My Pi (omp) is not installed"
                 response.duration_ms = (time.monotonic() - start) * 1000
@@ -128,9 +142,22 @@ class OhMyPiClient:
     def health_check(self) -> OhMyPiResponse:
         return self.execute(OhMyPiRequest(action=OhMyPiAction.HEALTH_CHECK, timeout_seconds=10.0))
 
+    # Same reasoning as KlaatCodeClient's identical constant: without a
+    # cooldown, is_installed() now calling this on every check would re-run
+    # a real subprocess on every single poll for a provider that never
+    # succeeds (R-006 Phase 6) — exactly the observed "every 15s poll
+    # retries a failing omp invocation forever" behaviour.
+    _HEALTH_CHECK_COOLDOWN_S = 30.0
+
     def get_version(self) -> Optional[str]:
         with self._lock:
-            if self._version is None:
+            now = time.monotonic()
+            stale = (
+                self._last_health_check_at is None
+                or (now - self._last_health_check_at) >= self._HEALTH_CHECK_COOLDOWN_S
+            )
+            if self._version is None and stale:
+                self._last_health_check_at = now
                 resp = self.health_check()
                 if resp.status == OhMyPiStatus.SUCCESS and isinstance(resp.data, dict):
                     self._version = resp.data.get("version", "")

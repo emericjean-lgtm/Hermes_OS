@@ -34,6 +34,11 @@ class CodeProvider(str, Enum):
     KLATCODE = "klaatcode"
     OHMYPI = "ohmypi"
     HYBRID = "hybrid"  # Both providers sequentially
+    # Hermes's own Model Intelligence -> Runtime -> Ollama path (R-006 Phase
+    # 3) — for pure text-generation/analysis task types only, never for
+    # anything requiring a real debugger/LSP session. Never combined into
+    # HYBRID: that strategy stays klaatcode+ohmypi, as it always has been.
+    HERMES_NATIVE = "hermes_native"
 
 
 class SelectionStrategy(str, Enum):
@@ -160,3 +165,53 @@ TASK_PROVIDER_PREFERENCE: dict[CodeIntelligenceTaskType, list[CodeProvider]] = {
     CodeIntelligenceTaskType.CODE_REVIEW: [CodeProvider.KLATCODE, CodeProvider.OHMYPI],
     CodeIntelligenceTaskType.DOCUMENTATION: [CodeProvider.KLATCODE],
 }
+
+# Real per-provider task-type translation (R-006 Phase 4).
+#
+# CodeIntelligenceTaskType is the CI layer's own vocabulary; KlaatCodeAgent
+# and OhMyPiAgent each have their own task-type enum with a real
+# TASK_TO_MCP_ACTION mapping to actual CLI actions (see
+# backend/agents/specialized/klaatcode/klaatcode_capabilities.py and
+# .../ohmypi/ohmypi_capabilities.py). Several CI task types happen to share
+# a literal string with KlaatCodeTaskType (code_analysis, code_generation,
+# refactoring, diagnostics, code_review) — but Oh My Pi's vocabulary barely
+# overlaps at all, so passing a CI task_type straight through silently sent
+# a nonsense action string to a real CLI (e.g. "code_review" -> `omp
+# code_review`, rejected with "Unknown action"). A CI task type absent here
+# has no honest equivalent for that provider — routing/execution must treat
+# it as unavailable, not guess.
+CI_TO_KLAATCODE_TASK_TYPE: dict["CodeIntelligenceTaskType", str] = {
+    CodeIntelligenceTaskType.CODE_ANALYSIS: "code_analysis",
+    CodeIntelligenceTaskType.CODE_GENERATION: "code_generation",
+    CodeIntelligenceTaskType.REFACTORING: "refactoring",
+    CodeIntelligenceTaskType.DIAGNOSTICS: "diagnostics",
+    CodeIntelligenceTaskType.CODE_REVIEW: "code_review",
+    CodeIntelligenceTaskType.ARCHITECTURE_REVIEW: "project_navigation",
+    CodeIntelligenceTaskType.TEST_GENERATION: "test_analysis",
+    CodeIntelligenceTaskType.DOCUMENTATION: "code_analysis",
+    # No real KlaatCode equivalent: DEBUGGING, OPTIMIZATION.
+}
+
+CI_TO_OHMYPI_TASK_TYPE: dict["CodeIntelligenceTaskType", str] = {
+    CodeIntelligenceTaskType.DEBUGGING: "debugging",
+    CodeIntelligenceTaskType.REFACTORING: "code_editing",
+    CodeIntelligenceTaskType.CODE_GENERATION: "code_editing",
+    CodeIntelligenceTaskType.CODE_ANALYSIS: "lsp_navigation",
+    CodeIntelligenceTaskType.CODE_REVIEW: "code_search",
+    # No real Oh My Pi equivalent: ARCHITECTURE_REVIEW, TEST_GENERATION,
+    # OPTIMIZATION, DIAGNOSTICS, DOCUMENTATION.
+}
+
+# R-006 Phase 9 — task types whose real resolved action carries
+# ToolPermission.WRITE on at least one provider (REFACTORING -> KlaatCode's
+# edit_file / Oh My Pi's lsp_edit; CODE_GENERATION -> Oh My Pi's lsp_edit).
+# ToolPolicy.evaluate()'s WRITE branch is a documented no-op ("Policy engine
+# would check sandbox readonly status" -> `pass`) and neither MCP adapter's
+# execute() ever consults the ToolSandbox it's constructed with — so nothing
+# beneath CodeIntelligenceAgent actually stops a write today. This set is
+# checked before any klaatcode/ohmypi execution (hermes_native never touches
+# a file, so it's exempt) — see CodeIntelligenceAgent.execute_task().
+WRITE_CAPABLE_CI_TASK_TYPES: frozenset["CodeIntelligenceTaskType"] = frozenset({
+    CodeIntelligenceTaskType.REFACTORING,
+    CodeIntelligenceTaskType.CODE_GENERATION,
+})

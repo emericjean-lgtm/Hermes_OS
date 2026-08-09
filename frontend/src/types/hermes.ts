@@ -716,3 +716,117 @@ export interface KlaatCodeExecutionResult {
   timestamp: string;
   success: boolean;
 }
+
+// ── Code Intelligence (R-006) ─────────────────────────
+// /api/v1/code-intelligence/* — CodeIntelligenceAgent/Router really wired
+// in, replacing the fabricated client-side routing decision the Center used
+// to compute (R-002). See backend/api/routes/code_intelligence.py.
+
+export interface CodeIntelligenceProviderStatsDTO {
+  total_executions: number;
+  success_count: number;
+  failure_count: number;
+  timeout_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  installed: boolean;
+  version: string | null;
+}
+
+export interface CodeIntelligenceStatusDTO {
+  agent_id: string;
+  name: string;
+  status: string;
+  op_status: string;
+  is_available: boolean;
+  capabilities: string[];
+  providers: string[];
+  total_tasks: number;
+  successful_tasks: number;
+  failed_tasks: number;
+  klaatcode_tasks: number;
+  ohmypi_tasks: number;
+  hermes_native_tasks: number;
+  hybrid_tasks: number;
+  /** Already 0-100 — CodeIntelligenceAgent.success_rate, unlike the raw
+   *  0-1 fraction klaatcode/ohmypi client_stats.success_rate carry. */
+  success_rate: number;
+  router_stats: {
+    klaatcode: { total: number; success_count: number; success_rate: number };
+    ohmypi: { total: number; success_count: number; success_rate: number };
+    hermes_native: { total: number; success_count: number; success_rate: number };
+    total_executions: number;
+  };
+  current_task_id: string;
+}
+
+export interface CodeIntelligenceCapabilitiesDTO {
+  capabilities: string[];
+  providers: string[];
+  task_types: string[];
+}
+
+export type MCPStatusValue = "connected" | "disconnected" | "unbound" | "unavailable" | "not_configured";
+
+export interface CodeIntelligenceExternalProviderStatusDTO {
+  installed: boolean;
+  version: string | null;
+  tools_count: number;
+  capabilities: string[];
+  client_stats: CodeIntelligenceProviderStatsDTO;
+  server_bound: boolean;
+  mcp_status: MCPStatusValue;
+}
+
+export interface CodeIntelligenceProvidersDTO {
+  klaatcode: { available: boolean; status: CodeIntelligenceExternalProviderStatusDTO | null };
+  ohmypi: { available: boolean; status: CodeIntelligenceExternalProviderStatusDTO | null };
+  hermes_native: { available: boolean; status: { agent_id: string } | null };
+}
+
+export interface CodeIntelligenceProviderScoreDTO {
+  provider: string;
+  score: number;
+  factors: Record<string, number>;
+  reasoning: string[];
+}
+
+export interface CodeIntelligenceDecisionDTO {
+  task_type: string;
+  selected_provider: string;
+  strategy: string;
+  primary_reason: string;
+  scores: CodeIntelligenceProviderScoreDTO[];
+  hybrid_order: string[];
+  metadata: Record<string, unknown>;
+  decided_at: string;
+}
+
+export interface CodeIntelligenceTaskResultDTO {
+  success: boolean;
+  summary: string;
+  duration_ms: number;
+  data: unknown;
+  provider: string | null;
+  strategy: string | null;
+  decision: CodeIntelligenceDecisionDTO | null;
+  error: string | null;
+}
+
+export interface CodeIntelligenceHistoryEntryDTO {
+  task_id: string;
+  task_type: string;
+  selected_provider: string;
+  strategy: string;
+  success: boolean;
+  duration_ms: number;
+  kc_score: number;
+  omp_score: number;
+  primary_reason: string;
+  timestamp: string;
+}
+
+export interface CodeIntelligenceHistoryDTO {
+  history: CodeIntelligenceHistoryEntryDTO[];
+  total: number;
+}

@@ -106,6 +106,35 @@ class TestOhMyPiMCPAdapter:
         resp = adapter.execute("nonexistent", {})
         assert resp.status == OhMyPiStatus.ERROR
 
+    def test_status_reports_unbound_before_bind_server(self, adapter):
+        """R-006 Phase 5: before this adapter had bind_server() at all,
+        "server_bound" didn't exist in the response, so the frontend's
+        Boolean(status.server_bound) was always false by construction."""
+        s = adapter.get_status()
+        assert s["server_bound"] is False
+        assert adapter.get_server() is None
+
+    def test_bind_server_makes_status_report_bound(self):
+        """Uses a fake client with a deterministic version so this doesn't
+        depend on the real omp package actually resolving on the machine
+        running the suite (it's observed to NOT resolve via npx in this
+        environment — real npm package, no runnable executable, R-006
+        Phase 6)."""
+        from backend.tools.mcp.mcp_models import MCPServer, MCPStatus
+
+        class _FakeClient:
+            def is_installed(self): return True
+            def get_version(self): return "9.9.9"
+            def stats(self): return {}
+
+        adapter = OhMyPiMCPAdapter(_FakeClient(), ToolPolicy(), ToolSandbox())
+        server = MCPServer(id="ohmypi", status=MCPStatus.CONNECTED)
+        adapter.bind_server(server)
+        assert adapter.get_server() is server
+        s = adapter.get_status()
+        assert s["server_bound"] is True
+        assert s["mcp_status"] == "connected"
+
     def test_lsp_open_file(self, adapter):
         resp = adapter.execute(OhMyPiAction.LSP_OPEN_FILE, {"file": "src/test.py"})
         assert isinstance(resp, OhMyPiResponse)

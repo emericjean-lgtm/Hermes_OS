@@ -13,6 +13,7 @@ class CodeIntelligenceAgentStatus(str, Enum):
     ROUTING = "routing"
     EXECUTING_KLATCODE = "executing_klaatcode"
     EXECUTING_OHMYPI = "executing_ohmypi"
+    EXECUTING_HERMES_NATIVE = "executing_hermes_native"
     EXECUTING_HYBRID = "executing_hybrid"
     VALIDATING = "validating"
     RECORDING = "recording"
@@ -53,4 +54,8 @@ CI_EVENTS = {
     "task_failed": "ci.task.failed",
     "hybrid_executed": "ci.hybrid.executed",
     "recorded_to_memory": "ci.memory.recorded",
+    # HermesNativeExecutor (R-006 Phase 3) — its own execution outcome,
+    # distinct from task_completed/task_failed which cover every provider.
+    "hermes_native_completed": "ci.hermes_native.completed",
+    "hermes_native_failed": "ci.hermes_native.failed",
 }

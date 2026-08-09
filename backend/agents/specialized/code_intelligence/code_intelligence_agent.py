@@ -34,6 +34,9 @@ from backend.agents.agent_models import (
     TaskOutcome,
 )
 from backend.integrations.code_intelligence.code_intelligence_models import (
+    CI_TO_KLAATCODE_TASK_TYPE,
+    CI_TO_OHMYPI_TASK_TYPE,
+    WRITE_CAPABLE_CI_TASK_TYPES,
     CodeIntelligenceTask,
     CodeIntelligenceTaskType,
     CodeProvider,
@@ -82,6 +85,7 @@ class CodeIntelligenceAgent:
         on_event: Optional[Callable] = None,
         klaatcode_agent: Any = None,
         ohmypi_agent: Any = None,
+        hermes_native_executor: Any = None,
         router: Optional[CodeIntelligenceRouter] = None,
         memory_manager: Any = None,
         agent_coordinator: Any = None,
@@ -90,6 +94,7 @@ class CodeIntelligenceAgent:
         self._on_event = on_event
         self._klaatcode_agent = klaatcode_agent
         self._ohmypi_agent = ohmypi_agent
+        self._hermes_native_executor = hermes_native_executor
         self._router = router or CodeIntelligenceRouter()
         self._memory_manager = memory_manager
         self._agent_coordinator = agent_coordinator
@@ -123,6 +128,7 @@ class CodeIntelligenceAgent:
         # Provider-specific metrics
         self._klaatcode_tasks = 0
         self._ohmypi_tasks = 0
+        self._hermes_native_tasks = 0
         self._hybrid_tasks = 0
 
         # Lifecycle history
@@ -272,14 +278,25 @@ class CodeIntelligenceAgent:
             agent_id=agent,
         )
 
+        # ci.task.started was declared in CI_EVENTS since HOS-055D but never
+        # actually published anywhere in this file (R-006 Phase 11) — a
+        # subscriber filtering on it would wait forever for an event that
+        # never arrives.
+        self._publish(CI_EVENTS["task_started"], {
+            "task_id": ci_task.task_id, "task_type": task_type,
+            "mission_id": mission_id, "node_id": node_id,
+        })
+
         # 2. Route
         kc_available = self._klaatcode_agent is not None
         omp_available = self._ohmypi_agent is not None
+        hn_available = self._hermes_native_executor is not None
 
         decision = self._router.decide(
             ci_task,
             klaatcode_available=kc_available,
             ohmypi_available=omp_available,
+            hermes_native_available=hn_available,
             force_provider=force_provider,
         )
         self._publish(CI_EVENTS["routing_decided"], {
@@ -292,30 +309,67 @@ class CodeIntelligenceAgent:
         # 3. Execute
         if decision.strategy == SelectionStrategy.HYBRID_BOTH:
             self._op_status = CodeIntelligenceAgentStatus.EXECUTING_HYBRID
-            hybrid_result = self._router.execute_hybrid(
-                ci_task, self._klaatcode_agent, self._ohmypi_agent,
-                order=decision.hybrid_order,
-            )
-            success = hybrid_result.overall_success
-            data = hybrid_result.merged_data
-            errors = hybrid_result.errors
-            duration_ms = hybrid_result.total_duration_ms
-            self._publish(CI_EVENTS["hybrid_executed"], {
-                "success": success, "errors": errors, "duration_ms": duration_ms,
-            })
+            unsandboxed = self._unsandboxed_write(ci_task_type, parameters)
+            if unsandboxed:
+                success = False
+                data = None
+                errors = [unsandboxed]
+                duration_ms = 0.0
+            else:
+                hybrid_result = self._router.execute_hybrid(
+                    ci_task, self._klaatcode_agent, self._ohmypi_agent,
+                    order=decision.hybrid_order,
+                )
+                success = hybrid_result.overall_success
+                data = hybrid_result.merged_data
+                errors = hybrid_result.errors
+                duration_ms = hybrid_result.total_duration_ms
+                self._publish(CI_EVENTS["hybrid_executed"], {
+                    "success": success, "errors": errors, "duration_ms": duration_ms,
+                })
         else:
             provider = decision.selected_provider
+            # KlaatCodeAgent/OhMyPiAgent each speak their own task-type
+            # vocabulary with a real TASK_TO_MCP_ACTION mapping — passing the
+            # CI layer's task_type straight through used to send actions like
+            # `omp code_review` that don't exist. Hermes-native does its own
+            # translation internally (HERMES_NATIVE_TASK_TYPES), so it keeps
+            # the raw task_type.
+            provider_task_type = task_type
             if provider == CodeProvider.KLATCODE:
                 self._op_status = CodeIntelligenceAgentStatus.EXECUTING_KLATCODE
                 executor = self._klaatcode_agent
+                provider_task_type = CI_TO_KLAATCODE_TASK_TYPE.get(ci_task_type)
+            elif provider == CodeProvider.HERMES_NATIVE:
+                self._op_status = CodeIntelligenceAgentStatus.EXECUTING_HERMES_NATIVE
+                executor = self._hermes_native_executor
             else:
                 self._op_status = CodeIntelligenceAgentStatus.EXECUTING_OHMYPI
                 executor = self._ohmypi_agent
+                provider_task_type = CI_TO_OHMYPI_TASK_TYPE.get(ci_task_type)
 
-            if executor:
+            unsandboxed = (
+                None if provider == CodeProvider.HERMES_NATIVE
+                else self._unsandboxed_write(ci_task_type, parameters)
+            )
+
+            if executor and unsandboxed:
+                success = False
+                data = None
+                errors = [unsandboxed]
+                duration_ms = 0.0
+            elif executor and provider_task_type is None:
+                # A real gap, not a bug to paper over: this provider has no
+                # honest equivalent for this task type. Fail clearly instead
+                # of sending a guessed action string to a real CLI.
+                success = False
+                data = None
+                errors = [f"{provider.value} has no real capability for task type {task_type!r}"]
+                duration_ms = 0.0
+            elif executor:
                 try:
                     result = executor.execute_task(
-                        task_type, parameters,
+                        provider_task_type, parameters,
                         mission_id=mission_id, node_id=node_id,
                     )
                     success = result.outcome == TaskOutcome.SUCCESS
@@ -381,6 +435,8 @@ class CodeIntelligenceAgent:
                 self._klaatcode_tasks += 1
             elif decision.selected_provider == CodeProvider.OHMYPI:
                 self._ohmypi_tasks += 1
+            elif decision.selected_provider == CodeProvider.HERMES_NATIVE:
+                self._hermes_native_tasks += 1
             self._last_active_at = completed
 
         # Events
@@ -487,6 +543,7 @@ class CodeIntelligenceAgent:
                 "providers": self._profile.providers,
                 "klaatcode_tasks": self._klaatcode_tasks,
                 "ohmypi_tasks": self._ohmypi_tasks,
+                "hermes_native_tasks": self._hermes_native_tasks,
                 "hybrid_tasks": self._hybrid_tasks,
             },
         )
@@ -525,6 +582,7 @@ class CodeIntelligenceAgent:
                 "failed_tasks": self._failed_tasks,
                 "klaatcode_tasks": self._klaatcode_tasks,
                 "ohmypi_tasks": self._ohmypi_tasks,
+                "hermes_native_tasks": self._hermes_native_tasks,
                 "hybrid_tasks": self._hybrid_tasks,
                 "success_rate": self.success_rate,
                 "router_stats": self._router.stats(),
@@ -559,6 +617,39 @@ class CodeIntelligenceAgent:
 
     # ── Helpers ───────────────────────────────────────────────
 
+    def _unsandboxed_write(
+        self, ci_task_type: CodeIntelligenceTaskType, parameters: dict[str, Any],
+    ) -> str:
+        """Non-empty (a real error message) if this task would write through
+        an external provider with no sandbox proof — R-006 Phase 9.
+
+        KlaatCode's ``edit_file`` and Oh My Pi's ``lsp_edit`` genuinely carry
+        ``ToolPermission.WRITE``, but neither ``ToolPolicy.evaluate()`` (its
+        WRITE branch is a documented no-op) nor either MCP adapter's
+        ``execute()`` (neither ever consults the ``ToolSandbox`` it's built
+        with) actually stops one from touching the real repo. Until a real
+        workspace/sandbox is provisioned and threaded through as
+        ``parameters["sandbox_id"]``, refusing outright is the only honest
+        choice — "no automatic modification of the main repo" cannot be
+        satisfied any other way today.
+        """
+        if ci_task_type not in WRITE_CAPABLE_CI_TASK_TYPES:
+            return ""
+        if parameters.get("sandbox_id"):
+            # A real sandbox workflow doesn't exist yet to validate this
+            # against (Workspace -> Sandbox provisioning is not wired into
+            # this agent) — so a caller-supplied id is not honoured either,
+            # only rejected with a clearer reason than "no sandbox at all".
+            return (
+                f"{ci_task_type.value} writes through an external provider are not yet "
+                "sandboxed end-to-end; sandbox_id is accepted by no real provisioning path"
+            )
+        return (
+            f"{ci_task_type.value} would write through an external provider "
+            "with no sandbox — refused (R-006 Phase 9: ToolPolicy/ToolSandbox "
+            "do not actually enforce this beneath CodeIntelligenceAgent)"
+        )
+
     def _publish(self, event_type: str, payload: dict, severity: str = "info") -> None:
         if self._on_event is None:
             return
@@ -574,6 +665,7 @@ def create_code_intelligence_agent(
     on_event: Optional[Callable] = None,
     klaatcode_agent: Any = None,
     ohmypi_agent: Any = None,
+    hermes_native_executor: Any = None,
     router: Optional[CodeIntelligenceRouter] = None,
     memory_manager: Any = None,
     agent_coordinator: Any = None,
@@ -583,6 +675,7 @@ def create_code_intelligence_agent(
         on_event=on_event,
         klaatcode_agent=klaatcode_agent,
         ohmypi_agent=ohmypi_agent,
+        hermes_native_executor=hermes_native_executor,
         router=router,
         memory_manager=memory_manager,
         agent_coordinator=agent_coordinator,

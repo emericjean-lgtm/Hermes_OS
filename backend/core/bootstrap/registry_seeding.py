@@ -229,8 +229,17 @@ def _seed_tools_and_mcp(container: Any, report: SeedingReport) -> None:
                 register_klaatcode,
             )
 
+            # Without this, register_klaatcode() builds its own throwaway
+            # KlaatCodeMCPAdapter and binds *that* to the MCP server record —
+            # the adapter GET /klaatcode/status and this seeding step's own
+            # container["klaatcode"] actually read never gets bound, so
+            # "MCP bound" reads false forever regardless of real state
+            # (R-006 Phase 5).
+            klaatcode_adapter = container.get("klaatcode") if container.has("klaatcode") else None
             result = register_klaatcode(
-                tool_registry=tool_registry, mcp_registry=mcp_registry)
+                tool_registry=tool_registry, mcp_registry=mcp_registry,
+                adapter=klaatcode_adapter,
+            )
             report.tools += int(result.get("registered_tools", 0) or 0)
             report.mcp_tools += int(result.get("registered_mcp_tools", 0) or 0)
             if result.get("registered_mcp_tools"):
@@ -317,13 +326,20 @@ def _register_ohmypi_server(adapter: Any, mcp_registry: Any) -> int:
     status = adapter.get_status() or {}
     installed = bool(status.get("installed"))
     try:
-        mcp_registry.register_server(MCPServer(
+        server = mcp_registry.register_server(MCPServer(
             id="ohmypi",
             name="Oh My Pi",
             version=str(status.get("version") or ""),
             capabilities=[c.name for c in adapter.get_capabilities()],
             status=MCPStatus.CONNECTED if installed else MCPStatus.DISCONNECTED,
         ))
+        # Mirrors register_klaatcode()'s adapter.bind_server() — without
+        # this, OhMyPiMCPAdapter.get_status() (what GET /ohmypi/status
+        # actually returns) never learns a server was registered at all
+        # (R-006 Phase 5; OhMyPiMCPAdapter previously had no bind_server()
+        # or _server concept whatsoever).
+        if hasattr(adapter, "bind_server"):
+            adapter.bind_server(server)
         return 1
     except Exception:
         logger.warning("could not register Oh My Pi MCP server", exc_info=True)

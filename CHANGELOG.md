@@ -1,3 +1,87 @@
+## R-006 — Code Intelligence : intégration réelle, Cockpit complet, validation locale (2026-08-09)
+
+Rapport complet : [`docs/release/R-006_CODE_INTELLIGENCE_VALIDATION.md`](docs/release/R-006_CODE_INTELLIGENCE_VALIDATION.md).
+Demande de l'utilisateur : cahier des charges en 14 phases, tâche de
+« Release Engineering / intégration, pas une invitation à créer un nouveau
+sous-système ». `CodeIntelligenceRouter`/`CodeIntelligenceAgent` (HOS-055D)
+étaient du code réel et non trivial, jamais instancié en production.
+
+### Constat principal (audit, avant tout code)
+Trois couches existaient pour KlaatCode/Oh My Pi (Agent → MCP Adapter →
+Client) ; seule la couche Client était atteinte par les routes HTTP
+préexistantes. `CodeIntelligenceAgent`/`Router` n'étaient importés que par
+eux-mêmes et par les tests — jamais instanciés, jamais appelés depuis une
+route. Aucune route `/api/v1/code-intelligence` n'existait.
+
+### Décision d'architecture (approuvée par l'utilisateur)
+KlaatCode et Oh My Pi restent des providers externes avec leur propre mode
+d'exécution — Model Intelligence ne s'y applique jamais. Une troisième voie
+authentique, **Hermes-native** (Model Intelligence → Runtime → Ollama), a
+été ajoutée pour les tâches de génération/analyse one-shot réelles, avec le
+même `ModelRouter`/`OllamaClient` que le reste de Hermes — aucun second
+moteur.
+
+### Added
+- **Composition root réel** : `CodeIntelligenceAgent` construit en
+  réutilisant les singletons `klaatcode`/`ohmypi` déjà adoptés (identité
+  d'objet vérifiée par test), pas de nouvelles instances concurrentes.
+- **Surface API réelle** : `GET/POST /api/v1/code-intelligence/{status,
+  capabilities,providers,analyze,review,debug,explain,history}` — 8
+  endpoints adaptateurs purs, validation Pydantic (`force_provider` invalide
+  → 422 réel, jamais 500).
+- **Routage à 3 voies** : `HermesNativeExecutor` (nouveau), avec traduction
+  honnête du vocabulaire de tâches par provider — un `omp code_review`
+  envoyé tel quel avant cette passe échouait silencieusement sur un CLI
+  réel ; corrigé.
+- **Garde-fou d'écriture réel** (Phase 9) : découverte que
+  `ToolPolicy.evaluate()`'s branche WRITE est un no-op documenté et qu'aucun
+  des deux adaptateurs MCP ne consulte jamais le `ToolSandbox` reçu au
+  constructeur — rien n'empêchait réellement une écriture. Un garde-fou
+  scopé à Code Intelligence refuse désormais catégoriquement toute tâche
+  `refactoring`/`code_generation` routée vers un provider externe.
+- **États MCP réels** (5 valeurs explicites : `not_configured`,
+  `unavailable`, `unbound`, `connected`, `disconnected`) — remplace un
+  booléen toujours faux (KlaatCode liait le mauvais adaptateur ; Oh My Pi
+  n'avait aucun concept de liaison).
+- **Détection d'installation réelle** : `is_installed()` exigeait
+  seulement la présence de `npx`/`bunx`, jamais une invocation réussie —
+  Oh My Pi affichait « Installed: yes » alors que chaque commande réelle
+  échouait. Corrigé, avec un cooldown de sondage (30 s) pour éviter de
+  relancer un sous-processus en échec à chaque poll de 15 s.
+- **Center reconstruit** sur l'API réelle (Overview, Providers, Code Tasks,
+  Routing & Execution, History) — plus de bandeau « router not exposed »,
+  plus de données locales.
+- **Publication d'événement manquante corrigée** : `ci.task.started` était
+  déclaré depuis HOS-055D sans aucun appel `.publish()` nulle part.
+
+### Anomalies trouvées, non corrigées (hors périmètre « raccordement seul »)
+- **KlaatCode** : intégration CLI construite contre une interface qui
+  n'existe pas dans la version installée (`analyze --project` réel →
+  `unknown option '--project'` ; la vraie interface est `run <prompt>`,
+  événements JSON).
+- **Oh My Pi** : le paquet npm `omp@1.0.0` existe réellement mais ne
+  résout à aucun exécutable via `npx` dans cet environnement.
+- **`ToolPolicy`/`ToolSandbox`** restent un no-op pour toute la plateforme
+  Tools/MCP au-delà de Code Intelligence.
+
+### Verified
+- Exécution réelle Hermes-native : qwen3-coder:30b, RX 6800, 29 242 ms,
+  réponse correcte, vérifiée dans le Cockpit reconstruit de bout en bout.
+- Exécution réelle KlaatCode et Oh My Pi (échecs réels documentés, pas de
+  succès fabriqué).
+- Garde-fou de sandbox vérifié contre le composition root réel (refus réel,
+  aucun sous-processus lancé).
+- Événements réels vérifiés en interrogeant `SystemEventBus.query()` après
+  une exécution réelle.
+- Suite complète (`tests/` + `backend/tests/`) : **3677 passed, 3 skipped**
+  en 745,71 s — 2 échecs, tous deux confirmés être des anomalies de
+  timing/ordonnancement préexistantes sans rapport avec Code Intelligence
+  (passent seules en isolation) : le flake déjà documenté aux passes
+  précédentes, et un nouveau (`test_audit_log.py`, mesure de débit
+  sensible au timing réel sous charge machine).
+- Frontend : `tsc --noEmit` 0 erreur ; `vitest run` 69/69 (premiers tests
+  React du projet, `@vitejs/plugin-react` ajouté) ; `next build` réussi.
+
 ## HOS-075 — Assistant v2 : choix manuel du modèle, contexte, commandes, pièces jointes, aperçu web (2026-08-08)
 
 Demande de l'utilisateur, après HOS-074 : liste de fonctionnalités manquantes

@@ -41,6 +41,11 @@ import type {
   KlaatCodeStatus,
   KlaatCodeCapability,
   KlaatCodeExecutionResult,
+  CodeIntelligenceStatusDTO,
+  CodeIntelligenceCapabilitiesDTO,
+  CodeIntelligenceProvidersDTO,
+  CodeIntelligenceTaskResultDTO,
+  CodeIntelligenceHistoryDTO,
 } from "@/types/hermes";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -598,6 +603,33 @@ export const klaatcodeClient = {
     fetchJSON<KlaatCodeExecutionResult>("/klaatcode/diagnostics", {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+};
+
+// ── Code Intelligence (R-006) ─────────────────────────
+export type CodeIntelligenceTaskKind = "analyze" | "review" | "debug" | "explain";
+
+export interface CodeIntelligenceTaskRequest {
+  project_path?: string;
+  language?: string;
+  parameters?: Record<string, unknown>;
+  mission_id?: string;
+  node_id?: string;
+  /** "klaatcode" | "ohmypi" | "hermes_native" | "hybrid" — omit for Auto. */
+  force_provider?: string;
+}
+
+export const codeIntelligenceClient = {
+  status: () => fetchJSON<CodeIntelligenceStatusDTO>("/code-intelligence/status"),
+  capabilities: () =>
+    fetchJSON<CodeIntelligenceCapabilitiesDTO>("/code-intelligence/capabilities"),
+  providers: () => fetchJSON<CodeIntelligenceProvidersDTO>("/code-intelligence/providers"),
+  history: (limit = 50) =>
+    fetchJSON<CodeIntelligenceHistoryDTO>(`/code-intelligence/history?limit=${limit}`),
+  runTask: (kind: CodeIntelligenceTaskKind, body: CodeIntelligenceTaskRequest) =>
+    fetchJSON<CodeIntelligenceTaskResultDTO>(`/code-intelligence/${kind}`, {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 };
 

@@ -20,6 +20,8 @@ from collections import deque
 from typing import Any
 
 from .code_intelligence_models import (
+    CI_TO_KLAATCODE_TASK_TYPE,
+    CI_TO_OHMYPI_TASK_TYPE,
     CodeIntelligenceTask,
     CodeIntelligenceTaskType,
     CodeProvider,
@@ -41,6 +43,22 @@ FACTOR_WEIGHTS = {
     "language_match": 0.10,
 }
 
+# Task types real one-shot LLM generation can plausibly handle, mapped to a
+# genuine config/models.yaml routing task_type (backend/core/router.py).
+# DEBUGGING/DIAGNOSTICS/ARCHITECTURE_REVIEW are deliberately absent: they
+# need a real debugger session, project-wide static analysis, or diagnostics
+# tool a chat completion cannot provide — offering Hermes-native for those
+# would be exactly the fabricated capability R-006 exists to remove.
+HERMES_NATIVE_TASK_TYPES: dict[CodeIntelligenceTaskType, str] = {
+    CodeIntelligenceTaskType.CODE_ANALYSIS: "code_analysis",
+    CodeIntelligenceTaskType.CODE_GENERATION: "code_generation",
+    CodeIntelligenceTaskType.REFACTORING: "code_refactor",
+    CodeIntelligenceTaskType.CODE_REVIEW: "code_analysis",
+    CodeIntelligenceTaskType.DOCUMENTATION: "code_analysis",
+    CodeIntelligenceTaskType.TEST_GENERATION: "code_generation",
+    CodeIntelligenceTaskType.OPTIMIZATION: "code_refactor",
+}
+
 
 class CodeIntelligenceRouter:
     """Routes code tasks to KlaatCode, Oh My Pi, or a hybrid of both.
@@ -52,6 +70,7 @@ class CodeIntelligenceRouter:
         self._lock = threading.RLock()
         self._klaatcode_success: deque[bool] = deque(maxlen=100)
         self._ohmypi_success: deque[bool] = deque(maxlen=100)
+        self._hermes_native_success: deque[bool] = deque(maxlen=100)
         self._execution_history: list[dict[str, Any]] = []
 
     # ── Public API ──
@@ -61,6 +80,7 @@ class CodeIntelligenceRouter:
         task: CodeIntelligenceTask,
         klaatcode_available: bool = True,
         ohmypi_available: bool = True,
+        hermes_native_available: bool = False,
         force_provider: CodeProvider | None = None,
     ) -> RoutingDecision:
         """Determine the best provider(s) for a given code task.
@@ -69,6 +89,12 @@ class CodeIntelligenceRouter:
             task: The code intelligence task to route.
             klaatcode_available: Whether KlaatCode agent is available.
             ohmypi_available: Whether OhMyPi agent is available.
+            hermes_native_available: Whether a real HermesNativeExecutor is
+                bound. Defaults False (not True like the two external
+                providers) so a bare ``CodeIntelligenceRouter()`` — as every
+                pre-R-006 caller and test constructs — keeps its original
+                klaatcode/ohmypi-only behaviour unless a caller that actually
+                has an executor opts in.
             force_provider: Override to force a specific provider.
 
         Returns:
@@ -89,12 +115,21 @@ class CodeIntelligenceRouter:
                     metadata={"forced": True},
                 )
 
-            # Score both providers
+            # Score every real candidate. Hybrid stays klaatcode+ohmypi only
+            # (unchanged semantics) — hermes_native is single-best-only.
             kc_score = self._score_klaatcode(task) if klaatcode_available else None
             omp_score = self._score_ohmypi(task) if ohmypi_available else None
+            hn_score = self._score_hermes_native(task) if hermes_native_available else None
 
-            # Must have at least one
-            if kc_score is None and omp_score is None:
+            candidates: dict[CodeProvider, ProviderScore] = {}
+            if kc_score is not None:
+                candidates[CodeProvider.KLATCODE] = kc_score
+            if omp_score is not None:
+                candidates[CodeProvider.OHMYPI] = omp_score
+            if hn_score is not None:
+                candidates[CodeProvider.HERMES_NATIVE] = hn_score
+
+            if not candidates:
                 return RoutingDecision(
                     task_type=task.task_type,
                     selected_provider=CodeProvider.KLATCODE,
@@ -103,61 +138,47 @@ class CodeIntelligenceRouter:
                     scores=[],
                     metadata={"error": "No providers available"},
                 )
-            if kc_score is None:
-                return RoutingDecision(
-                    task_type=task.task_type,
-                    selected_provider=CodeProvider.OHMYPI,
-                    strategy=SelectionStrategy.SINGLE_BEST,
-                    primary_reason=RouteReason.FALLBACK,
-                    scores=[omp_score],  # type: ignore[list-item]
-                    metadata={"klaatcode_unavailable": True},
-                )
-            if omp_score is None:
-                return RoutingDecision(
-                    task_type=task.task_type,
-                    selected_provider=CodeProvider.KLATCODE,
-                    strategy=SelectionStrategy.SINGLE_BEST,
-                    primary_reason=RouteReason.FALLBACK,
-                    scores=[kc_score],
-                    metadata={"ohmypi_unavailable": True},
-                )
 
-            # Determine if hybrid is appropriate
-            if self._should_use_hybrid(task, kc_score.score, omp_score.score):
+            if (
+                kc_score is not None and omp_score is not None
+                and self._should_use_hybrid(task, kc_score.score, omp_score.score)
+            ):
                 return self._decide_hybrid(
                     task,
                     f"Complementary: KC={kc_score.score:.2f} OMP={omp_score.score:.2f}",
                     kc_score, omp_score,
                 )
 
-            # Single best
-            if kc_score.score >= omp_score.score:
-                winner, winner_score = CodeProvider.KLATCODE, kc_score
-                loser_score = omp_score
-            else:
-                winner, winner_score = CodeProvider.OHMYPI, omp_score
-                loser_score = kc_score
+            # Single best among whatever real candidates exist.
+            winner, winner_score = max(candidates.items(), key=lambda kv: kv[1].score)
+            others = [s for provider, s in candidates.items() if provider != winner]
 
             primary_reason = RouteReason.HIGHEST_HISTORICAL
-            if len(winner_score.reasoning) > 0:
-                # Extract primary reason from top reasoning factor
+            if winner_score.reasoning:
                 first = winner_score.reasoning[0]
                 for r in RouteReason:
                     if r.value in first:
                         primary_reason = r
                         break
 
+            metadata: dict[str, Any] = {}
+            if kc_score is not None:
+                metadata["klaatcode_score"] = round(kc_score.score, 4)
+            if omp_score is not None:
+                metadata["ohmypi_score"] = round(omp_score.score, 4)
+            if hn_score is not None:
+                metadata["hermes_native_score"] = round(hn_score.score, 4)
+            if len(candidates) >= 2:
+                all_scores = [s.score for s in candidates.values()]
+                metadata["score_diff"] = round(max(all_scores) - min(all_scores), 4)
+
             return RoutingDecision(
                 task_type=task.task_type,
                 selected_provider=winner,
                 strategy=SelectionStrategy.SINGLE_BEST,
                 primary_reason=primary_reason,
-                scores=[winner_score, loser_score],
-                metadata={
-                    "score_diff": round(abs(kc_score.score - omp_score.score), 4),
-                    "klaatcode_score": round(kc_score.score, 4),
-                    "ohmypi_score": round(omp_score.score, 4),
-                },
+                scores=[winner_score, *others],
+                metadata=metadata,
             )
 
     def record_result(
@@ -169,6 +190,8 @@ class CodeIntelligenceRouter:
                 self._klaatcode_success.append(success)
             elif provider == CodeProvider.OHMYPI:
                 self._ohmypi_success.append(success)
+            elif provider == CodeProvider.HERMES_NATIVE:
+                self._hermes_native_success.append(success)
             self._execution_history.append({
                 "provider": provider.value,
                 "success": success,
@@ -238,6 +261,7 @@ class CodeIntelligenceRouter:
         with self._lock:
             kc_success = list(self._klaatcode_success)
             omp_success = list(self._ohmypi_success)
+            hn_success = list(self._hermes_native_success)
             return {
                 "klaatcode": {
                     "total": len(kc_success),
@@ -248,6 +272,11 @@ class CodeIntelligenceRouter:
                     "total": len(omp_success),
                     "success_count": sum(1 for s in omp_success if s),
                     "success_rate": round(sum(1 for s in omp_success if s) / max(len(omp_success), 1) * 100, 1),
+                },
+                "hermes_native": {
+                    "total": len(hn_success),
+                    "success_count": sum(1 for s in hn_success if s),
+                    "success_rate": round(sum(1 for s in hn_success if s) / max(len(hn_success), 1) * 100, 1),
                 },
                 "total_executions": len(self._execution_history),
             }
@@ -386,6 +415,80 @@ class CodeIntelligenceRouter:
             reasoning=reasoning,
         )
 
+    def _score_hermes_native(self, task: CodeIntelligenceTask) -> ProviderScore | None:
+        """Score Hermes's own Model Intelligence -> Runtime -> Ollama path.
+
+        Returns None when the task type has no real mapping in
+        HERMES_NATIVE_TASK_TYPES — an ineligible task type is not "scored
+        low", it is simply not a candidate, the same way klaatcode_available
+        =False removes KlaatCode rather than giving it a token low score.
+        """
+        if task.task_type not in HERMES_NATIVE_TASK_TYPES:
+            return None
+
+        factors: dict[str, float] = {}
+        reasoning: list[str] = []
+
+        hn_strong = {CodeIntelligenceTaskType.CODE_GENERATION,
+                     CodeIntelligenceTaskType.DOCUMENTATION,
+                     CodeIntelligenceTaskType.TEST_GENERATION}
+        hn_medium = {CodeIntelligenceTaskType.CODE_ANALYSIS,
+                     CodeIntelligenceTaskType.CODE_REVIEW}
+        hn_weak = {CodeIntelligenceTaskType.REFACTORING,
+                   CodeIntelligenceTaskType.OPTIMIZATION}
+
+        if task.task_type in hn_strong:
+            task_fit = 0.80
+            reasoning.append("Hermes-native strong fit for this task type")
+        elif task.task_type in hn_medium:
+            task_fit = 0.55
+            reasoning.append("Hermes-native medium fit for this task type")
+        elif task.task_type in hn_weak:
+            task_fit = 0.30
+            reasoning.append("Hermes-native weak fit for this task type")
+        else:
+            task_fit = 0.40
+        factors["task_fit"] = task_fit
+
+        # LSP/DAP/AST: Hermes-native has none of these — a real requirement
+        # for one rules it out almost entirely, same treatment KlaatCode gets.
+        if task.requires_lsp or task.requires_dap or task.requires_ast:
+            lsp_score = 0.05
+            reasoning.append("Hermes-native lacks LSP/DAP/AST")
+        else:
+            lsp_score = 0.70
+        factors["lsp_dap_ast"] = lsp_score
+
+        with self._lock:
+            hn_hist = list(self._hermes_native_success)
+            hist_score = sum(1 for s in hn_hist if s) / max(len(hn_hist), 1) if hn_hist else 0.70
+        factors["historical_success"] = hist_score
+
+        # Cost: no subprocess/CLI overhead, but a real model load/inference
+        # cost applies — mid-high, not free.
+        cost_score = 0.75
+        factors["cost_efficiency"] = cost_score
+
+        # Language match: Ollama's code models are broadly capable but not
+        # tool-integrated the way LSP/AST-backed providers are.
+        lang_score = 0.65
+        factors["language_match"] = lang_score
+
+        total = (
+            factors["task_fit"] * FACTOR_WEIGHTS["task_fit"] +
+            factors["lsp_dap_ast"] * FACTOR_WEIGHTS["lsp_dap_ast"] +
+            factors["historical_success"] * FACTOR_WEIGHTS["historical_success"] +
+            factors["cost_efficiency"] * FACTOR_WEIGHTS["cost_efficiency"] +
+            factors["language_match"] * FACTOR_WEIGHTS["language_match"]
+        )
+
+        return ProviderScore(
+            provider=CodeProvider.HERMES_NATIVE,
+            score=round(total, 4),
+            factors=factors,
+            reasoning=reasoning,
+        )
+
     def _should_use_hybrid(
         self, task: CodeIntelligenceTask, kc_score: float, omp_score: float
     ) -> bool:
@@ -440,9 +543,27 @@ class CodeIntelligenceRouter:
         import time
         started = time.time()
 
+        # Same real translation CodeIntelligenceAgent's single-provider path
+        # applies (see CI_TO_KLAATCODE_TASK_TYPE/CI_TO_OHMYPI_TASK_TYPE) — the
+        # hybrid path must not silently send an un-translated CI task_type
+        # either.
+        mapping = {
+            CodeProvider.KLATCODE: CI_TO_KLAATCODE_TASK_TYPE,
+            CodeProvider.OHMYPI: CI_TO_OHMYPI_TASK_TYPE,
+        }.get(provider)
+        provider_task_type = mapping.get(task.task_type) if mapping else task.task_type.value
+        if provider_task_type is None:
+            return ProviderExecutionResult(
+                provider=provider,
+                task_id=task.task_id,
+                success=False,
+                error=f"{provider.value} has no real capability for task type {task.task_type.value!r}",
+                duration_ms=0.0,
+            )
+
         try:
             result = executor.execute_task(
-                task.task_type.value,
+                provider_task_type,
                 task.parameters,
                 mission_id=task.mission_id,
                 node_id=task.node_id,
