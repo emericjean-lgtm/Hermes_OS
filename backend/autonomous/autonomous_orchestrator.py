@@ -570,6 +570,16 @@ class AutonomousOrchestrator:
         success = bool(completed) and not failed and mission.status == MissionStatus.COMPLETED
 
         summary = f"{len(completed)}/{len(mission.nodes)} task(s) completed in {duration_ms:.0f}ms"
+        # See TaskDecomposer.decompose_with_method: the real LLM decomposition
+        # can silently fail (timeout, unparseable response) and fall back to
+        # a generic, request-independent task template. A "completed"
+        # status here would otherwise look identical to a real result.
+        if mission.metadata.get("decomposition_method") == "generic_fallback":
+            summary = (
+                "WARNING: real decomposition failed and this ran a generic, "
+                "request-independent task template, not a plan for what was "
+                "actually asked. " + summary
+            )
         return self._dag_result(
             success=success, duration_ms=duration_ms, mission=mission, error="",
             summary=summary,
@@ -592,10 +602,18 @@ class AutonomousOrchestrator:
         # /missions, not autonomous-specific — worth fixing there directly.
         runtimes_used = sorted({n.preferred_runtime for n in completed if n.preferred_runtime})
 
+        plan_is_generic = mission.metadata.get("decomposition_method") == "generic_fallback"
+
         lessons: list[str] = []
         improvements: list[str] = []
         if error:
             improvements.append("Provide a reachable runtime / valid mission graph before dispatching autonomous goals")
+        if plan_is_generic:
+            improvements.append(
+                "Real decomposition failed for this goal (timeout, or an "
+                "unparseable model response) — this ran a generic template "
+                "instead. Retry, or check the planning role's model/timeout."
+            )
         if failed:
             lessons.append(
                 f"{len(failed)} task(s) failed: "
@@ -627,6 +645,8 @@ class AutonomousOrchestrator:
                      "content": n.result_summary or ""}
                     for n in completed
                 ],
+                "decomposition_method": mission.metadata.get("decomposition_method", "llm"),
+                "plan_is_generic": plan_is_generic,
             },
         }
 

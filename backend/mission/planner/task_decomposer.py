@@ -440,8 +440,30 @@ class TaskDecomposer:
         """Decompose a planning request into task breakdowns.
 
         Returns an ordered list of tasks ready for dependency building.
+        Kept as the stable, list-returning public API every existing
+        caller/test uses; see ``decompose_with_method`` for the same
+        result plus which path actually produced it.
+        """
+        breakdowns, _method = self.decompose_with_method(request)
+        return breakdowns
+
+    def decompose_with_method(
+        self, request: PlanningRequest,
+    ) -> tuple[list[TaskBreakdown], str]:
+        """Same as ``decompose``, plus which of three paths actually
+        produced the breakdown: ``"llm"``, ``"pattern:<key>"``, or
+        ``"generic_fallback"``.
+
+        This exists because the generic fallback below is keyword-matched
+        in English against ``_TASK_PATTERNS`` — a non-English request (or
+        any local LLM call that times out / returns unparseable JSON) can
+        silently produce a plan with zero connection to what was actually
+        asked, indistinguishable at a glance from a real decomposition. A
+        caller that discards this second value is choosing not to know;
+        ``MissionPlanner.plan`` does not.
         """
         breakdowns = self._decompose_with_llm(request)
+        method = "llm"
 
         if not breakdowns:
             text = (request.user_request + " " + request.objective + " " +
@@ -461,6 +483,8 @@ class TaskDecomposer:
                             category=cat,
                             order=len(breakdowns),
                         ))
+            if breakdowns:
+                method = "pattern:" + "+".join(sorted(seen_patterns))
 
             # If no patterns matched, use generic decomposition
             if not breakdowns:
@@ -471,6 +495,7 @@ class TaskDecomposer:
                         category=cat,
                         order=len(breakdowns),
                     ))
+                method = "generic_fallback"
 
         # Add a final validation task
         breakdowns.append(TaskBreakdown(
@@ -486,7 +511,7 @@ class TaskDecomposer:
             if bd.category == TaskCategory.CUSTOM:
                 bd.category = self._classify_task(bd.title + " " + bd.description)
 
-        return breakdowns
+        return breakdowns, method
 
     def _classify_task(self, text: str) -> TaskCategory:
         """Auto-classify a task based on keyword matching."""

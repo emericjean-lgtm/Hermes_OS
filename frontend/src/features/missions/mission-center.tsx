@@ -176,8 +176,18 @@ export function MissionCenter() {
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-hermes-text truncate max-w-[200px]">
-                    {mission.title}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {mission.plan_is_generic && (
+                      <span
+                        title="Décomposition réelle échouée — plan générique, sans rapport avec la demande"
+                        className="shrink-0"
+                      >
+                        <AlertCircle size={12} className="text-hermes-amber" />
+                      </span>
+                    )}
+                    <span className="text-sm font-medium text-hermes-text truncate max-w-[200px]">
+                      {mission.title}
+                    </span>
                   </span>
                   <Badge variant={statusBadge[mission.status]}>{mission.status}</Badge>
                 </div>
@@ -244,6 +254,16 @@ export function MissionCenter() {
                   This mission touches a real project and needs human
                   validation (Aegis) before it can run — raise
                   autonomy_level, or resume it once approved.
+                </div>
+              )}
+
+              {selected.plan_is_generic && (
+                <div className="pt-2 border-t border-hermes-border/30 text-[10px] font-mono text-hermes-red flex items-start gap-2">
+                  <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
+                  Real decomposition failed for this mission (timeout or an
+                  unparseable model response) — every task below comes from a
+                  generic template, not from the actual request. Retry the
+                  mission rather than trust these results.
                 </div>
               )}
 

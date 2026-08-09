@@ -167,6 +167,15 @@ class MissionReport:
     outputs: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    # "llm" / "pattern:<key>" / "template:<id>" / "generic_fallback" — see
+    # TaskDecomposer.decompose_with_method. plan_is_generic is the derived
+    # flag a UI actually needs: true means the tasks above have no real
+    # connection to what was asked (the local LLM decomposition failed or
+    # timed out and neither did any English keyword match), and every
+    # output in this report should be treated as untrustworthy noise, not
+    # a real result.
+    decomposition_method: str = "llm"
+    plan_is_generic: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -184,6 +193,8 @@ class MissionReport:
             "outputs": self.outputs,
             "errors": self.errors,
             "generated_at": self.generated_at.isoformat(),
+            "decomposition_method": self.decomposition_method,
+            "plan_is_generic": self.plan_is_generic,
         }
 
 
@@ -206,11 +217,20 @@ def build_mission_report(mission: "Mission") -> MissionReport:
     runtimes_used = sorted({n.preferred_runtime for n in completed if n.preferred_runtime})
     success = mission.status == MissionStatus.COMPLETED
 
+    decomposition_method = mission.metadata.get("decomposition_method", "llm")
+    plan_is_generic = decomposition_method == "generic_fallback"
+
     summary = (
         f"{len(completed)}/{len(mission.nodes)} task(s) completed"
         + (f" in {duration_ms:.0f}ms" if duration_ms else "")
         if mission.nodes else "No tasks were planned for this mission."
     )
+    if plan_is_generic:
+        summary = (
+            "WARNING: real decomposition failed (timeout or unparseable "
+            "response) and no keyword pattern matched — this ran a "
+            "generic, request-independent task template. " + summary
+        )
 
     return MissionReport(
         mission_id=mission.mission_id,
@@ -229,4 +249,6 @@ def build_mission_report(mission: "Mission") -> MissionReport:
             for n in completed
         ],
         errors=[n.result_summary for n in failed if n.result_summary],
+        decomposition_method=decomposition_method,
+        plan_is_generic=plan_is_generic,
     )

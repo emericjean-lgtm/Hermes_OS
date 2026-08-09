@@ -76,10 +76,13 @@ class MissionPlanner:
             # Stage 1: Decompose
             result.current_stage = PlanningStage.DECOMPOSING
             result.stages.append(PlanningStage.DECOMPOSING)
-            breakdowns = self._decomposer.decompose(request)
+            breakdowns, method = self._decomposer.decompose_with_method(request)
             result.task_breakdowns = breakdowns
+            result.decomposition_method = method
             result.total_nodes = len(breakdowns)
-            self._emit("planning.decomposing_completed", {"task_count": len(breakdowns)})
+            self._emit("planning.decomposing_completed", {
+                "task_count": len(breakdowns), "method": method,
+            })
 
             # Stage 2: Build dependencies
             result.current_stage = PlanningStage.BUILDING_DEPENDENCIES
@@ -154,9 +157,11 @@ class MissionPlanner:
             result.current_stage = PlanningStage.FAILED
             return result
 
-        # Use template tasks
+        # Use template tasks — an explicit user choice, not a silent
+        # fallback, so it gets its own label rather than "llm".
         result = PlanningResult(request_id=request.request_id)
         result.task_breakdowns = list(template.tasks)
+        result.decomposition_method = f"template:{template_id}"
         result.total_nodes = len(template.tasks)
 
         # Run remaining pipeline stages
@@ -207,6 +212,10 @@ class MissionPlanner:
             type=MissionType.DEVELOPMENT,
             priority=self._result_priority(result),
         )
+        # Carried onto the mission so a caller inspecting only the mission
+        # (report, graph, list) — not the ephemeral PlanningResult — can
+        # still tell a real decomposition from the generic-template fallback.
+        mission.metadata["decomposition_method"] = result.decomposition_method
 
         # Build nodes from breakdowns
         nodes: list[MissionNode] = []
@@ -246,7 +255,14 @@ class MissionPlanner:
             if issues:
                 mission.status = result.mission_id  # will have issues
 
-        mission.mission_id = result.mission_id
+        # `Mission.mission_id` already got a real id from its own
+        # default_factory at construction — this used to be overwritten by
+        # `result.mission_id` here (always "", since nothing sets it before
+        # this point), then copied back onto `result.mission_id` on the next
+        # line as a no-op round-trip. Every Autonomous-created mission
+        # therefore registered under mission_id="", making it unopenable
+        # from `GET /missions/{id}` and unclickable in the Cockpit. Only the
+        # real propagation (mission -> result) is needed.
         result.mission_id = mission.mission_id
 
         return mission

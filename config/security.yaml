@@ -5,7 +5,7 @@
 # to "medium"/"high" lets non-mandatory mutating categories auto-allow —
 # but categories marked mandatory_validation are NEVER auto-allowed
 # regardless of autonomy level, matching the §17.3 list verbatim.
-autonomy_level: low
+autonomy_level: medium
 
 action_categories:
   # ── Read-only — never blocked by autonomy level, but still confined

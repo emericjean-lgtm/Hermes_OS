@@ -95,6 +95,12 @@ export interface Mission {
   local_path?: string;
   repository?: string;
   branch?: string;
+  // True when the real (LLM) task decomposition failed and this mission
+  // ran a generic, request-independent template instead — see
+  // TaskDecomposer.decompose_with_method. Sent by both the list and detail
+  // endpoints.
+  plan_is_generic?: boolean;
+  decomposition_method?: string;
 }
 
 // Mirrors backend/mission/mission_models.py's MissionReport.to_dict().
@@ -113,6 +119,8 @@ export interface MissionReport {
   outputs: string[];
   errors: string[];
   generated_at: string;
+  decomposition_method?: string;
+  plan_is_generic?: boolean;
 }
 
 // Mirrors backend/mission/mission_models.py's MissionStatus values

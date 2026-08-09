@@ -391,6 +391,11 @@ async def list_missions():
                 "status": m.status.value,
                 "progress": m.progress_pct(),
                 "nodes": m.total_nodes(),
+                # True when the real decomposition failed and this mission
+                # ran a generic, request-independent task template instead
+                # — surfaced in the list too, not just the report, so it's
+                # visible before opening a mission that turns out to be noise.
+                "plan_is_generic": m.metadata.get("decomposition_method") == "generic_fallback",
             }
             for m in _missions.values()
         ],
@@ -420,6 +425,8 @@ async def get_mission(mission_id: str):
         "repository": mission.context.repository,
         "branch": mission.context.branch,
         "created_at": mission.created_at.isoformat(),
+        "decomposition_method": mission.metadata.get("decomposition_method", "llm"),
+        "plan_is_generic": mission.metadata.get("decomposition_method") == "generic_fallback",
     }
 
 

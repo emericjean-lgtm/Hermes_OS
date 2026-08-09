@@ -261,7 +261,13 @@ export function AutonomousCenter() {
             )}
             {rep && (
               <div className="space-y-2">
-                <div className="text-[10px] font-mono text-hermes-text bg-hermes-bg p-2 rounded border border-hermes-border/50">
+                <div
+                  className={`text-[10px] font-mono p-2 rounded border ${
+                    rep.execution_summary?.startsWith("WARNING:")
+                      ? "text-hermes-red border-hermes-red/40 bg-hermes-red/5"
+                      : "text-hermes-text border-hermes-border/50 bg-hermes-bg"
+                  }`}
+                >
                   {rep.execution_summary}
                 </div>
                 <div className="flex items-center justify-between">

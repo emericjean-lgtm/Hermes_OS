@@ -79,6 +79,11 @@ class PlanningResult:
     current_stage: PlanningStage = PlanningStage.RECEIVED
     # Breakdown
     task_breakdowns: list[TaskBreakdown] = field(default_factory=list)
+    # "llm" (real decomposition), "pattern:<key>" (keyword fallback), or
+    # "generic_fallback" (neither worked — a generic 5-step SDLC template
+    # unrelated to the actual request). A caller must check this before
+    # trusting that task_breakdowns reflects what was actually asked.
+    decomposition_method: str = "llm"
     # Dependencies
     dependency_graph: dict[str, list[str]] = field(default_factory=dict)
     parallel_groups: list[list[str]] = field(default_factory=list)

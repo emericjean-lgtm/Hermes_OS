@@ -1,3 +1,82 @@
+## HOS-077 — Autonomous OS : test réel, mission_id vide corrigé, repli générique rendu honnête (2026-08-09)
+
+Demande de l'utilisateur : tester le mode Autonomous en conditions réelles
+sur un cahier des charges complet (Skills360 Industry, appli métier
+industrielle React/TypeScript/Firebase), vérifier que tout fonctionne et
+que les agents jouent bien leur rôle, avec un projet réalisable pour les
+modèles locaux actuels. Deux bugs réels trouvés en testant, pas en
+auditant — corrigés après validation utilisateur.
+
+### Contexte du test
+`autonomy_level` (config/security.yaml) passé de `low` à `medium` à la
+demande de l'utilisateur pour dépasser la porte Aegis systématique sur tout
+objectif lié à un dossier local — reste à `medium`, changement de posture
+volontaire et durable, pas un réglage de test annulé après coup.
+
+### Bug réel trouvé et corrigé — `mission_id` vide
+`MissionPlanner.build_mission()` écrasait l'UUID réel que `Mission` venait
+de générer par `result.mission_id` — qui vaut toujours `""` à ce stade,
+puisque rien ne le renseigne avant. Chaque mission créée depuis Autonomous
+s'enregistrait donc sous la clé `""`, invisible/inconsultable depuis
+`GET /missions/{id}` et incliquable dans le Cockpit — découvert en cliquant
+sur une mission réellement complétée sans qu'aucun panneau ne s'ouvre.
+Corrigé en supprimant la ligne fautive ; seule la propagation utile
+(mission → result) subsiste. Vérifié en conditions réelles : la mission
+suivante s'est enregistrée sous un vrai identifiant et son rapport complet
+(6 tâches, sorties, durées) est devenu consultable.
+
+### Bug réel trouvé et corrigé — repli générique silencieux
+En comparant deux runs réels du même objectif (« Concevoir le modèle de
+données Firestore et les types TypeScript pour Skills360... »), le second
+(juste après un redémarrage backend, modèle d'orchestration pas encore
+chargé) a produit 6 tâches génériques ("Analyze requirements", "Design
+solution architecture"...) sans aucun rapport avec la demande, avec du code
+Flask/SQLite généré au hasard. Cause tracée dans `task_decomposer.py` :
+la décomposition LLM a un timeout de 90 s ; en cas d'échec, un repli par
+mots-clés anglais (jamais un match sur une demande en français) puis un
+gabarit générique de cycle de développement prennent le relais — sans
+aucune indication nulle part que ce repli a eu lieu. Une mission "completed"
+issue d'un vrai plan et une mission "completed" issue du gabarit générique
+étaient visuellement indiscernables.
+
+### Added
+- `TaskDecomposer.decompose_with_method()` — même résultat que `decompose()`
+  (inchangé, toujours utilisé par tous les appelants existants) plus la
+  méthode réellement employée : `"llm"` / `"pattern:<clé>"` /
+  `"generic_fallback"` / `"template:<id>"`.
+- `PlanningResult.decomposition_method`, propagé dans `Mission.metadata`,
+  puis dans `MissionReport.plan_is_generic`/`decomposition_method`
+  (`GET /missions/{id}/report`), la liste (`GET /missions`) et le détail
+  (`GET /missions/{id}`) — visible sans avoir à comparer manuellement les
+  titres de tâches à la demande d'origine, comme il a fallu le faire ici.
+- Côté Autonomous (`autonomous_orchestrator.py`) : même détection dans
+  `_execute_via_dag`/`_dag_result`, préfixe `"WARNING: ..."` explicite dans
+  `execution_summary` et une entrée dans `improvements` suggérant de
+  relancer l'objectif.
+- Cockpit : badge d'avertissement sur une mission généré-générique dans la
+  liste et le détail (Mission Center), résumé d'exécution basculé en rouge
+  quand il commence par `"WARNING:"` (Autonomous Center).
+
+### Verified
+- Bug `mission_id` : reproduit puis corrigé en conditions réelles (deux
+  runs successifs, backend redémarré entre les deux) — `GET /missions`
+  renvoyait `mission_id: ""` avant, un vrai UUID hex après.
+- Repli générique : mécanisme tracé et confirmé par lecture du code
+  (`task_decomposer.py`, timeout 90 s, mots-clés anglais uniquement) ; le
+  correctif ne change pas le comportement de repli lui-même (toujours
+  best-effort, jamais un échec dur), seulement sa visibilité.
+- 185 tests ciblés (`test_mission_planner.py`, `tests/autonomous/`,
+  `test_mission_real_wiring.py`, `test_task_decomposer_cloud_fallback.py`) :
+  tous verts, aucune régression sur les 17 sites d'appel existants de
+  `decompose()` (signature inchangée).
+- `tsc --noEmit` propre côté frontend après les badges Cockpit.
+
+### Reste hors périmètre de cette passe (voir réponse séparée à l'utilisateur)
+Sélection d'agent réelle mais exécution non différenciée par agent (label
+seulement — `_CATEGORY_AGENT`), aucune écriture réelle de fichiers depuis
+le pipeline de mission, `/resume` côté Autonomous toujours un no-op de
+statut pour un objectif mis en pause avant planification.
+
 ## HOS-076 — Assistant : retours utilisateur (barre de contexte, layout 21/9, logo, dictée, dossier/dépôt local, PR) (2026-08-09)
 
 Neuf points transmis par l'utilisateur sur l'onglet Assistant après HOS-075.
