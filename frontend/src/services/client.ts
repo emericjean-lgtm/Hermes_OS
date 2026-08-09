@@ -1019,7 +1019,30 @@ export const conversationClient = {
     fetchJSON<ConversationReplyDTO>(`/conversation/${sessionId}/cancel`, {
       method: "POST",
     }),
+  context: (sessionId: string) =>
+    fetchJSON<ConversationContextResponseDTO>(`/conversation/${sessionId}/context`),
 };
+
+/** GET /conversation/{id}/context — the conversation's actual linked state
+ *  (mission, agents, runtime, model, workspace, security), distinct from
+ *  the token-count estimate ContextMeter shows next to the composer. This
+ *  endpoint has existed since the conversation subsystem was built and had
+ *  no caller anywhere in the Cockpit before the "/context" slash command. */
+export interface ConversationContextResponseDTO {
+  success: boolean;
+  session_id: string;
+  error?: string;
+  context?: {
+    active_goal_id: string | null;
+    active_mission_id: string | null;
+    active_agents: string[];
+    current_runtime: string | null;
+    current_model: string | null;
+    workspace_status: string | null;
+    security_level: string | null;
+    recent_events: unknown[];
+  };
+}
 
 // ── Workspace (P-001) ─────────────────────────────────────
 // Le backend expose la création, le verrouillage, la libération et la
@@ -1055,6 +1078,67 @@ export const workspaceClient = {
     fetchJSON<Record<string, unknown>>(`/workspace/${id}/release`, { method: "POST" }),
   remove: (id: string) =>
     fetchJSON<Record<string, unknown>>(`/workspace/${id}`, { method: "DELETE" }),
+};
+
+// ── Projects & Git (P-002 legacy routes, mounted since HOS-066B under
+// /api/v1/projects and /api/v1/git/* via mount_legacy_under_api, but never
+// given a Cockpit surface) ──
+//
+// A "GitHub repo" here is just a local checkout whose git remote points at
+// GitHub — there is no separate OAuth/API integration to build. git_tools.py
+// shells real git (status/log/branches/diff) and, for create_pull_request,
+// the real `gh` CLI, gated through Aegis (git_critical: mandatory
+// validation). Linking a project is exactly "give Hermes a local folder
+// path"; nothing about it is simulated.
+
+export interface ProjectDTO {
+  id: string;
+  name: string;
+  description: string;
+  root_path: string | null;
+  status: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export const projectsClient = {
+  list: () => fetchJSON<ProjectDTO[]>("/projects"),
+  create: (data: { name: string; description?: string; root_path?: string; tags?: string[] }) =>
+    fetchJSON<ProjectDTO>("/projects", { method: "POST", body: JSON.stringify(data) }),
+  remove: (id: string) =>
+    fetchJSON<{ deleted: boolean; id: string }>(`/projects/${id}`, { method: "DELETE" }),
+};
+
+export interface GitStatusDTO {
+  branch: string;
+  detached: boolean;
+  dirty: boolean;
+  staged: string[];
+  modified: string[];
+  untracked: string[];
+  ahead: number;
+  behind: number;
+  protected: boolean;
+}
+
+export interface GitWriteResultDTO {
+  applied: boolean;
+  operation: string;
+  verdict: string;
+  reason: string;
+  output: string;
+  detail: Record<string, unknown>;
+}
+
+export const gitClient = {
+  status: (repoPath: string) =>
+    fetchJSON<GitStatusDTO>(`/git/status?repo_path=${encodeURIComponent(repoPath)}`),
+  createPullRequest: (data: { repo_path: string; title: string; body: string; base?: string }) =>
+    fetchJSON<GitWriteResultDTO>("/git/pull-request", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };
 
 // ── Verification ──────────────────────────────────────────

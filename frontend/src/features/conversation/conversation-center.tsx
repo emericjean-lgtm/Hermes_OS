@@ -6,15 +6,20 @@ import {
   Brain, ChevronDown, Copy, Check, Cpu, Globe, HardDrive, Info,
   MessageSquarePlus, RefreshCw, Send, Sparkles, Square, User, Zap,
 } from "lucide-react";
-import { conversationClient, systemClient, type SystemModelRoleDTO } from "@/services/client";
+import { conversationClient } from "@/services/client";
 import { streamConversation, type ContextUsage, type StreamRouting } from "@/services/conversation-stream";
-import { useMonitoringResources } from "@/hooks/use-api";
+import { useMonitoringResources, useSystemModelRoles } from "@/hooks/use-api";
 import type { ResourceStatus } from "@/types/hermes";
 import { MarkdownMessage } from "./markdown-message";
 import { ContextMeter, ModelPicker, type ModelSelection } from "./model-picker";
-import { matchSlashCommands, SessionPicker, SlashCommandMenu, type SlashCommand } from "./slash-commands";
+import {
+  ContextPanel, HelpPanel, matchSlashCommands, SessionPicker, SlashCommandMenu, type SlashCommand,
+} from "./slash-commands";
 import { AttachButton, AttachmentChips, buildAttachmentPreamble, type Attachment } from "./attachments";
 import { WebPreviewPanel } from "./web-preview";
+import { VoiceButton } from "./voice-input";
+import { RailPanel, Placeholder } from "./rail-primitives";
+import { ProjectPanel } from "./project-panel";
 
 /**
  * Assistant Hermes (HOS-074) — conversation-first console.
@@ -69,10 +74,11 @@ export default function ConversationCenter() {
   const [sessionId, setSessionId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
-  const [roles, setRoles] = useState<SystemModelRoleDTO[]>([]);
   const [selection, setSelection] = useState<ModelSelection>(AUTO_SELECTION);
   const [slashIndex, setSlashIndex] = useState(0);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+  const [contextPanelOpen, setContextPanelOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [webPreviewOpen, setWebPreviewOpen] = useState(false);
@@ -88,6 +94,11 @@ export default function ConversationCenter() {
   const { data: resources } = useMonitoringResources() as { data?: ResourceStatus };
   const gpu = resources?.gpu;
   const ram = resources?.ram;
+
+  const {
+    data: modelRolesData, isError: rolesFailed, refetch: refetchRoles,
+  } = useSystemModelRoles();
+  const roles = useMemo(() => modelRolesData?.roles ?? [], [modelRolesData]);
 
   const lastRouting = useMemo(
     () => [...messages].reverse().find((m) => m.routing)?.routing,
@@ -144,22 +155,6 @@ export default function ConversationCenter() {
     return () => { cancelled = true; };
   }, [loadHistory]);
 
-  // The manual model picker and effort presets are both real config/models.yaml
-  // roles, never a hardcoded list — a role Hermes doesn't actually have would
-  // otherwise be selectable and fail with a confusing error mid-stream.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await systemClient.models();
-        if (!cancelled) setRoles(data.roles);
-      } catch {
-        // Non-fatal: the picker falls back to "Auto"-only until the next mount.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
   const newConversation = useCallback(async () => {
     abortRef.current?.abort();
     setStreaming(false);
@@ -193,6 +188,10 @@ export default function ConversationCenter() {
       void newConversation();
     } else if (command.cmd === "/resume") {
       setSessionPickerOpen(true);
+    } else if (command.cmd === "/context") {
+      setContextPanelOpen(true);
+    } else if (command.cmd === "/help") {
+      setHelpOpen(true);
     } else if (command.cmd === "/compact") {
       setNotice(command.description);
     }
@@ -328,7 +327,8 @@ export default function ConversationCenter() {
         <header className="flex items-center gap-3 border-b border-hermes-border/70 px-1 pb-3">
           <div className="relative">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-hermes-cyan/25 to-hermes-violet/20 ring-1 ring-hermes-cyan/30">
-              <Sparkles size={15} className="text-hermes-cyan" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/hermes-agent-logo.png" alt="Hermes" className="h-5 w-5 object-contain invert" />
             </div>
             {streaming && (
               <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-hermes-green shadow-glow-green" />
@@ -388,32 +388,53 @@ export default function ConversationCenter() {
           </div>
         )}
 
+        {/* mx-auto max-w-4xl: on an ultrawide monitor the flex-1 column
+            can be well over 2000px, so the transcript and composer are
+            capped to a comfortable reading width and centered, while the
+            rail keeps its own fixed width alongside. */}
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="min-h-0 flex-1 space-y-5 overflow-y-auto px-1 py-5"
+          className="min-h-0 flex-1 overflow-y-auto px-1 py-5"
         >
-          {isEmpty ? (
-            <EmptyState onPick={(p) => { setInput(p); textareaRef.current?.focus(); }} />
-          ) : (
-            messages.map((m) => (
-              <MessageRow
-                key={m.id}
-                message={m}
-                streaming={streaming && m.role === "assistant" && m === messages[messages.length - 1]}
-              />
-            ))
-          )}
-          <div ref={endRef} />
+          <div className="mx-auto w-full max-w-4xl space-y-5">
+            {isEmpty ? (
+              <EmptyState onPick={(p) => { setInput(p); textareaRef.current?.focus(); }} />
+            ) : (
+              messages.map((m) => (
+                <MessageRow
+                  key={m.id}
+                  message={m}
+                  streaming={streaming && m.role === "assistant" && m === messages[messages.length - 1]}
+                />
+              ))
+            )}
+            <div ref={endRef} />
+          </div>
         </div>
 
         {/* ── Composer ──────────────────────────────────────────── */}
         <div className="border-t border-hermes-border/70 px-1 pt-3">
+         <div className="mx-auto w-full max-w-4xl">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <ModelPicker roles={roles} value={selection} onChange={setSelection} />
+              {rolesFailed && (
+                <button
+                  onClick={() => void refetchRoles()}
+                  title="Le chargement des modèles a échoué — cliquer pour réessayer"
+                  className="flex items-center gap-1 rounded-md px-1.5 py-1 font-mono text-[9.5px]
+                    uppercase tracking-wider text-hermes-amber transition-colors hover:text-hermes-amber/80"
+                >
+                  <RefreshCw size={10} /> Modèles indisponibles
+                </button>
+              )}
               <AttachButton
                 onFiles={(files) => setAttachments((prev) => [...prev, ...files])}
+                onError={setError}
+              />
+              <VoiceButton
+                onResult={(text) => setInput((prev) => (prev ? `${prev} ${text}` : text))}
                 onError={setError}
               />
               {lastContext && <ContextMeter used={lastContext.used_tokens_estimate} window={lastContext.window} />}
@@ -475,6 +496,7 @@ export default function ConversationCenter() {
               )}
             </div>
           </div>
+         </div>
         </div>
       </div>
 
@@ -542,6 +564,8 @@ export default function ConversationCenter() {
                   ))}
                 </div>
               </RailPanel>
+
+              <ProjectPanel />
             </div>
           </motion.aside>
         )}
@@ -554,6 +578,12 @@ export default function ConversationCenter() {
           onClose={() => setSessionPickerOpen(false)}
         />
       )}
+
+      {contextPanelOpen && (
+        <ContextPanel sessionId={sessionId} onClose={() => setContextPanelOpen(false)} />
+      )}
+
+      {helpOpen && <HelpPanel onClose={() => setHelpOpen(false)} />}
 
       <AnimatePresence>
         {webPreviewOpen && <WebPreviewPanel onClose={() => setWebPreviewOpen(false)} />}
@@ -585,7 +615,8 @@ function MessageRow({ message, streaming }: { message: ChatMessage; streaming: b
       {!isUser && (
         <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg
           bg-gradient-to-br from-hermes-cyan/20 to-hermes-violet/15 ring-1 ring-hermes-cyan/25">
-          <Sparkles size={13} className="text-hermes-cyan" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/hermes-agent-logo.png" alt="Hermes" className="h-4 w-4 object-contain invert" />
         </div>
       )}
 
@@ -773,7 +804,8 @@ function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
     >
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl
         bg-gradient-to-br from-hermes-cyan/20 to-hermes-violet/15 ring-1 ring-hermes-cyan/25">
-        <Sparkles size={24} className="text-hermes-cyan" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/hermes-agent-logo.png" alt="Hermes" className="h-9 w-9 object-contain invert" />
       </div>
       <h2 className="text-[17px] font-semibold text-hermes-text-bright">Assistant Hermes</h2>
       <p className="mt-1.5 max-w-md text-[12.5px] leading-relaxed text-hermes-muted">
@@ -798,20 +830,6 @@ function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
 }
 
 /* ── Rail primitives ─────────────────────────────────────────────── */
-
-function RailPanel({ title, icon, children }: {
-  title: string; icon: React.ReactNode; children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-hermes-border/70 bg-hermes-card/60">
-      <div className="flex items-center gap-1.5 border-b border-hermes-border/50 px-3 py-2">
-        <span className="text-hermes-cyan/70">{icon}</span>
-        <h3 className="font-mono text-[10px] uppercase tracking-[0.14em] text-hermes-muted">{title}</h3>
-      </div>
-      <div className="p-3">{children}</div>
-    </section>
-  );
-}
 
 function Chip({ children, tone }: { children: React.ReactNode; tone?: "violet" }) {
   const cls = tone === "violet"
@@ -846,6 +864,3 @@ function Meter({ label, detail, pct }: { label: string; detail: string; pct: num
   );
 }
 
-function Placeholder({ children }: { children: React.ReactNode }) {
-  return <p className="py-1 text-[10.5px] leading-relaxed text-hermes-dim">{children}</p>;
-}

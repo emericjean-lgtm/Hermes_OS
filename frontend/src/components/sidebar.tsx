@@ -112,8 +112,11 @@ export function Sidebar() {
       <div className="relative flex items-center gap-2.5 px-4 h-14 border-b border-hermes-border/60 shrink-0">
         <div className="relative shrink-0">
           <div className="h-7 w-7 rounded-md bg-gradient-to-br from-hermes-cyan to-hermes-magenta
-            flex items-center justify-center shadow-glow-cyan clip-corner-sm">
-            <span className="text-[13px] font-bold font-mono text-hermes-bg-deep">H</span>
+            flex items-center justify-center shadow-glow-cyan clip-corner-sm overflow-hidden p-0.5">
+            {/* eslint-disable-next-line @next/next/no-img-element -- fixed
+                28px chip in a client component; next/image's overhead buys
+                nothing here. */}
+            <img src="/hermes-agent-logo.png" alt="Hermes" className="h-full w-full object-contain" />
           </div>
         </div>
         {!collapsed && (

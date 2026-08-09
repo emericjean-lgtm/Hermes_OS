@@ -1,3 +1,81 @@
+## HOS-076 — Assistant : retours utilisateur (barre de contexte, layout 21/9, logo, dictée, dossier/dépôt local, PR) (2026-08-09)
+
+Neuf points transmis par l'utilisateur sur l'onglet Assistant après HOS-075.
+Chaque point a été audité contre le code réel avant implémentation ; deux
+d'entre eux se sont révélés être de vrais bugs plutôt que des demandes de
+fonctionnalité (barre latérale, sélecteur de modèle), et deux autres avaient
+déjà toute leur infrastructure backend réelle, jamais reliée à aucun écran
+(dossier local/dépôt git, création de PR).
+
+### Bug réel trouvé et corrigé — barre latérale qui disparaît
+`cockpit-shell.tsx` ne bornait la hauteur d'aucun conteneur entre `<main>`
+et les Centers : sur une conversation de 8 messages, `window.scrollY`
+atteignait 41 712 px — c'était **le document entier** qui défilait, pas
+seulement le fil de discussion. Le rail (Runtime/Ressources/Actions
+rapides) et l'en-tête défilaient avec lui. Corrigé en bornant `<main>` à
+`h-screen` et en déplaçant le scroll sur son conteneur interne — comportement
+identique pour tous les autres Centers (défilement naturel préservé),
+correctif structurel pour l'Assistant (défilement interne du fil, rail fixe).
+
+### Bug réel trouvé et corrigé — sélecteur de modèle « inaccessible »
+Le sélecteur fonctionnait bien en état vide une fois testé en direct ; la
+vraie cause derrière le symptôme rapporté était `systemClient.models()`
+appelé une seule fois dans un `useEffect` sans retry, `catch` muet — un seul
+échec (backend pas encore prêt, cas observé pendant les tests) bloquait le
+sélecteur sur « Auto » pour le reste de la session, sans indication.
+Remplacé par un hook react-query (`useSystemModelRoles`, retry par défaut du
+`QueryClient`) avec un bouton « Modèles indisponibles » de relance visible
+en cas d'échec persistant.
+
+### Added
+- **Barre de contexte progressive** (`ContextMeter`) — remplace le seul
+  pourcentage texte par une barre qui se remplit, couleur alignée sur le
+  seuil (cyan/ambre/rouge).
+- **Commandes `/help` et `/context`** — `/help` liste les commandes,
+  `/context` appelle `GET /conversation/{id}/context` (endpoint réel,
+  aucun appelant Cockpit avant ce jour) et affiche mission/agents/runtime/
+  sécurité liés à la session, distinct de l'estimation de tokens déjà
+  affichée.
+- **Layout adapté 21/9** — plafond `max-w-[1500px]` relâché à `2xl:1900px`
+  dans le shell ; dans l'Assistant, fil et compositeur plafonnés à une
+  largeur de lecture confortable et centrés (`max-w-4xl mx-auto`) plutôt
+  qu'étirés bord à bord sur un écran ultra-large.
+- **Logo Hermes** — remplace le monogramme "H" (sidebar) et l'icône Sparkles
+  générique (en-tête Assistant, avatar de message, état vide) par
+  `hermes-agent-logo.png` fourni par l'utilisateur ; favicon remplacé via
+  `app/icon.png` (convention App Router).
+- **Dictée vocale** (`VoiceButton`) — `SpeechRecognition` native du
+  navigateur (fr-FR), aucun backend STT. Le bouton ne s'affiche pas du tout
+  sur un navigateur sans l'API plutôt que d'afficher un micro qui échouerait
+  silencieusement.
+- **Accès dossier local / dépôt GitHub** (`ProjectPanel`, rail Assistant) —
+  surface construite sur `/api/v1/projects` et `/api/v1/git/*`, montés
+  depuis HOS-066B (`_LEGACY_ROUTERS` dans `main.py`) et jamais appelés par
+  aucun écran. « Lier un dépôt GitHub » est littéralement pointer Hermes
+  vers un dossier local dont le remote git est GitHub — aucun flux OAuth à
+  fabriquer. Statut git réel affiché (branche, modifié, protégée).
+- **Bouton « Créer une PR »** — appelle `POST /git/pull-request`, qui invoque
+  réellement `gh pr create`, gated par Aegis (`git_critical`, validation
+  obligatoire). Masqué sur une branche protégée, comme le refuse déjà le
+  backend.
+
+### Verified
+- Vérifié en direct dans le navigateur, backend réel : liaison du dépôt
+  `C:\Users\emeri\Hermes_OS-main` lui-même → statut git réel retourné
+  (`branch: main, dirty: true, protected: true`), formulaire de PR
+  correctement masqué car branche protégée — comportement honnête de bout
+  en bout, pas de donnée simulée.
+- Dictée vocale : clic déclenche une vraie demande de permission microphone
+  du navigateur (bloquée par le sandbox de test, comportement attendu) —
+  confirme un appel réel à l'API, pas une façade ; réinitialisation propre
+  de l'état si la permission est refusée.
+- Frontend : `tsc --noEmit` propre, `next build` propre, 80/80 tests
+  (`vitest run`, dont 11 nouveaux pour `ContextMeter`, `/help`+`/context`,
+  `VoiceButton`).
+- Aucun fichier backend modifié dans ce lot — uniquement du raccordement
+  frontend vers des endpoints déjà réels et déjà en production ; pas de
+  suite pytest à relancer.
+
 ## R-006 — Code Intelligence : intégration réelle, Cockpit complet, validation locale (2026-08-09)
 
 Rapport complet : [`docs/release/R-006_CODE_INTELLIGENCE_VALIDATION.md`](docs/release/R-006_CODE_INTELLIGENCE_VALIDATION.md).

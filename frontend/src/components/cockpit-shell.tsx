@@ -86,9 +86,15 @@ export default function CockpitShell() {
       <motion.main
         animate={{ marginLeft: navCollapsed ? 68 : 232 }}
         transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-        className="pt-14 pb-8"
+        // h-screen + overflow-hidden here, overflow-y-auto on the inner div:
+        // without a bounded height, a Center built to scroll internally
+        // (its own flex column with an overflow-y-auto pane, e.g. the
+        // Assistant transcript) instead grows the whole document, and
+        // anything anchored beside that internal pane — a header, a side
+        // rail — scrolls away with it instead of staying in view.
+        className="h-screen overflow-hidden pt-14 pb-8"
       >
-        <div className="p-6 max-w-[1500px]">
+        <div className="h-full max-w-[1500px] overflow-y-auto p-6 2xl:max-w-[1900px]">
           {/* A Center that throws must not take the shell with it. */}
           <CenterBoundary viewKey={activeView}>
             {/* Keyed on the view so switching tabs replays the entrance
@@ -100,6 +106,7 @@ export default function CockpitShell() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                className="h-full"
               >
                 <View />
               </motion.div>

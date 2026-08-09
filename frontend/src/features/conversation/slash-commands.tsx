@@ -2,15 +2,23 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Clock, History, MessageSquarePlus } from "lucide-react";
-import { conversationClient } from "@/services/client";
+import {
+  AlertTriangle, Clock, Compass, HelpCircle, History, MessageSquarePlus,
+} from "lucide-react";
+import { conversationClient, type ConversationContextResponseDTO } from "@/services/client";
 
 /**
- * Slash commands (HOS-075) — a small, honest set.
+ * Slash commands (HOS-075, extended v2) — a small, honest set.
  *
  * `/clean` and `/resume` wrap real, pre-existing capabilities the Assistant
  * never surfaced (a fresh session, and `GET /conversation/sessions` which
- * had zero UI callers before this). `/compact` has no real backend
+ * had zero UI callers before this). `/context` wraps a second such
+ * endpoint — `GET /conversation/{id}/context` — which returns the
+ * conversation's actual linked state (mission, agents, runtime, security
+ * level), not the token-count estimate the composer already shows.
+ * `/help` is the only command with no backend behind it: it just lists
+ * this same array, so the namespace stays discoverable without a user
+ * having to type "/" and guess. `/compact` has no real backend
  * counterpart yet — Claude Code's version summarises history to reclaim
  * context, and Hermes has no such pass. It stays in the menu so the
  * command namespace is discoverable, but selecting it says so plainly
@@ -26,10 +34,14 @@ export interface SlashCommand {
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
+  { cmd: "/help", label: "/help", description: "Lister les commandes disponibles",
+    icon: HelpCircle, implemented: true },
   { cmd: "/clean", label: "/clean", description: "Démarrer une nouvelle conversation",
     icon: MessageSquarePlus, implemented: true },
   { cmd: "/resume", label: "/resume", description: "Reprendre une session précédente",
     icon: History, implemented: true },
+  { cmd: "/context", label: "/context", description: "État réel de la conversation — mission, agents, runtime, sécurité",
+    icon: Compass, implemented: true },
   { cmd: "/compact", label: "/compact", description: "Pas encore implémenté — aucun résumé de l'historique n'existe côté serveur",
     icon: AlertTriangle, implemented: false },
 ];
@@ -163,6 +175,134 @@ export function SessionPicker({
               )}
             </button>
           ))}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+/** "/help" — a static readout of SLASH_COMMANDS, no backend call. */
+export function HelpPanel({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-hermes-bg-deep/70 backdrop-blur-sm"
+      onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 8 }}
+        transition={{ duration: 0.16 }}
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[70vh] w-[420px] overflow-hidden rounded-2xl border border-hermes-border bg-hermes-card shadow-2xl"
+      >
+        <div className="flex items-center gap-2 border-b border-hermes-border/60 px-4 py-3">
+          <HelpCircle size={13} className="text-hermes-cyan" />
+          <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-hermes-muted">
+            Commandes disponibles
+          </h3>
+        </div>
+        <div className="max-h-[55vh] overflow-y-auto p-1.5">
+          {SLASH_COMMANDS.map((c) => (
+            <div key={c.cmd} className="flex items-start gap-2.5 rounded-lg px-3 py-2.5">
+              <c.icon size={13} className={`mt-0.5 shrink-0 ${c.implemented ? "text-hermes-cyan" : "text-hermes-amber"}`} />
+              <span className="min-w-0 flex-1">
+                <span className="font-mono text-[11.5px] text-hermes-text-bright">{c.label}</span>
+                <span className="mt-0.5 block text-[10.5px] leading-relaxed text-hermes-muted">{c.description}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+const CONTEXT_FIELDS: { key: keyof NonNullable<ConversationContextResponseDTO["context"]>; label: string }[] = [
+  { key: "active_mission_id", label: "Mission active" },
+  { key: "active_goal_id", label: "Objectif actif" },
+  { key: "active_agents", label: "Agents actifs" },
+  { key: "current_runtime", label: "Runtime" },
+  { key: "current_model", label: "Modèle" },
+  { key: "workspace_status", label: "Espace de travail" },
+  { key: "security_level", label: "Niveau de sécurité" },
+];
+
+function formatContextValue(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "—";
+  if (Array.isArray(v)) return v.length ? v.join(", ") : "—";
+  return String(v);
+}
+
+/** "/context" — the real GET /conversation/{id}/context payload: what the
+ *  conversation is actually linked to server-side, not a token count. */
+export function ContextPanel({
+  sessionId, onClose,
+}: {
+  sessionId: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<ConversationContextResponseDTO | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await conversationClient.context(sessionId);
+        if (!cancelled) setData(res);
+      } catch {
+        if (!cancelled) setError("Impossible de charger l'état de la conversation.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-hermes-bg-deep/70 backdrop-blur-sm"
+      onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 8 }}
+        transition={{ duration: 0.16 }}
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[70vh] w-[420px] overflow-hidden rounded-2xl border border-hermes-border bg-hermes-card shadow-2xl"
+      >
+        <div className="flex items-center gap-2 border-b border-hermes-border/60 px-4 py-3">
+          <Compass size={13} className="text-hermes-cyan" />
+          <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-hermes-muted">
+            État de la conversation
+          </h3>
+        </div>
+        <div className="max-h-[55vh] overflow-y-auto p-4">
+          {error && <p className="text-[11px] text-hermes-red">{error}</p>}
+          {!error && !data && <p className="text-[11px] text-hermes-dim">Chargement…</p>}
+          {!error && data && !data.success && (
+            <p className="text-[11px] text-hermes-red">{data.error || "Session introuvable."}</p>
+          )}
+          {!error && data?.success && data.context && (
+            <dl className="space-y-2.5 font-mono text-[11px]">
+              {CONTEXT_FIELDS.map(({ key, label }) => (
+                <div key={key} className="flex items-baseline justify-between gap-3">
+                  <dt className="text-hermes-dim">{label}</dt>
+                  <dd className="truncate text-right text-hermes-text-bright">
+                    {formatContextValue(data.context![key])}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
       </motion.div>
     </div>

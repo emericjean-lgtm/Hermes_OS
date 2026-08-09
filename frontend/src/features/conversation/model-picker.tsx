@@ -189,15 +189,30 @@ function Option({
 }
 
 /** Context-window usage for the current turn (HOS-075) — an honest
- *  estimate against the selected role's real, benchmarked num_ctx. */
+ *  estimate against the selected role's real, benchmarked num_ctx.
+ *  Rendered as a fill bar rather than bare digits: a bar reads at a
+ *  glance next to the composer, where a percentage competes with the
+ *  Auto/model label for the same few pixels of attention. */
 export function ContextMeter({ used, window: ctxWindow }: { used: number; window: number }) {
   if (!ctxWindow) return null;
   const pct = Math.min(100, (used / ctxWindow) * 100);
-  const tone = pct > 90 ? "text-hermes-red" : pct > 70 ? "text-hermes-amber" : "text-hermes-dim";
+  const tone = pct > 90 ? "bg-hermes-red" : pct > 70 ? "bg-hermes-amber" : "bg-hermes-cyan";
+  const textTone = pct > 90 ? "text-hermes-red" : pct > 70 ? "text-hermes-amber" : "text-hermes-dim";
   return (
-    <div className="flex items-center gap-1.5" title={`${used.toLocaleString()} / ${ctxWindow.toLocaleString()} tokens (estimation)`}>
-      <Gauge size={10} className={tone} />
-      <span className={`font-mono text-[9.5px] tabular-nums ${tone}`}>{pct.toFixed(0)}%</span>
+    <div
+      className="flex items-center gap-1.5"
+      title={`${used.toLocaleString()} / ${ctxWindow.toLocaleString()} tokens (estimation)`}
+    >
+      <Gauge size={10} className={textTone} />
+      <div className="h-1.5 w-14 overflow-hidden rounded-full border border-hermes-border/60 bg-hermes-bg-deep">
+        <motion.div
+          className={`h-full rounded-full ${tone}`}
+          initial={false}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        />
+      </div>
+      <span className={`font-mono text-[9.5px] tabular-nums ${textTone}`}>{pct.toFixed(0)}%</span>
     </div>
   );
 }

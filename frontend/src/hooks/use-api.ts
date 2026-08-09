@@ -28,6 +28,8 @@ import {
   workspaceClient,
   verificationClient,
   monitoringClient,
+  projectsClient,
+  gitClient,
 } from "@/services/client";
 import type { ToolHealthSummary } from "@/services/client";
 import type {
@@ -67,6 +69,15 @@ export function useSystemHealth() {
 }
 export function useSystemStatistics() {
   return useQuery<SystemStatistics>({ queryKey: ["system", "statistics"], queryFn: systemClient.statistics });
+}
+// The Assistant's model picker used to fetch this once in a bare useEffect
+// with a swallowed catch: a single failed request (e.g. the backend still
+// warming up) left the picker stuck on "Auto only" for the rest of the
+// session, silently. react-query's default retry (providers.tsx) gives it
+// two more attempts, and isError/refetch let the caller show and recover
+// from a real, persistent failure instead of hiding it.
+export function useSystemModelRoles() {
+  return useQuery({ queryKey: ["system", "models"], queryFn: systemClient.models });
 }
 
 // ── Missions ─────────────────────────────────────────
@@ -723,6 +734,40 @@ export function useWorkspaceAction() {
     }) => workspaceClient[action](id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["workspace"] }),
   });
+}
+
+// ── Projects & Git ───────────────────────────────────────
+export function useProjects() {
+  return useQuery({ queryKey: ["projects"], queryFn: projectsClient.list });
+}
+export function useCreateProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: projectsClient.create,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+  });
+}
+export function useRemoveProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: projectsClient.remove,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+  });
+}
+/** Real `git status` on the project's root_path — silently disabled
+ *  (`enabled: !!repoPath`) rather than firing on an empty path, and
+ *  `retry: false` because a 400 ("not a repository") is a legitimate,
+ *  non-transient answer, not a flake to retry into a success. */
+export function useGitStatus(repoPath: string | null | undefined) {
+  return useQuery({
+    queryKey: ["git", "status", repoPath],
+    queryFn: () => gitClient.status(repoPath as string),
+    enabled: !!repoPath,
+    retry: false,
+  });
+}
+export function useCreatePullRequest() {
+  return useMutation({ mutationFn: gitClient.createPullRequest });
 }
 
 export function useVerificationRunners() {
