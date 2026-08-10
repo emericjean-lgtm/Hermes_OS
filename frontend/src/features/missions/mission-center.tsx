@@ -6,6 +6,7 @@ import {
   useCreateMission,
   useMissionAction,
   useMissionReport,
+  useProjects,
 } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
 import { Card, Badge, ProgressBar, Button } from "@/components/ui/card";
@@ -47,6 +48,15 @@ export function MissionCenter() {
   const [localPath, setLocalPath] = useState("");
   const [repository, setRepository] = useState("");
   const [branch, setBranch] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const { data: projects } = useProjects();
+  // Only a validated, active Project actually grants RealTaskExecutor's
+  // tool-calling loop real filesystem access (execution/task_executor.py's
+  // _workspace_project_for) — listing anything else here would let a user
+  // pick a binding that silently does nothing.
+  const usableProjects = (projects ?? []).filter(
+    (p) => p.status === "active" && p.validation_status === "valid",
+  );
 
   // The list endpoint never sends description/created_at (see toMission in
   // services/client.ts) — the detail panel needs a real per-mission fetch,
@@ -63,12 +73,14 @@ export function MissionCenter() {
         local_path: localPath.trim() || undefined,
         repository: repository.trim() || undefined,
         branch: branch.trim() || undefined,
+        project_id: projectId || undefined,
       });
       setTitle("");
       setDescription("");
       setLocalPath("");
       setRepository("");
       setBranch("");
+      setProjectId("");
       setShowCreate(false);
     }
   };
@@ -139,6 +151,31 @@ export function MissionCenter() {
                     onChange={(e) => setBranch(e.target.value)}
                     className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:border-hermes-amber outline-none"
                   />
+                </div>
+                {/* Workspace/Filesystem tool layer (HOS-084) — independent
+                    of local_path/repository/branch above. Binding a
+                    validated Project here is what lets this mission's tasks
+                    really call workspace_list/read/write via Aegis, not
+                    just carry a path string for HOS-068's older pre-flight
+                    check. */}
+                <div className="flex flex-col gap-1">
+                  <select
+                    value={projectId}
+                    onChange={(e) => setProjectId(e.target.value)}
+                    className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:border-hermes-amber outline-none"
+                  >
+                    <option value="">Aucun workspace (pas d&apos;accès fichiers réel)</option>
+                    {usableProjects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} — {p.root_path}
+                      </option>
+                    ))}
+                  </select>
+                  {usableProjects.length === 0 && (
+                    <p className="text-[10px] text-hermes-muted">
+                      Aucun workspace validé — enregistrez-en un dans l&apos;onglet Assistant pour donner à cette mission un accès fichiers réel.
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2 justify-end">
                   <button
@@ -229,7 +266,7 @@ export function MissionCenter() {
               <ProgressBar value={selected.progress} />
               <p className="text-xs text-hermes-muted">{selected.description || "Aucune description"}</p>
 
-              {(selected.local_path || selected.repository) && (
+              {(selected.local_path || selected.repository || selected.project_id) && (
                 <div className="pt-2 border-t border-hermes-border/30 flex flex-col gap-1 text-[10px] font-mono">
                   {selected.local_path && (
                     <div>
@@ -242,6 +279,15 @@ export function MissionCenter() {
                       <span className="text-hermes-muted uppercase">Dépôt : </span>
                       <span className="text-hermes-text">
                         {selected.repository}{selected.branch ? `@${selected.branch}` : ""}
+                      </span>
+                    </div>
+                  )}
+                  {selected.project_id && (
+                    <div>
+                      <span className="text-hermes-muted uppercase">Workspace : </span>
+                      <span className="text-hermes-text">
+                        {projects?.find((p) => p.id === selected.project_id)?.name ?? selected.project_id}
+                        {" "}(accès fichiers réel activé)
                       </span>
                     </div>
                   )}
@@ -316,7 +362,7 @@ export function MissionCenter() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-hermes-muted">Durée</span>
-                      <span className="text-hermes-text">{rep.total_duration_ms.toFixed(0)}ms</span>
+                      <span className="text-hermes-text">{(rep.total_duration_ms ?? 0).toFixed(0)}ms</span>
                     </div>
                     <div className="flex items-center justify-between col-span-2">
                       <span className="text-hermes-muted">Runtimes</span>

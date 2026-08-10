@@ -14,7 +14,7 @@ from functools import lru_cache
 from backend.core.config import get_settings
 from backend.memory.db import init_db, make_engine, make_session_factory
 from backend.projects import project_manager
-from backend.projects.project_manager import Project, ProjectStatus
+from backend.projects.project_manager import Project, ProjectStatus, ValidationStatus
 
 
 class ProjectStore:
@@ -81,8 +81,8 @@ class ProjectStore:
     def validate(self, project_id: str) -> Project | None:
         """Really probe project.root_path on disk (see
         project_manager.validate_project_path) and persist the result —
-        the only source of truth Aegis's dynamic whitelist trusts (see
-        agents/aegis.py's _dynamic_allowed_paths)."""
+        the only source of truth active_validated_project_roots() below
+        (and therefore Aegis's dynamic whitelist) trusts."""
         with self._session_factory() as session:
             return project_manager.validate_project(session, project_id)
 
@@ -90,3 +90,28 @@ class ProjectStore:
 @lru_cache
 def get_project_store() -> ProjectStore:
     return ProjectStore(get_settings().sqlite_path)
+
+
+def active_validated_project_roots() -> list[str]:
+    """Every ACTIVE, validation_status="valid" Project's root_path — the
+    single real source of "which local folders has the user actually
+    authorized right now". Both AegisAgent._dynamic_allowed_paths
+    (agents/aegis.py, the Assistant chat / MCP / file_tools path) and
+    Mission's pre-flight security gate (mission/routes.py's
+    _check_mission_security) call this same function rather than each
+    resolving it independently — a Mission bound to a validated
+    workspace must be granted access by the exact same rule a chat
+    session bound to it would be, not a second, potentially-drifting
+    implementation of "is this project currently authorized".
+
+    Fails closed (empty list) rather than raising if the store is
+    briefly unavailable — a missing grant is safe, a crashing security
+    check is not."""
+    try:
+        projects = get_project_store().list(status=ProjectStatus.ACTIVE)
+    except Exception:
+        return []
+    return [
+        p.root_path for p in projects
+        if p.root_path and p.validation_status == ValidationStatus.VALID.value
+    ]

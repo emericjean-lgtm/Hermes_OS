@@ -421,7 +421,46 @@ def _make_task_executor(c: Any) -> Any:
         local_fallback_for=_local_fallback_for,
         resource_manager=c.get("resource_manager"),
         vram_gb_for=_vram_gb_for,
+        workspace_project_for=_workspace_project_for,
     )
+
+
+def _workspace_project_for(task: Any) -> Optional[tuple[str, str]]:
+    """Workspace/Filesystem tool layer: resolves task.mission_id's Mission
+    -> context.project_id -> an ACTIVE, validation_status="valid" Project
+    -> (project_id, root_path), or None (no real filesystem tools for
+    this task — prior behavior, unchanged). Same three-way check
+    AegisAgent._dynamic_allowed_paths applies via
+    projects.store.active_validated_project_roots, repeated here so a
+    task isn't offered tools Aegis would just refuse — a UX choice, not
+    the security boundary; file_tools re-checks independently regardless
+    of what this returns."""
+    mission_id = getattr(task, "mission_id", "") or ""
+    if not mission_id:
+        return None
+    try:
+        from backend.mission.routes import get_mission_by_id
+        mission = get_mission_by_id(mission_id)
+    except Exception:
+        return None
+    if mission is None:
+        return None
+    project_id = mission.context.project_id
+    if not project_id:
+        return None
+    try:
+        from backend.projects.project_manager import ProjectStatus, ValidationStatus
+        from backend.projects.store import get_project_store
+        project = get_project_store().get(project_id)
+    except Exception:
+        return None
+    if project is None or not project.root_path:
+        return None
+    if project.status != ProjectStatus.ACTIVE.value:
+        return None
+    if project.validation_status != ValidationStatus.VALID.value:
+        return None
+    return (project_id, project.root_path)
 
 
 def _make_cloud_chat() -> Optional[Any]:

@@ -56,6 +56,11 @@ def make_node_executor(controller: Any) -> Callable[[MissionNode], bool]:
         task = TaskExecution(
             task_id=f"{node.node_id}-task",
             node_id=node.node_id,
+            # Workspace/Filesystem tool layer (HOS-084) — without this,
+            # RealTaskExecutor.workspace_project_for(task) always sees an
+            # empty mission_id and never resolves the Mission's bound
+            # Project, no matter how the Mission itself was created.
+            mission_id=getattr(node, "mission_id", "") or "",
             title=node.title or node.description or node.node_id,
             status=TaskExecutionStatus.PENDING,
             assigned_runtime=getattr(node, "preferred_runtime", "") or "",

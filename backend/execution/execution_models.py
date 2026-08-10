@@ -100,6 +100,13 @@ class TaskExecution:
     """Runtime tracking for a single task node during execution."""
     task_id: str = ""
     node_id: str = ""
+    # Workspace/Filesystem tool layer (HOS-084) — RealTaskExecutor's
+    # workspace_project_for(task) reads this to resolve the owning
+    # Mission's bound Project. Empty for a task that did not originate
+    # from a Mission node (e.g. the standalone /execution/start API with
+    # no mission_id given) — same "empty means not applicable" convention
+    # as task_type below.
+    mission_id: str = ""
     title: str = ""
     # HOS-070: mirrors MissionNode.type (mission/mission_models.py) — the
     # input CapabilityMatcher's task-type -> capability map expects

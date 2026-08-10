@@ -95,6 +95,12 @@ export interface Mission {
   local_path?: string;
   repository?: string;
   branch?: string;
+  // Workspace/Filesystem tool layer (HOS-084) — binds the mission to a
+  // validated Project so RealTaskExecutor's tool-calling loop can offer
+  // workspace_list/read/write to its tasks. Independent of local_path
+  // above (HOS-068's older Aegis pre-flight binding); a mission can carry
+  // either, both, or neither.
+  project_id?: string;
   // True when the real (LLM) task decomposition failed and this mission
   // ran a generic, request-independent template instead — see
   // TaskDecomposer.decompose_with_method. Sent by both the list and detail

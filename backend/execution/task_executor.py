@@ -28,12 +28,28 @@ Design constraints it has to respect:
   and the model actually used come from the runtime's own response, not from an
   estimate.
 
-Known, documented limitation (HOS-069 audit, not fixed here — see
-``_build_messages()``'s own docstring for the detail): this executor performs
-one chat completion per task. ``assigned_tools`` (AgentCoordinator's pick) is
-mentioned to the model as a text hint, never invoked as a real tool/MCP call.
-Nothing here bypasses Aegis's tool-call security gate, because no real tool
-call exists on this path for it to gate.
+Known, documented limitation (HOS-069 audit): ``assigned_tools``
+(AgentCoordinator's pick, an unrelated keyword-matched recommendation —
+see agent_coordinator.py's ``_select_tools``) is still only ever a text
+hint, never invoked as a real tool/MCP call. What *is* now real: when a
+task's Mission is bound to an ACTIVE, validated Project (Workspace/
+Filesystem tool layer, ``workspace_project_for`` below), this executor
+offers the model real ``workspace_*`` filesystem tools and actually
+executes them — the same real Aegis-gated ``file_tools.py`` calls the
+Assistant chat makes, via the shared
+``backend/tools/workspace_chat_tools.py`` adapter. This is deliberately
+NOT built on ``BaseAgent.respond_events()`` (the chat path's own
+tool-calling loop): that method does its own model selection via
+``ModelRouter``, which would silently discard this executor's own
+model resolution, VRAM admission checking, and cloud/local fallback —
+all real, tuned machinery this executor must keep. Instead the loop
+below is built directly on the same underlying primitive
+(``OllamaClient.chat_events(tools=...)``), bounded the same way
+(``_MAX_TOOL_ROUNDS``, mirroring ``agents/base_agent.py``'s own
+constant), reusing this executor's already-resolved model/num_ctx.
+Nothing here bypasses Aegis's tool-call security gate: every
+``workspace_*`` call still goes through ``file_tools.py``'s real
+``_check()``/Aegis evaluation exactly like the chat path's calls do.
 """
 
 from __future__ import annotations
@@ -46,6 +62,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger("hermes_os.execution.task")
+
+#: Mirrors agents/base_agent.py's _MAX_TOOL_ROUNDS — a model that keeps
+#: asking for tools without ever answering cannot hang a task forever.
+_MAX_TOOL_ROUNDS = 3
 
 
 class RuntimeUnavailableError(RuntimeError):
@@ -153,6 +173,14 @@ class RealTaskExecutor:
             instead of only ever waiting for its own keep_alive timer
             (up to 10 minutes by default). None (the default) builds real
             Ollama calls on demand; tests inject fakes to stay hermetic.
+        workspace_project_for: ``(task) -> (project_id, project_root) |
+            None`` — resolves the task's owning Mission's bound, ACTIVE,
+            validated Project (Workspace/Filesystem tool layer). None
+            (the default, and whatever this returns for a given task)
+            means: behave exactly as before this existed — one plain
+            chat completion, no tools. Only when this resolves to a real
+            (project_id, project_root) pair does execute() route through
+            the real, Aegis-gated workspace tool-calling loop instead.
     """
 
     def __init__(
@@ -176,6 +204,7 @@ class RealTaskExecutor:
         vram_poll_interval_s: float = 1.0,
         list_running_for: Optional[Callable[[], Any]] = None,
         unload_for: Optional[Callable[[str], Any]] = None,
+        workspace_project_for: Optional[Callable[[Any], Optional[tuple[str, str]]]] = None,
     ) -> None:
         self._chat = chat
         self._model_for = model_for
@@ -195,6 +224,7 @@ class RealTaskExecutor:
         self._vram_poll_interval_s = vram_poll_interval_s
         self._list_running_for = list_running_for
         self._unload_for = unload_for
+        self._workspace_project_for = workspace_project_for
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
@@ -271,7 +301,8 @@ class RealTaskExecutor:
                       or "ollama")
         model = self._resolve_model(task, assignment)
         num_ctx = self._resolve_num_ctx(task)
-        messages = self._build_messages(task, assignment)
+        workspace = self._resolve_workspace(task)
+        messages = self._build_messages(task, assignment, workspace)
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
 
         chat = self._chat or self._default_chat
@@ -279,6 +310,14 @@ class RealTaskExecutor:
         if use_cloud:
             runtime_id = "openrouter"
         requested_runtime = runtime_id
+
+        # Real workspace tool-calling only on the local path — the cloud
+        # fallback below already exists independently of tools, and
+        # bounding this to local keeps the surface this pass adds small
+        # and matches the Assistant chat's own scope decision (this is
+        # still the first real Mission-execution consumer of the layer).
+        if workspace is not None and not use_cloud:
+            chat = self._chat_with_tools_for(workspace)
 
         started = time.perf_counter()
         try:
@@ -369,6 +408,12 @@ class RealTaskExecutor:
                 "provider": served_by,
                 "runtime_requested": requested_runtime,
                 "token_counts": "reported" if meta.get("prompt_tokens") else "estimated",
+                # Real observability for the Workspace/Filesystem tool
+                # layer: how many real workspace_* tool calls this task's
+                # completion actually made (0 when no workspace was
+                # bound, or the model never called one) — see
+                # _run_tool_loop's ChatResponse.metadata.
+                "tool_calls_made": int(meta.get("tool_calls_made") or 0),
             },
         )
         outcome.artifact_path = self._persist_artifact(task, outcome)
@@ -456,6 +501,121 @@ class RealTaskExecutor:
         client = OllamaClient(settings.ollama_api_url, timeout=15.0)
         try:
             await client.unload_model(model)
+        finally:
+            try:
+                await client.aclose()
+            except Exception:  # pragma: no cover - best-effort cleanup
+                logger.debug("closing Ollama client failed", exc_info=True)
+
+    def _resolve_workspace(self, task: Any) -> Optional[tuple[str, str]]:
+        """(project_id, project_root) for this task's real filesystem
+        tool-calling, or None — see workspace_project_for's own
+        docstring. Never raises: a broken resolver must degrade to "no
+        workspace, no tools" (prior behavior), not fail the task."""
+        if self._workspace_project_for is None:
+            return None
+        try:
+            return self._workspace_project_for(task)
+        except Exception:
+            logger.debug("workspace_project_for callback failed", exc_info=True)
+            return None
+
+    def _chat_with_tools_for(
+        self, workspace: tuple[str, str],
+    ) -> Callable[..., Any]:
+        """A chat-shaped callable (messages, model, num_ctx) -> ChatResponse
+        that runs the real, bounded workspace tool-calling loop instead of
+        a single plain completion — see the module docstring for why this
+        is built directly on OllamaClient.chat_events(tools=...) rather
+        than BaseAgent.respond_events()."""
+        project_id, project_root = workspace
+
+        async def _chat(*, messages: list[dict[str, Any]], model: str,
+                        num_ctx: Optional[int] = None) -> Any:
+            return await self._run_tool_loop(messages, model, num_ctx, project_id, project_root)
+
+        return _chat
+
+    async def _run_tool_loop(
+        self, messages: list[dict[str, Any]], model: str, num_ctx: Optional[int],
+        project_id: str, project_root: str,
+    ) -> Any:
+        from backend.connectors.ollama_client import OllamaClient, OllamaUnavailableError
+        from backend.core.config import get_settings
+        from backend.ral.capabilities import ChatResponse
+        from backend.tools.workspace_chat_tools import execute_workspace_tool, workspace_tool_schemas
+
+        settings = get_settings()
+        client = OllamaClient(
+            settings.ollama_api_url,
+            keep_alive=getattr(settings, "ollama_keep_alive", "10m"),
+            timeout=self._timeout_s,
+            default_num_ctx=num_ctx if num_ctx is not None
+                            else getattr(settings, "ollama_num_ctx", 8192),
+        )
+        tools = workspace_tool_schemas()
+        working_messages = list(messages)
+        tool_calls_made = 0
+        try:
+            for _round in range(_MAX_TOOL_ROUNDS):
+                content_parts: list[str] = []
+                pending_calls: list[dict[str, Any]] = []
+                async for chunk in client.chat_events(model, working_messages, tools=tools):
+                    if chunk.kind == "content":
+                        content_parts.append(chunk.text)
+                    elif chunk.kind == "tool_calls":
+                        pending_calls.extend(chunk.tool_calls or [])
+
+                if not pending_calls:
+                    return ChatResponse(
+                        content="".join(content_parts),
+                        metadata={"model": model, "provider": "ollama",
+                                  "tool_calls_made": tool_calls_made},
+                    )
+
+                working_messages.append({
+                    "role": "assistant", "content": "", "tool_calls": pending_calls,
+                })
+                for call in pending_calls:
+                    fn = call.get("function", {})
+                    name = fn.get("name", "")
+                    arguments = fn.get("arguments") or {}
+                    try:
+                        result = await execute_workspace_tool(
+                            name, arguments, project_id=project_id, project_root=project_root,
+                        )
+                    except Exception as exc:
+                        result = f"Tool {name!r} failed: {type(exc).__name__}: {exc}"
+                    tool_calls_made += 1
+                    working_messages.append({
+                        "role": "tool", "content": str(result), "tool_name": name,
+                    })
+
+            # Ran out of rounds without a final answer — same forced,
+            # tool-free final call as agents/base_agent.py's own loop, so
+            # a model stuck re-requesting tools still returns something
+            # rather than an empty completion.
+            final_parts: list[str] = []
+            async for chunk in client.chat_events(
+                model,
+                working_messages + [{
+                    "role": "user",
+                    "content": (
+                        "Réponds maintenant avec les informations déjà trouvées "
+                        "ci-dessus, du mieux que tu peux — aucun nouvel outil "
+                        "n'est disponible."
+                    ),
+                }],
+            ):
+                if chunk.kind == "content":
+                    final_parts.append(chunk.text)
+            return ChatResponse(
+                content="".join(final_parts),
+                metadata={"model": model, "provider": "ollama",
+                          "tool_calls_made": tool_calls_made},
+            )
+        except OllamaUnavailableError as exc:
+            raise RuntimeUnavailableError(f"Ollama unavailable: {exc}") from exc
         finally:
             try:
                 await client.aclose()
@@ -589,26 +749,24 @@ class RealTaskExecutor:
         return None
 
     @staticmethod
-    def _build_messages(task: Any, assignment: Any) -> list[dict[str, Any]]:
+    def _build_messages(
+        task: Any, assignment: Any, workspace: Optional[tuple[str, str]] = None,
+    ) -> list[dict[str, Any]]:
         """Build the one chat completion this execution actually is.
 
-        HOS-069 audit finding, documented rather than silently left as-is:
-        ``tools`` below is a *text hint* in the system prompt ("Available
-        tools: X, Y"), not a real tool-calling mechanism. This method never
-        passes an OpenAI/Ollama-style ``tools=[...]`` schema to the runtime,
-        and nothing downstream parses the model's response for a function
-        call and actually invokes anything — no filesystem, git, or MCP
-        call is ever made from this execution path. A model asked to "use"
-        a tool can only produce text that *looks* like a tool invocation
-        (e.g. a line reading ``klaatcode.analyze_project --config-file
-        ...``), which is then stored as the task's real, honestly-reported
-        result — text output, not a tool's actual return value. Aegis's
-        Policy/Permission/Trust gate for tool calls is therefore never
-        bypassed by this path: there is no real tool call here for it to
-        gate. Wiring genuine tool-calling (a real function-call loop, each
-        call gated by Aegis before it runs) is a separate, materially
-        larger initiative — not something to half-implement inside this
-        method.
+        ``assigned_tools``/``tool_ids`` (AgentCoordinator's keyword-matched
+        recommendation, an unrelated concept to the real workspace tools
+        below) remains a text hint only, per the HOS-069 finding — nothing
+        parses it or invokes anything from it. ``workspace``, when given
+        (this task's Mission is bound to a real, validated Project — see
+        _resolve_workspace), is different: the real filesystem tool
+        schemas are attached to this same completion by execute()
+        swapping in _chat_with_tools_for(), and the paragraph below tells
+        the model those tools genuinely exist and what they're scoped to
+        — mirroring conversation/conversation_manager.py's
+        _workspace_context_block for the chat path, at the same bounded
+        depth (name/root/permissions/a short root listing, never the
+        whole tree).
         """
         title = getattr(task, "title", "") or getattr(task, "task_id", "task")
         agent = getattr(assignment, "agent_id", "") or getattr(task, "assigned_agent", "")
@@ -627,6 +785,15 @@ class RealTaskExecutor:
             system += f" Relevant skills: {', '.join(skills)}."
         if tools:
             system += f" Available tools: {', '.join(tools)}."
+        if workspace is not None:
+            _project_id, project_root = workspace
+            system += (
+                f" You have real filesystem access to the workspace at "
+                f"{project_root!r} via workspace_list/workspace_exists/"
+                f"workspace_read/workspace_write — paths are relative to "
+                f"that root. Use workspace_list before reading a file whose "
+                f"exact path you don't already know; do not guess paths."
+            )
 
         return [
             {"role": "system", "content": system},

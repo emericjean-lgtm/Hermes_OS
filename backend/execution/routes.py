@@ -52,6 +52,7 @@ def start_execution(goal: str, tasks: list[dict[str, str]],
         TaskExecution(
             task_id=t.get("id", f"task-{i}"),
             node_id=t.get("node_id", f"node-{i}"),
+            mission_id=mission_id,
             title=t.get("title", t.get("id", f"task-{i}")),
             status=TaskExecutionStatus.PENDING,
         )

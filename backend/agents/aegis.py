@@ -81,7 +81,6 @@ from backend.connectors.ollama_client import OllamaClientProtocol
 from backend.core.config import get_settings, load_security_config
 from backend.core.message_bus import MessageType, get_message_bus
 from backend.core.router import ModelRouter
-from backend.projects.project_manager import ProjectStatus, ValidationStatus
 from backend.projects.store import get_project_store
 from backend.memory.db import init_db, make_engine, make_session_factory
 from backend.security import approvals
@@ -247,20 +246,15 @@ class AegisAgent:
         """Every ACTIVE, validation_status="valid" Project's root_path —
         together with the static ALLOWED_PATHS config, this is the real,
         current whitelist (see AegisEngine.evaluate's extra_allowed_paths
-        and this module's docstring). Fetched fresh on every call, never
-        cached: an archived, invalidated, or deleted Project must stop
-        granting access the moment that happens, not on some later
-        refresh. Fails closed (empty list) rather than raising if the
-        store is briefly unavailable — a missing grant is safe, a
-        crashing security check is not."""
-        try:
-            projects = get_project_store().list(status=ProjectStatus.ACTIVE)
-        except Exception:
-            return []
-        return [
-            p.root_path for p in projects
-            if p.root_path and p.validation_status == ValidationStatus.VALID.value
-        ]
+        and this module's docstring). Delegates to
+        projects.store.active_validated_project_roots() — the same
+        function Mission's pre-flight security gate
+        (mission/routes.py's _check_mission_security) calls, so a
+        validated workspace grants access identically whether the caller
+        is a chat session or a Mission. Fetched fresh on every call via
+        that function, never cached here."""
+        from backend.projects.store import active_validated_project_roots
+        return active_validated_project_roots()
 
     def _resolve_decision(self, action: ActionRequest) -> AegisDecision:
         # Widening (extra_paths) and narrowing (project_root below) are

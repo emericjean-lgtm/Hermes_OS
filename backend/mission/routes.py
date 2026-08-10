@@ -104,6 +104,17 @@ def register_mission(mission: Mission) -> None:
     _missions[mission.mission_id] = mission
 
 
+def get_mission_by_id(mission_id: str) -> Optional[Mission]:
+    """Public accessor onto this router's own in-memory ``_missions``
+    dict — used by execution/task_executor.py's bootstrap wiring
+    (core/bootstrap/service_registry.py's ``_workspace_project_for``) to
+    resolve a task's owning Mission and, from there, its bound
+    ``context.project_id`` for real filesystem tool calls. A plain
+    function rather than exporting ``_missions`` itself, so this module
+    stays the only place that dict is ever mutated."""
+    return _missions.get(mission_id)
+
+
 def _get_aegis_engine() -> Any:
     """Lazy singleton, same construction as every other ad-hoc AegisEngine
     in this codebase (agents/aegis.py, model_intelligence/routes.py,
@@ -141,16 +152,23 @@ def _check_mission_security(mission: Mission) -> Optional[dict[str, Any]]:
     if not (mission.context.local_path or mission.context.repository):
         return None
 
+    from backend.projects.store import active_validated_project_roots
     from backend.security.aegis_engine import ActionRequest, Verdict
 
     engine = _get_aegis_engine()
+    # Same dynamic whitelist AegisAgent uses for chat/MCP/file_tools
+    # (agents/aegis.py's _dynamic_allowed_paths, this repo's single real
+    # source of "which projects are currently authorized") — a Mission
+    # bound to a validated workspace must be granted access by the exact
+    # same rule a chat session bound to it would be.
+    extra_paths = active_validated_project_roots()
 
     if mission.context.local_path:
         path_decision = engine.evaluate(ActionRequest(
             action_type="file_read",
             description=f"mission {mission.mission_id} local_path",
             target_path=mission.context.local_path,
-        ))
+        ), extra_allowed_paths=extra_paths)
         if path_decision.verdict != Verdict.ALLOW:
             mission.status = MissionStatus.FAILED
             return {
@@ -163,7 +181,7 @@ def _check_mission_security(mission: Mission) -> Optional[dict[str, Any]]:
         action_type="mission_execute",
         description=f"start mission {mission.mission_id}",
         target_path=mission.context.local_path or None,
-    ))
+    ), extra_allowed_paths=extra_paths)
     if decision.verdict == Verdict.DENY:
         mission.status = MissionStatus.FAILED
         return {
@@ -337,6 +355,15 @@ async def create_mission(payload: dict = Body(...)):
     mission.context.local_path = payload.get("local_path", "") or ""
     mission.context.repository = payload.get("repository", "") or ""
     mission.context.branch = payload.get("branch", "") or ""
+    # Workspace/Filesystem tool layer — project_id, when given, names a
+    # real Project (backend/projects/). Once ACTIVE + validated, its
+    # root_path is what execution/task_executor.py's RealTaskExecutor
+    # resolves relative paths against for real filesystem tool calls
+    # during this mission's task execution (see
+    # _workspace_project_for in core/bootstrap/service_registry.py).
+    # Independent of local_path/repository above — those are the older,
+    # unstructured HOS-068 binding this doesn't replace.
+    mission.context.project_id = payload.get("project_id", "") or ""
 
     nodes_data = payload.get("nodes", [])
     nodes = [
@@ -424,6 +451,7 @@ async def get_mission(mission_id: str):
         "local_path": mission.context.local_path,
         "repository": mission.context.repository,
         "branch": mission.context.branch,
+        "project_id": mission.context.project_id,
         "created_at": mission.created_at.isoformat(),
         "decomposition_method": mission.metadata.get("decomposition_method", "llm"),
         "plan_is_generic": mission.metadata.get("decomposition_method") == "generic_fallback",
