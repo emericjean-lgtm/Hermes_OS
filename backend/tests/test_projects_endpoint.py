@@ -95,3 +95,55 @@ def test_delete_missing_project_returns_404(client):
     response = client.delete("/projects/does-not-exist")
 
     assert response.status_code == 404
+
+
+def test_create_project_with_root_path_and_repository_together(client):
+    """Both fields fillable simultaneously — never one-or-the-other
+    (Workspace/Filesystem tool layer, fixes the old folder-XOR-repo UI)."""
+    response = client.post(
+        "/projects",
+        json={
+            "name": "Both", "root_path": "/tmp/both", "repository": "owner/repo",
+            "branch": "main",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["root_path"] == "/tmp/both"
+    assert body["repository"] == "owner/repo"
+    assert body["branch"] == "main"
+    assert body["validation_status"] == "unvalidated"
+
+
+def test_validate_project_persists_real_result(client, tmp_path):
+    created = client.post(
+        "/projects", json={"name": "Real", "root_path": str(tmp_path)}
+    ).json()
+    assert created["validation_status"] == "unvalidated"
+
+    response = client.post(f"/projects/{created['id']}/validate")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["validation_status"] == "valid"
+    assert body["validated_accessible"] is True
+    assert body["validated_readable"] is True
+    assert body["validated_writable"] is True
+    assert body["validated_at"] is not None
+
+
+def test_validate_project_missing_path_marks_invalid(client, tmp_path):
+    created = client.post(
+        "/projects", json={"name": "Missing", "root_path": str(tmp_path / "nope")}
+    ).json()
+
+    response = client.post(f"/projects/{created['id']}/validate")
+
+    assert response.status_code == 200
+    assert response.json()["validation_status"] == "invalid"
+
+
+def test_validate_missing_project_returns_404(client):
+    response = client.post("/projects/does-not-exist/validate")
+
+    assert response.status_code == 404

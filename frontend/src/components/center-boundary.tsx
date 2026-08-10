@@ -42,22 +42,29 @@ export class CenterBoundary extends React.Component<Props, State> {
   }
 
   render() {
-    if (!this.state.error) return this.props.children;
+    if (!this.state.error) {
+      // The height chain (cockpit-shell → this wrapper → the AnimatePresence
+      // motion.div → the Center's own h-full root) only works if every link
+      // actually sets a height — returning children bare here was the
+      // missing link that let the page scroll instead of the Center's own
+      // internal panes.
+      return <div className="h-full">{this.props.children}</div>;
+    }
 
     return (
       <div className="rounded-lg border border-hermes-red/40 bg-hermes-red/5 p-5">
         <div className="text-sm font-bold text-hermes-red font-mono mb-2">
-          This panel failed to render
+          Ce panneau n&apos;a pas pu s&apos;afficher
         </div>
         <div className="text-xs text-hermes-text font-mono mb-3">
-          <span className="text-hermes-muted">Center:</span> {this.props.viewKey}
+          <span className="text-hermes-muted">Center :</span> {this.props.viewKey}
         </div>
         <pre className="text-[11px] text-hermes-muted font-mono whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
           {this.state.error.message}
         </pre>
         <div className="text-[11px] text-hermes-muted font-mono mt-3">
-          The rest of the Cockpit is unaffected — pick another Center in the
-          sidebar.
+          Le reste du Cockpit n&apos;est pas affecté — choisissez un autre
+          Center dans le rail.
         </div>
       </div>
     );

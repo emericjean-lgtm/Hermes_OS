@@ -36,7 +36,8 @@ export function StatusBar() {
   return (
     <footer
       className="fixed right-0 bottom-0 z-30 flex items-center gap-0
-        border-t border-hermes-border bg-hermes-bg-deep/80 backdrop-blur-xl"
+        border-t border-hermes-border bg-hermes-bg-deep/80 backdrop-blur-xl
+        transition-[left] duration-200 ease-out"
       style={{ left: "var(--rail-w)", height: "var(--foot-h)" }}
     >
       <div className="pointer-events-none absolute top-0 left-0 h-px w-full

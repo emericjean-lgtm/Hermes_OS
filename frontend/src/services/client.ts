@@ -1027,6 +1027,15 @@ export const conversationClient = {
     }),
   context: (sessionId: string) =>
     fetchJSON<ConversationContextResponseDTO>(`/conversation/${sessionId}/context`),
+  /** Bind (projectId set) or unbind (projectId null) this session's
+   *  active workspace. Filesystem tools only appear in the next /stream
+   *  call once this has been called with a project that is ACTIVE and
+   *  validation_status="valid" — see backend/conversation/routes.py. */
+  bindProject: (sessionId: string, projectId: string | null) =>
+    fetchJSON<{ success: boolean; session_id: string; active_project_id: string }>(
+      `/conversation/${sessionId}/project`,
+      { method: "POST", body: JSON.stringify({ project_id: projectId }) },
+    ),
 };
 
 /** GET /conversation/{id}/context — the conversation's actual linked state
@@ -1041,6 +1050,7 @@ export interface ConversationContextResponseDTO {
   context?: {
     active_goal_id: string | null;
     active_mission_id: string | null;
+    active_project_id: string | null;
     active_agents: string[];
     current_runtime: string | null;
     current_model: string | null;
@@ -1102,7 +1112,20 @@ export interface ProjectDTO {
   name: string;
   description: string;
   root_path: string | null;
+  // Independent of root_path — both can be set together (HOS-08x
+  // Workspace/Filesystem tool layer), mirroring Mission's existing
+  // local_path/repository/branch binding rather than one-or-the-other.
+  repository: string | null;
+  branch: string | null;
   status: string;
+  // Real, on-disk-tested state — never set from the frontend. "unvalidated"
+  // until POST /projects/{id}/validate actually probes root_path.
+  validation_status: "unvalidated" | "valid" | "invalid" | null;
+  validated_accessible: boolean | null;
+  validated_readable: boolean | null;
+  validated_writable: boolean | null;
+  validation_detail: string | null;
+  validated_at: string | null;
   tags: string[];
   created_at: string;
   updated_at: string;
@@ -1110,10 +1133,38 @@ export interface ProjectDTO {
 
 export const projectsClient = {
   list: () => fetchJSON<ProjectDTO[]>("/projects"),
-  create: (data: { name: string; description?: string; root_path?: string; tags?: string[] }) =>
+  create: (data: {
+    name: string; description?: string; root_path?: string;
+    repository?: string; branch?: string; tags?: string[];
+  }) =>
     fetchJSON<ProjectDTO>("/projects", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: {
+    name?: string; description?: string; root_path?: string;
+    repository?: string; branch?: string; status?: string; tags?: string[];
+  }) =>
+    fetchJSON<ProjectDTO>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  validate: (id: string) =>
+    fetchJSON<ProjectDTO>(`/projects/${id}/validate`, { method: "POST" }),
   remove: (id: string) =>
     fetchJSON<{ deleted: boolean; id: string }>(`/projects/${id}`, { method: "DELETE" }),
+};
+
+// ── Filesystem browse (read-only, directories only — Phase 10's "add a
+// workspace" folder picker). Not Aegis-gated: there is nothing yet to
+// check against before a folder is registered as a Project. Selecting a
+// result here only pre-fills the create-project form. ──
+
+export interface FilesystemBrowseDTO {
+  path: string | null;
+  parent: string | null;
+  directories: string[];
+}
+
+export const filesystemBrowseClient = {
+  browse: (path?: string) =>
+    fetchJSON<FilesystemBrowseDTO>(
+      `/filesystem/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`,
+    ),
 };
 
 export interface GitStatusDTO {

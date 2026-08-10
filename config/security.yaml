@@ -27,6 +27,26 @@ action_categories:
     path_based: true
     mandatory_validation: true # §17.3: "suppression de fichiers"
 
+  # A move makes the source path disappear — the same real loss-of-access
+  # risk as a delete, so it gets the same mandatory_validation treatment
+  # rather than file_write's auto-allow-at-medium-autonomy shape (Workspace
+  # Filesystem tool layer, Phase 6: delete/move/overwrite/bulk need review).
+  file_move:
+    mutating: true
+    path_based: true
+    mandatory_validation: true
+
+  # Nothing disappears on a copy (unlike move) — same risk shape as
+  # creating a new file, so it gets file_write's policy rather than
+  # file_move's/file_delete's mandatory review. A distinct category
+  # instead of literally reusing file_write so audit/approval entries
+  # read as "copy", not as an unrelated write.
+  file_copy:
+    mutating: true
+    path_based: true
+    mandatory_validation: false
+    min_autonomy_for_auto_allow: medium
+
   secret_modification:
     mutating: true
     path_based: true

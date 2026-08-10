@@ -45,7 +45,8 @@ export function InstrumentBar({ onOpenPalette }: { onOpenPalette: () => void }) 
   return (
     <header
       className="fixed right-0 top-0 z-30 flex items-stretch
-        border-b border-hermes-border bg-hermes-bg-deep/75 backdrop-blur-xl"
+        border-b border-hermes-border bg-hermes-bg-deep/75 backdrop-blur-xl
+        transition-[left] duration-200 ease-out"
       style={{ left: "var(--rail-w)", height: "var(--bar-h)" }}
     >
       {/* Lit underside — the bar catches the sodium source the same way the

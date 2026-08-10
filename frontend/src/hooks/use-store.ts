@@ -7,11 +7,14 @@ interface CockpitStore {
   // Navigation
   activeView: string;
   setActiveView: (view: string) => void;
-  /** Lives in the store rather than in Sidebar's local state because the
-   *  shell and the topbar have to offset by the same width; a local
-   *  useState would leave them pinned at the expanded width. */
-  navCollapsed: boolean;
-  toggleNav: () => void;
+  /** Lives in the store rather than in Rail's local state because the
+   *  shell, the instrument bar and the status bar all have to offset by
+   *  the same rail width; a local useState would leave them out of sync
+   *  with whichever one owns the toggle button. Pinned = the rail is
+   *  expanded (labels visible, wider) until unpinned; default false
+   *  matches the rail's normal narrow-icon-strip state. */
+  railPinned: boolean;
+  toggleRailPin: () => void;
 
   // Events
   liveEvents: SystemEvent[];
@@ -39,8 +42,8 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   // Navigation
   activeView: "dashboard",
   setActiveView: (view) => set({ activeView: view }),
-  navCollapsed: false,
-  toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
+  railPinned: false,
+  toggleRailPin: () => set((s) => ({ railPinned: !s.railPinned })),
 
   // Events
   liveEvents: [],

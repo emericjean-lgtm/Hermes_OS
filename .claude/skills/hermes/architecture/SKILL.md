@@ -34,6 +34,7 @@ Why this matters for you: never assume a class named `AgentRegistry`, `MemoryMan
 | Skills (Hermes's own internal skill system) | `backend/skills/` | **Real, complete machinery — structurally empty.** Zero `SkillDefinition`s exist anywhere in the repo; nothing has ever loaded. Distinct from `backend/memory/skill_library.py` (a *different*, populated "skill" concept used by Echo). Also distinct from **this** `.claude/skills/` directory, which is a Claude-Code-facing system with nothing to do with either. |
 | Model Benchmark / Discovery | `backend/model_intelligence/benchmark_scheduler.py` | **Live and real** — runs an actual prompt through Ollama, reads real `eval_count`/`eval_duration`, not simulated. |
 | Autonomous Mission Execution | `backend/autonomous/` (`AutonomousOrchestrator`) | **Live.** Runs on the *same* DAG planner/executor as a plain Mission (a deliberate dedup) — see the flow below. |
+| Workspace/Filesystem tool layer (HOS-08x) | `backend/tools/file_tools.py` (single real implementation), `backend/projects/` (Project = the authorized-workspace entity), `backend/security/aegis_engine.py`'s dynamic whitelist | **Live for Chat and MCP.** A `Project.root_path` only grants filesystem access once `POST /projects/{id}/validate` has really probed it on disk (exists/is-dir/readable/writable — real, not claimed) — Aegis's whitelist then unions the static `ALLOWED_PATHS` config with every currently ACTIVE, `validation_status="valid"` Project's root, re-resolved fresh on every single `evaluate()` call (nothing cached; archiving/invalidating/deleting a Project revokes it immediately). `mcp_server/server.py`'s `files_*` tools and `conversation/routes.py`'s `workspace_*` chat tools are both thin adapters over the same `file_tools.py` — no filesystem logic is duplicated in either. **Not wired into Mission/Autonomous execution**: `RealTaskExecutor` (see the gap already noted below) still only produces one LLM completion per task and never invokes a real tool call, so a mission step cannot use this layer yet — only the Assistant chat and an external MCP client can. |
 
 ## The three real request flows
 
@@ -56,6 +57,7 @@ Next.js 15 / React 19, one real route (`/dashboard`), everything else is client-
 - `§12` context-window auto-summarization (cahier des charges) remains entirely unimplemented.
 - No authentication on any HTTP route — deliberate, single-user local-tool scope, not an oversight to "fix."
 - `ToolPolicy`'s write-enforcement branch is a documented no-op outside the one place (Code Intelligence) that got a local patch.
+- The Workspace/Filesystem tool layer (HOS-08x, see the anchor table above) is real for Chat and MCP, but **Mission/Autonomous execution cannot use it yet** — `RealTaskExecutor` has no real tool-calling loop, only a text hint. Do not describe Hermes as having "a filesystem usable by all agents and missions"; the accurate claim is "a centralized filesystem layer available to integrated consumers — Assistant chat and MCP — with Mission Execution still to integrate."
 
 ## Where to go deeper
 

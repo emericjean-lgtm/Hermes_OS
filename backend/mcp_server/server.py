@@ -127,7 +127,15 @@ def _project_to_dict(project: Project) -> dict:
         "name": project.name,
         "description": project.description,
         "root_path": project.root_path,
+        "repository": project.repository,
+        "branch": project.branch,
         "status": project.status,
+        "validation_status": project.validation_status,
+        "validated_accessible": project.validated_accessible,
+        "validated_readable": project.validated_readable,
+        "validated_writable": project.validated_writable,
+        "validation_detail": project.validation_detail,
+        "validated_at": project.validated_at.isoformat() if project.validated_at else None,
         "tags": project.tags_list,
         "created_at": project.created_at.isoformat(),
         "updated_at": project.updated_at.isoformat(),
@@ -238,8 +246,9 @@ def files_diff(path: str, new_content: str, project_id: str | None = None) -> st
 def files_apply(path: str, new_content: str, project_id: str | None = None) -> dict:
     """Write new_content to path — but only if Aegis allows it. Takes a
     backup of any existing file first. Returns applied (bool), verdict,
-    reason, diff, and backup_path. If applied is false, nothing was
-    written; check verdict/reason for why."""
+    reason, diff, backup_path and verified (re-read from disk and
+    compared, never assumed). If applied is false, nothing was written;
+    check verdict/reason for why."""
     result = file_tools.propose_write(_aegis(), path, new_content, project_id=project_id)
     return {
         "applied": result.applied,
@@ -247,7 +256,74 @@ def files_apply(path: str, new_content: str, project_id: str | None = None) -> d
         "reason": result.reason,
         "diff": result.diff,
         "backup_path": result.backup_path,
+        "verified": result.verified,
     }
+
+
+def _op_result_to_dict(result: file_tools.FileOpResult) -> dict:
+    return {
+        "success": result.success,
+        "operation": result.operation,
+        "path": result.path,
+        "verdict": result.verdict,
+        "reason": result.reason,
+        "verified": result.verified,
+        "detail": result.detail,
+    }
+
+
+def files_exists(path: str, project_id: str | None = None) -> bool:
+    """Check whether path exists. Gated as file_read, same whitelist as
+    every other read here."""
+    return file_tools.exists(_aegis(), path, project_id=project_id)
+
+
+def files_stat(path: str, project_id: str | None = None) -> dict:
+    """Real filesystem metadata for path (is_file, is_dir, size_bytes,
+    modified_at) — raises if path does not exist."""
+    return file_tools.stat(_aegis(), path, project_id=project_id)
+
+
+def files_search(path: str, pattern: str, project_id: str | None = None) -> list[str]:
+    """Glob search under path (e.g. pattern="**/*.py") — read-only, gated
+    like files_list."""
+    return file_tools.search(_aegis(), path, pattern, project_id=project_id)
+
+
+def files_mkdir(path: str, project_id: str | None = None) -> dict:
+    """Create a directory (and any missing parents). success/verified
+    reflect a real post-creation exists()+is_dir() check, not just the
+    OS call not raising."""
+    return _op_result_to_dict(file_tools.create_directory(_aegis(), path, project_id=project_id))
+
+
+def files_append(path: str, content: str, project_id: str | None = None) -> dict:
+    """Append content to path (creating it if it doesn't exist yet).
+    verified reflects a real post-append re-read, not just the write
+    call not raising."""
+    return _op_result_to_dict(file_tools.append(_aegis(), path, content, project_id=project_id))
+
+
+def files_copy(source: str, destination: str, project_id: str | None = None) -> dict:
+    """Copy source to destination. Gated as file_read on source and
+    file_copy on destination — verified re-reads destination and
+    compares its bytes to source, not just the copy call not raising."""
+    return _op_result_to_dict(file_tools.copy(_aegis(), source, destination, project_id=project_id))
+
+
+def files_move(source: str, destination: str, project_id: str | None = None) -> dict:
+    """Move source to destination — mandatory human validation
+    (config/security.yaml's file_move), the source disappearing is the
+    same real loss-of-access risk as a delete. verified confirms source
+    no longer exists AND destination does."""
+    return _op_result_to_dict(file_tools.move(_aegis(), source, destination, project_id=project_id))
+
+
+def files_delete(path: str, project_id: str | None = None) -> dict:
+    """Delete a file or directory — mandatory human validation
+    (config/security.yaml's file_delete). verified confirms path no
+    longer exists, not just that the delete call didn't raise."""
+    return _op_result_to_dict(file_tools.delete(_aegis(), path, project_id=project_id))
 
 
 # ── Echo: memory ───────────────────────────────────────────────────
@@ -927,13 +1003,19 @@ def workflows_get_run(run_id: str) -> dict | None:
 
 
 def projects_create(
-    name: str, description: str = "", root_path: str | None = None, tags: list[str] | None = None
+    name: str, description: str = "", root_path: str | None = None,
+    repository: str | None = None, branch: str | None = None,
+    tags: list[str] | None = None,
 ) -> dict:
-    """Create a project. Status starts at 'active'. root_path is a
-    suggested filesystem root for this project (not yet enforced as an
-    Aegis whitelist — see backend/projects/project_manager.py)."""
+    """Create a project — Hermes's "authorized workspace" concept. Both
+    root_path and repository can be set together (a local checkout and
+    its remote), never one-or-the-other. root_path is unenforced until
+    projects_validate confirms it for real: Aegis's dynamic whitelist
+    (security/aegis_engine.py) only ever grants access for a project
+    whose validation_status projects_validate set to "valid"."""
     project = get_project_store().create(
-        name=name, description=description, root_path=root_path, tags=tags
+        name=name, description=description, root_path=root_path,
+        repository=repository, branch=branch, tags=tags,
     )
     return _project_to_dict(project)
 
@@ -954,18 +1036,35 @@ def projects_update(
     name: str | None = None,
     description: str | None = None,
     root_path: str | None = None,
+    repository: str | None = None,
+    branch: str | None = None,
     status: str | None = None,
     tags: list[str] | None = None,
 ) -> dict | None:
-    """Update a project's fields. Returns None if it doesn't exist."""
+    """Update a project's fields. Returns None if it doesn't exist.
+    Changing root_path resets validation_status to "unvalidated" — call
+    projects_validate again before it grants filesystem access."""
     project = get_project_store().update(
         project_id,
         name=name,
         description=description,
         root_path=root_path,
+        repository=repository,
+        branch=branch,
         status=status,
         tags=tags,
     )
+    return _project_to_dict(project) if project else None
+
+
+def projects_validate(project_id: str) -> dict | None:
+    """Really probe project.root_path on disk (exists, is a directory, is
+    readable, is writable) and persist the result. Returns None if the
+    project doesn't exist. This is the only way a project's root_path
+    ever starts granting filesystem access via Aegis's dynamic
+    whitelist — nothing here is a claim, every field reflects a real
+    check performed just now."""
+    project = get_project_store().validate(project_id)
     return _project_to_dict(project) if project else None
 
 
@@ -1055,6 +1154,14 @@ _ALL_TOOLS = [
     files_read,
     files_diff,
     files_apply,
+    files_exists,
+    files_stat,
+    files_search,
+    files_mkdir,
+    files_append,
+    files_copy,
+    files_move,
+    files_delete,
     memory_remember,
     memory_list,
     memory_forget,
@@ -1103,6 +1210,7 @@ _ALL_TOOLS = [
     projects_get,
     projects_list,
     projects_update,
+    projects_validate,
     projects_delete,
     skills_list,
     skills_get,

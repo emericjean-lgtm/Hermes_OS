@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Brain, ChevronDown, Copy, Check, Cpu, Globe, HardDrive, Info,
-  MessageSquarePlus, RefreshCw, Search, Send, Sparkles, Square, User, Zap,
+  MessageSquarePlus, RefreshCw, Search, Send, Sparkles, Square, User, Wrench, Zap,
 } from "lucide-react";
 import { conversationClient } from "@/services/client";
 import { streamConversation, type ContextUsage, type StreamRouting } from "@/services/conversation-stream";
@@ -33,13 +33,26 @@ import { ProjectPanel } from "./project-panel";
  * Layout is deliberately conversation-first: the transcript owns the width,
  * and the context rail is collapsible rather than a permanent wall of
  * widgets — the panels only carry data that is genuinely real (runtime and
- * VRAM from HOS-072, routing decision from the ModelRouter headers). No
- * tool-use panel: this path performs no real tool calls yet (HOS-069
- * finding), and a control that implies otherwise would be a lie.
+ * VRAM from HOS-072, routing decision from the ModelRouter headers). Real
+ * tool calls are visible in the transcript (web_search since HOS-078,
+ * workspace_* filesystem tools since the Workspace/Filesystem tool layer) —
+ * a tool_calls chip is never invented; it only ever appears once the
+ * backend actually reports one, and its result line is never shown until
+ * the backend actually reports that too.
  */
 
 interface SearchEntry {
   query: string;
+  result?: string;
+}
+
+/** One real tool call the model made this turn (any tool other than
+ *  web_search, which keeps its own SearchEntry/searches rendering above —
+ *  currently the workspace_* filesystem tools). `result` is undefined
+ *  until the backend reports the tool actually finished. */
+interface ToolCallEntry {
+  name: string;
+  arguments: Record<string, unknown>;
   result?: string;
 }
 
@@ -51,6 +64,9 @@ interface ChatMessage {
   /** Real internet searches the model asked for this turn (HOS-078), in
    *  order — `result` is undefined until the search actually completes. */
   searches?: SearchEntry[];
+  /** Real non-search tool calls this turn (workspace_list/read/write/...),
+   *  in order — `result` is undefined until the tool actually finishes. */
+  toolCalls?: ToolCallEntry[];
   routing?: StreamRouting;
   context?: ContextUsage;
   attachments?: Attachment[];
@@ -262,21 +278,45 @@ export default function ConversationCenter() {
           onThinking: (t) => patch((m) => ({ ...m, thinking: (m.thinking ?? "") + t })),
           onContent: (t) => patch((m) => ({ ...m, content: m.content + t })),
           onToolCall: (calls) => patch((m) => {
-            const additions = calls
+            const searchAdditions = calls
               .filter((c) => c.function?.name === "web_search")
               .map((c) => ({ query: String(c.function?.arguments?.query ?? "") }));
-            return additions.length
-              ? { ...m, searches: [...(m.searches ?? []), ...additions] }
-              : m;
+            const toolAdditions = calls
+              .filter((c) => c.function?.name && c.function.name !== "web_search")
+              .map((c) => ({
+                name: c.function!.name,
+                arguments: c.function!.arguments ?? {},
+              }));
+            let next = m;
+            if (searchAdditions.length) {
+              next = { ...next, searches: [...(next.searches ?? []), ...searchAdditions] };
+            }
+            if (toolAdditions.length) {
+              next = { ...next, toolCalls: [...(next.toolCalls ?? []), ...toolAdditions] };
+            }
+            return next;
           }),
           onToolResult: (results) => patch((m) => {
-            if (!m.searches?.length) return m;
-            const searches = [...m.searches];
-            for (const r of results) {
-              const idx = searches.findIndex((s) => s.result === undefined);
-              if (idx >= 0) searches[idx] = { ...searches[idx], result: r.result };
+            let next = m;
+            if (next.searches?.length) {
+              const searches = [...next.searches];
+              for (const r of results) {
+                const idx = searches.findIndex((s) => s.result === undefined);
+                if (idx >= 0) searches[idx] = { ...searches[idx], result: r.result };
+              }
+              next = { ...next, searches };
             }
-            return { ...m, searches };
+            if (next.toolCalls?.length) {
+              const toolCalls = [...next.toolCalls];
+              for (const r of results) {
+                const idx = toolCalls.findIndex(
+                  (t) => t.result === undefined && t.name === r.name,
+                );
+                if (idx >= 0) toolCalls[idx] = { ...toolCalls[idx], result: r.result };
+              }
+              next = { ...next, toolCalls };
+            }
+            return next;
           }),
           onDone: (payload) => patch((m) => ({ ...m, context: payload.context })),
           onError: (message) => patch((m) => ({ ...m, error: message })),
@@ -413,16 +453,20 @@ export default function ConversationCenter() {
           </div>
         )}
 
-        {/* mx-auto max-w-4xl: on an ultrawide monitor the flex-1 column
-            can be well over 2000px, so the transcript and composer are
-            capped to a comfortable reading width and centered, while the
-            rail keeps its own fixed width alongside. */}
+        {/* mx-auto max-w-5xl: cockpit-shell.tsx gives the Assistant view the
+            full centered pane width instead of the usual left-anchored cap
+            (isConversation), so this column now actually centers in the
+            available space instead of centering inside an already
+            left-shifted box. The reading width is capped here, not left
+            unbounded, so a 21:9 monitor's extra width goes to genuinely
+            centering the chat rather than stretching message lines past a
+            comfortable reading length. */}
         <div
           ref={scrollRef}
           onScroll={onScroll}
           className="min-h-0 flex-1 overflow-y-auto px-1 py-5"
         >
-          <div className="mx-auto w-full max-w-4xl space-y-5">
+          <div className="mx-auto w-full max-w-5xl space-y-5">
             {isEmpty ? (
               <EmptyState onPick={(p) => { setInput(p); textareaRef.current?.focus(); }} />
             ) : (
@@ -440,7 +484,7 @@ export default function ConversationCenter() {
 
         {/* ── Composer ──────────────────────────────────────────── */}
         <div className="border-t border-hermes-border/70 px-1 pt-3">
-         <div className="mx-auto w-full max-w-4xl">
+         <div className="mx-auto w-full max-w-5xl">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <ModelPicker roles={roles} value={selection} onChange={setSelection} />
@@ -590,7 +634,7 @@ export default function ConversationCenter() {
                 </div>
               </RailPanel>
 
-              <ProjectPanel />
+              <ProjectPanel sessionId={sessionId} />
             </div>
           </motion.aside>
         )}
@@ -669,6 +713,9 @@ function MessageRow({ message, streaming }: { message: ChatMessage; streaming: b
           <div className="min-w-0">
             {message.searches?.map((s, i) => (
               <SearchBlock key={`${s.query}-${i}`} entry={s} />
+            ))}
+            {message.toolCalls?.map((t, i) => (
+              <ToolCallBlock key={`${t.name}-${i}`} entry={t} />
             ))}
             {message.thinking && <ThinkingBlock text={message.thinking} live={streaming && !message.content} />}
 
@@ -775,6 +822,43 @@ function SearchBlock({ entry }: { entry: SearchEntry }) {
       </button>
       <AnimatePresence initial={false}>
         {open && entry.result && (
+          <motion.div
+            initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap px-3 pb-2.5 pt-1
+              font-mono text-[11px] leading-relaxed text-hermes-muted">{entry.result}</pre>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/** One real workspace_* filesystem tool call this turn — same
+ *  collapsed-by-default pattern as SearchBlock. Appears the moment the
+ *  model asks to call the tool, filled in with the real backend result
+ *  (a file's actual content, a real directory listing, a genuine Aegis
+ *  refusal, or "verified" state of a write) once it comes back — never a
+ *  claim of success invented client-side. */
+function ToolCallBlock({ entry }: { entry: ToolCallEntry }) {
+  const [open, setOpen] = useState(false);
+  const pending = entry.result === undefined;
+  const path = typeof entry.arguments.path === "string" ? entry.arguments.path : "";
+  return (
+    <div className="mb-2 overflow-hidden rounded-lg border border-hermes-amber/25 bg-hermes-amber/[0.05]">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-hermes-amber/[0.08]"
+      >
+        <Wrench size={11} className={`text-hermes-amber ${pending ? "animate-pulse" : ""}`} />
+        <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-wider text-hermes-amber">
+          {entry.name}{path && ` — ${path}`}
+        </span>
+        <ChevronDown size={11} className={`ml-auto shrink-0 text-hermes-amber/60 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && entry.result !== undefined && (
           <motion.div
             initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }}
             transition={{ duration: 0.2 }}

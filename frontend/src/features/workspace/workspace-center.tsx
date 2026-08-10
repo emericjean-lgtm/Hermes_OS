@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useWorkspaceAction, useWorkspaces } from "@/hooks/use-api";
+import { useWorkspaceAction, useWorkspaces, useProjects } from "@/hooks/use-api";
 import {
   AsyncPanel,
   CenterHeader,
@@ -11,16 +11,27 @@ import {
 } from "@/components/center-scaffold";
 import { Badge } from "@/components/ui/card";
 import { ConfirmAction } from "@/components/confirm-action";
+import { FolderGit2 } from "lucide-react";
 
 // Les espaces de travail viennent de /api/v1/workspace. Le backend expose
 // verrouillage, libération et suppression depuis HOS-047 et aucun écran ne les
 // atteignait : ces trois actions sont réellement câblées ici (P-001).
+//
+// Deux concepts distincts cohabitent dans ce Center, à ne pas confondre
+// (backend/projects/project_manager.py's module docstring) :
+// - « Espaces d'exécution » (ci-dessous, /api/v1/workspace) : verrous liés
+//   à l'exécution d'une mission, pas de dossier réel sur disque géré ici.
+// - « Workspaces / Projets » (section du bas, /api/v1/projects) : le vrai
+//   dossier local autorisé qu'un agent ou l'Assistant peut lire/écrire une
+//   fois validé — géré depuis le panneau « Workspace / Projet » de
+//   l'onglet Assistant, listé ici pour la visibilité.
 
 const FILTERS = ["Tous", "Verrouillés", "Libres"] as const;
 
 export function WorkspaceCenter() {
   const workspaces = useWorkspaces();
   const action = useWorkspaceAction();
+  const projects = useProjects();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<string>("Tous");
   const [lastError, setLastError] = useState<string | null>(null);
@@ -49,7 +60,7 @@ export function WorkspaceCenter() {
     <div className="animate-fade-in">
       <CenterHeader
         title="Workspace Center"
-        subtitle="Espaces de travail des missions — verrouillage, libération, suppression"
+        subtitle="Espaces d'exécution des missions (verrous) et workspaces/projets autorisés"
       />
 
       <StatGrid
@@ -78,7 +89,7 @@ export function WorkspaceCenter() {
       )}
 
       <AsyncPanel
-        title="Espaces de travail"
+        title="Espaces d'exécution (verrous de mission)"
         subtitle={`${visible.length} affiché(s) sur ${all.length}`}
         isLoading={workspaces.isLoading}
         isError={workspaces.isError}
@@ -97,6 +108,7 @@ export function WorkspaceCenter() {
             { header: "Identifiant", cell: (w) => w.workspace_id.slice(0, 20) },
             { header: "Mission", cell: (w) => w.mission_id || "—" },
             { header: "Agent", cell: (w) => w.agent_id || "—" },
+            { header: "Chemin", cell: (w) => w.path || "—" },
             {
               header: "État",
               cell: (w) => (
@@ -120,7 +132,7 @@ export function WorkspaceCenter() {
                   <ConfirmAction
                     label="Supprimer"
                     severity="destructive"
-                    description="Supprime l'espace de travail et son contenu. Irréversible."
+                    description="Marque cet espace d'exécution comme détruit et libère son verrou. Ne supprime aucun fichier réel — les espaces d'exécution ne gèrent pas de contenu sur disque (voir la section Workspaces / Projets ci-dessous pour les vrais dossiers)."
                     target={w.workspace_id}
                     pending={action.isPending}
                     onConfirm={() => run(w.workspace_id, "remove")}
@@ -131,6 +143,57 @@ export function WorkspaceCenter() {
           ]}
         />
       </AsyncPanel>
+
+      <div className="mt-6">
+        <AsyncPanel
+          title="Workspaces / Projets autorisés"
+          subtitle={
+            `${projects.data?.length ?? 0} enregistré(s) — dossiers locaux réels, gérés depuis ` +
+            "le panneau « Workspace / Projet » de l'onglet Assistant"
+          }
+          isLoading={projects.isLoading}
+          isError={projects.isError}
+          error={projects.error}
+          isEmpty={(projects.data ?? []).length === 0}
+          emptyLabel="Aucun workspace enregistré. Utilisez le panneau « Workspace / Projet » de l'Assistant pour en lier un."
+        >
+          <DataTable
+            rows={projects.data ?? []}
+            rowKey={(p) => p.id}
+            columns={[
+              {
+                header: "Nom",
+                cell: (p) => (
+                  <span className="flex items-center gap-1.5">
+                    <FolderGit2 size={12} className="text-hermes-dim" /> {p.name}
+                  </span>
+                ),
+              },
+              { header: "Dossier local", cell: (p) => p.root_path || "—" },
+              {
+                header: "Dépôt",
+                cell: (p) => (p.repository ? `${p.repository}${p.branch ? `@${p.branch}` : ""}` : "—"),
+              },
+              {
+                header: "Validation",
+                cell: (p) => (
+                  <Badge
+                    variant={
+                      p.validation_status === "valid" ? "success"
+                        : p.validation_status === "invalid" ? "danger"
+                        : "default"
+                    }
+                  >
+                    {p.validation_status === "valid" ? "validé"
+                      : p.validation_status === "invalid" ? "invalide"
+                      : "non validé"}
+                  </Badge>
+                ),
+              },
+            ]}
+          />
+        </AsyncPanel>
+      </div>
     </div>
   );
 }

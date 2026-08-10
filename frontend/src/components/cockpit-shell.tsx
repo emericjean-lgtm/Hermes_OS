@@ -80,6 +80,13 @@ export default function CockpitShell() {
   const { activeView } = useCockpitStore();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const View = views[activeView as keyof typeof views] ?? DashboardView;
+  // The Assistant is a conversation surface, not an operations table: on an
+  // ultrawide monitor the usual left-anchored, width-capped wrapper below
+  // leaves a large dead zone on the right instead of centering the chat.
+  // Every other Center keeps the left-anchored/capped layout on purpose
+  // (see the comment on the wrapper) — this is a per-view exception, not a
+  // change to that default.
+  const isConversation = activeView === "conversation";
 
   // ⌘K / Ctrl+K anywhere. Bound on the window rather than a focused element
   // so it works no matter which Center currently owns focus.
@@ -104,7 +111,7 @@ export default function CockpitShell() {
         // a Center built to scroll internally (the Assistant transcript, for
         // one) grows the whole document instead, and anything anchored beside
         // that pane scrolls away with it.
-        className="h-screen overflow-hidden"
+        className="h-screen overflow-hidden transition-[margin-left] duration-200 ease-out"
         style={{
           marginLeft: "var(--rail-w)",
           paddingTop: "var(--bar-h)",
@@ -114,12 +121,21 @@ export default function CockpitShell() {
         <div className="h-full overflow-y-auto px-6 py-6 2xl:px-10">
           {/* Content is left-anchored inside a generous measure rather than
               centred in the viewport: an operations surface should start
-              where the eye lands after the rail, not float in the middle. */}
-          <div className="max-w-[1560px] 2xl:max-w-[1860px]">
+              where the eye lands after the rail, not float in the middle.
+              The Assistant is the deliberate exception (isConversation) —
+              a conversation reads better centered, using the width an
+              ultrawide monitor actually has instead of a fixed left-anchored
+              cap. h-full on both wrappers below matters just as much as the
+              width: without it, ConversationCenter's own h-full/min-h-0
+              transcript and rail never get a bounded height to scroll
+              inside, and the whole page scrolls instead (see CenterBoundary
+              and ConversationCenter's own comments). */}
+          <div className={isConversation ? "mx-auto h-full w-full" : "h-full max-w-[1560px] 2xl:max-w-[1860px]"}>
             <CenterBoundary viewKey={activeView}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeView}
+                  className="h-full"
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}

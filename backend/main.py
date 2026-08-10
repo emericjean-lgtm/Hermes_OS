@@ -52,6 +52,7 @@ from backend.api.routes import (
     verify,
     vision,
     workflows,
+    workspace_browse,
     write,
     ws,
 )
@@ -76,7 +77,7 @@ logger = logging.getLogger("hermes_os.main")
 _LEGACY_ROUTERS = (
     chat, system, security, files, memory, tasks, research, verify, write,
     vision, classify, messages, workflows, projects, skills, documents, git,
-    snapshots, logs, ws, verification, evolution,
+    snapshots, logs, ws, verification, evolution, workspace_browse,
 )
 
 

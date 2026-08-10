@@ -233,12 +233,37 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     "task.delegated",
     "task.dispatch_failed",
     "task.reassigned",
-    # workspace
+    # workspace (backend/workspace/* — mission-execution slots/locks, an
+    # entirely different concept from the project.*/filesystem.* topics
+    # below — see backend/projects/project_manager.py's module docstring)
     "workspace.archived",
     "workspace.created",
     "workspace.locked",
     "workspace.policy_denied",
     "workspace.released",
+
+    # project — Project registration/validation (the Workspace/Filesystem
+    # tool layer's "authorized workspace" concept; backend/projects/).
+    # Deliberately project.* rather than reusing workspace.* above: same
+    # word from a user's point of view ("register a workspace"), but two
+    # different backend systems that must stay distinguishable in the
+    # event stream (see project_manager.py's module docstring).
+    "project.registered",
+    "project.validated",
+    "project.selected",
+
+    # filesystem — every real, agent/chat-reachable file operation
+    # (backend/tools/file_tools.py). One topic per operation kind plus
+    # three outcome topics that apply across all of them.
+    "filesystem.read",
+    "filesystem.write",
+    "filesystem.create",
+    "filesystem.move",
+    "filesystem.copy",
+    "filesystem.delete",
+    "filesystem.permission_denied",
+    "filesystem.verification_failed",
+    "filesystem.operation_failed",
 })
 
 #: Everything the system may legitimately publish.

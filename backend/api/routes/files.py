@@ -30,6 +30,7 @@ class ApplyResponse(BaseModel):
     reason: str
     diff: str
     backup_path: str | None = None
+    verified: bool = False
 
 
 def _aegis() -> AegisAgent:
@@ -78,4 +79,5 @@ async def apply_file(request: DiffRequest) -> ApplyResponse:
         reason=result.reason,
         diff=result.diff,
         backup_path=result.backup_path,
+        verified=result.verified,
     )

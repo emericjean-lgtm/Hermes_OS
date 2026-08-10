@@ -52,12 +52,32 @@ class AegisEngine:
         self._matrix = matrix
         self._allowed_paths = [Path(p).resolve() for p in allowed_paths]
 
-    def evaluate(self, action: ActionRequest, *, project_root: str | None = None) -> AegisDecision:
+    def evaluate(
+        self,
+        action: ActionRequest,
+        *,
+        project_root: str | None = None,
+        extra_allowed_paths: list[str] | None = None,
+    ) -> AegisDecision:
         """project_root, when given, narrows the path_based check further
-        than ALLOWED_PATHS — it can only restrict, never widen access
-        (ALLOWED_PATHS remains the hard boundary regardless). Resolving
-        action.project_id into a project_root is the caller's job (see
-        agents/aegis.py) — this engine stays DB-free and pure."""
+        than the whitelist — it can only restrict, never widen access.
+        This is a per-action scoping tool (an operation known to belong to
+        one specific project must not reach a sibling project's files even
+        if that sibling is separately whitelisted) — orthogonal to
+        extra_allowed_paths below.
+
+        extra_allowed_paths is the opposite: it *widens* the whitelist for
+        this call, on top of the engine's own static ALLOWED_PATHS. This is
+        how a user-registered, validated Project grants real filesystem
+        access without needing a config.yaml edit — the caller
+        (AegisAgent._dynamic_allowed_paths) resolves the current set of
+        ACTIVE, validation_status="valid" Project roots fresh on every
+        call, so this engine stays DB-free and pure (a verdict is still
+        fully determined by its inputs) while the *effective* whitelist is
+        genuinely dynamic. A Project that is deleted, archived, or fails
+        validation stops appearing in that list — and therefore stops
+        granting access — the next time this is called, with nothing
+        cached here."""
         category = self._matrix.get_category(action.action_type)
 
         if category is None:
@@ -77,12 +97,13 @@ class AegisEngine:
                     reason=f"{action.action_type} requires target_path but none was given.",
                     action_type=action.action_type,
                 )
-            if not self._is_within_whitelist(action.target_path):
+            if not self._is_within_whitelist(action.target_path, extra_allowed_paths):
                 return AegisDecision(
                     verdict=Verdict.DENY,
                     reason=(
-                        f"{action.target_path!r} is outside ALLOWED_PATHS — "
-                        "a hard boundary, not negotiable by autonomy level (§17.1)."
+                        f"{action.target_path!r} is outside ALLOWED_PATHS and outside "
+                        "every active, validated workspace — a hard boundary, not "
+                        "negotiable by autonomy level (§17.1)."
                     ),
                     action_type=action.action_type,
                 )
@@ -92,7 +113,7 @@ class AegisEngine:
                 return AegisDecision(
                     verdict=Verdict.DENY,
                     reason=(
-                        f"{action.target_path!r} is inside ALLOWED_PATHS but outside "
+                        f"{action.target_path!r} is inside the whitelist but outside "
                         f"the project's root {project_root!r} — project scoping only "
                         "narrows access, it never widens it."
                     ),
@@ -136,13 +157,22 @@ class AegisEngine:
             action_type=action.action_type,
         )
 
-    def _is_within_whitelist(self, target_path: str) -> bool:
-        if not self._allowed_paths:
+    def _is_within_whitelist(
+        self, target_path: str, extra_allowed_paths: list[str] | None = None
+    ) -> bool:
+        roots = list(self._allowed_paths)
+        if extra_allowed_paths:
+            for p in extra_allowed_paths:
+                try:
+                    roots.append(Path(p).resolve())
+                except (OSError, RuntimeError):
+                    continue
+        if not roots:
             return False
         resolved = Path(target_path).resolve()
         return any(
             resolved == allowed or resolved.is_relative_to(allowed)
-            for allowed in self._allowed_paths
+            for allowed in roots
         )
 
     @staticmethod

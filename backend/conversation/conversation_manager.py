@@ -70,6 +70,21 @@ class ConversationManager:
         with self._lock:
             return self._sessions.get(session_id)
 
+    def set_project(self, session_id: str, project_id: str | None) -> ConversationSession | None:
+        """Bind (or unbind, with project_id=None) this session to a Project
+        (= authorized workspace). ContextBuilder.update_context() is a
+        no-op placeholder (see context_builder.py) — this is the real,
+        direct mutation it never provided. Filesystem tools only ever
+        appear in _conversation_tools() once this has been called with a
+        real project_id (see conversation/routes.py)."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return None
+            session.context.active_project_id = project_id or ""
+            session.updated_at = datetime.now(timezone.utc).isoformat()
+            return session
+
     # ── Streaming (HOS-074) ─────────────────────────────────────────
 
     #: How many prior messages travel with a new one. The chat used to send
@@ -146,7 +161,57 @@ class ConversationManager:
             parts.append(f"Mission en cours : {ctx.active_mission_id}.")
         if ctx.current_model:
             parts.append(f"Modèle courant : {ctx.current_model}.")
+        workspace_block = self._workspace_context_block(ctx.active_project_id)
+        if workspace_block:
+            parts.append(workspace_block)
         return " ".join(parts)
+
+    def _workspace_context_block(self, project_id: str) -> str:
+        """Real, bounded workspace context for the model — Phase 11's
+        progressive discovery: name/root/permissions and a short top-level
+        directory listing, never the full tree (that's what workspace_list
+        is for, called on demand). Never raises: a workspace binding must
+        degrade to "no workspace context" rather than break the turn."""
+        if not project_id:
+            return ""
+        try:
+            from backend.projects.store import get_project_store
+            project = get_project_store().get(project_id)
+        except Exception:
+            return ""
+        if project is None or not project.root_path:
+            return ""
+
+        lines = [
+            "",
+            "--- Espace de travail actif ---",
+            f"Nom : {project.name}",
+            f"Racine : {project.root_path}",
+        ]
+        if project.validation_status == "valid":
+            perms = ["lecture"]
+            if project.validated_writable:
+                perms.append("écriture")
+            lines.append(f"Permissions : {', '.join(perms)}.")
+            try:
+                from pathlib import Path
+                entries = sorted(p.name for p in Path(project.root_path).iterdir())[:20]
+                if entries:
+                    lines.append(f"Contenu racine ({len(entries)} élément(s), liste tronquée) : "
+                                 + ", ".join(entries))
+            except OSError:
+                pass
+            lines.append(
+                "Outils disponibles : workspace_list, workspace_exists, workspace_read, "
+                "workspace_write. Utilise workspace_list avant de lire un fichier dont tu "
+                "ne connais pas le chemin exact plutôt que de deviner."
+            )
+        else:
+            lines.append(
+                "Ce workspace n'est pas encore validé — les outils de fichier ne sont "
+                "pas disponibles tant qu'il n'a pas été validé (voir Workspace/Projet)."
+            )
+        return "\n".join(lines)
 
     def finish_stream(self, session_id: str, content: str,
                       metadata: dict[str, Any] | None = None) -> None:

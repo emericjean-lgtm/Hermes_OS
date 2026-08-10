@@ -29,6 +29,7 @@ import {
   verificationClient,
   monitoringClient,
   projectsClient,
+  filesystemBrowseClient,
   gitClient,
 } from "@/services/client";
 import type { ToolHealthSummary } from "@/services/client";
@@ -754,6 +755,36 @@ export function useRemoveProject() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
   });
 }
+export function useUpdateProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof projectsClient.update>[1] }) =>
+      projectsClient.update(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+  });
+}
+/** Really probes root_path on disk (exists/is-dir/readable/writable) and
+ *  persists the result — the only way a Project's root starts granting
+ *  filesystem access via Aegis's dynamic whitelist. */
+export function useValidateProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => projectsClient.validate(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+  });
+}
+/** Read-only directory listing for the "add a workspace" folder picker
+ *  (GET /filesystem/browse) — not Aegis-gated, directories only, never
+ *  file contents. `enabled: false` by default since this is invoked on
+ *  demand (a click), not on mount. */
+export function useFilesystemBrowse(path: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["filesystem", "browse", path ?? ""],
+    queryFn: () => filesystemBrowseClient.browse(path),
+    enabled,
+    retry: false,
+  });
+}
 /** Real `git status` on the project's root_path — silently disabled
  *  (`enabled: !!repoPath`) rather than firing on an empty path, and
  *  `retry: false` because a 400 ("not a repository") is a legitimate,
@@ -768,6 +799,19 @@ export function useGitStatus(repoPath: string | null | undefined) {
 }
 export function useCreatePullRequest() {
   return useMutation({ mutationFn: gitClient.createPullRequest });
+}
+/** Binds/unbinds a conversation session's active workspace
+ *  (POST /conversation/{id}/project). Invalidates the session's own
+ *  context query so anything reading active_project_id picks up the
+ *  change immediately. */
+export function useBindProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, projectId }: { sessionId: string; projectId: string | null }) =>
+      conversationClient.bindProject(sessionId, projectId),
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({ queryKey: ["conversation", "context", vars.sessionId] }),
+  });
 }
 
 export function useVerificationRunners() {

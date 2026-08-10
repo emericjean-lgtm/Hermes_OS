@@ -91,6 +91,11 @@
                   0 2px 8px rgba(3, 6, 12, 0.6);
 
   --rail-w: 56px;
+  /* Pinned/expanded width — read by rail.tsx to set --rail-w via
+     document.documentElement when the pin toggle is on, so every consumer
+     of --rail-w (instrument-bar, statusbar, cockpit-shell's marginLeft)
+     shifts in lockstep without each needing its own pinned-state check. */
+  --rail-w-expanded: 232px;
   --bar-h: 52px;
   --foot-h: 30px;
 }

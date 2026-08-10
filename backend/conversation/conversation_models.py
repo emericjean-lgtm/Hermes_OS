@@ -67,6 +67,11 @@ class IntentResult:
 class ConversationContext:
     active_goal_id: str = ""
     active_mission_id: str = ""
+    # The Project (= authorized workspace, see projects/project_manager.py)
+    # this session is currently bound to. Empty means no workspace is
+    # bound — filesystem tools are then not offered to the model at all
+    # (see conversation/routes.py's _conversation_tools).
+    active_project_id: str = ""
     active_agents: list[str] = field(default_factory=list)
     current_runtime: str = ""
     current_model: str = ""

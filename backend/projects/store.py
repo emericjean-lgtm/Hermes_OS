@@ -29,11 +29,14 @@ class ProjectStore:
         name: str,
         description: str = "",
         root_path: str | None = None,
+        repository: str | None = None,
+        branch: str | None = None,
         tags: list[str] | None = None,
     ) -> Project:
         with self._session_factory() as session:
             return project_manager.create_project(
-                session, name=name, description=description, root_path=root_path, tags=tags
+                session, name=name, description=description, root_path=root_path,
+                repository=repository, branch=branch, tags=tags,
             )
 
     def get(self, project_id: str) -> Project | None:
@@ -53,6 +56,8 @@ class ProjectStore:
         name: str | None = None,
         description: str | None = None,
         root_path: str | None = None,
+        repository: str | None = None,
+        branch: str | None = None,
         status: ProjectStatus | str | None = None,
         tags: list[str] | None = None,
     ) -> Project | None:
@@ -63,6 +68,8 @@ class ProjectStore:
                 name=name,
                 description=description,
                 root_path=root_path,
+                repository=repository,
+                branch=branch,
                 status=status,
                 tags=tags,
             )
@@ -70,6 +77,14 @@ class ProjectStore:
     def delete(self, project_id: str) -> bool:
         with self._session_factory() as session:
             return project_manager.delete_project(session, project_id)
+
+    def validate(self, project_id: str) -> Project | None:
+        """Really probe project.root_path on disk (see
+        project_manager.validate_project_path) and persist the result —
+        the only source of truth Aegis's dynamic whitelist trusts (see
+        agents/aegis.py's _dynamic_allowed_paths)."""
+        with self._session_factory() as session:
+            return project_manager.validate_project(session, project_id)
 
 
 @lru_cache

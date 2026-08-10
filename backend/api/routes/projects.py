@@ -17,6 +17,11 @@ class ProjectCreateRequest(BaseModel):
     name: str
     description: str = ""
     root_path: str | None = None
+    # Independent of root_path — both can be set together (a local
+    # checkout AND its remote), never one-or-the-other. Mirrors Mission's
+    # existing local_path/repository/branch binding (HOS-068).
+    repository: str | None = None
+    branch: str | None = None
     tags: list[str] = []
 
 
@@ -24,6 +29,8 @@ class ProjectUpdateRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     root_path: str | None = None
+    repository: str | None = None
+    branch: str | None = None
     status: str | None = None
     tags: list[str] | None = None
 
@@ -33,7 +40,15 @@ class ProjectResponse(BaseModel):
     name: str
     description: str
     root_path: str | None
+    repository: str | None
+    branch: str | None
     status: str
+    validation_status: str | None
+    validated_accessible: bool | None
+    validated_readable: bool | None
+    validated_writable: bool | None
+    validation_detail: str | None
+    validated_at: str | None
     tags: list[str]
     created_at: str
     updated_at: str
@@ -45,7 +60,15 @@ def _to_response(project: Project) -> ProjectResponse:
         name=project.name,
         description=project.description,
         root_path=project.root_path,
+        repository=project.repository,
+        branch=project.branch,
         status=project.status,
+        validation_status=project.validation_status,
+        validated_accessible=project.validated_accessible,
+        validated_readable=project.validated_readable,
+        validated_writable=project.validated_writable,
+        validation_detail=project.validation_detail,
+        validated_at=project.validated_at.isoformat() if project.validated_at else None,
         tags=project.tags_list,
         created_at=project.created_at.isoformat(),
         updated_at=project.updated_at.isoformat(),
@@ -58,6 +81,8 @@ async def create_project(request: ProjectCreateRequest) -> ProjectResponse:
         name=request.name,
         description=request.description,
         root_path=request.root_path,
+        repository=request.repository,
+        branch=request.branch,
         tags=request.tags,
     )
     return _to_response(project)
@@ -88,11 +113,27 @@ async def update_project(project_id: str, request: ProjectUpdateRequest) -> Proj
             name=request.name,
             description=request.description,
             root_path=request.root_path,
+            repository=request.repository,
+            branch=request.branch,
             status=request.status,
             tags=request.tags,
         )
     except InvalidProjectStatusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if project is None:
+        raise HTTPException(status_code=404, detail=f"No project {project_id!r}")
+    return _to_response(project)
+
+
+@router.post("/projects/{project_id}/validate")
+async def validate_project(project_id: str) -> ProjectResponse:
+    """Really probe root_path on disk (exists, is a directory, is
+    readable, is writable — see project_manager.validate_project_path)
+    and persist the result. Nothing here is a frontend or model claim:
+    this is the only endpoint allowed to set validation_status, and
+    Aegis's dynamic whitelist (agents/aegis.py) only ever trusts a
+    project whose validation_status this endpoint set to "valid"."""
+    project = get_project_store().validate(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail=f"No project {project_id!r}")
     return _to_response(project)

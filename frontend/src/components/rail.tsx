@@ -1,30 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCockpitStore } from "@/hooks/use-store";
 import { NAV_GROUPS } from "@/components/nav-model";
-import { Command } from "lucide-react";
+import { Command, Pin, PinOff } from "lucide-react";
 
 /** The navigation rail.
  *
- *  Replaces the expand/collapse sidebar. A 232px panel of 22 labels is an
- *  inventory, and the collapse toggle only ever traded one compromise for
- *  another. Instead: a permanent narrow rail of icons — the machine's
- *  physical control strip — with names revealed on hover in a flyout, and
- *  ⌘K as the real way to move around once you know the system.
+ *  Default state: a permanent narrow rail of icons — the machine's physical
+ *  control strip — with names revealed on hover in a flyout, and ⌘K as the
+ *  fast way to move around once you know the system. The pin toggle below
+ *  reintroduces an expanded, labels-always-visible mode on top of that
+ *  default, for anyone who wants the rail to read like a list rather than
+ *  rely on hover/⌘K — the narrow rail remains the default either way.
  *
  *  Group boundaries are drawn as measured gaps and reference marks (S1…S5)
- *  rather than as text headers, because the rail has no room for headers
- *  and the ticks double as a position scale. */
+ *  rather than as text headers in the narrow mode, because the rail has no
+ *  room for headers there and the ticks double as a position scale. */
 export function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
-  const { activeView, setActiveView } = useCockpitStore();
+  const { activeView, setActiveView, railPinned, toggleRailPin } = useCockpitStore();
   const [hovered, setHovered] = useState<string | null>(null);
+
+  // Every consumer of --rail-w (instrument-bar, statusbar, cockpit-shell's
+  // marginLeft) reads the same CSS custom property, so setting it once here
+  // keeps the whole shell in lockstep without each of them needing their
+  // own pinned-state check.
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--rail-w",
+      railPinned ? "var(--rail-w-expanded)" : "56px",
+    );
+    return () => {
+      document.documentElement.style.setProperty("--rail-w", "56px");
+    };
+  }, [railPinned]);
 
   return (
     <aside
       className="fixed left-0 top-0 z-40 h-screen flex flex-col items-center
-        border-r border-hermes-border bg-hermes-bg-deep/80 backdrop-blur-xl"
+        border-r border-hermes-border bg-hermes-bg-deep/80 backdrop-blur-xl
+        transition-[width] duration-200 ease-out"
       style={{ width: "var(--rail-w)" }}
       onMouseLeave={() => setHovered(null)}
     >
@@ -34,22 +50,50 @@ export function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
         bg-gradient-to-b from-hermes-sodium/50 via-hermes-border-bright/40 to-transparent" />
 
       {/* ── Mark ── */}
-      <button
-        onClick={() => setActiveView("dashboard")}
-        aria-label="Hermes OS — Dashboard"
-        className="group relative mt-3 mb-1 h-9 w-9 shrink-0 clip-corner-sm
-          border border-hermes-border-bright/70 bg-hermes-elevated
-          flex items-center justify-center overflow-hidden
-          transition-colors hover:border-hermes-sodium/70"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element -- fixed 36px
-            chip in a client component; next/image buys nothing here. */}
-        <img src="/hermes-agent-logo.png" alt="" className="h-6 w-6 object-contain" />
-        <span className="pointer-events-none absolute inset-0 bg-hermes-sodium/0
-          group-hover:bg-hermes-sodium/10 transition-colors" />
-      </button>
+      <div className={`flex w-full items-center shrink-0 mt-3 mb-1 ${railPinned ? "justify-between px-3" : "justify-center"}`}>
+        <button
+          onClick={() => setActiveView("dashboard")}
+          aria-label="Hermes OS — Dashboard"
+          className="group relative h-9 w-9 shrink-0 clip-corner-sm
+            border border-hermes-border-bright/70 bg-hermes-elevated
+            flex items-center justify-center overflow-hidden
+            transition-colors hover:border-hermes-sodium/70"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- fixed 36px
+              chip in a client component; next/image buys nothing here. */}
+          <img src="/hermes-agent-logo.png" alt="" className="h-6 w-6 object-contain" />
+          <span className="pointer-events-none absolute inset-0 bg-hermes-sodium/0
+            group-hover:bg-hermes-sodium/10 transition-colors" />
+        </button>
+        {railPinned && (
+          <button
+            onClick={toggleRailPin}
+            aria-label="Réduire le rail"
+            aria-pressed={true}
+            title="Réduire le rail"
+            className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md
+              text-hermes-muted transition-all hover:text-hermes-sodium hover:bg-hermes-sodium/[0.08]"
+          >
+            <PinOff size={13} strokeWidth={1.8} />
+          </button>
+        )}
+      </div>
 
-      <div className="h-px w-6 bg-hermes-border shrink-0" />
+      {!railPinned && (
+        <>
+          <div className="h-px w-6 bg-hermes-border shrink-0" />
+          <button
+            onClick={toggleRailPin}
+            aria-label="Épingler le rail déployé"
+            aria-pressed={false}
+            title="Épingler le rail déployé"
+            className="mt-1.5 h-6 w-6 shrink-0 flex items-center justify-center rounded-md
+              text-hermes-dim transition-all hover:text-hermes-sodium hover:bg-hermes-sodium/[0.08]"
+          >
+            <Pin size={12} strokeWidth={1.8} />
+          </button>
+        </>
+      )}
 
       {/* ── Groups ──
           Real gap found while verifying: 22 items + section marks overflow
@@ -67,9 +111,9 @@ export function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
         {NAV_GROUPS.map((group, gi) => (
           <div key={group.label} className="relative mb-3 last:mb-0">
             {/* Section reference — a drawing callout, and a scale marker. */}
-            <div className="flex items-center justify-center h-4">
+            <div className={`flex items-center h-4 ${railPinned ? "justify-start px-3" : "justify-center"}`}>
               <span className="num text-[8px] tracking-[0.14em] text-hermes-dim/70 select-none">
-                {group.ref}
+                {group.ref}{railPinned ? ` — ${group.label}` : ""}
               </span>
             </div>
 
@@ -83,8 +127,9 @@ export function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
                     onMouseEnter={() => setHovered(item.id)}
                     aria-label={item.label}
                     aria-current={active ? "page" : undefined}
-                    className={`group relative w-full h-10 flex items-center justify-center
+                    className={`group relative w-full h-10 flex items-center
                       transition-colors duration-200
+                      ${railPinned ? "justify-start gap-2.5 px-3" : "justify-center"}
                       ${active ? "text-hermes-sodium" : "text-hermes-muted hover:text-hermes-text"}`}
                   >
                     {/* Active carriage — one element sliding between entries,
@@ -107,16 +152,21 @@ export function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
                     <Icon
                       size={16}
                       strokeWidth={active ? 2.1 : 1.7}
-                      className={`relative transition-transform duration-200
+                      className={`relative shrink-0 transition-transform duration-200
                         ${active ? "scale-105" : "group-hover:scale-110"}`}
                     />
+                    {railPinned && (
+                      <span className="relative truncate text-[12px] font-medium">
+                        {item.label}
+                      </span>
+                    )}
                   </button>
 
                   {/* Flyout: the name, on demand. Anchored to the item so it
                       reads as an extension of the control rather than a
                       tooltip floating near the cursor. */}
                   <AnimatePresence>
-                    {hovered === item.id && (
+                    {!railPinned && hovered === item.id && (
                       <motion.div
                         initial={{ opacity: 0, x: -6 }}
                         animate={{ opacity: 1, x: 0 }}
@@ -150,14 +200,20 @@ export function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
           onClick={onOpenPalette}
           aria-label="Ouvrir la palette de commandes"
           onMouseEnter={() => setHovered("__cmd")}
-          className="group relative w-full h-9 flex items-center justify-center
+          className={`group relative w-full h-9 flex items-center
             clip-corner-sm border border-hermes-border text-hermes-muted
             hover:text-hermes-sodium hover:border-hermes-sodium/50
-            hover:bg-hermes-sodium/[0.07] transition-all"
+            hover:bg-hermes-sodium/[0.07] transition-all
+            ${railPinned ? "justify-start gap-2.5 px-3" : "justify-center"}`}
         >
-          <Command size={14} strokeWidth={1.8} />
+          <Command size={14} strokeWidth={1.8} className="shrink-0" />
+          {railPinned && (
+            <span className="text-[11.5px] font-medium">
+              Commandes <span className="num text-[9px] text-hermes-dim ml-1">⌘K</span>
+            </span>
+          )}
           <AnimatePresence>
-            {hovered === "__cmd" && (
+            {!railPinned && hovered === "__cmd" && (
               <motion.span
                 initial={{ opacity: 0, x: -6 }}
                 animate={{ opacity: 1, x: 0 }}

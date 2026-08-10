@@ -26,12 +26,26 @@ construction contract unchanged.
 
 evaluate() also resolves action.project_id into a project root path
 (via get_project_store(), the same singleton pattern) and passes it to
-AegisEngine.evaluate() as project_root — this is where project-scoped
-whitelisting for Atlas's file tools happens (narrows ALLOWED_PATHS
-further, never widens it; see aegis_engine.py). A project_id that
-doesn't resolve to a real project is treated as REQUIRE_HUMAN_VALIDATION
-rather than silently skipping the extra restriction — same "don't fail
-open on the unexpected" principle as an unknown action_type.
+AegisEngine.evaluate() as project_root — this narrows the whitelist
+further for that one call, never widens it (see aegis_engine.py). Only
+existence matters for narrowing, not validation status: an unvalidated
+or even archived project's root is still a real, known boundary to
+scope an action *down* to. A project_id that doesn't resolve to any
+project at all is different — that's treated as REQUIRE_HUMAN_VALIDATION
+rather than silently skipping the restriction (don't fail open on the
+unexpected, same as an unknown action_type).
+
+Workspace/Filesystem tool layer: evaluate() also calls
+_dynamic_allowed_paths() on every invocation and passes the result as
+AegisEngine.evaluate()'s extra_allowed_paths — the root_path of every
+currently ACTIVE, validation_status="valid" Project, resolved fresh
+from ProjectStore each time (nothing cached). This is what lets a
+user-registered, validated workspace (e.g. via POST /projects then
+POST /projects/{id}/validate) actually grant filesystem access without
+editing config/security.yaml's static ALLOWED_PATHS — the two lists
+are unioned at the point of check (aegis_engine.py's
+_is_within_whitelist), and a Project that stops being active+valid
+stops appearing in that union on the very next call.
 
 advise() is the advisory pass mentioned in aegis_engine.py's module
 docstring: an LLM opinion attached to a REQUIRE_HUMAN_VALIDATION
@@ -67,6 +81,7 @@ from backend.connectors.ollama_client import OllamaClientProtocol
 from backend.core.config import get_settings, load_security_config
 from backend.core.message_bus import MessageType, get_message_bus
 from backend.core.router import ModelRouter
+from backend.projects.project_manager import ProjectStatus, ValidationStatus
 from backend.projects.store import get_project_store
 from backend.memory.db import init_db, make_engine, make_session_factory
 from backend.security import approvals
@@ -228,9 +243,39 @@ class AegisAgent:
 
         return decision
 
+    def _dynamic_allowed_paths(self) -> list[str]:
+        """Every ACTIVE, validation_status="valid" Project's root_path —
+        together with the static ALLOWED_PATHS config, this is the real,
+        current whitelist (see AegisEngine.evaluate's extra_allowed_paths
+        and this module's docstring). Fetched fresh on every call, never
+        cached: an archived, invalidated, or deleted Project must stop
+        granting access the moment that happens, not on some later
+        refresh. Fails closed (empty list) rather than raising if the
+        store is briefly unavailable — a missing grant is safe, a
+        crashing security check is not."""
+        try:
+            projects = get_project_store().list(status=ProjectStatus.ACTIVE)
+        except Exception:
+            return []
+        return [
+            p.root_path for p in projects
+            if p.root_path and p.validation_status == ValidationStatus.VALID.value
+        ]
+
     def _resolve_decision(self, action: ActionRequest) -> AegisDecision:
+        # Widening (extra_paths) and narrowing (project_root below) are
+        # gated independently. Widening is the new capability — a
+        # Project's root only ever grants access while it is ACTIVE and
+        # validation_status="valid" (_dynamic_allowed_paths enforces
+        # that). Narrowing is the pre-existing restriction: if a caller
+        # names a project_id, its root scopes the action to that folder
+        # regardless of validation status — an unvalidated project's root
+        # is still a real, known boundary to scope *down* to, even before
+        # anyone has confirmed it grants anything on its own.
+        extra_paths = self._dynamic_allowed_paths()
+
         if action.project_id is None:
-            return self._engine.evaluate(action)
+            return self._engine.evaluate(action, extra_allowed_paths=extra_paths)
 
         project = get_project_store().get(action.project_id)
         if project is None:
@@ -243,7 +288,11 @@ class AegisAgent:
                 ),
                 action_type=action.action_type,
             )
-        return self._engine.evaluate(action, project_root=project.root_path)
+        if not project.root_path:
+            return self._engine.evaluate(action, extra_allowed_paths=extra_paths)
+        return self._engine.evaluate(
+            action, project_root=project.root_path, extra_allowed_paths=extra_paths
+        )
 
     async def advise(self, action: ActionRequest, decision: AegisDecision) -> AegisDecision:
         if decision.verdict != Verdict.REQUIRE_HUMAN_VALIDATION:
