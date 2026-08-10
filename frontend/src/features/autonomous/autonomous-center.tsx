@@ -72,22 +72,22 @@ export function AutonomousCenter() {
         title="Autonomous OS"
         subtitle="Noyau agentique final — HOS-063"
         right={<>{status.isLoading ? (
-          <Badge variant="default">Checking core…</Badge>
+          <Badge variant="default">Vérification du noyau…</Badge>
         ) : status.isError ? (
           <Badge variant="danger">
             <AlertCircle className="w-3 h-3 mr-1" />
-            Core unreachable
+            Noyau injoignable
           </Badge>
         ) : (
           <Badge variant="success">
             <BrainCircuit className="w-3 h-3 mr-1" />
-            {status.data?.total_goals ?? 0} goal(s) · {status.data?.active ?? 0} active
+            {status.data?.total_goals ?? 0} objectif(s) · {status.data?.active ?? 0} actif(s)
           </Badge>
         )}</>}
       />
 
       {/* Goal Input — now actually starts a mission */}
-      <Card title="Goal Input" className="mb-6">
+      <Card title="Objectif" className="mb-6">
         <div className="flex gap-3">
           <input
             type="text"
@@ -96,7 +96,7 @@ export function AutonomousCenter() {
             onKeyDown={(e) => {
               if (e.key === "Enter") execute();
             }}
-            placeholder="Describe your goal... e.g., 'Analyse the authentication module'"
+            placeholder="Décrivez votre objectif… ex. « Analyser le module d'authentification »"
             className="flex-1 bg-hermes-bg border border-hermes-border rounded-lg px-4 py-2.5 text-sm text-hermes-text font-mono focus:outline-none focus:border-hermes-amber/50 placeholder:text-hermes-muted/50"
           />
           <button
@@ -105,7 +105,7 @@ export function AutonomousCenter() {
             className="px-4 py-2.5 bg-hermes-amber/10 text-hermes-amber-bright border border-hermes-amber/30 rounded-lg hover:bg-hermes-amber/20 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             <Play className="w-4 h-4" />
-            {busy ? "Running…" : "Execute"}
+            {busy ? "En cours…" : "Exécuter"}
           </button>
         </div>
 
@@ -118,32 +118,32 @@ export function AutonomousCenter() {
             type="text"
             value={localPath}
             onChange={(e) => setLocalPath(e.target.value)}
-            placeholder="Local folder (optional) — e.g. C:\projects\my-app"
+            placeholder="Dossier local (optionnel) — ex. C:\projects\my-app"
             className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:outline-none focus:border-hermes-amber/50 placeholder:text-hermes-muted/50"
           />
           <input
             type="text"
             value={repository}
             onChange={(e) => setRepository(e.target.value)}
-            placeholder="GitHub repo (optional) — e.g. owner/repo"
+            placeholder="Dépôt GitHub (optionnel) — ex. owner/repo"
             className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:outline-none focus:border-hermes-amber/50 placeholder:text-hermes-muted/50"
           />
           <input
             type="text"
             value={branch}
             onChange={(e) => setBranch(e.target.value)}
-            placeholder="Branch (optional) — default: main"
+            placeholder="Branche (optionnel) — défaut : main"
             className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:outline-none focus:border-hermes-amber/50 placeholder:text-hermes-muted/50"
           />
         </div>
         {busy && (
           <div className="text-[10px] text-hermes-muted font-mono mt-2">
-            Real inference in progress — this takes as long as the model takes.
+            Inférence réelle en cours — la durée dépend du modèle utilisé.
           </div>
         )}
         {start.isError && (
           <div className="text-[10px] text-hermes-red font-mono mt-2">
-            {start.error instanceof Error ? start.error.message : "Failed to start goal"}
+            {start.error instanceof Error ? start.error.message : "Échec du démarrage de l'objectif"}
           </div>
         )}
       </Card>
@@ -151,12 +151,12 @@ export function AutonomousCenter() {
       {/* Engine counters — every number below comes from /autonomous/status */}
       <div className="grid grid-cols-6 gap-2 mb-6">
         {[
-          { label: "Goals", value: status.data?.total_goals },
-          { label: "Active", value: status.data?.active },
-          { label: "Completed", value: status.data?.completed },
-          { label: "Failed", value: status.data?.failed },
-          { label: "Executions", value: status.data?.total_executions },
-          { label: "Decisions", value: status.data?.decisions?.total_decisions },
+          { label: "Objectifs", value: status.data?.total_goals },
+          { label: "Actifs", value: status.data?.active },
+          { label: "Terminés", value: status.data?.completed },
+          { label: "Échoués", value: status.data?.failed },
+          { label: "Exécutions", value: status.data?.total_executions },
+          { label: "Décisions", value: status.data?.decisions?.total_decisions },
         ].map((s) => (
           <div key={s.label} className="bg-hermes-card border border-hermes-border rounded-lg p-2 text-center">
             <div className="text-[9px] text-hermes-muted font-mono uppercase">{s.label}</div>
@@ -168,34 +168,34 @@ export function AutonomousCenter() {
       </div>
 
       {!goalId && (
-        <Card title="Current Goal" className="mb-6">
+        <Card title="Objectif en cours" className="mb-6">
           <div className="text-xs text-hermes-muted font-mono py-3">
-            No goal running. Describe one above to start a real mission.
+            Aucun objectif en cours. Décrivez-en un ci-dessus pour démarrer une mission réelle.
           </div>
         </Card>
       )}
 
       {goalId && goal && (
-        <Card title="Current Goal" className="mb-6">
+        <Card title="Objectif en cours" className="mb-6">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">User Request</div>
+              <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">Demande utilisateur</div>
               <div className="text-xs text-hermes-text font-mono bg-hermes-bg p-2 rounded-lg border border-hermes-border/50">
                 {goal.user_request}
               </div>
-              <div className="text-[10px] text-hermes-muted font-mono uppercase mt-3 mb-1">Interpretation</div>
+              <div className="text-[10px] text-hermes-muted font-mono uppercase mt-3 mb-1">Interprétation</div>
               <div className="text-[10px] text-hermes-text">{goal.interpreted_goal}</div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { label: "Domain", value: goal.domain, color: "text-hermes-blue" },
-                { label: "Language", value: goal.language, color: "text-hermes-green" },
+                { label: "Domaine", value: goal.domain, color: "text-hermes-blue" },
+                { label: "Langue", value: goal.language, color: "text-hermes-green" },
                 {
-                  label: "Complexity",
+                  label: "Complexité",
                   value: `${((goal.complexity ?? 0) * 100).toFixed(0)}%`,
                   color: "text-hermes-amber",
                 },
-                { label: "Status", value: goal.status, color: "text-hermes-purple" },
+                { label: "Statut", value: goal.status, color: "text-hermes-purple" },
               ].map((s) => (
                 <div key={s.label} className="bg-hermes-card/50 border border-hermes-border/50 rounded-lg p-2">
                   <div className="text-[9px] text-hermes-muted font-mono uppercase">{s.label}</div>
@@ -208,13 +208,13 @@ export function AutonomousCenter() {
             <div className="mt-3 pt-3 border-t border-hermes-border/30 flex gap-4 text-[10px] font-mono">
               {goal.local_path && (
                 <div>
-                  <span className="text-hermes-muted uppercase">Local: </span>
+                  <span className="text-hermes-muted uppercase">Local : </span>
                   <span className="text-hermes-text">{goal.local_path}</span>
                 </div>
               )}
               {goal.repository && (
                 <div>
-                  <span className="text-hermes-muted uppercase">Repo: </span>
+                  <span className="text-hermes-muted uppercase">Dépôt : </span>
                   <span className="text-hermes-text">
                     {goal.repository}{goal.branch ? `@${goal.branch}` : ""}
                   </span>
@@ -225,15 +225,15 @@ export function AutonomousCenter() {
           {goal.status === "paused" && (
             <div className="mt-3 pt-3 border-t border-hermes-border/30 text-[10px] font-mono text-hermes-amber flex items-center gap-2">
               <AlertCircle className="w-3 h-3" />
-              This goal touches a real project and needs human validation
-              (Aegis) before it can run — raise autonomy_level, or resume it
-              once approved.
+              Cet objectif touche un projet réel et nécessite une validation
+              humaine (Aegis) avant de pouvoir démarrer — augmentez
+              autonomy_level, ou reprenez-le une fois approuvé.
             </div>
           )}
           {goal.knowledge_context && (
             <div className="mt-3 pt-3 border-t border-hermes-border/30">
               <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">
-                From past missions
+                Missions passées
               </div>
               <div className="text-[10px] text-hermes-text">{goal.knowledge_context}</div>
             </div>
@@ -244,19 +244,19 @@ export function AutonomousCenter() {
       {/* Execution + decisions, both from the report */}
       {goalId && (
         <div className="grid grid-cols-2 gap-4 mb-6">
-          <Card title="Execution">
+          <Card title="Exécution">
             {report.isLoading && (
-              <div className="text-[10px] text-hermes-muted font-mono">Loading report…</div>
+              <div className="text-[10px] text-hermes-muted font-mono">Chargement du rapport…</div>
             )}
             {report.isError && goal?.status === "paused" && (
               <div className="text-[10px] text-hermes-amber font-mono">
-                No report yet — this goal is paused pending human validation
-                and hasn&apos;t run.
+                Pas encore de rapport — cet objectif est en pause en attente
+                de validation humaine et n&apos;a pas encore été exécuté.
               </div>
             )}
             {report.isError && goal?.status !== "paused" && (
               <div className="text-[10px] text-hermes-red font-mono">
-                Report unavailable
+                Rapport indisponible
               </div>
             )}
             {rep && (
@@ -274,7 +274,7 @@ export function AutonomousCenter() {
                   <span className="text-[10px] text-hermes-muted font-mono">Agents</span>
                   <div className="flex gap-1 flex-wrap justify-end">
                     {rep.agents_used.length === 0 ? (
-                      <span className="text-[10px] text-hermes-muted font-mono">none</span>
+                      <span className="text-[10px] text-hermes-muted font-mono">aucun</span>
                     ) : (
                       rep.agents_used.map((a) => (
                         <Badge key={a} variant="default" className="text-[9px]">{a}</Badge>
@@ -285,30 +285,30 @@ export function AutonomousCenter() {
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-hermes-muted font-mono">Runtimes</span>
                   <span className="text-[10px] font-mono text-hermes-text">
-                    {rep.runtimes_used.join(", ") || "none"}
+                    {rep.runtimes_used.join(", ") || "aucun"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-hermes-muted font-mono">Duration</span>
+                  <span className="text-[10px] text-hermes-muted font-mono">Durée</span>
                   <span className="text-[10px] font-mono text-hermes-text">
                     {rep.total_duration_ms.toFixed(0)}ms
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-hermes-muted font-mono">Outcome</span>
+                  <span className="text-[10px] text-hermes-muted font-mono">Résultat</span>
                   {statusBadge(rep.success ? "completed" : "failed")}
                 </div>
               </div>
             )}
           </Card>
 
-          <Card title={`Decisions${rep ? ` (${rep.decisions.length})` : ""}`}>
+          <Card title={`Décisions${rep ? ` (${rep.decisions.length})` : ""}`}>
             {report.isLoading && (
-              <div className="text-[10px] text-hermes-muted font-mono">Loading decisions…</div>
+              <div className="text-[10px] text-hermes-muted font-mono">Chargement des décisions…</div>
             )}
             {rep && rep.decisions.length === 0 && (
               <div className="text-[10px] text-hermes-muted font-mono">
-                The engine recorded no decisions for this goal.
+                Le moteur n&apos;a enregistré aucune décision pour cet objectif.
               </div>
             )}
             <div className="space-y-1.5">
@@ -336,13 +336,13 @@ export function AutonomousCenter() {
       {/* Timeline + lessons, both real */}
       {goalId && (
         <div className="grid grid-cols-2 gap-4 mb-6">
-          <Card title="Timeline">
+          <Card title="Chronologie">
             {timeline.isLoading && (
-              <div className="text-[10px] text-hermes-muted font-mono">Loading timeline…</div>
+              <div className="text-[10px] text-hermes-muted font-mono">Chargement de la chronologie…</div>
             )}
             {timeline.data?.timeline.length === 0 && (
               <div className="text-[10px] text-hermes-muted font-mono">
-                No timeline entries yet.
+                Aucune entrée pour l&apos;instant.
               </div>
             )}
             <div className="space-y-0">
@@ -353,17 +353,17 @@ export function AutonomousCenter() {
                     {t.event.replace(/_/g, " ")}
                   </span>
                   <span className="text-[9px] text-hermes-muted font-mono">
-                    {t.decisions.length} decision(s)
+                    {t.decisions.length} décision(s)
                   </span>
                 </div>
               ))}
             </div>
           </Card>
 
-          <Card title="Learning">
+          <Card title="Apprentissage">
             {rep && rep.lessons.length === 0 && rep.improvements.length === 0 && (
               <div className="text-[10px] text-hermes-muted font-mono">
-                No lessons recorded for this goal.
+                Aucune leçon enregistrée pour cet objectif.
               </div>
             )}
             <div className="flex flex-col gap-1.5 text-[10px] font-mono">
@@ -382,9 +382,9 @@ export function AutonomousCenter() {
             </div>
             {status.data && (
               <div className="mt-3 pt-2 border-t border-hermes-border/30 text-[9px] font-mono text-hermes-muted">
-                memory loop: {status.data.memory_loop.missions} mission(s),{" "}
-                {status.data.memory_loop.success_rate}% success,{" "}
-                {status.data.memory_loop.total_lessons} lesson(s)
+                boucle mémoire : {status.data.memory_loop.missions} mission(s),{" "}
+                {status.data.memory_loop.success_rate}% de réussite,{" "}
+                {status.data.memory_loop.total_lessons} leçon(s)
               </div>
             )}
           </Card>
@@ -392,14 +392,14 @@ export function AutonomousCenter() {
       )}
 
       {/* Controls — these buttons were inert; they now call the real endpoints */}
-      <Card title="Controls">
+      <Card title="Contrôles">
         <div className="flex gap-3 items-center">
           <button
             onClick={() => goalId && action.mutate({ goalId, action: "resume" })}
             disabled={!goalId || action.isPending}
             className="px-4 py-2 bg-hermes-green/10 text-hermes-green border border-hermes-green/30 rounded-lg hover:bg-hermes-green/20 transition-colors flex items-center gap-2 text-xs font-mono disabled:opacity-40"
           >
-            <Play className="w-3 h-3" /> Resume
+            <Play className="w-3 h-3" /> Reprendre
           </button>
           <button
             onClick={() => goalId && action.mutate({ goalId, action: "pause" })}
@@ -413,11 +413,11 @@ export function AutonomousCenter() {
             disabled={!goalId || action.isPending}
             className="px-4 py-2 bg-hermes-red/10 text-hermes-red border border-hermes-red/30 rounded-lg hover:bg-hermes-red/20 transition-colors flex items-center gap-2 text-xs font-mono disabled:opacity-40"
           >
-            <XCircle className="w-3 h-3" /> Cancel
+            <XCircle className="w-3 h-3" /> Annuler
           </button>
           {!goalId && (
             <span className="text-[10px] text-hermes-muted font-mono">
-              Start a goal to enable controls.
+              Démarrez un objectif pour activer les contrôles.
             </span>
           )}
         </div>

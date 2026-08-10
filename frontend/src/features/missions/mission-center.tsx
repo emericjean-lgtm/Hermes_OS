@@ -97,17 +97,17 @@ export function MissionCenter() {
             exit={{ opacity: 0, height: 0 }}
             className="mb-6 overflow-hidden"
           >
-            <Card title="Create Mission" className="border-hermes-amber/30">
+            <Card title="Nouvelle mission" className="border-hermes-amber/30">
               <div className="flex flex-col gap-3">
                 <input
                   type="text"
-                  placeholder="Mission title..."
+                  placeholder="Titre de la mission…"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-sm text-hermes-text font-mono focus:border-hermes-amber outline-none"
                 />
                 <textarea
-                  placeholder="Description (optional)..."
+                  placeholder="Description (optionnel)…"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={2}
@@ -120,21 +120,21 @@ export function MissionCenter() {
                 <div className="grid grid-cols-3 gap-2">
                   <input
                     type="text"
-                    placeholder="Local folder (optional)"
+                    placeholder="Dossier local (optionnel)"
                     value={localPath}
                     onChange={(e) => setLocalPath(e.target.value)}
                     className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:border-hermes-amber outline-none"
                   />
                   <input
                     type="text"
-                    placeholder="GitHub repo (optional)"
+                    placeholder="Dépôt GitHub (optionnel)"
                     value={repository}
                     onChange={(e) => setRepository(e.target.value)}
                     className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:border-hermes-amber outline-none"
                   />
                   <input
                     type="text"
-                    placeholder="Branch (optional)"
+                    placeholder="Branche (optionnel)"
                     value={branch}
                     onChange={(e) => setBranch(e.target.value)}
                     className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:border-hermes-amber outline-none"
@@ -145,14 +145,14 @@ export function MissionCenter() {
                     onClick={() => setShowCreate(false)}
                     className="px-3 py-1.5 text-xs text-hermes-muted hover:text-hermes-text transition-colors"
                   >
-                    Cancel
+                    Annuler
                   </button>
                   <button
                     onClick={handleCreate}
                     disabled={!title.trim() || createMission.isPending}
                     className="px-4 py-1.5 text-xs font-mono bg-hermes-amber text-black rounded-lg hover:bg-hermes-amber-bright transition-colors disabled:opacity-50"
                   >
-                    {createMission.isPending ? "Creating..." : "Create"}
+                    {createMission.isPending ? "Création…" : "Créer"}
                   </button>
                 </div>
               </div>
@@ -163,7 +163,7 @@ export function MissionCenter() {
 
       <div className="grid grid-cols-2 gap-4">
         {/* Mission list */}
-        <Card title="Missions" subtitle={isLoading ? "Loading..." : `${missions?.length || 0} missions`}>
+        <Card title="Missions" subtitle={isLoading ? "Chargement…" : `${missions?.length || 0} missions`}>
           <div className="flex flex-col gap-2 max-h-[500px] overflow-y-auto">
             {missions?.map((mission) => (
               <button
@@ -197,49 +197,49 @@ export function MissionCenter() {
                   {/* The list endpoint only reports a node total, not how
                       many are done — that per-node breakdown only exists
                       on the detail fetch (see the panel to the right). */}
-                  <span>{mission.node_count ?? "?"} nodes</span>
+                  <span>{mission.node_count ?? "?"} nœuds</span>
                 </div>
               </button>
             ))}
             {missions?.length === 0 && (
-              <p className="text-xs text-hermes-muted py-8 text-center">No missions yet</p>
+              <p className="text-xs text-hermes-muted py-8 text-center">Aucune mission pour l&apos;instant</p>
             )}
           </div>
         </Card>
 
         {/* Mission detail */}
         <Card
-          title={selected ? selected.title : "Detail"}
-          subtitle={selected ? `Nodes: ${selected.completed_nodes || 0}/${selected.node_count || "?"}` : "Select a mission"}
+          title={selected ? selected.title : "Détail"}
+          subtitle={selected ? `Nœuds : ${selected.completed_nodes || 0}/${selected.node_count || "?"}` : "Sélectionner une mission"}
         >
           {selected ? (
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-2 gap-2">
                 <div className="text-[10px] text-hermes-muted font-mono">Type</div>
                 <div className="text-[10px] text-hermes-text font-mono">{selected.type}</div>
-                <div className="text-[10px] text-hermes-muted font-mono">Priority</div>
+                <div className="text-[10px] text-hermes-muted font-mono">Priorité</div>
                 <Badge variant={selected.priority === "CRITICAL" ? "danger" : "default"}>
                   {selected.priority}
                 </Badge>
-                <div className="text-[10px] text-hermes-muted font-mono">Created</div>
+                <div className="text-[10px] text-hermes-muted font-mono">Créée</div>
                 <div className="text-[10px] text-hermes-text font-mono">
                   {selected.created_at ? new Date(selected.created_at).toLocaleDateString() : "—"}
                 </div>
               </div>
               <ProgressBar value={selected.progress} />
-              <p className="text-xs text-hermes-muted">{selected.description || "No description"}</p>
+              <p className="text-xs text-hermes-muted">{selected.description || "Aucune description"}</p>
 
               {(selected.local_path || selected.repository) && (
                 <div className="pt-2 border-t border-hermes-border/30 flex flex-col gap-1 text-[10px] font-mono">
                   {selected.local_path && (
                     <div>
-                      <span className="text-hermes-muted uppercase">Local: </span>
+                      <span className="text-hermes-muted uppercase">Local : </span>
                       <span className="text-hermes-text">{selected.local_path}</span>
                     </div>
                   )}
                   {selected.repository && (
                     <div>
-                      <span className="text-hermes-muted uppercase">Repo: </span>
+                      <span className="text-hermes-muted uppercase">Dépôt : </span>
                       <span className="text-hermes-text">
                         {selected.repository}{selected.branch ? `@${selected.branch}` : ""}
                       </span>
@@ -251,19 +251,20 @@ export function MissionCenter() {
               {selected.status === "PAUSED" && (
                 <div className="pt-2 border-t border-hermes-border/30 text-[10px] font-mono text-hermes-amber flex items-center gap-2">
                   <AlertCircle className="w-3 h-3 shrink-0" />
-                  This mission touches a real project and needs human
-                  validation (Aegis) before it can run — raise
-                  autonomy_level, or resume it once approved.
+                  Cette mission touche un projet réel et nécessite une
+                  validation humaine (Aegis) avant de pouvoir démarrer —
+                  augmentez autonomy_level, ou reprenez-la une fois approuvée.
                 </div>
               )}
 
               {selected.plan_is_generic && (
                 <div className="pt-2 border-t border-hermes-border/30 text-[10px] font-mono text-hermes-red flex items-start gap-2">
                   <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
-                  Real decomposition failed for this mission (timeout or an
-                  unparseable model response) — every task below comes from a
-                  generic template, not from the actual request. Retry the
-                  mission rather than trust these results.
+                  La décomposition réelle de cette mission a échoué (timeout
+                  ou réponse du modèle non interprétable) — chaque tâche
+                  ci-dessous vient d&apos;un modèle générique, sans rapport
+                  avec la demande réelle. Relancez la mission plutôt que de
+                  faire confiance à ces résultats.
                 </div>
               )}
 
@@ -274,7 +275,7 @@ export function MissionCenter() {
                   disabled={busy || !["CREATED", "PLANNING", "READY", "VALIDATED"].includes(selected.status)}
                   className="px-3 py-1.5 bg-hermes-green/10 text-hermes-green border border-hermes-green/30 rounded-lg hover:bg-hermes-green/20 transition-colors flex items-center gap-1.5 text-[10px] font-mono disabled:opacity-40"
                 >
-                  <Play className="w-3 h-3" /> Start
+                  <Play className="w-3 h-3" /> Démarrer
                 </button>
                 <button
                   onClick={() => action.pause.mutate()}
@@ -288,14 +289,14 @@ export function MissionCenter() {
                   disabled={busy || selected.status !== "PAUSED"}
                   className="px-3 py-1.5 bg-hermes-blue/10 text-hermes-blue border border-hermes-blue/30 rounded-lg hover:bg-hermes-blue/20 transition-colors flex items-center gap-1.5 text-[10px] font-mono disabled:opacity-40"
                 >
-                  <Play className="w-3 h-3" /> Resume
+                  <Play className="w-3 h-3" /> Reprendre
                 </button>
                 <button
                   onClick={() => action.cancel.mutate()}
                   disabled={busy || ["COMPLETED", "FAILED", "CANCELLED"].includes(selected.status)}
                   className="px-3 py-1.5 bg-hermes-red/10 text-hermes-red border border-hermes-red/30 rounded-lg hover:bg-hermes-red/20 transition-colors flex items-center gap-1.5 text-[10px] font-mono disabled:opacity-40"
                 >
-                  <XCircle className="w-3 h-3" /> Cancel
+                  <XCircle className="w-3 h-3" /> Annuler
                 </button>
               </div>
 
@@ -304,22 +305,22 @@ export function MissionCenter() {
                   build_mission_report()). */}
               {rep && (
                 <div className="pt-2 border-t border-hermes-border/30">
-                  <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">Report</div>
+                  <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">Rapport</div>
                   <div className="text-[10px] font-mono text-hermes-text bg-hermes-bg p-2 rounded border border-hermes-border/50 mb-2">
                     {rep.summary}
                   </div>
                   <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
                     <div className="flex items-center justify-between">
-                      <span className="text-hermes-muted">Tasks</span>
-                      <span className="text-hermes-text">{rep.tasks_completed}/{rep.tasks_total} ({rep.tasks_failed} failed)</span>
+                      <span className="text-hermes-muted">Tâches</span>
+                      <span className="text-hermes-text">{rep.tasks_completed}/{rep.tasks_total} ({rep.tasks_failed} échec(s))</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-hermes-muted">Duration</span>
+                      <span className="text-hermes-muted">Durée</span>
                       <span className="text-hermes-text">{rep.total_duration_ms.toFixed(0)}ms</span>
                     </div>
                     <div className="flex items-center justify-between col-span-2">
                       <span className="text-hermes-muted">Runtimes</span>
-                      <span className="text-hermes-text">{rep.runtimes_used.join(", ") || "none"}</span>
+                      <span className="text-hermes-text">{rep.runtimes_used.join(", ") || "aucun"}</span>
                     </div>
                   </div>
                   {rep.errors.length > 0 && (
@@ -334,7 +335,7 @@ export function MissionCenter() {
             </div>
           ) : (
             <div className="flex items-center justify-center h-32 text-xs text-hermes-muted font-mono">
-              ← Select a mission to view details
+              ← Sélectionner une mission pour voir les détails
             </div>
           )}
         </Card>

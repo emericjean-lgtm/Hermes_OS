@@ -17,12 +17,11 @@ import {
   StatGrid,
   Toolbar,
 } from "@/components/center-scaffold";
+import { formatGioPair } from "@/lib/format";
 
 // Toutes les mesures viennent de /runtime/resources, /runtime/events,
 // /runtime/intelligence et /system/statistics. Le flux temps réel est le
 // WebSocket /ws déjà utilisé par le Dashboard (P-001).
-
-const gib = (n: number) => (n / 1024 ** 3).toFixed(2);
 
 export function MonitoringCenter() {
   const resources = useMonitoringResources();
@@ -65,7 +64,7 @@ export function MonitoringCenter() {
           { label: "GPU", value: gpu?.available ? gpu.name : "non détecté", tone: gpu?.available ? "ok" : "warn" },
           {
             label: "VRAM utilisée",
-            value: gpu ? `${gib(gpu.vram_used_bytes)} / ${gib(gpu.vram_total_bytes)} Gio` : "—",
+            value: gpu ? formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes) : "—",
           },
           { label: "RAM", value: ram ? `${ram.usage_pct}%` : "—", tone: (ram?.usage_pct ?? 0) > 85 ? "bad" : "ok" },
           { label: "Allocations", value: resources.data?.allocations ?? 0 },

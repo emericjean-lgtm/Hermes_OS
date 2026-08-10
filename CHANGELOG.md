@@ -1,3 +1,25 @@
+## HOS-082 — Anglais résiduel corrigé, formatage VRAM centralisé, vrai écart 17.16/16.0 élucidé (2026-08-10)
+
+Suivi direct des deux trouvailles laissées ouvertes par HOS-081 : « plusieurs Centers mélangent de l'anglais » et « écart VRAM réel non investigué ».
+
+### 1 — Anglais résiduel traduit dans une dizaine de Centers
+Balayage systématique de `frontend/src/features` (grep ciblé sur les placeholders, boutons, labels, messages d'état vide, puis lecture complète de chaque fichier candidat) : `mission-center.tsx`, `autonomous-center.tsx`, `deployment-center.tsx` (onglet Services, resté anglais après le passage VRAM de HOS précédent), `system-center.tsx`, `events-center.tsx`, `tools-center.tsx`, `skills-center.tsx`, `model-intelligence-center.tsx` et `agent-center.tsx` avaient des formulaires, boutons, en-têtes de tableau et paragraphes d'avertissement entiers restés en anglais alors que le sous-titre et le reste du Center sont en français. Tout traduit — labels, placeholders, messages d'erreur, en-têtes de colonnes, badges de statut construits côté client. Les noms de module stylisés (« Mission Center », « Runtime Center », etc., cohérents sur les 22 Centers) et les valeurs brutes venant du backend (statuts d'enum comme `RUNNING`/`PAUSED`, `"unknown"`) n'ont volontairement pas été touchés — ce n'est pas de l'anglais résiduel mais soit une convention de nommage délibérée, soit une donnée réelle affichée telle quelle.
+
+Trouvaille en cours de route, signalée pour plus tard plutôt que corrigée ici (hors périmètre d'une passe de traduction) : `system-center.tsx` affiche un tableau « All Components » et des « Dependency Stats » entièrement codés en dur (latences, compteurs d'événements, « 42 dependency edges tracked ») — même genre de fabrication déjà éliminé de `deployment-center.tsx` et `autonomous-center.tsx`, mais jamais traité ici.
+
+### 2 — VRAM : formatage frontend centralisé
+`bytes/1024³` était réimplémenté séparément dans 7 fichiers (`agent-center`, `dashboard-view`, `conversation-center`, `deployment-center`, `model-intelligence-center`, `runtime-center`, `monitoring-center`), à des précisions différentes (`.toFixed(1)` partout sauf Monitoring en `.toFixed(2)`) et sous deux libellés différents (« GB » dans six endroits, « Gio » dans un seul) — un seul chiffre réel rendu de façon incohérente donnait l'impression de plusieurs mesures qui se contredisent. Centralisé dans `frontend/src/lib/format.ts` (`formatGio`/`formatGioPair`, 1 décimale, libellé « Gio » partout puisque tout le calcul réel est binaire) ; les 7 fichiers importent désormais la même fonction.
+
+### 3 — Le « 17.16 » n'était pas une fausse piste : deux modules GPU jamais réconciliés
+HOS-081 avait correctement flaggé l'écart (« 15.98 Go » vs « 17.16 Go ») sans l'investiguer. Vérifié en direct : le panneau « Bus d'événements » du Dashboard affiche le payload WebSocket `system.metrics` brut, qui contient bien `"vram_total_gb":17.16` — donc ce chiffre est réel, pas halluciné. Root cause trouvée dans le backend : deux implémentations de monitoring GPU totalement indépendantes coexistent, jamais reliées entre elles —
+- `backend/monitoring/gpu_monitor.py`, à l'origine du broadcast WebSocket `system.metrics`, calcule tout en **GB décimal** (`÷1e9`) ;
+- `backend/runtime/resources/gpu_monitor.py`, derrière `GET /api/v1/runtime/resources` (celui que consomment tous les Centers corrigés au point 2), retourne des **octets bruts**, convertis côté frontend en **Gio binaire** (`÷1024³`).
+
+Les deux valeurs sont individuellement honnêtes et correctement calculées pour leur propre unité — même GPU de 17 163 091 968 octets, 17.16 en GB décimal et 16.0 en Gio binaire — ce n'est pas une fabrication de données mais deux pipelines de mesure jamais unifiés, sans étiquette d'unité sur le dump JSON brut du flux d'événements. Réconcilier les deux modules est un vrai chantier backend, signalé en tâche de suivi plutôt qu'improvisé dans cette passe.
+
+### Verified
+`tsc --noEmit` propre, `vitest` 82/82. Vérifié en direct : Mission Center, Autonomous OS, Deployment Center (onglets Vue d'ensemble/Profil/Services) et Dashboard rechargés dans le navigateur, tout le texte visible en français, VRAM affichée de façon cohérente (« 16,0 Gio ») sur les Centers corrigés.
+
 ## HOS-081 — Suivi SODIUM : cohérence des docs, santé à trois états, palette clavier (2026-08-10)
 
 Suivi direct d'une revue critique de HOS-080 (retour utilisateur structuré, quatre actions demandées dans l'ordre). Rien de tout ceci n'est du polish visuel — chaque point vient d'un vrai gap trouvé en vérifiant, pas en supposant.

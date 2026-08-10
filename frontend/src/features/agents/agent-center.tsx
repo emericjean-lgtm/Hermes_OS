@@ -11,6 +11,7 @@ import { useCockpitStore } from "@/hooks/use-store";
 import { Card, Badge, ProgressBar } from "@/components/ui/card";
 import type { Agent, AgentStatus } from "@/types/hermes";
 import { CenterHeader } from "@/components/center-scaffold";
+import { formatGioPair } from "@/lib/format";
 
 // Real agent status/metrics/trust — before HOS-070, AgentRegistry.
 // update_status()/update_metrics() were only ever called from a dispatch
@@ -44,10 +45,6 @@ const statusColors = {
   success: "success",
   danger: "danger",
 } as const;
-
-function bytesToGB(bytes: number): string {
-  return (bytes / 1024 ** 3).toFixed(1);
-}
 
 export function AgentCenter() {
   const { data: agents, isLoading } = useAgents();
@@ -97,7 +94,7 @@ export function AgentCenter() {
               <div className="flex items-center justify-between text-[10px] font-mono">
                 <span className="text-hermes-muted">VRAM ({gpu.name || "GPU"})</span>
                 <span className="text-hermes-text">
-                  {bytesToGB(gpu.vram_used_bytes)} / {bytesToGB(gpu.vram_total_bytes)} GB
+                  {formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes)}
                 </span>
               </div>
               <ProgressBar
@@ -131,7 +128,7 @@ export function AgentCenter() {
 
       <div className="grid grid-cols-2 gap-4">
         {/* Agent list */}
-        <Card title="Agents" subtitle={isLoading ? "Loading..." : `${agents?.length || 0} agents`}>
+        <Card title="Agents" subtitle={isLoading ? "Chargement…" : `${agents?.length || 0} agents`}>
           <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
             {agents?.map((agent) => (
               <button
@@ -155,7 +152,7 @@ export function AgentCenter() {
                   ))}
                 </div>
                 <div className="text-[10px] text-hermes-muted font-mono">
-                  {agent.current_task_id ? `Tâche : ${agent.current_task_id.slice(0, 24)}` : "Idle"}
+                  {agent.current_task_id ? `Tâche : ${agent.current_task_id.slice(0, 24)}` : "Inactif"}
                 </div>
               </button>
             ))}
@@ -167,14 +164,14 @@ export function AgentCenter() {
 
         {/* Agent detail — real performance + trust (HOS-070) */}
         <Card
-          title={selected ? selected.name : "Agent Detail"}
-          subtitle={selected ? selected.type : "Select an agent"}
+          title={selected ? selected.name : "Détail de l'agent"}
+          subtitle={selected ? selected.type : "Sélectionner un agent"}
         >
           {selected ? (
             <AgentDetail agent={selected} />
           ) : (
             <div className="flex items-center justify-center h-32 text-xs text-hermes-muted font-mono">
-              ← Select an agent to view details
+              ← Sélectionner un agent pour voir les détails
             </div>
           )}
         </Card>
@@ -193,31 +190,31 @@ function AgentDetail({ agent }: { agent: Agent }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-2">
-        <div className="text-[10px] text-hermes-muted font-mono">Status</div>
+        <div className="text-[10px] text-hermes-muted font-mono">Statut</div>
         <Badge variant={statusBadge[agent.status]}>{agent.status}</Badge>
 
         <div className="text-[10px] text-hermes-muted font-mono">Runtime</div>
         <div className="text-[10px] text-hermes-text font-mono">{agent.preferred_runtime || "—"}</div>
 
-        <div className="text-[10px] text-hermes-muted font-mono">Model</div>
+        <div className="text-[10px] text-hermes-muted font-mono">Modèle</div>
         <div className="text-[10px] text-hermes-text font-mono">{agent.preferred_model || "—"}</div>
 
-        <div className="text-[10px] text-hermes-muted font-mono">Tasks Done</div>
+        <div className="text-[10px] text-hermes-muted font-mono">Tâches terminées</div>
         <div className="text-[10px] text-hermes-text font-mono">
           {agent.total_tasks || 0}
           {agent.total_tasks ? (
             <span className="text-hermes-muted">
-              {" "}({agent.successful_tasks ?? 0} ok, {agent.failed_tasks ?? 0} failed)
+              {" "}({agent.successful_tasks ?? 0} ok, {agent.failed_tasks ?? 0} échec(s))
             </span>
           ) : null}
         </div>
 
-        <div className="text-[10px] text-hermes-muted font-mono">Success Rate</div>
+        <div className="text-[10px] text-hermes-muted font-mono">Taux de réussite</div>
         <div className="text-[10px] text-hermes-text font-mono">
           {(agent.success_rate ?? 100).toFixed(0)}%
         </div>
 
-        <div className="text-[10px] text-hermes-muted font-mono">Trust</div>
+        <div className="text-[10px] text-hermes-muted font-mono">Confiance</div>
         <div className="text-[10px] font-mono">
           {hasTrust ? (
             <span className="text-hermes-text">
@@ -236,13 +233,13 @@ function AgentDetail({ agent }: { agent: Agent }) {
         <div className="pt-2 border-t border-hermes-border/30 text-[10px] font-mono">
           {agent.current_mission_id && (
             <div>
-              <span className="text-hermes-muted uppercase">Mission: </span>
+              <span className="text-hermes-muted uppercase">Mission : </span>
               <span className="text-hermes-text">{agent.current_mission_id}</span>
             </div>
           )}
           {agent.current_task_id && (
             <div>
-              <span className="text-hermes-muted uppercase">Tâche: </span>
+              <span className="text-hermes-muted uppercase">Tâche : </span>
               <span className="text-hermes-text">{agent.current_task_id}</span>
             </div>
           )}
@@ -264,7 +261,7 @@ function CollaborationMessages({ missionId }: { missionId?: string }) {
   const { data: messages } = useCollaborationMessages(missionId);
 
   return (
-    <Card title="Collaboration" subtitle={messages?.length ? `${messages.length} messages` : "No messages"}>
+    <Card title="Collaboration" subtitle={messages?.length ? `${messages.length} messages` : "Aucun message"}>
       <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto">
         {messages?.slice(-20).map((msg) => (
           <div key={msg.id} className="flex items-start gap-2 p-2 rounded bg-hermes-bg/50 text-xs">

@@ -6,6 +6,7 @@ import { Card, Badge, ProgressBar, Beacon, Button } from "@/components/ui/card";
 import { CenterHeader, PanelLoading } from "@/components/center-scaffold";
 import type { RuntimeInfo, RuntimeStatus } from "@/types/hermes";
 import { Cpu, HardDrive, Thermometer, Layers, Gauge, Brain, Power } from "lucide-react";
+import { formatGio, formatGioPair } from "@/lib/format";
 
 /** Le badge acceptait uniquement AVAILABLE/DEGRADED/UNAVAILABLE alors que
  *  l'API renvoie le cycle de vie du runtime (`started`, `stopped`…). Un
@@ -19,10 +20,6 @@ const statusBadge: Record<RuntimeStatus, "success" | "warning" | "danger" | "def
   error: "danger",
   stopped: "default",
 };
-
-/** Bytes to GB, one decimal. The endpoint reports bytes; the meters show GB. */
-const gib = (n: number | undefined | null) =>
-  typeof n === "number" ? (n / 1024 ** 3).toFixed(1) : "—";
 
 export function RuntimeCenter() {
   const { data: runtimes, isLoading, isError, error } = useRuntimes();
@@ -62,14 +59,14 @@ export function RuntimeCenter() {
           icon={<Cpu size={14} />}
           value={ram?.usage_pct ?? null}
           unit="%"
-          detail={ram ? `${gib(ram.used_bytes)} / ${gib(ram.total_bytes)} GB` : undefined}
+          detail={ram ? formatGioPair(ram.used_bytes, ram.total_bytes) : undefined}
         />
         <ResourceMeter
           label="VRAM"
           icon={<HardDrive size={14} />}
           value={vramPct}
           unit="%"
-          detail={gpu?.available ? `${gib(gpu.vram_used_bytes)} / ${gib(gpu.vram_total_bytes)} GB` : "Aucun GPU détecté"}
+          detail={gpu?.available ? formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes) : "Aucun GPU détecté"}
         />
         <ResourceMeter
           label="Température GPU"
@@ -86,7 +83,7 @@ export function RuntimeCenter() {
           value={resources ? (resources.allocations > 0 ? 100 : 0) : null}
           unit=""
           rawValue={resources?.allocations}
-          detail={resources ? `${gib(resources.allocated_bytes)} GB réservés` : undefined}
+          detail={resources ? `${formatGio(resources.allocated_bytes)} Gio réservés` : undefined}
         />
       </div>
 
@@ -129,7 +126,7 @@ export function RuntimeCenter() {
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="text-[10px] font-mono text-hermes-muted">
-                    {gib(m.size_vram_bytes)} GB VRAM
+                    {formatGio(m.size_vram_bytes)} Gio VRAM
                   </span>
                   <Button
                     variant="danger"

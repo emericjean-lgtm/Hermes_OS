@@ -24,7 +24,7 @@ export function ToolsCenter() {
 
       <div className="grid grid-cols-2 gap-4 mb-6">
         {/* Native tools */}
-        <Card title="Native Tools" subtitle={`${tools?.length || 0} registered`}>
+        <Card title="Outils natifs" subtitle={`${tools?.length || 0} enregistré(s)`}>
           <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto">
             {tools?.map((tool) => {
               const h = healthMap.get(tool.id);
@@ -34,13 +34,13 @@ export function ToolsCenter() {
         </Card>
 
         {/* MCP Servers */}
-        <Card title="MCP Servers" subtitle={`${mcpServers?.length || 0} connected`}>
+        <Card title="Serveurs MCP" subtitle={`${mcpServers?.length || 0} connecté(s)`}>
           <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto">
             {mcpServers?.map((srv) => (
               <MCPServerCard key={srv.id} server={srv} />
             ))}
             {mcpServers?.length === 0 && (
-              <p className="text-xs text-hermes-muted py-8 text-center">No MCP servers connected</p>
+              <p className="text-xs text-hermes-muted py-8 text-center">Aucun serveur MCP connecté</p>
             )}
           </div>
         </Card>
@@ -52,13 +52,13 @@ export function ToolsCenter() {
           list of tools, which throws on an object; it showed nothing only
           because the Cockpit could not reach the backend at all (R-003). */}
       {toolHealth && (
-        <Card title="Health Overview">
+        <Card title="Aperçu de la santé">
           <div className="grid grid-cols-4 gap-3">
             {[
-              { label: "Tools", value: toolHealth.total },
-              { label: "Healthy", value: toolHealth.healthy },
-              { label: "Degraded", value: toolHealth.degraded_or_unhealthy },
-              { label: "Avg latency", value: `${toolHealth.avg_latency_ms.toFixed(0)}ms` },
+              { label: "Outils", value: toolHealth.total },
+              { label: "Sains", value: toolHealth.healthy },
+              { label: "Dégradés", value: toolHealth.degraded_or_unhealthy },
+              { label: "Latence moy.", value: `${toolHealth.avg_latency_ms.toFixed(0)}ms` },
             ].map((s) => (
               <div key={s.label} className="bg-hermes-bg rounded-lg p-3 text-center">
                 <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">
@@ -71,7 +71,7 @@ export function ToolsCenter() {
             ))}
           </div>
           <p className="text-[10px] text-hermes-muted font-mono mt-2">
-            Per-tool health is not exposed by this endpoint.
+            La santé par outil n&apos;est pas exposée par ce endpoint.
           </p>
         </Card>
       )}
@@ -132,7 +132,7 @@ function MCPServerCard({ server }: { server: MCPServer }) {
       </div>
       <div className="flex items-center gap-3 text-[10px] text-hermes-muted font-mono">
         <span>{server.transport}</span>
-        <span>{server.tool_count} tools</span>
+        <span>{server.tool_count} outil(s)</span>
         {server.connected_at && <span>{new Date(server.connected_at).toLocaleTimeString()}</span>}
       </div>
     </div>

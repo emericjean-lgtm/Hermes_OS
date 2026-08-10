@@ -9,6 +9,7 @@ import {
 } from "@/hooks/use-api";
 import { CenterHeader } from "@/components/center-scaffold";
 import { Badge } from "@/components/ui/card";
+import { formatGio } from "@/lib/format";
 
 // This Center was fabricated end to end, and dangerously so: it reported an
 // "NVIDIA A100 80GB" with 81920 MB VRAM, an "AMD EPYC (8C/16T)" CPU and
@@ -24,7 +25,13 @@ import { Badge } from "@/components/ui/card";
 
 const TABS = ["overview", "profile", "services", "backups", "health"] as const;
 
-const bytesToGB = (n: number) => (n / 1024 ** 3).toFixed(1);
+const TAB_LABELS: Record<(typeof TABS)[number], string> = {
+  overview: "Vue d'ensemble",
+  profile: "Profil",
+  services: "Services",
+  backups: "Sauvegardes",
+  health: "Santé",
+};
 
 function ProfileCard({
   title,
@@ -44,7 +51,7 @@ function ProfileCard({
       <div className="text-hermes-text-bright font-mono text-sm">
         {typeof value === "boolean" ? (
           <span className={value ? "text-hermes-green" : "text-hermes-red"}>
-            {value ? "✓ Available" : "✗ Not available"}
+            {value ? "✓ Disponible" : "✗ Non disponible"}
           </span>
         ) : (
           value
@@ -120,7 +127,7 @@ export default function DeploymentCenter() {
                 : "text-hermes-muted hover:text-hermes-text"
             }`}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {TAB_LABELS[tab]}
           </button>
         ))}
       </div>
@@ -129,31 +136,31 @@ export default function DeploymentCenter() {
       {activeTab === "overview" && (
         <div className="space-y-4">
           <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-            <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">System Overview</h2>
+            <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Vue d&apos;ensemble système</h2>
             {health.isError ? (
               <div className="text-hermes-red text-sm">
-                /api/v1/system/health is unreachable.
+                /api/v1/system/health est injoignable.
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <div className="text-hermes-muted text-xs uppercase">Subsystems</div>
+                  <div className="text-hermes-muted text-xs uppercase">Sous-systèmes</div>
                   <div className="text-3xl font-bold text-hermes-text-bright">
                     {health.data?.services ?? "—"}
                   </div>
                 </div>
                 <div>
-                  <div className="text-hermes-muted text-xs uppercase">Healthy</div>
+                  <div className="text-hermes-muted text-xs uppercase">Sains</div>
                   <div className="text-3xl font-bold text-hermes-green">
                     {byStatus.healthy ?? 0}
                   </div>
                 </div>
                 <div>
-                  <div className="text-hermes-muted text-xs uppercase">Not reporting</div>
+                  <div className="text-hermes-muted text-xs uppercase">Sans mesure</div>
                   <div className="text-3xl font-bold text-hermes-muted">{silent.length}</div>
                 </div>
                 <div>
-                  <div className="text-hermes-muted text-xs uppercase">Unhealthy</div>
+                  <div className="text-hermes-muted text-xs uppercase">Défaillants</div>
                   <div className="text-3xl font-bold text-hermes-red">
                     {unhealthy.length}
                   </div>
@@ -164,12 +171,12 @@ export default function DeploymentCenter() {
 
           {/* Registries — the numbers the composition root actually seeded */}
           <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-            <h3 className="text-hermes-text-bright font-semibold mb-3">Registries</h3>
+            <h3 className="text-hermes-text-bright font-semibold mb-3">Registres</h3>
             {assembly.isLoading ? (
-              <div className="text-hermes-muted text-sm">Loading assembly…</div>
+              <div className="text-hermes-muted text-sm">Chargement de l&apos;assemblage…</div>
             ) : Object.keys(registries).length === 0 ? (
               <div className="text-hermes-muted text-sm">
-                The bootstrap reported no registry counts.
+                Le bootstrap n&apos;a rapporté aucun compte de registre.
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -190,9 +197,9 @@ export default function DeploymentCenter() {
           </div>
 
           <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-            <h3 className="text-hermes-text-bright font-semibold mb-3">Component Health</h3>
+            <h3 className="text-hermes-text-bright font-semibold mb-3">Santé des composants</h3>
             {Object.keys(detail).length === 0 ? (
-              <div className="text-hermes-muted text-sm">No component detail reported.</div>
+              <div className="text-hermes-muted text-sm">Aucun détail de composant rapporté.</div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {Object.entries(detail).map(([name, info]) => (
@@ -218,40 +225,40 @@ export default function DeploymentCenter() {
       {/* Profile — real host resources */}
       {activeTab === "profile" && (
         <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">System Profile</h2>
+          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Profil système</h2>
           {resources.isLoading && (
-            <div className="text-hermes-muted text-sm">Reading host resources…</div>
+            <div className="text-hermes-muted text-sm">Lecture des ressources hôte…</div>
           )}
           {resources.isError && (
             <div className="text-hermes-red text-sm">
-              /api/v1/runtime/resources is unreachable.
+              /api/v1/runtime/resources est injoignable.
             </div>
           )}
           {resources.data && (
             <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <ProfileCard
-                  title="RAM total"
-                  value={ram ? `${bytesToGB(ram.total_bytes)} GB` : "—"}
+                  title="RAM totale"
+                  value={ram ? `${formatGio(ram.total_bytes)} Gio` : "—"}
                   icon="🧠"
                 />
                 <ProfileCard
-                  title="RAM used"
-                  value={ram ? `${bytesToGB(ram.used_bytes)} GB (${ram.usage_pct}%)` : "—"}
+                  title="RAM utilisée"
+                  value={ram ? `${formatGio(ram.used_bytes)} Gio (${ram.usage_pct}%)` : "—"}
                   icon="📊"
                 />
-                <ProfileCard title="RAM status" value={ram?.status ?? "—"} icon="✅" />
+                <ProfileCard title="État RAM" value={ram?.status ?? "—"} icon="✅" />
                 <ProfileCard title="GPU" value={gpu?.name ?? "—"} icon="🎮" />
-                <ProfileCard title="GPU vendor" value={gpu?.vendor ?? "—"} icon="🏷" />
-                <ProfileCard title="GPU detected" value={Boolean(gpu?.available)} icon="🔧" />
+                <ProfileCard title="Fabricant GPU" value={gpu?.vendor ?? "—"} icon="🏷" />
+                <ProfileCard title="GPU détecté" value={Boolean(gpu?.available)} icon="🔧" />
                 <ProfileCard
-                  title="VRAM total"
-                  value={gpu ? `${bytesToGB(gpu.vram_total_bytes)} GB` : "—"}
+                  title="VRAM totale"
+                  value={gpu ? `${formatGio(gpu.vram_total_bytes)} Gio` : "—"}
                   icon="💾"
                 />
                 <ProfileCard
-                  title="VRAM free"
-                  value={gpu ? `${bytesToGB(gpu.vram_free_bytes)} GB` : "—"}
+                  title="VRAM libre"
+                  value={gpu ? `${formatGio(gpu.vram_free_bytes)} Gio` : "—"}
                   icon="💽"
                 />
                 <ProfileCard
@@ -261,8 +268,8 @@ export default function DeploymentCenter() {
                 />
               </div>
               <p className="text-hermes-dim text-xs mt-4">
-                Reported by the resource manager. Fields it cannot detect read
-                &quot;unknown&quot; rather than being filled in.
+                Rapporté par le gestionnaire de ressources. Les champs qu&apos;il ne peut
+                pas détecter affichent &quot;unknown&quot; plutôt que d&apos;être inventés.
               </p>
             </>
           )}
@@ -276,11 +283,11 @@ export default function DeploymentCenter() {
             Services {built.length > 0 && `(${built.length})`}
           </h2>
           {assembly.isLoading && (
-            <div className="text-hermes-muted text-sm">Loading assembly…</div>
+            <div className="text-hermes-muted text-sm">Chargement de l&apos;assemblage…</div>
           )}
           {assembly.isError && (
             <div className="text-hermes-red text-sm">
-              /api/v1/system/assembly is unreachable.
+              /api/v1/system/assembly est injoignable.
             </div>
           )}
           {built.length > 0 && (
@@ -289,8 +296,8 @@ export default function DeploymentCenter() {
                 <thead>
                   <tr className="border-b border-hermes-border">
                     <th className="text-left py-2 px-3 text-hermes-muted font-medium">Service</th>
-                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Health</th>
-                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Detail</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Santé</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Détail</th>
                     <th className="text-right py-2 px-3 text-hermes-muted font-medium">Stats</th>
                   </tr>
                 </thead>
@@ -302,7 +309,7 @@ export default function DeploymentCenter() {
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${dotColour(detail[name]?.status)}`} />
                           <span className="text-hermes-muted">
-                            {detail[name]?.status ?? "unknown"}
+                            {detail[name]?.status ?? "inconnu"}
                           </span>
                         </div>
                       </td>
@@ -310,7 +317,7 @@ export default function DeploymentCenter() {
                         {detail[name]?.detail ?? ""}
                       </td>
                       <td className="py-2 px-3 text-right text-hermes-muted text-xs">
-                        {services[name] ? "reporting" : "—"}
+                        {services[name] ? "mesuré" : "—"}
                       </td>
                     </tr>
                   ))}
@@ -324,12 +331,12 @@ export default function DeploymentCenter() {
       {/* Backups — no such API exists */}
       {activeTab === "backups" && (
         <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Backups</h2>
+          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Sauvegardes</h2>
           <div className="text-hermes-muted text-sm">
-            Hermes exposes no backup API. This tab previously listed three
-            invented archives and its &quot;Create backup&quot; button reported
-            success without performing one — so it now reports the real state
-            instead.
+            Hermes n&apos;expose aucune API de sauvegarde. Cet onglet listait
+            auparavant trois archives inventées, et son bouton « Créer une
+            sauvegarde » annonçait un succès sans rien exécuter — il rapporte
+            désormais l&apos;état réel à la place.
           </div>
         </div>
       )}
@@ -337,11 +344,11 @@ export default function DeploymentCenter() {
       {/* Health detail */}
       {activeTab === "health" && (
         <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Health Details</h2>
-          {health.isLoading && <div className="text-hermes-muted text-sm">Loading…</div>}
+          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Détails de santé</h2>
+          {health.isLoading && <div className="text-hermes-muted text-sm">Chargement…</div>}
           {health.isError && (
             <div className="text-hermes-red text-sm">
-              /api/v1/system/health is unreachable.
+              /api/v1/system/health est injoignable.
             </div>
           )}
           {Object.keys(detail).length > 0 && (
@@ -367,9 +374,9 @@ export default function DeploymentCenter() {
           )}
           {silent.length > 0 && (
             <p className="text-hermes-dim text-xs mt-4">
-              {silent.length} subsystem(s) expose no statistics accessor, so their
-              health cannot be probed. They are reported as
-              &quot;unknown&quot; rather than assumed healthy.
+              {silent.length} sous-système(s) n&apos;expose(nt) aucun accesseur de
+              statistiques, leur santé ne peut donc pas être mesurée. Ils sont
+              rapportés comme &quot;unknown&quot; plutôt que présumés sains.
             </p>
           )}
         </div>

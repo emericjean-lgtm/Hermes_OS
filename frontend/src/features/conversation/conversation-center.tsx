@@ -10,6 +10,7 @@ import { conversationClient } from "@/services/client";
 import { streamConversation, type ContextUsage, type StreamRouting } from "@/services/conversation-stream";
 import { useMonitoringResources, useSystemModelRoles } from "@/hooks/use-api";
 import type { ResourceStatus } from "@/types/hermes";
+import { formatGioPair } from "@/lib/format";
 import { MarkdownMessage } from "./markdown-message";
 import { ContextMeter, ModelPicker, type ModelSelection } from "./model-picker";
 import {
@@ -73,7 +74,6 @@ const QUICK_ACTIONS = [
 ] as const;
 
 const uid = () => `m_${Math.random().toString(36).slice(2, 10)}`;
-const gib = (n?: number) => (typeof n === "number" ? (n / 1024 ** 3).toFixed(1) : "—");
 
 export default function ConversationCenter() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -559,13 +559,13 @@ export default function ConversationCenter() {
                   <div className="space-y-2.5">
                     <Meter
                       label={gpu.name || "GPU"}
-                      detail={`${gib(gpu.vram_used_bytes)} / ${gib(gpu.vram_total_bytes)} GB`}
+                      detail={formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes)}
                       pct={gpu.vram_total_bytes ? (gpu.vram_used_bytes / gpu.vram_total_bytes) * 100 : 0}
                     />
                     {ram && (
                       <Meter
                         label="RAM"
-                        detail={`${gib(ram.used_bytes)} / ${gib(ram.total_bytes)} GB`}
+                        detail={formatGioPair(ram.used_bytes, ram.total_bytes)}
                         pct={ram.usage_pct}
                       />
                     )}

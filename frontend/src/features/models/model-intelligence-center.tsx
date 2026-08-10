@@ -15,6 +15,7 @@ import {
 import { CenterHeader } from "@/components/center-scaffold";
 import { Badge, Card } from "@/components/ui/card";
 import type { ResourceStatus } from "@/types/hermes";
+import { formatGio, formatGioPair } from "@/lib/format";
 
 // Every figure in this Center used to come from two module-level constants.
 // MOCK_MODELS listed five models with invented scores and success rates;
@@ -40,11 +41,15 @@ const TASK_TYPES = [
   "chat", "documentation", "optimization", "reasoning", "general",
 ] as const;
 
-function bytesToGB(bytes: number): string {
-  return (bytes / 1024 ** 3).toFixed(1);
-}
-
 const TABS = ["ranking", "recommend", "benchmark", "optimizer", "history"] as const;
+
+const TAB_LABELS: Record<(typeof TABS)[number], string> = {
+  ranking: "Classement",
+  recommend: "Recommander",
+  benchmark: "Benchmark",
+  optimizer: "Optimiseur",
+  history: "Historique",
+};
 
 export default function ModelIntelligenceCenter() {
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>("ranking");
@@ -150,7 +155,7 @@ export default function ModelIntelligenceCenter() {
               <div className="flex items-center justify-between text-[10px] font-mono">
                 <span className="text-hermes-muted">{gpu.name || "GPU"}</span>
                 <span className="text-hermes-text">
-                  {bytesToGB(gpu.vram_used_bytes)} / {bytesToGB(gpu.vram_total_bytes)} GB
+                  {formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes)}
                 </span>
               </div>
               <div className="h-1.5 rounded-full bg-hermes-elevated overflow-hidden">
@@ -162,7 +167,7 @@ export default function ModelIntelligenceCenter() {
                 />
               </div>
               <div className="text-hermes-green text-[10px] font-mono">
-                {bytesToGB(gpu.vram_free_bytes)} GB libres — c&apos;est ce que les
+                {formatGio(gpu.vram_free_bytes)} Gio libres — c&apos;est ce que les
                 recommandations utilisent désormais, pas un plafond fixe.
               </div>
             </div>
@@ -216,7 +221,7 @@ export default function ModelIntelligenceCenter() {
                 : "text-hermes-muted hover:text-hermes-text"
             }`}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {TAB_LABELS[tab]}
           </button>
         ))}
       </div>
@@ -224,19 +229,19 @@ export default function ModelIntelligenceCenter() {
       {/* Model Ranking Tab */}
       {activeTab === "ranking" && (
         <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Model Rankings</h2>
+          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Classement des modèles</h2>
           {ranking.isLoading && (
-            <div className="text-hermes-muted text-sm py-2">Loading rankings…</div>
+            <div className="text-hermes-muted text-sm py-2">Chargement du classement…</div>
           )}
           {ranking.isError && (
             <div className="text-hermes-red text-sm py-2">
-              Could not reach /models/ranking —{" "}
-              {ranking.error instanceof Error ? ranking.error.message : "unknown error"}
+              /models/ranking injoignable —{" "}
+              {ranking.error instanceof Error ? ranking.error.message : "erreur inconnue"}
             </div>
           )}
           {!ranking.isLoading && !ranking.isError && models.length === 0 && (
             <div className="text-hermes-muted text-sm py-2">
-              The model registry is empty.
+              Le registre de modèles est vide.
             </div>
           )}
           {models.length > 0 && (
@@ -244,12 +249,12 @@ export default function ModelIntelligenceCenter() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-hermes-border">
-                    <th className="text-left py-3 px-4 text-hermes-muted font-medium">Model</th>
+                    <th className="text-left py-3 px-4 text-hermes-muted font-medium">Modèle</th>
                     <th className="text-right py-3 px-4 text-hermes-muted font-medium">Score</th>
-                    <th className="text-right py-3 px-4 text-hermes-muted font-medium">Params</th>
+                    <th className="text-right py-3 px-4 text-hermes-muted font-medium">Paramètres</th>
                     <th className="text-right py-3 px-4 text-hermes-muted font-medium">VRAM</th>
                     <th className="text-right py-3 px-4 text-hermes-muted font-medium">TPS</th>
-                    <th className="text-right py-3 px-4 text-hermes-muted font-medium">Success</th>
+                    <th className="text-right py-3 px-4 text-hermes-muted font-medium">Réussite</th>
                     <th className="text-left py-3 px-4 text-hermes-muted font-medium">Tags</th>
                   </tr>
                 </thead>
@@ -302,7 +307,7 @@ export default function ModelIntelligenceCenter() {
       {activeTab === "recommend" && (
         <div className="space-y-4">
           <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-            <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Model Recommender</h2>
+            <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Recommandeur de modèle</h2>
             <div className="flex gap-3">
               <select
                 value={recommendTaskType}
@@ -320,7 +325,7 @@ export default function ModelIntelligenceCenter() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") runRecommend();
                 }}
-                placeholder="Describe your task... (e.g., 'Create a FastAPI REST API with authentication')"
+                placeholder="Décrivez votre tâche… (ex. « Créer une API REST FastAPI avec authentification »)"
                 className="flex-1 bg-hermes-bg-deep/50 border border-hermes-border rounded-lg px-4 py-3 text-sm text-hermes-text-bright placeholder-gray-500 focus:outline-none focus:border-hermes-cyan/50"
               />
               <button
@@ -328,14 +333,14 @@ export default function ModelIntelligenceCenter() {
                 disabled={!taskInput.trim() || recommend.isPending}
                 className="px-5 py-3 bg-hermes-cyan/20 text-hermes-cyan rounded-lg text-sm font-medium hover:bg-hermes-cyan/30 transition-all disabled:opacity-30"
               >
-                {recommend.isPending ? "…" : "Recommend"}
+                {recommend.isPending ? "…" : "Recommander"}
               </button>
             </div>
             {recommend.isError && (
               <div className="text-hermes-red text-sm mt-3">
                 {recommend.error instanceof Error
                   ? recommend.error.message
-                  : "Recommendation failed"}
+                  : "Échec de la recommandation"}
               </div>
             )}
           </div>
@@ -343,7 +348,7 @@ export default function ModelIntelligenceCenter() {
           {decision && (
             <div className="bg-hermes-elevated/60 border border-hermes-cyan/30 rounded-lg p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-hermes-text-bright font-semibold">Recommended Configuration</h3>
+                <h3 className="text-hermes-text-bright font-semibold">Configuration recommandée</h3>
                 <div className="flex gap-2">
                   <span className="px-2 py-1 bg-hermes-cyan/20 text-hermes-cyan rounded text-xs font-medium">
                     {decision.runtime}
@@ -357,23 +362,23 @@ export default function ModelIntelligenceCenter() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <div className="text-hermes-muted text-xs uppercase">Model</div>
+                  <div className="text-hermes-muted text-xs uppercase">Modèle</div>
                   <div className="text-hermes-text-bright font-medium">{decision.model_name}</div>
                 </div>
                 <div>
-                  <div className="text-hermes-muted text-xs uppercase">Confidence</div>
+                  <div className="text-hermes-muted text-xs uppercase">Confiance</div>
                   <div className="text-hermes-cyan font-mono">
                     {(decision.confidence * 100).toFixed(0)}%
                   </div>
                 </div>
                 <div>
-                  <div className="text-hermes-muted text-xs uppercase">Estimated VRAM</div>
+                  <div className="text-hermes-muted text-xs uppercase">VRAM estimée</div>
                   <div className="text-hermes-text-bright font-mono">
                     {decision.estimated_vram_mb.toLocaleString()} MB
                   </div>
                 </div>
                 <div>
-                  <div className="text-hermes-muted text-xs uppercase">Estimated throughput</div>
+                  <div className="text-hermes-muted text-xs uppercase">Débit estimé</div>
                   <div className="text-hermes-text-bright font-mono">
                     {decision.estimated_tps.toFixed(1)} TPS ·{" "}
                     {decision.estimated_latency_ms}ms
@@ -391,7 +396,7 @@ export default function ModelIntelligenceCenter() {
                 </div>
               )}
               <div className="bg-hermes-bg-deep/50 rounded-lg p-3">
-                <div className="text-hermes-muted text-xs uppercase mb-1">Reason</div>
+                <div className="text-hermes-muted text-xs uppercase mb-1">Raison</div>
                 <div className="text-hermes-text text-sm">{decision.reason}</div>
               </div>
             </div>
@@ -411,7 +416,7 @@ export default function ModelIntelligenceCenter() {
               onChange={(e) => setBenchmarkModelId(e.target.value)}
               className="bg-hermes-bg-deep/50 border border-hermes-border rounded-lg px-3 py-2.5 text-sm text-hermes-text-bright focus:outline-none focus:border-hermes-cyan/50"
             >
-              <option value="">All models</option>
+              <option value="">Tous les modèles</option>
               {models.map((m) => (
                 <option key={m.model_id} value={m.model_id}>{m.name}</option>
               ))}
@@ -429,27 +434,27 @@ export default function ModelIntelligenceCenter() {
               onClick={() => benchmarkModelId && runBenchmark.mutate({ model_id: benchmarkModelId, task_type: benchmarkTaskType })}
               disabled={!benchmarkModelId || runBenchmark.isPending}
               className="px-4 py-2.5 bg-hermes-cyan/20 text-hermes-cyan rounded-lg text-sm font-medium hover:bg-hermes-cyan/30 transition-all disabled:opacity-30"
-              title={!benchmarkModelId ? "Select a model to benchmark first" : undefined}
+              title={!benchmarkModelId ? "Sélectionnez d'abord un modèle à évaluer" : undefined}
             >
-              {runBenchmark.isPending ? "Running… (real inference, may take a moment)" : "Run Benchmark"}
+              {runBenchmark.isPending ? "En cours… (inférence réelle, peut prendre un moment)" : "Lancer le benchmark"}
             </button>
           </div>
           {runBenchmark.isError && (
             <div className="text-hermes-red text-sm mb-3">
-              {runBenchmark.error instanceof Error ? runBenchmark.error.message : "Benchmark failed"}
+              {runBenchmark.error instanceof Error ? runBenchmark.error.message : "Échec du benchmark"}
             </div>
           )}
 
           {benchmarks.isLoading && (
-            <div className="text-hermes-muted text-sm">Loading benchmarks…</div>
+            <div className="text-hermes-muted text-sm">Chargement des benchmarks…</div>
           )}
           {benchmarks.isError && (
-            <div className="text-hermes-red text-sm">Could not reach /models/benchmarks</div>
+            <div className="text-hermes-red text-sm">/models/benchmarks injoignable</div>
           )}
           {benchmarks.data && benchmarks.data.benchmarks.length === 0 && (
             <div className="text-hermes-muted text-sm py-2">
-              No benchmark has been run yet{benchmarkModelId ? " for this model" : ""} — real
-              results appear here after "Run Benchmark" completes.
+              Aucun benchmark n&apos;a encore été exécuté{benchmarkModelId ? " pour ce modèle" : ""} — les
+              résultats réels apparaîtront ici une fois « Lancer le benchmark » terminé.
             </div>
           )}
           {benchmarks.data && benchmarks.data.benchmarks.length > 0 && (
@@ -457,12 +462,12 @@ export default function ModelIntelligenceCenter() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-hermes-border">
-                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Model</th>
-                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Task</th>
-                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Latency</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Modèle</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Tâche</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Latence</th>
                     <th className="text-right py-2 px-3 text-hermes-muted font-medium">TPS</th>
                     <th className="text-right py-2 px-3 text-hermes-muted font-medium">VRAM</th>
-                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Quality</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Qualité</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -475,7 +480,7 @@ export default function ModelIntelligenceCenter() {
                       <td className="py-2 px-3 text-right text-hermes-muted font-mono">{b.vram_usage_mb.toLocaleString()} MB</td>
                       <td className="py-2 px-3 text-right font-mono">
                         <span className={b.quality_score > 0 ? "text-hermes-green" : "text-hermes-red"}>
-                          {b.quality_score > 0 ? "ok" : "empty"}
+                          {b.quality_score > 0 ? "ok" : "vide"}
                         </span>
                       </td>
                     </tr>
@@ -495,7 +500,7 @@ export default function ModelIntelligenceCenter() {
       {activeTab === "optimizer" && (
         <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-hermes-text-bright">Runtime Optimizer</h2>
+            <h2 className="text-lg font-semibold text-hermes-text-bright">Optimiseur de runtime</h2>
             <select
               value={optimizeTarget}
               onChange={(e) => setOptimizeModelId(e.target.value)}
@@ -508,13 +513,13 @@ export default function ModelIntelligenceCenter() {
           </div>
           {!optimizeTarget ? (
             <div className="text-hermes-muted text-sm">
-              No ranked model available to optimise for.
+              Aucun modèle classé disponible à optimiser.
             </div>
           ) : optimize.isLoading ? (
-            <div className="text-hermes-muted text-sm py-2">Comparing runtimes…</div>
+            <div className="text-hermes-muted text-sm py-2">Comparaison des runtimes…</div>
           ) : optimize.isError || !optimize.data?.success ? (
             <div className="text-hermes-red text-sm py-2">
-              Could not compare runtimes for {optimizeTarget}.
+              Impossible de comparer les runtimes pour {optimizeTarget}.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -522,18 +527,18 @@ export default function ModelIntelligenceCenter() {
                 <thead>
                   <tr className="border-b border-hermes-border">
                     <th className="text-left py-2 px-3 text-hermes-muted font-medium">Runtime</th>
-                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Quantization</th>
-                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Est. VRAM</th>
-                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Est. TPS</th>
-                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Risk</th>
-                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Feasible</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Quantification</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">VRAM est.</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">TPS est.</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Risque</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Faisable</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(optimize.data.comparisons ?? []).map((c, i) => (
                     <tr key={`${c.runtime}-${c.quantization}`} className={`border-b border-hermes-border/50 ${i === 0 ? "bg-hermes-cyan/5" : ""}`}>
                       <td className="py-2 px-3 text-hermes-text-bright font-mono">
-                        {c.runtime}{i === 0 && <span className="ml-2 text-[10px] text-hermes-amber">best</span>}
+                        {c.runtime}{i === 0 && <span className="ml-2 text-[10px] text-hermes-amber">meilleur</span>}
                       </td>
                       <td className="py-2 px-3 text-hermes-muted font-mono">{c.quantization}</td>
                       <td className="py-2 px-3 text-right text-hermes-muted font-mono">{c.estimated_vram_mb.toLocaleString()} MB</td>
@@ -543,7 +548,7 @@ export default function ModelIntelligenceCenter() {
                           {c.risk_level}
                         </Badge>
                       </td>
-                      <td className="py-2 px-3 text-hermes-muted">{c.feasible ? "yes" : "no"}</td>
+                      <td className="py-2 px-3 text-hermes-muted">{c.feasible ? "oui" : "non"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -557,16 +562,16 @@ export default function ModelIntelligenceCenter() {
           previously built but never surfaced anywhere in the Cockpit. */}
       {activeTab === "history" && (
         <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
-          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Recent Decisions</h2>
+          <h2 className="text-lg font-semibold text-hermes-text-bright mb-4">Décisions récentes</h2>
           {history.isLoading && (
-            <div className="text-hermes-muted text-sm py-2">Loading history…</div>
+            <div className="text-hermes-muted text-sm py-2">Chargement de l&apos;historique…</div>
           )}
           {history.isError && (
-            <div className="text-hermes-red text-sm py-2">Could not reach /models/history</div>
+            <div className="text-hermes-red text-sm py-2">/models/history injoignable</div>
           )}
           {history.data && history.data.decisions.length === 0 && (
             <div className="text-hermes-muted text-sm py-2">
-              No recommendation has run yet in this process.
+              Aucune recommandation n&apos;a encore été exécutée dans ce processus.
             </div>
           )}
           {history.data && history.data.decisions.length > 0 && (
@@ -574,11 +579,11 @@ export default function ModelIntelligenceCenter() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-hermes-border">
-                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Model</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Modèle</th>
                     <th className="text-left py-2 px-3 text-hermes-muted font-medium">Runtime</th>
-                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Confidence</th>
-                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Est. latency</th>
-                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Reason</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Confiance</th>
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Latence est.</th>
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Raison</th>
                   </tr>
                 </thead>
                 <tbody>

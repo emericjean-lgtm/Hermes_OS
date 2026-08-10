@@ -20,12 +20,12 @@ export function SkillsCenter() {
       />
 
       {/* Skill selection */}
-      <Card title="Automatic Selection" subtitle="Describe a task to get skill recommendations" className="mb-6">
+      <Card title="Sélection automatique" subtitle="Décrivez une tâche pour obtenir des recommandations de compétences" className="mb-6">
         <input
           type="text"
           value={taskDesc}
           onChange={(e) => setTaskDesc(e.target.value)}
-          placeholder='e.g., "Build a REST API with authentication"'
+          placeholder='ex. « Construire une API REST avec authentification »'
           className="w-full bg-hermes-bg border border-hermes-border rounded-lg px-4 py-2.5 text-sm text-hermes-text font-mono focus:border-hermes-amber outline-none mb-3"
         />
         {selected && (
@@ -34,7 +34,7 @@ export function SkillsCenter() {
               <SelectionRow key={s.skill_id} selection={s} />
             ))}
             {selected.length === 0 && (
-              <p className="text-xs text-hermes-muted py-2">No matching skills found. Try a longer description.</p>
+              <p className="text-xs text-hermes-muted py-2">Aucune compétence correspondante. Essayez une description plus longue.</p>
             )}
           </div>
         )}
@@ -42,7 +42,7 @@ export function SkillsCenter() {
 
       <div className="grid grid-cols-2 gap-4">
         {/* Skills list */}
-        <Card title="Registered Skills" subtitle={`${skills?.length || 0} skills`}>
+        <Card title="Compétences enregistrées" subtitle={`${skills?.length || 0} compétence(s)`}>
           <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
             {skills?.map((skill) => (
               <SkillCard key={skill.id} skill={skill} />
@@ -51,7 +51,7 @@ export function SkillsCenter() {
         </Card>
 
         {/* Cache */}
-        <Card title="Cache Status" subtitle={cache ? `${Object.keys(cache).length} entries` : "Loading..."}>
+        <Card title="État du cache" subtitle={cache ? `${Object.keys(cache).length} entrée(s)` : "Chargement…"}>
           {cache && (
             <div className="flex flex-col gap-2">
               {Object.entries(cache).slice(0, 8).map(([key, val]: [string, any]) => (
@@ -100,15 +100,15 @@ function SkillCard({ skill }: { skill: Skill }) {
       </div>
       {skill.metrics && (
         <div className="grid grid-cols-3 gap-1 text-[10px] font-mono">
-          <span className="text-hermes-muted">Success:</span>
+          <span className="text-hermes-muted">Réussite :</span>
           <span className="col-span-2 text-hermes-text">{((skill.metrics?.success_rate || 0) * 100).toFixed(0)}%</span>
-          <span className="text-hermes-muted">Memory:</span>
+          <span className="text-hermes-muted">Mémoire :</span>
           <span className="col-span-2 text-hermes-text">{skill.metrics?.memory_mb || 0} MB</span>
         </div>
       )}
       {skill.dependencies?.length > 0 && (
         <div className="mt-1 text-[10px] text-hermes-muted font-mono">
-          Deps: {skill.dependencies.join(", ")}
+          Dépendances : {skill.dependencies.join(", ")}
         </div>
       )}
     </div>

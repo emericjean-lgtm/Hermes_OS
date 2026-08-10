@@ -45,7 +45,7 @@ export function EventsCenter() {
       {/* Filters */}
       <div className="flex gap-4 mb-4">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-hermes-muted font-mono uppercase">Severity:</span>
+          <span className="text-[10px] text-hermes-muted font-mono uppercase">Sévérité :</span>
           {severityOptions.map((s) => (
             <button
               key={s}
@@ -69,7 +69,7 @@ export function EventsCenter() {
 
         {sources.length > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-hermes-muted font-mono uppercase">Source:</span>
+            <span className="text-[10px] text-hermes-muted font-mono uppercase">Source :</span>
             {sources.slice(0, 5).map((s) => (
               <button
                 key={s}
@@ -94,17 +94,17 @@ export function EventsCenter() {
       </div>
 
       {/* Event stream */}
-      <Card title="Event Stream" subtitle={`${filtered.length} events`}>
+      <Card title="Flux d'événements" subtitle={`${filtered.length} événement(s)`}>
         <div className="flex flex-col gap-1 max-h-[600px] overflow-y-auto font-mono">
           {filtered.map((event, i) => (
             <EventRow key={`${event.id || i}`} event={event} />
           ))}
           {filtered.length === 0 && connected && (
-            <p className="text-xs text-hermes-muted py-8 text-center">Waiting for events...</p>
+            <p className="text-xs text-hermes-muted py-8 text-center">En attente d&apos;événements…</p>
           )}
           {!connected && (
             <p className="text-xs text-hermes-red py-8 text-center">
-              WebSocket disconnected. Attempting to reconnect...
+              WebSocket déconnecté. Tentative de reconnexion…
             </p>
           )}
         </div>

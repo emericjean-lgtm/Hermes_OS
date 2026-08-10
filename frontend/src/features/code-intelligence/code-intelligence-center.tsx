@@ -41,10 +41,10 @@ import {
  */
 
 const TASK_KINDS: { kind: CodeIntelligenceTaskKind; label: string }[] = [
-  { kind: "analyze", label: "Analyze" },
-  { kind: "review", label: "Review" },
-  { kind: "debug", label: "Debug" },
-  { kind: "explain", label: "Explain" },
+  { kind: "analyze", label: "Analyser" },
+  { kind: "review", label: "Réviser" },
+  { kind: "debug", label: "Déboguer" },
+  { kind: "explain", label: "Expliquer" },
 ];
 
 const PROVIDER_CHOICES: { value: string; label: string }[] = [
@@ -120,7 +120,7 @@ export function CodeIntelligenceCenter() {
           s ? (
             <Badge variant={s.is_available ? "success" : "warning"}>
               <Beacon tone={s.is_available ? "green" : "amber"} className="mr-1" />
-              {s.is_available ? "Ready" : s.status}
+              {s.is_available ? "Prêt" : s.status}
             </Badge>
           ) : undefined
         }
@@ -130,8 +130,8 @@ export function CodeIntelligenceCenter() {
       {status.isLoading ? (
         <PanelLoading />
       ) : status.isError || !s ? (
-        <Card title="Overview" className="mb-6">
-          <p className="text-xs text-hermes-red font-mono">/code-intelligence/status unreachable</p>
+        <Card title="Vue d'ensemble" className="mb-6">
+          <p className="text-xs text-hermes-red font-mono">/code-intelligence/status injoignable</p>
         </Card>
       ) : (
         <div className="grid grid-cols-4 gap-4 mb-6">
@@ -177,7 +177,7 @@ export function CodeIntelligenceCenter() {
 
       {/* ── Code Tasks + last Routing/Execution ─────────────── */}
       <div className="grid grid-cols-2 gap-4 mb-6">
-        <Card title="Code Tasks" subtitle="Lance une tâche réelle via CodeIntelligenceAgent">
+        <Card title="Tâches de code" subtitle="Lance une tâche réelle via CodeIntelligenceAgent">
           <div className="space-y-3">
             <div className="flex flex-wrap gap-1.5">
               {TASK_KINDS.map((t) => (
@@ -237,7 +237,7 @@ export function CodeIntelligenceCenter() {
           </div>
         </Card>
 
-        <Card title="Routing & Execution" subtitle="Dernière décision et son résultat">
+        <Card title="Routage et exécution" subtitle="Dernière décision et son résultat">
           {!lastResult ? (
             <p className="text-[11px] text-hermes-muted font-mono py-2">
               Aucune tâche lancée depuis l&apos;ouverture de la page.
@@ -247,7 +247,7 @@ export function CodeIntelligenceCenter() {
               <div className="flex items-center gap-2">
                 <Badge variant={lastResult.success ? "success" : "danger"}>
                   {lastResult.success ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
-                  {lastResult.success ? "success" : "failed"}
+                  {lastResult.success ? "succès" : "échec"}
                 </Badge>
                 {lastResult.provider && <Badge variant="info">{lastResult.provider}</Badge>}
                 <span className="text-[10px] text-hermes-muted font-mono ml-auto">
@@ -284,11 +284,11 @@ export function CodeIntelligenceCenter() {
       </div>
 
       {/* ── History ───────────────────────────────────────── */}
-      <Card title="History" subtitle={history.data ? `${history.data.total} tâche(s)` : undefined}>
+      <Card title="Historique" subtitle={history.data ? `${history.data.total} tâche(s)` : undefined}>
         {history.isLoading ? (
           <PanelLoading />
         ) : history.isError ? (
-          <p className="text-xs text-hermes-red font-mono">/code-intelligence/history unreachable</p>
+          <p className="text-xs text-hermes-red font-mono">/code-intelligence/history injoignable</p>
         ) : !history.data || history.data.history.length === 0 ? (
           <p className="text-[11px] text-hermes-muted font-mono py-2">Aucun historique réel pour le moment.</p>
         ) : (
@@ -359,7 +359,7 @@ function ProviderCard({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-hermes-muted font-mono">Disponible</span>
-            <Badge variant={available ? "success" : "warning"}>{available ? "yes" : "no"}</Badge>
+            <Badge variant={available ? "success" : "warning"}>{available ? "oui" : "non"}</Badge>
           </div>
           {detail && <p className="text-[10px] text-hermes-muted font-mono truncate">{detail}</p>}
         </div>
@@ -392,7 +392,7 @@ function ExternalProviderCard({
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-hermes-muted font-mono">Disponible</span>
-            <Badge variant={available ? "success" : "warning"}>{available ? "yes" : "no"}</Badge>
+            <Badge variant={available ? "success" : "warning"}>{available ? "oui" : "non"}</Badge>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-hermes-muted font-mono">MCP</span>
@@ -405,7 +405,7 @@ function ExternalProviderCard({
           {status.client_stats.total_executions > 0 && (
             <div className="pt-1.5 mt-1 border-t border-hermes-border/30 grid grid-cols-2 gap-2">
               <div>
-                <div className="text-[9px] text-hermes-muted font-mono uppercase">Runs</div>
+                <div className="text-[9px] text-hermes-muted font-mono uppercase">Exécutions</div>
                 <div className="text-xs font-mono text-hermes-text">{status.client_stats.total_executions}</div>
               </div>
               <div>

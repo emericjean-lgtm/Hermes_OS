@@ -63,10 +63,10 @@ const CATEGORY_META = [
 
 const componentStatus = (status: string) => {
   switch (status) {
-    case "healthy": return <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" />Healthy</Badge>;
-    case "degraded": return <Badge variant="warning"><AlertTriangle className="w-3 h-3 mr-1" />Degraded</Badge>;
-    case "unhealthy": return <Badge variant="danger"><AlertTriangle className="w-3 h-3 mr-1" />Unhealthy</Badge>;
-    default: return <Badge variant="default"><Activity className="w-3 h-3 mr-1" />Unknown</Badge>;
+    case "healthy": return <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" />Sain</Badge>;
+    case "degraded": return <Badge variant="warning"><AlertTriangle className="w-3 h-3 mr-1" />Dégradé</Badge>;
+    case "unhealthy": return <Badge variant="danger"><AlertTriangle className="w-3 h-3 mr-1" />Défaillant</Badge>;
+    default: return <Badge variant="default"><Activity className="w-3 h-3 mr-1" />Inconnu</Badge>;
   }
 };
 
@@ -97,7 +97,7 @@ export function SystemCenter() {
     // reporting, not a fault. Reported as info rather than dressed up as one.
     warnings: silent.map((component) => ({
       component,
-      message: "exposes no telemetry accessor",
+      message: "n'expose aucun accesseur de télémétrie",
       severity: "info",
     })),
     degraded: [],
@@ -114,7 +114,7 @@ export function SystemCenter() {
   if (isLoading) {
     return (
       <div className="animate-fade-in p-6 text-xs text-hermes-muted">
-        Loading subsystem health…
+        Chargement de la santé des sous-systèmes…
       </div>
     );
   }
@@ -124,10 +124,10 @@ export function SystemCenter() {
         <Card title="System" className="p-4 border-hermes-red/40">
           <div className="flex items-center gap-2 text-hermes-red text-sm">
             <AlertTriangle size={16} />
-            <span>Could not reach the composition root</span>
+            <span>Impossible de joindre la racine de composition</span>
           </div>
           <p className="mt-2 text-[11px] text-hermes-muted">
-            {error instanceof Error ? error.message : "unknown error"}
+            {error instanceof Error ? error.message : "erreur inconnue"}
           </p>
         </Card>
       </div>
@@ -163,10 +163,10 @@ export function SystemCenter() {
       {/* Health Overview */}
       <div className="grid grid-cols-4 gap-3 mb-6">
         {[
-          { label: "Healthy Score", value: `${health.healthy_score}%`, desc: `${health.checks_passed}/${health.total_components}`, color: "text-hermes-green" },
-          { label: "Components", value: health.total_components, desc: "10 categories", color: "text-hermes-blue" },
-          { label: "Warnings", value: health.warnings.length, desc: health.degraded.length > 0 ? `${health.degraded.length} degraded` : "None", color: health.warnings.length > 0 ? "text-hermes-amber" : "text-hermes-muted" },
-          { label: "Healthy %", value: `${Math.round(health.checks_passed / Math.max(health.total_components, 1) * 100)}%`, desc: "Operational", color: "text-hermes-green" },
+          { label: "Score de santé", value: `${health.healthy_score}%`, desc: `${health.checks_passed}/${health.total_components}`, color: "text-hermes-green" },
+          { label: "Composants", value: health.total_components, desc: "10 catégories", color: "text-hermes-blue" },
+          { label: "Avertissements", value: health.warnings.length, desc: health.degraded.length > 0 ? `${health.degraded.length} dégradé(s)` : "Aucun", color: health.warnings.length > 0 ? "text-hermes-amber" : "text-hermes-muted" },
+          { label: "% Sains", value: `${Math.round(health.checks_passed / Math.max(health.total_components, 1) * 100)}%`, desc: "Opérationnel", color: "text-hermes-green" },
         ].map((stat) => (
           <div key={stat.label} className="bg-hermes-card border border-hermes-border rounded-lg p-3">
             <div className="text-[10px] text-hermes-muted font-mono uppercase">{stat.label}</div>
@@ -177,7 +177,7 @@ export function SystemCenter() {
       </div>
 
       {/* Categories Grid */}
-      <Card title="Component Categories" className="mb-6">
+      <Card title="Catégories de composants" className="mb-6">
         <div className="grid grid-cols-5 gap-3">
           {categories.map((cat) => (
             <button
@@ -191,17 +191,17 @@ export function SystemCenter() {
             >
               <cat.icon className={`w-5 h-5 mx-auto mb-1.5 ${cat.color}`} />
               <div className="text-xs font-mono text-hermes-text">{cat.label}</div>
-              <div className="text-[9px] text-hermes-muted mt-0.5">{cat.count} components</div>
+              <div className="text-[9px] text-hermes-muted mt-0.5">{cat.count} composant(s)</div>
             </button>
           ))}
         </div>
       </Card>
 
       {/* System Dependencies */}
-      <Card title="Dependency Graph" className="mb-6">
+      <Card title="Graphe de dépendances" className="mb-6">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <div className="text-xs text-hermes-muted font-mono mb-2">Topological Order</div>
+            <div className="text-xs text-hermes-muted font-mono mb-2">Ordre topologique</div>
             {[
               { id: "core", label: "Core (Event Hub, Integration)", level: 0 },
               { id: "runtime", label: "Runtime (EventBus, Resource, Orchestrator)", level: 1 },
@@ -222,9 +222,9 @@ export function SystemCenter() {
             ))}
           </div>
           <div>
-            <div className="text-xs text-hermes-muted font-mono mb-2">Warnings & Issues</div>
+            <div className="text-xs text-hermes-muted font-mono mb-2">Avertissements et problèmes</div>
             {health.warnings.length === 0 ? (
-              <div className="text-xs text-hermes-muted">No active warnings</div>
+              <div className="text-xs text-hermes-muted">Aucun avertissement actif</div>
             ) : (
               health.warnings.map((w, i) => (
                 <div key={i} className="flex items-start gap-2 p-2 mb-1 bg-hermes-amber/5 border border-hermes-amber/20 rounded-lg">
@@ -236,27 +236,27 @@ export function SystemCenter() {
                 </div>
               ))
             )}
-            <div className="text-xs text-hermes-muted font-mono mt-3 mb-1">Dependency Stats</div>
+            <div className="text-xs text-hermes-muted font-mono mt-3 mb-1">Statistiques de dépendances</div>
             <div className="space-y-1 text-[10px] text-hermes-muted font-mono">
-              <div>No cyclic dependencies detected</div>
-              <div>25 components in topological order</div>
-              <div>42 dependency edges tracked</div>
+              <div>Aucune dépendance cyclique détectée</div>
+              <div>25 composants dans l&apos;ordre topologique</div>
+              <div>42 arêtes de dépendance suivies</div>
             </div>
           </div>
         </div>
       </Card>
 
       {/* Component List */}
-      <Card title="All Components" className="mb-6">
+      <Card title="Tous les composants" className="mb-6">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="text-[10px] text-hermes-muted font-mono uppercase border-b border-hermes-border">
-                <th className="pb-2 pr-4">Component</th>
-                <th className="pb-2 pr-4">Category</th>
-                <th className="pb-2 pr-4">Status</th>
-                <th className="pb-2 pr-4">Latency</th>
-                <th className="pb-2 pr-4">Events</th>
+                <th className="pb-2 pr-4">Composant</th>
+                <th className="pb-2 pr-4">Catégorie</th>
+                <th className="pb-2 pr-4">Statut</th>
+                <th className="pb-2 pr-4">Latence</th>
+                <th className="pb-2 pr-4">Événements</th>
               </tr>
             </thead>
             <tbody>
@@ -291,7 +291,7 @@ export function SystemCenter() {
       </Card>
 
       {/* Architecture Diagram Placeholder */}
-      <Card title="System Architecture">
+      <Card title="Architecture système">
         <div className="grid grid-cols-3 gap-3 text-center">
           {[
             { layer: "Core", items: "Event Hub · Integration · Config", color: "bg-hermes-amber/10 border-hermes-amber/30 text-hermes-amber" },

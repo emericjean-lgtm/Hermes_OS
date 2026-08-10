@@ -9,6 +9,7 @@ import { useWebSocket, severityColor } from "@/hooks/use-websocket";
 import { useCockpitStore } from "@/hooks/use-store";
 import { Card, Badge, ProgressBar } from "@/components/ui/card";
 import { PanelLoading } from "@/components/center-scaffold";
+import { formatGioPair } from "@/lib/format";
 import {
   Target, Users, Zap, ShieldAlert, ArrowUpRight, Radio, Cpu, Database, Check,
 } from "lucide-react";
@@ -393,7 +394,7 @@ export function DashboardView() {
             value={vramPct !== null ? `${Math.round(vramPct)}%` : "––"}
             sub={
               res?.gpu && res.gpu.vram_total_bytes > 0
-                ? `${gb(res.gpu.vram_used_bytes)} / ${gb(res.gpu.vram_total_bytes)} Go`
+                ? formatGioPair(res.gpu.vram_used_bytes, res.gpu.vram_total_bytes)
                 : "indisponible"
             }
             pct={vramPct}
@@ -406,7 +407,7 @@ export function DashboardView() {
             }
             sub={
               res?.ram && res.ram.total_bytes > 0
-                ? `${gb(res.ram.used_bytes)} / ${gb(res.ram.total_bytes)} Go`
+                ? formatGioPair(res.ram.used_bytes, res.ram.total_bytes)
                 : "indisponible"
             }
             pct={typeof res?.ram?.usage_pct === "number" ? res.ram.usage_pct : null}
@@ -515,10 +516,6 @@ export function DashboardView() {
 }
 
 /* ── Parts ─────────────────────────────────────────────────────────── */
-
-function gb(bytes: number): string {
-  return (bytes / 1024 ** 3).toFixed(1);
-}
 
 function statusFr(status: string): string {
   switch (status) {
