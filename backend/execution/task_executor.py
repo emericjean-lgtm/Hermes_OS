@@ -169,7 +169,7 @@ class RealTaskExecutor:
         runtime_for: Optional[Callable[[Any], Optional[str]]] = None,
         local_fallback_for: Optional[Callable[[Any], Optional[str]]] = None,
         timeout_s: float = 180.0,
-        default_model: str = "qwen3:4b",
+        default_model: str = "qwen3.5:4b",
         resource_manager: Any = None,
         vram_gb_for: Optional[Callable[[str], Optional[float]]] = None,
         vram_wait_s: float = 20.0,

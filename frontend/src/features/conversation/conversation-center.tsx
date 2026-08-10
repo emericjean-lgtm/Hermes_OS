@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Brain, ChevronDown, Copy, Check, Cpu, Globe, HardDrive, Info,
-  MessageSquarePlus, RefreshCw, Send, Sparkles, Square, User, Zap,
+  MessageSquarePlus, RefreshCw, Search, Send, Sparkles, Square, User, Zap,
 } from "lucide-react";
 import { conversationClient } from "@/services/client";
 import { streamConversation, type ContextUsage, type StreamRouting } from "@/services/conversation-stream";
@@ -37,11 +37,19 @@ import { ProjectPanel } from "./project-panel";
  * finding), and a control that implies otherwise would be a lie.
  */
 
+interface SearchEntry {
+  query: string;
+  result?: string;
+}
+
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   thinking?: string;
+  /** Real internet searches the model asked for this turn (HOS-078), in
+   *  order — `result` is undefined until the search actually completes. */
+  searches?: SearchEntry[];
   routing?: StreamRouting;
   context?: ContextUsage;
   attachments?: Attachment[];
@@ -253,6 +261,23 @@ export default function ConversationCenter() {
           onRouting: (routing) => patch((m) => ({ ...m, routing })),
           onThinking: (t) => patch((m) => ({ ...m, thinking: (m.thinking ?? "") + t })),
           onContent: (t) => patch((m) => ({ ...m, content: m.content + t })),
+          onToolCall: (calls) => patch((m) => {
+            const additions = calls
+              .filter((c) => c.function?.name === "web_search")
+              .map((c) => ({ query: String(c.function?.arguments?.query ?? "") }));
+            return additions.length
+              ? { ...m, searches: [...(m.searches ?? []), ...additions] }
+              : m;
+          }),
+          onToolResult: (results) => patch((m) => {
+            if (!m.searches?.length) return m;
+            const searches = [...m.searches];
+            for (const r of results) {
+              const idx = searches.findIndex((s) => s.result === undefined);
+              if (idx >= 0) searches[idx] = { ...searches[idx], result: r.result };
+            }
+            return { ...m, searches };
+          }),
           onDone: (payload) => patch((m) => ({ ...m, context: payload.context })),
           onError: (message) => patch((m) => ({ ...m, error: message })),
         },
@@ -642,6 +667,9 @@ function MessageRow({ message, streaming }: { message: ChatMessage; streaming: b
           </div>
         ) : (
           <div className="min-w-0">
+            {message.searches?.map((s, i) => (
+              <SearchBlock key={`${s.query}-${i}`} entry={s} />
+            ))}
             {message.thinking && <ThinkingBlock text={message.thinking} live={streaming && !message.content} />}
 
             {message.content ? (
@@ -719,6 +747,40 @@ function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
           >
             <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap px-3 pb-2.5 pt-1
               font-mono text-[11px] leading-relaxed text-hermes-muted">{text}</pre>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/** One real internet search this turn (HOS-078) — collapsed by default,
+ *  same pattern as ThinkingBlock. Shown as soon as the model asks for it
+ *  ("Recherche…"), filled in once the real DuckDuckGo results come back —
+ *  never a control that implies a search happened when it didn't. */
+function SearchBlock({ entry }: { entry: SearchEntry }) {
+  const [open, setOpen] = useState(false);
+  const pending = entry.result === undefined;
+  return (
+    <div className="mb-2 overflow-hidden rounded-lg border border-hermes-cyan/25 bg-hermes-cyan/[0.05]">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-hermes-cyan/[0.08]"
+      >
+        <Search size={11} className={`text-hermes-cyan ${pending ? "animate-pulse" : ""}`} />
+        <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-wider text-hermes-cyan">
+          {pending ? "Recherche…" : "Recherche"} {entry.query && `« ${entry.query} »`}
+        </span>
+        <ChevronDown size={11} className={`ml-auto shrink-0 text-hermes-cyan/60 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && entry.result && (
+          <motion.div
+            initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap px-3 pb-2.5 pt-1
+              font-mono text-[11px] leading-relaxed text-hermes-muted">{entry.result}</pre>
           </motion.div>
         )}
       </AnimatePresence>

@@ -25,17 +25,19 @@ def test_default_priority_without_vram_info(models_config):
 
 def test_respects_vram_budget(models_config):
     router = ModelRouter(models_config)
-    # code: 13GB, code_agentic: 14GB — a 5GB budget fits neither.
+    # code: 17GB, code_agentic: 14GB (HOS-079) — a 5GB budget fits neither.
     decision = router.select_model("code_generation", available_vram_gb=5)
     assert decision.reason.startswith("no candidate fits")
     # Falls back to the smallest of the two candidates.
-    assert decision.role == "code"
+    assert decision.role == "code_agentic"
 
 
 def test_picks_candidate_that_fits(models_config):
     router = ModelRouter(models_config)
-    decision = router.select_model("code_generation", available_vram_gb=13.5)
-    assert decision.role == "code"
+    # Between the two candidates (code_agentic 14GB, code 17GB): only
+    # code_agentic fits.
+    decision = router.select_model("code_generation", available_vram_gb=15)
+    assert decision.role == "code_agentic"
     assert "fits available VRAM" in decision.reason
 
 

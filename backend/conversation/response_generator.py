@@ -104,7 +104,9 @@ class ResponseGenerator:
 
     #: Modèle par défaut du chat. Le plus rapide du parc mesuré (123 tps sur
     #: RX 6800) : une conversation doit répondre, pas faire patienter.
-    DEFAULT_CHAT_MODEL = "qwen3:4b"
+    #: HOS-079: qwen3:4b -> qwen3.5:4b (config/models.yaml's double_check
+    #: role upgrade); the old tag is no longer pulled on this deployment.
+    DEFAULT_CHAT_MODEL = "qwen3.5:4b"
 
     #: Au-delà, on rend la main plutôt que de laisser l'utilisateur attendre.
     CHAT_TIMEOUT_S = 120.0

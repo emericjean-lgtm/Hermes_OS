@@ -62,12 +62,12 @@ class TestSyncFromOllama:
 
     def test_does_not_overwrite_an_already_known_model(self, monkeypatch):
         profiler = ModelProfiler()
-        existing = profiler.get_profile("qwen3:1.7b")
+        existing = profiler.get_profile("qwen3.5:2b")  # HOS-079: swift role
         assert existing is not None  # from config/models.yaml's real roles
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"models": [
-                {"name": "qwen3:1.7b", "size": 1, "details": {}},
+                {"name": "qwen3.5:2b", "size": 1, "details": {}},
             ]})
 
         monkeypatch.setattr(httpx, "Client", _mock_ollama_client(handler))
@@ -76,7 +76,7 @@ class TestSyncFromOllama:
         assert new_count == 0
         # Still the real, curated profile — not overwritten by the
         # auto-discovered fallback's honest-but-cruder defaults.
-        assert profiler.get_profile("qwen3:1.7b") is existing
+        assert profiler.get_profile("qwen3.5:2b") is existing
 
     def test_embedding_model_is_marked_not_chat_capable(self, monkeypatch):
         profiler = ModelProfiler()

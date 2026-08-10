@@ -97,6 +97,37 @@ def test_cloud_inference_still_requires_validation_at_medium_autonomy(security_c
     assert decision.verdict is Verdict.REQUIRE_HUMAN_VALIDATION
 
 
+def test_web_search_requires_validation_at_low_autonomy(security_config):
+    """HOS-078: a live chat stream has no approval UI to pause into (unlike
+    Missions' pause/resume), so below the configured threshold the tool
+    call must be refused outright, not left hanging."""
+    engine = _engine(security_config, allowed_paths=[], autonomy_level="low")
+    decision = engine.evaluate(
+        ActionRequest(action_type="web_search", description="Real internet search requested by a chat turn")
+    )
+    assert decision.verdict is Verdict.REQUIRE_HUMAN_VALIDATION
+
+
+def test_web_search_auto_allowed_at_medium_autonomy(security_config):
+    """Set deliberately lower than cloud_inference's "high": a short search
+    query is a smaller real exposure than a full prompt sent to a cloud
+    model — this is the threshold that actually makes the chat feature
+    usable without a human clicking approve on every turn."""
+    engine = _engine(security_config, allowed_paths=[], autonomy_level="medium")
+    decision = engine.evaluate(
+        ActionRequest(action_type="web_search", description="Real internet search requested by a chat turn")
+    )
+    assert decision.verdict is Verdict.ALLOW
+
+
+def test_web_search_auto_allowed_at_high_autonomy(security_config):
+    engine = _engine(security_config, allowed_paths=[], autonomy_level="high")
+    decision = engine.evaluate(
+        ActionRequest(action_type="web_search", description="Real internet search requested by a chat turn")
+    )
+    assert decision.verdict is Verdict.ALLOW
+
+
 def test_file_read_outside_whitelist_is_denied(security_config, tmp_path):
     engine = _engine(security_config, allowed_paths=[str(tmp_path / "allowed")], autonomy_level="low")
     decision = engine.evaluate(

@@ -100,7 +100,7 @@ class TestModelIntelligenceModels:
 
     def test_predefined_models_count(self):
         assert len(PREDEFINED_MODELS) >= 5
-        assert "qwen3-coder:30b" in PREDEFINED_MODELS
+        assert "qwen3.6:27b" in PREDEFINED_MODELS
 
     def test_predefined_models_come_from_the_real_role_catalogue(self):
         """PREDEFINED_MODELS used to be six fixed entries — llama3.2-3b,
@@ -163,7 +163,7 @@ class TestModelProfiler:
 
     def test_get_profile(self):
         profiler = ModelProfiler()
-        profile = profiler.get_profile("qwen3-coder:30b")
+        profile = profiler.get_profile("qwen3.6:27b")
         assert profile is not None
         # `name` is the real Ollama tag itself (lowercase) now that the
         # profiler is seeded from config/models.yaml, not a hand-written
@@ -206,10 +206,10 @@ class TestModelProfiler:
     def test_update_performance(self):
         profiler = ModelProfiler()
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
             duration_ms=1000, tokens_used=200, success=True,
         ))
-        profile = profiler.get_profile("qwen3-coder:30b")
+        profile = profiler.get_profile("qwen3.6:27b")
         assert profile is not None
         assert profile.total_runs >= 1
 
@@ -218,35 +218,35 @@ class TestModelProfiler:
         reflect a real completion, not the random.uniform() BenchmarkScheduler
         fabricates and never persists (see its module docstring)."""
         profiler = ModelProfiler()
-        assert profiler.get_profile("qwen3-coder:30b").tokens_per_second == 0.0
+        assert profiler.get_profile("qwen3.6:27b").tokens_per_second == 0.0
 
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
             duration_ms=2000, tokens_used=100, success=True,
         ))
-        assert profiler.get_profile("qwen3-coder:30b").tokens_per_second == pytest.approx(50.0)
+        assert profiler.get_profile("qwen3.6:27b").tokens_per_second == pytest.approx(50.0)
 
     def test_update_performance_smooths_repeated_measurements(self):
         profiler = ModelProfiler()
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
             duration_ms=1000, tokens_used=100, success=True,  # 100 tok/s
         ))
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
             duration_ms=1000, tokens_used=200, success=True,  # 200 tok/s
         ))
         # A blend (0.7*100 + 0.3*200), not just the latest measurement —
         # one slow/fast outlier shouldn't whiplash the estimate.
-        assert profiler.get_profile("qwen3-coder:30b").tokens_per_second == pytest.approx(130.0)
+        assert profiler.get_profile("qwen3.6:27b").tokens_per_second == pytest.approx(130.0)
 
     def test_update_performance_ignores_failed_runs_for_tps(self):
         profiler = ModelProfiler()
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
             duration_ms=1000, tokens_used=0, success=False,
         ))
-        assert profiler.get_profile("qwen3-coder:30b").tokens_per_second == 0.0
+        assert profiler.get_profile("qwen3.6:27b").tokens_per_second == 0.0
 
     def test_get_performance_history(self):
         profiler = ModelProfiler()
@@ -462,10 +462,10 @@ class TestAdaptiveRouter:
         assert len(history) >= 2
 
     def test_never_recommends_the_embedding_only_model(self):
-        """nomic-embed-text serves /api/embed, not /api/chat — Ollama
+        """qwen3-embedding:0.6b serves /api/embed, not /api/chat — Ollama
         returns 400 Bad Request if a task executor tries to chat with it.
         It has the smallest VRAM footprint of all twelve real models
-        (0.3GB), so with every other ranking signal at its untrained
+        (0.6GB), so with every other ranking signal at its untrained
         neutral default it won every recommendation before chat_capable
         existed — found by actually running a mission end to end, not by
         a unit test, which is exactly why this one exists now."""
@@ -473,8 +473,8 @@ class TestAdaptiveRouter:
         for description in ("Analyze requirements", "Write tests",
                             "Document the solution", "Design solution architecture"):
             decision = router.recommend_for_text(description, max_vram_mb=20000)
-            assert decision.model_id != "nomic-embed-text", description
-            assert "nomic-embed-text" not in [a["model_id"] for a in decision.alternatives]
+            assert decision.model_id != "qwen3-embedding:0.6b", description
+            assert "qwen3-embedding:0.6b" not in [a["model_id"] for a in decision.alternatives]
 
     def test_fallback_also_excludes_the_embedding_only_model(self):
         """_fallback_decision has the same smallest-VRAM-wins logic as the
@@ -483,7 +483,7 @@ class TestAdaptiveRouter:
         router = AdaptiveRouter()
         task = TaskContext(task_type=TaskType.CODE_GENERATION, max_latency_ms=1)
         decision = router._fallback_decision(task)  # noqa: SLF001 - exercising the fallback directly
-        assert decision.model_id != "nomic-embed-text"
+        assert decision.model_id != "qwen3-embedding:0.6b"
 
     def test_recommend_with_alternatives(self):
         router = AdaptiveRouter()
@@ -520,7 +520,7 @@ class TestBenchmarkScheduler:
     def test_run_benchmark(self):
         scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
         try:
-            result = scheduler.run_benchmark("qwen3-coder:30b", TaskType.CODE_GENERATION)
+            result = scheduler.run_benchmark("qwen3.6:27b", TaskType.CODE_GENERATION)
             assert result.quality_score > 0
             assert result.tokens_per_second == pytest.approx(84.0, rel=0.01)
         finally:
@@ -544,7 +544,7 @@ class TestBenchmarkScheduler:
         scheduler = BenchmarkScheduler(chat=refused)
         try:
             with pytest.raises(RuntimeError, match="could not reach Ollama"):
-                scheduler.run_benchmark("qwen3-coder:30b", TaskType.CODE_GENERATION)
+                scheduler.run_benchmark("qwen3.6:27b", TaskType.CODE_GENERATION)
         finally:
             scheduler.close()
 
@@ -569,10 +569,10 @@ class TestBenchmarkScheduler:
     def test_get_latest_benchmarks_reflects_a_real_run(self):
         scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
         try:
-            scheduler.run_benchmark("qwen3-coder:30b", TaskType.CODE_GENERATION)
+            scheduler.run_benchmark("qwen3.6:27b", TaskType.CODE_GENERATION)
             benchmarks = scheduler.get_latest_benchmarks()
             assert len(benchmarks) == 1
-            assert benchmarks[0]["model_id"] == "qwen3-coder:30b"
+            assert benchmarks[0]["model_id"] == "qwen3.6:27b"
         finally:
             scheduler.close()
 
@@ -708,7 +708,7 @@ class TestAPIRoutes:
             profiler=mi_routes._get_profiler(), analyzer=mi_routes._get_analyzer(),
             chat=_fake_benchmark_chat,
         ))
-        result = handle_run_benchmark("qwen3-coder:30b", "code_generation")
+        result = handle_run_benchmark("qwen3.6:27b", "code_generation")
         assert result["success"] is True
         assert "benchmark" in result
 
@@ -727,7 +727,7 @@ class TestAPIRoutes:
         assert result["success"] is True
 
     def test_get_performance_specific(self):
-        result = handle_get_performance("qwen3-coder:30b")
+        result = handle_get_performance("qwen3.6:27b")
         assert result["success"] is True
         assert "score" in result
 
@@ -752,10 +752,10 @@ class TestAPIRoutes:
         from backend.model_intelligence.routes import _get_memory
 
         task_type = "__test_isolation_probe_43b__"
-        _get_memory().record_model_for_task("qwen3-coder:30b", task_type, True)
+        _get_memory().record_model_for_task("qwen3.6:27b", task_type, True)
         result = handle_get_knowledge(task_type=task_type)
         assert result["success"] is True
-        assert any(r["source"] == "qwen3-coder:30b" for r in result["relations"])
+        assert any(r["source"] == "qwen3.6:27b" for r in result["relations"])
 
     def test_get_evolution_no_underperformers_yet(self):
         result = handle_get_evolution()
@@ -821,7 +821,7 @@ class TestThreadSafety:
         def access(n):
             try:
                 profiler.list_profiles()
-                profiler.get_profile("qwen3-coder:30b")
+                profiler.get_profile("qwen3.6:27b")
                 profiler.get_stats()
             except Exception as e:
                 errors.append(e)
@@ -851,7 +851,7 @@ class TestThreadSafety:
         errors = []
         def benchmark(n):
             try:
-                scheduler.run_benchmark("qwen3:1.7b", TaskType.CHAT)
+                scheduler.run_benchmark("qwen3.5:2b", TaskType.CHAT)
             except Exception as e:
                 errors.append(e)
         threads = [threading.Thread(target=benchmark, args=(i,)) for i in range(10)]
@@ -866,7 +866,7 @@ class TestThreadSafety:
         def update(n):
             try:
                 profiler.update_performance(ModelPerformanceRecord(
-                    model_id="qwen3-coder:30b", task_type=TaskType.CODE_GENERATION,
+                    model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
                     duration_ms=100, tokens_used=50, success=n % 2 == 0,
                 ))
             except Exception as e:

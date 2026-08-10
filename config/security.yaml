@@ -113,6 +113,22 @@ action_categories:
     mandatory_validation: false
     min_autonomy_for_auto_allow: high
 
+  # Real internet search (Assistant chat, HOS-078) — a query string leaves
+  # this machine, same "mutating: true" logic as cloud_inference above. Set
+  # lower than cloud_inference's "high" (min "medium") deliberately: unlike
+  # a full prompt sent to a cloud model, this sends only a short search
+  # query to a public search engine and returns read-only text — a real
+  # but smaller exposure. There is no approval UI in a live chat stream
+  # (unlike Missions' pause/resume), so at an autonomy level below this
+  # threshold the tool call is refused outright with a message the model
+  # relays to the user, rather than left hanging on a validation step
+  # nothing can complete.
+  web_search:
+    mutating: true
+    path_based: false
+    mandatory_validation: false
+    min_autonomy_for_auto_allow: medium
+
   # ── Autonomous Agentic Core (HOS-067) ──
   # Gates whether an autonomous goal (/autonomous/start) is allowed to plan
   # and execute at all. Not path_based here — a goal's own local_path (when

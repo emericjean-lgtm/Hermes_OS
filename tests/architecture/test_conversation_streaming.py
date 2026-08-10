@@ -195,7 +195,8 @@ class _FakeAgent:
         self._router = router
 
     async def respond_events(self, messages, *, task_type=None,
-                              forced_role=None, forced_thinking=None):
+                              forced_role=None, forced_thinking=None,
+                              tools=None, tool_executor=None):
         decision = self._router.decision_for_role(
             forced_role or "swift", task_type or "conversation", thinking=forced_thinking,
         )

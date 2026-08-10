@@ -412,7 +412,8 @@ class TestRuntimeRecommender:
         est = ComplexityEstimate(complexity_level="critical", complexity_score=9.0)
         rec = runtime_recommender.recommend(task, est)
         # Should suggest a large model
-        assert "30b" in rec.model_name.lower() or "32b" in rec.model_name.lower() or "14b" in rec.model_name.lower()
+        name = rec.model_name.lower()
+        assert any(size in name for size in ("30b", "32b", "27b", "14b"))
 
     def test_low_complexity_model_tier(self, runtime_recommender):
         from backend.mission.planner.planner_models import ComplexityEstimate

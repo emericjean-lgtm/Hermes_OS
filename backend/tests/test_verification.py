@@ -134,7 +134,13 @@ def test_shipped_policy_requires_validation_at_default_autonomy():
     assert policy.mutating is True
     assert policy.path_based is True
     assert policy.min_autonomy_for_auto_allow == "high"
-    assert matrix.autonomy_level == "low"
+    # HOS-077 deliberately raised the shipped default from "low" to
+    # "medium" — still below verification_run's own "high" gate, so the
+    # property this test guards (never auto-allow at the shipped default)
+    # still holds. Pinned to the literal value on purpose: if this ever
+    # silently becomes "high", this test must catch that verification_run
+    # would then auto-allow.
+    assert matrix.autonomy_level == "medium"
 
 
 # ── real execution ───────────────────────────────────────────────────

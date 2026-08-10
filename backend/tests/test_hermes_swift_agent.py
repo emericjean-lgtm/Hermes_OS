@@ -28,13 +28,13 @@ async def test_classify_lists_known_task_types_in_prompt(fake_ollama_client, mod
 async def test_classify_reuses_already_loaded_model(models_config):
     from backend.tests.conftest import FakeOllamaClient
 
-    client = FakeOllamaClient(running_models=["qwen3:1.7b"])
+    client = FakeOllamaClient(running_models=["qwen3.5:2b"])
     router = ModelRouter(models_config)
     swift = HermesSwiftAgent(client, router, models_config)
 
     decision, _stream = await swift.classify("anything")
 
-    assert decision.model == "qwen3:1.7b"
+    assert decision.model == "qwen3.5:2b"
     assert "already loaded" in decision.reason
 
 

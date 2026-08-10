@@ -8,8 +8,13 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, ClassVar, Optional
+
+#: Real tool-calling rounds are bounded: a model that keeps asking for the
+#: same tool without ever producing a final answer stops after this many
+#: round trips rather than looping forever.
+_MAX_TOOL_ROUNDS = 3
 
 from backend.connectors.ollama_client import OllamaClientProtocol, StreamChunk
 from backend.core.router import ModelRouter, RoutingDecision
@@ -98,15 +103,33 @@ class BaseAgent(ABC):
         sensitivity: str = "standard",
         forced_role: str | None = None,
         forced_thinking: bool | None = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        tool_executor: Optional[Callable[[str, dict[str, Any]], Awaitable[str]]] = None,
     ) -> tuple[RoutingDecision, AsyncIterator[StreamChunk]]:
         """Same as `respond`, but the reasoning phase is surfaced instead
         of discarded — for callers with a human on the other end, who
         would otherwise face a silent wait as long as the reasoning takes
-        (measured: 42 s on a code_analysis task)."""
+        (measured: 42 s on a code_analysis task).
+
+        ``tools``/``tool_executor`` (real internet search, Assistant chat
+        feedback round) are both optional and ``None`` by default, so
+        every existing caller is unaffected. Passing ``tools`` without a
+        ``tool_executor`` would let a model ask for a tool call that never
+        runs — the caller must supply both or neither.
+        """
         decision = await self.routing_decision(
             task_type, forced_role=forced_role, forced_thinking=forced_thinking,
         )
         params = self.generation_params(sensitivity)
+        resolved_task_type = task_type or self.default_task_type
+
+        if tools and tool_executor is not None:
+            stream = self._stream_with_tools(
+                list(messages), decision, params, resolved_task_type,
+                tools, tool_executor,
+            )
+            return decision, stream
+
         # Constructed here, in a plain async method, not inside the
         # generator below — chat_events() is itself an async generator
         # function for the real OllamaClient (and is expected to be for any
@@ -131,9 +154,88 @@ class BaseAgent(ABC):
             num_ctx=decision.num_ctx,
         )
         stream = self._stream_with_cloud_fallback(
-            local_stream, params, task_type or self.default_task_type, messages,
+            local_stream, params, resolved_task_type, messages,
         )
         return decision, stream
+
+    async def _stream_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        decision: RoutingDecision,
+        params: dict,
+        task_type: str,
+        tools: list[dict[str, Any]],
+        tool_executor: Callable[[str, dict[str, Any]], Awaitable[str]],
+    ) -> AsyncIterator[StreamChunk]:
+        """Real tool-calling round trip (Assistant chat feedback round).
+
+        A model can ask for a tool in its first turn; this actually
+        executes it via ``tool_executor`` and feeds the real result back
+        for a second (bounded) turn — offering ``tools`` without this loop
+        would let the model ask for a search that nothing ever performs,
+        which is a more elaborate way of silently ignoring the request.
+        Bounded to ``_MAX_TOOL_ROUNDS`` so a model that keeps asking for
+        tools without ever answering cannot hang the response forever.
+        """
+        working_messages = list(messages)
+        for _round in range(_MAX_TOOL_ROUNDS):
+            local_stream = self._ollama.chat_events(
+                decision.model, working_messages,
+                temperature=params["temperature"], top_p=params["top_p"],
+                think=decision.thinking, num_ctx=decision.num_ctx,
+                tools=tools,
+            )
+            pending_calls: list[dict[str, Any]] = []
+            async for chunk in self._stream_with_cloud_fallback(
+                local_stream, params, task_type, working_messages,
+            ):
+                if chunk.kind == "tool_calls":
+                    pending_calls.extend(chunk.tool_calls or [])
+                yield chunk
+
+            if not pending_calls:
+                return
+
+            working_messages.append({
+                "role": "assistant", "content": "", "tool_calls": pending_calls,
+            })
+            for call in pending_calls:
+                fn = call.get("function", {})
+                name = fn.get("name", "")
+                arguments = fn.get("arguments") or {}
+                try:
+                    result = await tool_executor(name, arguments)
+                except Exception as exc:
+                    result = f"Tool {name!r} failed: {type(exc).__name__}: {exc}"
+                yield StreamChunk(
+                    "tool_result", "",
+                    tool_calls=[{"name": name, "arguments": arguments, "result": str(result)[:4000]}],
+                )
+                working_messages.append({"role": "tool", "content": str(result), "tool_name": name})
+
+        # Ran out of rounds without a final answer — observed in practice
+        # (gpt-oss:20b) as the model repeatedly refining its search query
+        # instead of ever answering from what it already has. Rather than
+        # a dead-end apology, force one last real call with no `tools`
+        # offered: it physically cannot ask for another search, so it has
+        # to synthesize from the real results already gathered above.
+        final_stream = self._ollama.chat_events(
+            decision.model,
+            working_messages + [{
+                "role": "user",
+                "content": (
+                    "Réponds maintenant avec les informations déjà trouvées "
+                    "ci-dessus, du mieux que tu peux — aucune nouvelle "
+                    "recherche n'est disponible."
+                ),
+            }],
+            temperature=params["temperature"], top_p=params["top_p"],
+            think=decision.thinking, num_ctx=decision.num_ctx,
+        )
+        async for chunk in self._stream_with_cloud_fallback(
+            final_stream, params, task_type, working_messages,
+        ):
+            yield chunk
 
     async def _stream_with_cloud_fallback(
         self,

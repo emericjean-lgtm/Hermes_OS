@@ -88,14 +88,20 @@ export function ModelPicker({
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
             <motion.div
-              initial={{ opacity: 0, y: -4, scale: 0.97 }}
+              initial={{ opacity: 0, y: 4, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.97 }}
+              exit={{ opacity: 0, y: 4, scale: 0.97 }}
               transition={{ duration: 0.15 }}
-              className="absolute left-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl
+              // Anchored above the button (bottom-full), not below: this
+              // control lives in the composer at the bottom of the screen,
+              // and opening downward (the old top-full) routinely got
+              // clipped by the viewport edge with no way to reach the
+              // lower options — the same fix SlashCommandMenu already uses
+              // for the same reason.
+              className="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-xl
                 border border-hermes-border bg-hermes-card shadow-2xl"
             >
-              <div className="max-h-96 overflow-y-auto p-1.5">
+              <div className="max-h-[60vh] overflow-y-auto p-1.5">
                 <Option
                   active={!value.role}
                   icon={<Sparkles size={13} className="text-hermes-cyan" />}

@@ -3,8 +3,8 @@
 Aegis/Echo.
 
 classify() asks the fast `swift` model (config/models.yaml's
-"classification" task type -> role swift, qwen3:1.7b, kept loaded at all
-times) to label a raw request with one of the task types in models.yaml's
+"classification" task type -> role swift, qwen3.5:2b as of HOS-079, kept
+loaded at all times) to label a raw request with one of the task types in models.yaml's
 routing matrix — the same labels ModelRouter.select_model() already
 understands, so the result can be fed straight back into routing.
 parse_task_type() is a separate, pure string parser (no LLM/network

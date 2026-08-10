@@ -25,6 +25,78 @@ def _get_manager() -> ConversationManager:
     return _manager
 
 
+_web_search_connector = None
+
+
+def _get_web_search_connector():
+    global _web_search_connector
+    if _web_search_connector is None:
+        from backend.tools.connectors.web_search import WebSearchConnector
+
+        _web_search_connector = WebSearchConnector()
+    return _web_search_connector
+
+
+def _web_search_authorized() -> bool:
+    """Aegis's ``web_search`` category (config/security.yaml), evaluated
+    fresh each turn — same real, local, no-network rules check as
+    ``_cloud_authorized()`` in backend/model_intelligence/routes.py. A
+    live chat stream has no approval UI to pause into (unlike Missions'
+    pause/resume), so below the configured autonomy threshold the tool is
+    refused outright and the model is told so, rather than left hanging."""
+    from backend.core.config import get_settings, load_security_config
+    from backend.security.aegis_engine import ActionRequest, AegisEngine, Verdict
+    from backend.security.permission_matrix import PermissionMatrix
+
+    settings = get_settings()
+    matrix = PermissionMatrix(load_security_config())
+    engine = AegisEngine(matrix, settings.allowed_paths_list)
+    decision = engine.evaluate(ActionRequest(
+        action_type="web_search",
+        description="Real internet search requested by a chat turn",
+        requesting_agent="conversation",
+    ))
+    return decision.verdict == Verdict.ALLOW
+
+
+async def _execute_web_search(name: str, arguments: dict[str, Any]) -> str:
+    if name != "web_search":
+        return f"Unknown tool {name!r} — nothing executed."
+    if not _web_search_authorized():
+        return (
+            "Recherche refusée : validation humaine requise au niveau "
+            "d'autonomie actuel (Aegis, catégorie web_search)."
+        )
+    query = str(arguments.get("query", "")).strip()
+    if not query:
+        return "No search query was provided."
+    raw_max = arguments.get("max_results")
+    max_results = int(raw_max) if isinstance(raw_max, (int, float)) else None
+
+    connector = _get_web_search_connector()
+    try:
+        results = await connector.search(query, max_results=max_results)
+    except Exception as exc:
+        return f"Search for {query!r} failed: {type(exc).__name__}: {exc}"
+    if not results:
+        return f"No results found for {query!r}."
+    return "\n\n".join(
+        f"{i}. {r.title}\n   {r.url}\n   {r.snippet}"
+        for i, r in enumerate(results, start=1)
+    )
+
+
+#: Offered to every conversation turn — the model decides whether a given
+#: question actually needs it (config/models.yaml's `orchestrator` role,
+#: hermes_prime's default model, was upgraded specifically for reliable
+#: tool-calling; see that file's own comment). A model that never calls it
+#: costs nothing extra beyond the tool schema in the prompt.
+def _conversation_tools() -> list[dict[str, Any]]:
+    from backend.tools.connectors.web_search import web_search_tool_schema
+
+    return [web_search_tool_schema()]
+
+
 def create_conversation_routes(manager: ConversationManager) -> APIRouter:
     """Bind the container-owned manager to these routes (HOS-066B)."""
     global _manager
@@ -218,6 +290,7 @@ async def stream_message(payload: dict = Body(...)) -> StreamingResponse:
         decision, events = await agent.respond_events(
             model_messages, task_type=payload.get("task_type") or None,
             forced_role=forced_role, forced_thinking=forced_thinking,
+            tools=_conversation_tools(), tool_executor=_execute_web_search,
         )
     except KeyError as exc:
         mgr.finish_stream(session_id, "")
@@ -245,8 +318,15 @@ async def stream_message(payload: dict = Body(...)) -> StreamingResponse:
             async for chunk in events:
                 if chunk.kind == "content":
                     collected.append(chunk.text)
-                yield json.dumps({"kind": chunk.kind, "text": chunk.text},
-                                 ensure_ascii=False) + "\n"
+                payload_out: dict[str, Any] = {"kind": chunk.kind, "text": chunk.text}
+                # tool_calls/tool_result (real web search) carry structured
+                # data no client can reconstruct from `text` alone — the
+                # search query, or the result a client would otherwise have
+                # no way to show as anything but blank.
+                tool_calls = getattr(chunk, "tool_calls", None)
+                if tool_calls:
+                    payload_out["tool_calls"] = tool_calls
+                yield json.dumps(payload_out, ensure_ascii=False) + "\n"
         except Exception as exc:  # mid-stream drop: keep what arrived
             logger.warning("conversation stream interrupted", exc_info=True)
             yield json.dumps({"kind": "error", "error": f"{type(exc).__name__}: {exc}"},

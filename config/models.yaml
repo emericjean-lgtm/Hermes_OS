@@ -28,12 +28,19 @@
 # hardware ceiling on this card for models this size, not something a
 # context setting can fix (code's own 18GB on-disk weight already exceeds
 # the 17.16GB budget before any KV cache is added).
+#
+# 2026-08 (HOS-079): swift, embedding, double_check, and code were swapped
+# to newer models (see each role's own comment for what was verified on
+# this device). The table above is the original HOS-065C benchmark and is
+# now stale for those four rows — it hasn't been fully re-run with the
+# same latency/tok-s methodology, only spot-checked for VRAM residency
+# where a real regression risk existed (code, code_agentic).
 
 roles:
   swift:
-    model: qwen3:1.7b
+    model: qwen3.5:2b
     tier: turbo
-    vram_gb: 1.5
+    vram_gb: 2.7
     # always_loaded pins this model in VRAM (keep_alive: -1) instead of
     # letting it expire after OLLAMA_KEEP_ALIVE (§22: "conserve les
     # modèles rapides en mémoire"). Structured flag rather than inferring
@@ -41,10 +48,11 @@ roles:
     # occasional, and pinning a third model would eat headroom the 16GB
     # budget doesn't have.
     always_loaded: true
-    # Real: 843ms latency, 235 tok/s, 3.2GB VRAM (HOS-065C benchmark).
-    # Always loaded, so kept comfortably below its real max (40960) —
-    # doubling from the old flat 8192 default costs little for a model
-    # this small.
+    # Upgraded from qwen3:1.7b (2026-08, HOS-079): confirmed on Ollama's
+    # official library, 2.7GB on disk. vram_gb is the disk size, not an
+    # independently re-run HOS-065C latency/tok-s benchmark — at this size
+    # it loads 100% GPU with room to spare regardless, so that wasn't the
+    # open question (unlike code/code_agentic below, which were).
     num_ctx: 16384
     description: Ultra-fast routing and classification. Kept loaded at all times.
 
@@ -87,33 +95,32 @@ roles:
       confirm the exact figure with `ollama show` after pulling, since
       there's no official Ollama library page to cross-check against.
 
-  # Optional alternative for `code`, not applied as default (2026-07 check):
-  # Qwen3.6-35B-A3B beats qwen3-coder:30b on coding benchmarks (SWE-bench
-  # Verified 73.4, Terminal-Bench 2.0 51.5) — but only at full precision.
-  # The user's proposed Q2_K quant was rejected: 2-bit quantization hits
-  # code generation disproportionately hard (MoE expert-routing distortion,
-  # keyword/special-token imbalance), independently confirmed to erase or
-  # reverse a full-precision advantage. If testing this model, use a
-  # higher, quality-preserving quant instead (e.g. Unsloth's dynamic
-  # UD-Q3_K_XL, ~16GB) — but note that alone already consumes this
-  # hardware's entire 16GB VRAM budget, leaving no room for the
-  # always-loaded swift (1.5GB) + embedding (0.3GB) models. qwen3-coder:30b
-  # at 13GB leaves ~1.2GB of headroom for both, which is why it stays the
-  # default here.
+  # 2026-08 (HOS-079) re-check of the note below: pulled and directly
+  # compared qwen3.6:27b against the then-shipped qwen3-coder:30b on this
+  # exact card via `ollama ps` CPU/GPU split (same 4096-ctx probe prompt,
+  # one model resident at a time): qwen3-coder:30b landed 21%/79% CPU/GPU
+  # (19GB on disk), qwen3.6:27b landed 18%/82% CPU/GPU (17GB on disk) —
+  # marginally better GPU residency on real hardware, smaller, newer. Not
+  # a full HOS-065C latency/tok-s re-benchmark, but enough to confirm it's
+  # not a regression before switching the default.
   code:
-    model: qwen3-coder:30b
+    model: qwen3.6:27b
     tier: quality
-    vram_gb: 13
-    # Real: 41.9s latency, 41.1 tok/s, 15.2GB VRAM + 6.1GB RAM offload
-    # (HOS-065C benchmark) — this model's 18GB on-disk weight already
-    # exceeds the 17.16GB card before any context is added, so *some* RAM
-    # offload is a hardware ceiling here regardless of num_ctx (see the
-    # top-of-file note). 24576 (3x the old default) still helps real code
-    # tasks read more of a file without making the offload categorically
-    # worse than it already is at any context.
+    vram_gb: 17
+    # This model's 17GB on-disk weight still exceeds the 17.16GB card
+    # before any context is added — like its predecessor, some CPU offload
+    # is a hardware ceiling here regardless of num_ctx (see the top-of-file
+    # note). Kept the same num_ctx as the model it replaced pending a full
+    # latency re-benchmark.
     num_ctx: 24576
-    description: Code analysis, generation, refactoring (MoE, ~3B active params).
+    description: Code analysis, generation, refactoring.
 
+  # 2026-08 (HOS-079): devstral-small-2 was tested as a candidate upgrade
+  # and rejected. Same `ollama ps` comparison as `code` above: devstral
+  # (shipped) loads 100% GPU (14GB on disk); devstral-small-2 (16GB on
+  # disk) split 12%/88% CPU/GPU — a real regression for a role whose whole
+  # job is fast, repeated tool-calling loops. Do not swap this one without
+  # re-measuring; "newer" was not better here.
   code_agentic:
     model: devstral
     tier: quality
@@ -181,23 +188,26 @@ roles:
       32K context.
 
   embedding:
-    model: nomic-embed-text
+    model: qwen3-embedding:0.6b
     tier: turbo
-    vram_gb: 0.3
+    vram_gb: 0.6
     always_loaded: true
-    # This model's real max context is only 2048 (`ollama show
-    # nomic-embed-text`) — the pre-HOS-065C global default (8192) exceeded
-    # what it actually supports for every embedding call made in this
-    # deployment's lifetime. Set to its real ceiling, not a guess.
+    # Upgraded from nomic-embed-text (2026-08, HOS-079): 639MB on disk,
+    # supports up to 32768 context (`ollama show qwen3-embedding:0.6b`) vs
+    # nomic-embed-text's 2048 ceiling — kept at the same 2048 num_ctx below
+    # anyway since RAG chunks here don't need more, not because the model
+    # requires it this time.
     num_ctx: 2048
     description: Text embeddings for RAG. Kept loaded at all times.
 
   double_check:
-    model: qwen3:4b
+    model: qwen3.5:4b
     tier: turbo
-    vram_gb: 3
-    # Real: 8.7s latency, 129.5 tok/s, 5.1GB VRAM (HOS-065C benchmark) —
-    # comfortable for a role meant to stay cheap.
+    vram_gb: 3.4
+    # Upgraded from qwen3:4b (2026-08, HOS-079): 3.4GB on disk. vram_gb is
+    # the disk size, not an independently re-run HOS-065C latency/tok-s
+    # benchmark — comfortably under budget for a role meant to stay cheap
+    # either way.
     num_ctx: 16384
     description: Cheap parallel verification pass.
 

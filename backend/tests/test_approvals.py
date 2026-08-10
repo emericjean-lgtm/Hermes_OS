@@ -8,6 +8,7 @@ never match an action other than the one a human actually saw.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -261,14 +262,34 @@ def test_a_hard_deny_is_never_unlocked_by_an_approval(tmp_path, monkeypatch):
 
 def test_queue_then_approve_then_retry_succeeds(tmp_path, monkeypatch):
     """The whole point, end to end: refused -> visible in the queue ->
-    approved by a human -> the identical retry is allowed once."""
+    approved by a human -> the identical retry is allowed once.
+
+    Needs an autonomy level that actually refuses file_write first (HOS-079:
+    the shipped config/security.yaml's autonomy_level is "medium", which
+    auto-allows file_write — that's a deliberate product choice, not
+    something this test should fight). This test is about the queue/
+    approval mechanism itself, not about what the shipped default happens
+    to be, so it pins its own "low" security config rather than relying on
+    whatever the real file currently says.
+    """
+    import yaml
+
     allowed = tmp_path / "autorise"
     allowed.mkdir()
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "aegis2.db"))
     monkeypatch.setenv("ALLOWED_PATHS", str(allowed))
-    from backend.core.config import get_settings
+
+    from backend.core.config import get_settings, load_security_config
+
+    real_security_path = Path(__file__).resolve().parents[2] / "config" / "security.yaml"
+    security_config = yaml.safe_load(real_security_path.read_text(encoding="utf-8"))
+    security_config["autonomy_level"] = "low"
+    low_autonomy_path = tmp_path / "security_low.yaml"
+    low_autonomy_path.write_text(yaml.safe_dump(security_config), encoding="utf-8")
+    monkeypatch.setenv("SECURITY_CONFIG_PATH", str(low_autonomy_path))
 
     get_settings.cache_clear()
+    load_security_config.cache_clear()
 
     from backend.core.agent_registry import get_agent_registry
     from backend.security.aegis_engine import ActionRequest, Verdict
@@ -297,6 +318,7 @@ def test_queue_then_approve_then_retry_succeeds(tmp_path, monkeypatch):
     assert aegis.evaluate(action).verdict is Verdict.REQUIRE_HUMAN_VALIDATION
 
     get_settings.cache_clear()
+    load_security_config.cache_clear()
     get_agent_registry.cache_clear()
 
 

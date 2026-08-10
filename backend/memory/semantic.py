@@ -16,7 +16,7 @@ from chromadb.api.types import Documents, Embeddings
 class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
     """Calls Ollama's /api/embeddings synchronously — used as ChromaDB's
     embedding function, per config/models.yaml's `embedding` role
-    (nomic-embed-text by default). Must actually subclass
+    (qwen3-embedding:0.6b as of HOS-079). Must actually subclass
     chromadb.EmbeddingFunction (not just duck-type __call__/name) to pick
     up its default embed_query() implementation, which ChromaDB's query
     path requires."""

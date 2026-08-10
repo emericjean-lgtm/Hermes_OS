@@ -32,8 +32,15 @@ class StreamChunk:
     contract byte for byte.
     """
 
-    kind: Literal["thinking", "content"]
+    kind: Literal["thinking", "content", "tool_calls", "tool_result"]
     text: str
+    # Only set when kind == "tool_calls": Ollama's own tool_calls list,
+    # each shaped {"function": {"name": str, "arguments": dict}}. A plain
+    # extra field rather than smuggling JSON into `text`, so every
+    # existing `if chunk.kind == "content"` filter (chat_stream and every
+    # caller before this) keeps ignoring this kind exactly as it already
+    # ignores "thinking".
+    tool_calls: list[dict[str, Any]] | None = None
 
 # Retried on: Ollama not listening, dropped connection, timeout (§19.1,
 # acceptance criterion T11). Deliberately NOT retried: httpx.HTTPStatusError.
@@ -125,6 +132,7 @@ class OllamaClientProtocol(Protocol):
         top_p: float | None = None,
         num_ctx: int | None = None,
         think: bool | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[StreamChunk]: ...
 
     async def list_running_models(self) -> list[dict[str, Any]]: ...
@@ -215,6 +223,7 @@ class OllamaClient:
         top_p: float | None = None,
         num_ctx: int | None = None,
         think: bool | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         options: dict[str, Any] = {}
         if temperature is not None:
@@ -246,6 +255,12 @@ class OllamaClient:
         # don't need the distinction shouldn't pay for asking.
         if think is not None:
             payload["think"] = think
+        # Only sent when the caller actually offers tools — an empty/absent
+        # list must not become `"tools": []` on the wire, since some Ollama
+        # versions treat a present-but-empty tools field differently from
+        # an absent one.
+        if tools:
+            payload["tools"] = tools
 
         # The retry wraps only the *connection*, never the stream. Once a
         # token has been yielded the caller has it, and re-running the
@@ -263,8 +278,12 @@ class OllamaClient:
                         if not line.strip():
                             continue
                         chunk = json.loads(line)
-                        if chunk.get("done"):
-                            return
+                        # message is read *before* the done-check below:
+                        # confirmed empirically against a live tool-capable
+                        # model (gpt-oss:20b) that Ollama sends tool_calls
+                        # only on the final chunk, which also carries
+                        # done=true — returning on done first (the old
+                        # order) silently dropped every tool call.
                         message = chunk.get("message", {})
                         # `started` trips on *any* emitted chunk, reasoning
                         # included: once the caller has received something,
@@ -278,6 +297,12 @@ class OllamaClient:
                         if content:
                             started = True
                             yield StreamChunk("content", content)
+                        tool_calls = message.get("tool_calls")
+                        if tool_calls:
+                            started = True
+                            yield StreamChunk("tool_calls", "", tool_calls=tool_calls)
+                        if chunk.get("done"):
+                            return
                 return
             except _CONNECTION_ERRORS as exc:
                 if started or attempt >= self._max_attempts:

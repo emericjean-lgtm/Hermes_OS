@@ -362,21 +362,21 @@ class TestAutonomousOrchestrator:
         assert len(calls) == 1
         feedback = calls[0]
         assert feedback.goal_id == goal.goal_id
-        assert feedback.model_id == "qwen3:4b"  # RealTaskExecutor's default
+        assert feedback.model_id == "qwen3.5:4b"  # RealTaskExecutor's default
         assert feedback.success is True
         assert feedback.duration_ms > 0
         assert feedback.tokens_used > 0
 
     def test_report_includes_the_real_models_used(self):
         """results.models_used surfaces the specific model tag Model
-        Intelligence picked (e.g. "qwen3:4b") — previously discarded inside
+        Intelligence picked (e.g. "qwen3.5:4b") — previously discarded inside
         RealTaskExecutor/MissionExecutor before reaching the report, leaving
         only the runtime provider name ("ollama") in runtimes_used."""
         orch = AutonomousOrchestrator()
         goal = orch.start_goal("Write a function")
         report = orch.get_report(goal.goal_id)
         assert report is not None
-        assert report.results["models_used"] == ["qwen3:4b"]
+        assert report.results["models_used"] == ["qwen3.5:4b"]
 
     def test_broken_model_adapter_does_not_fail_the_goal(self):
         """A reporting failure must not turn an already-completed goal into

@@ -1,3 +1,186 @@
+## HOS-079 — Ollama : modèles réinstallés et mis à jour, clé de pull régénérée (2026-08-10)
+
+Demande de l'utilisateur suite à un 404 réel (`/api/chat` sur Ollama) :
+réinstaller les modèles supprimés et les mettre à jour vers les dernières
+versions, en vérifiant sur cette machine (pas seulement sur le papier)
+avant de figer un choix dans `config/models.yaml` — même exigence que
+HOS-065C ("mesuré, pas deviné").
+
+### Bug réel trouvé et corrigé — clé de pull Ollama manquante
+Premier lancement du script de téléchargement : 11 des 12 rôles échouent
+avec `pull model manifest: open ...\.ollama\id_ed25519: introuvable`. Seul
+le modèle hébergé sur Hugging Face (`hf.co/...`) passait — ce chemin ne
+signe pas la requête avec cette clé locale, contrairement au registre
+officiel Ollama. `~/.ollama` ne contenait plus que `cache/` et `models/` :
+la clé avait disparu avec le reste au moment de la suppression externe des
+modèles (déjà signalée dans une session précédente), et Ollama ne la
+régénère qu'au démarrage du service — le service tournait depuis avant la
+suppression et n'avait jamais eu l'occasion de la recréer. Corrigé en
+arrêtant puis relançant `ollama app.exe`/`ollama.exe` : la clé réapparaît,
+tous les modèles suivants passent.
+
+### Modèles mis à jour, chacun vérifié réellement avant de changer la config
+Recherche préalable (13 requêtes) pour identifier le meilleur modèle par
+rôle, rapport donné avant tout téléchargement, accord explicite de
+l'utilisateur avant de lancer. Script séquentiel (candidat proposé, puis
+repli automatique sur l'ancien modèle du rôle si le tag proposé n'existe
+pas sur le registre — jamais les deux téléchargés en double).
+
+- **swift** : `qwen3:1.7b` → `qwen3.5:2b`. **embedding** :
+  `nomic-embed-text` → `qwen3-embedding:0.6b`. **double_check** :
+  `qwen3:4b` → `qwen3.5:4b`. Les trois largement sous le budget VRAM de
+  cette carte, aucun risque de régression à vérifier.
+- **code** : `qwen3-coder:30b` → `qwen3.6:27b`. Comparaison directe sur
+  cette machine (`ollama ps`, même prompt-sonde, un seul modèle chargé à
+  la fois) : l'ancien modèle tournait déjà 21 %/79 % CPU/GPU (19 Go sur
+  disque, dépasse déjà le budget de la carte), le nouveau 18 %/82 %
+  (17 Go) — légèrement meilleur, plus récent, pas une régression.
+- **code_agentic** : `devstral-small-2` **rejeté** après vérification.
+  `devstral` (déjà en place) tourne 100 % GPU (14 Go) ; `devstral-small-2`
+  (16 Go) retombe à 88 %/12 % CPU/GPU — une vraie régression pour un rôle
+  dont tout l'intérêt est l'enchaînement rapide d'appels d'outils. « Plus
+  récent » n'était pas « meilleur » ici ; `devstral` reste le modèle du
+  rôle.
+- **security**, **reasoning_escalation** : candidats proposés
+  (`phi4-reasoning-plus`, `deepseek-r2`) absents du registre — repli
+  automatique du script sur les modèles déjà en place
+  (`phi4-reasoning:14b-q4_K_M`, `deepseek-r1:32b`), aucun changement.
+- **standard**, **orchestrator**, **vision**, **reasoning**,
+  **advanced_analysis** : inchangés, simplement réinstallés.
+
+`config/models.yaml` mis à jour en conséquence (`vram_gb` par rôle changé,
+commentaires factuels remplacés — plus de vieux chiffres HOS-065C présentés
+comme valables pour un modèle qui n'est plus celui chargé). Nettoyage :
+`devstral-small-2` supprimé du disque (rejeté) ; `qwen3-coder:30b` laissé
+en place (suppression bloquée par le classifieur auto-mode, sans
+conséquence — juste 19 Go inutilisés).
+
+### Dette découverte en cascade — noms de modèles codés en dur
+`config/models.yaml` est censé être la seule source de vérité, mais
+plusieurs points codaient un tag en dur au lieu de le résoudre dynamique-
+ment : `ResponseGenerator.DEFAULT_CHAT_MODEL`, `RealTaskExecutor`'s
+`default_model`, quatre docstrings citant l'ancien tag par rôle
+(`atlas.py`, `hermes_swift.py`, `semantic.py`) — tous mis à jour. La
+résolution `chat_capable` de Model Intelligence, elle, s'est révélée déjà
+saine : basée sur le *nom du rôle* (`role_name != "embedding"`), pas sur
+le tag — le nouveau modèle d'embedding est automatiquement exclu du chat
+sans code à toucher.
+
+### Verified
+- Suite complète (`backend/tests` + `tests/`, pas seulement le sous-
+  ensemble par défaut de `pytest.ini` — `testpaths` pointe uniquement vers
+  `backend/tests`, vérifié après coup) : **26 tests cassés trouvés et
+  corrigés** en deux passes. La plupart pointaient un ancien tag en dur
+  contre la vraie config (`qwen3-coder:30b`, `qwen3:1.7b`, `qwen3:4b`,
+  `nomic-embed-text`) ; deux étaient une dette préexistante sans rapport
+  avec ce lot (l'autonomy_level `low`→`medium` de HOS-077 jamais vérifié
+  contre la suite complète faute d'un run qui aille au bout) ; trois
+  venaient d'un vrai trou de HOS-078 (`_FakeAgent.respond_events` pas mis
+  à jour pour les kwargs `tools`/`tool_executor`, jamais exécuté dans un
+  run complet avant ce soir).
+- Run final : 3703 passed, 3 skipped, **1 failed** —
+  `test_task_executor_shares_the_container_model_intelligence`, un état
+  partagé (`ModelMemoryAdapter`) qui fuit d'un fichier de test à l'autre
+  selon l'ordre d'exécution ; confirmé sans rapport avec ce lot (128/128
+  vert quand ce fichier tourne seul) et préexistant. Non corrigé ici —
+  hors périmètre d'un lot modèles, signalé pour un futur passage.
+
+### Also
+- `.claude/launch.json` : `hermes-cockpit` gagne `autoPort: false` — le
+  port 3010 est en dur dans la liste blanche CORS du backend et dans le
+  lanceur Desktop (HOS-077), un port réattribué automatiquement casserait
+  les deux silencieusement. Trouvé en diagnostiquant un `node.exe` orphelin
+  qui bloquait le port.
+
+## HOS-078 — Assistant : menu modèle coupé corrigé, recherche internet réelle (2026-08-09)
+
+Deux demandes. La première (capture d'écran à l'appui) : le menu de
+sélection de modèle s'ouvrait vers le bas et sortait de l'écran, rendant
+« Effort de réflexion » et « Modèle spécifique » inaccessibles. La seconde :
+« est-il possible de demander aux modèles locaux de faire des recherches
+sur internet ? » — réponse honnête après audit : non, ni la recherche ni
+l'appel d'outils n'existaient nulle part dans le pipeline de chat ; les
+deux ont été construits ce soir, avec l'accord explicite de l'utilisateur
+(DuckDuckGo, gratuit, sans clé) sur le choix du fournisseur.
+
+### Corrigé — menu modèle coupé par le viewport
+`ModelPicker` s'ouvrait avec `top-full`/`mt-2` (vers le bas) — dans un
+composeur ancré en bas d'écran, ça sort systématiquement du viewport sans
+aucun moyen d'atteindre les options du bas. Même correctif déjà appliqué à
+`SlashCommandMenu` pour la même raison : `bottom-full`/`mb-2` (ouverture
+vers le haut), `max-h-96` remplacé par `max-h-[60vh]`.
+
+### Ajouté — recherche internet réelle pour le chat
+Audit préalable (agent dédié) : aucun code de recherche web nulle part
+(le seul « connecteur navigateur » existant, `BrowserConnector`, est une
+coquille vide, `extract_text()` renvoie `""`) ; et même avec un vrai
+connecteur, `OllamaClient.chat_events()` n'envoyait jamais `tools=[...]`
+à Ollama — le chat était une pure boucle de complétion de texte, pour
+tous les agents, pas seulement l'Assistant.
+
+- `backend/tools/connectors/web_search.py` (nouveau) — `WebSearchConnector`,
+  requête HTTP réelle vers `html.duckduckgo.com/html/` (aucune clé API,
+  DuckDuckGo n'a jamais proposé d'API JSON gratuite sans compte), parsing
+  par regex du HTML réel (bs4/lxml absents de l'environnement, vérifié
+  avant d'écrire le code), dérésolution du redirecteur `uddg=` de DuckDuckGo
+  vers l'URL réelle. Vérifié en direct contre le vrai endpoint avant
+  intégration.
+- `OllamaClient.chat_events()` — nouveau paramètre `tools`, transmis tel
+  quel dans le payload `/api/chat`. `StreamChunk` gagne un 4ᵉ genre,
+  `"tool_calls"`. **Bug trouvé en testant en direct contre Ollama** :
+  `tool_calls` n'arrive que sur le tout dernier chunk (`done: true`), et
+  le code renvoyait (`return`) sur `done` *avant* de lire `message` —
+  chaque appel d'outil aurait été silencieusement perdu. Corrigé en lisant
+  `message` avant le contrôle `done`.
+- `BaseAgent._stream_with_tools()` — la vraie boucle d'aller-retour :
+  transmet `tools`, exécute réellement l'outil demandé via un
+  `tool_executor` injecté, réinjecte le résultat réel comme message
+  `role: tool`, relance un tour. Bornée à 3 tours
+  (`_MAX_TOOL_ROUNDS`) — observé en conditions réelles avec gpt-oss:20b :
+  le modèle peut affiner sa recherche indéfiniment sans jamais conclure.
+  Après épuisement des tours, un dernier appel forcé **sans `tools`** —
+  le modèle ne peut alors plus que synthétiser depuis ce qu'il a déjà
+  trouvé, plutôt que de recevoir un message d'abandon statique.
+- `backend/conversation/routes.py` — `web_search` proposé à chaque tour de
+  `/conversation/stream` (le rôle `orchestrator`/hermes_prime avait déjà
+  été choisi en 2026-07 pour son tool-calling fiable — confirmé utile ce
+  soir). Porte Aegis réelle (`_web_search_authorized`, même schéma que
+  `_cloud_authorized` pour `cloud_inference`) : catégorie `web_search`
+  ajoutée à `config/security.yaml`, `min_autonomy_for_auto_allow: medium`
+  — plus bas que `cloud_inference` (« high ») car une requête de recherche
+  est une exposition réelle mais plus restreinte qu'un prompt entier
+  envoyé au cloud. En dessous du seuil, refus explicite renvoyé au modèle
+  (pas d'UI d'approbation possible dans un flux de chat en direct,
+  contrairement au pause/resume de Missions).
+- Cockpit : bloc « Recherche » repliable dans le fil (même patron que le
+  bloc de raisonnement) — visible dès que le modèle demande une recherche
+  (`Recherche…`), affiche la vraie requête et, une fois dépliée, les vrais
+  résultats DuckDuckGo (titre/URL/extrait) reçus par le modèle.
+
+### Verified
+- Trois tests manuels en direct contre Ollama réel (aucun mock) : une
+  question piège (capitale fictive) a déclenché 3 recherches réelles
+  successives avec affinage de requête ; une question factuelle simple
+  (« dernière version de Next.js ? ») a produit une recherche, des
+  résultats réels (GitHub releases, versionlog.com) et une réponse finale
+  honnêtement nuancée plutôt qu'un numéro de version inventé.
+- Vérifié de bout en bout dans le vrai Cockpit (pas seulement en script) :
+  question posée en français, modèle auto-routé (`qwen3.5:9b`, confirmé
+  `"tools"` dans ses capacités Ollama), bloc de recherche affiché en
+  direct avec la vraie requête, dépliable pour voir les 3 vrais résultats.
+- 15 nouveaux tests, tous verts : `tests/architecture/test_base_agent_tools.py`
+  (6, boucle d'appel d'outils avec un faux client Ollama scripté),
+  `tests/tools/test_web_search.py` (9, parsing HTML réel-mais-fixe,
+  déballage d'URL, requête réseau réelle échouée propagée et non
+  fabriquée), `tests/architecture/test_conversation_web_search.py` (6,
+  logique de l'exécuteur d'outil), `backend/tests/test_aegis.py` (+3,
+  vrai moteur Aegis à low/medium/high pour `web_search`).
+- La suite complète n'avait pas pu être vérifiée le soir même (premier
+  lancement bloqué à 64 % sur un vrai hang réseau Ollama sans rapport avec
+  ce lot, deuxième lancement annulé) — confirmée verte a posteriori dans
+  HOS-079 ci-dessous, une fois lancée avec les deux lots ensemble. Suite
+  frontend (`vitest`) : 80/80, `tsc --noEmit` propre.
+
 ## HOS-077 — Autonomous OS : test réel, mission_id vide corrigé, repli générique rendu honnête (2026-08-09)
 
 Demande de l'utilisateur : tester le mode Autonomous en conditions réelles

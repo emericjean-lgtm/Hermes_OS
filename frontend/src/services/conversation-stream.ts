@@ -33,10 +33,28 @@ export interface ContextUsage {
   window: number;
 }
 
+/** One real internet search the model asked for (Assistant chat, real
+ *  DuckDuckGo results — see backend/tools/connectors/web_search.py). */
+export interface ToolCall {
+  id?: string;
+  function?: { name: string; arguments?: Record<string, unknown> };
+}
+export interface ToolResult {
+  name: string;
+  arguments?: Record<string, unknown>;
+  result: string;
+}
+
 export interface StreamHandlers {
   onRouting?: (routing: StreamRouting) => void;
   onThinking?: (text: string) => void;
   onContent?: (text: string) => void;
+  /** The model asked to call a tool (currently only `web_search`) — fires
+   *  before the tool actually runs. */
+  onToolCall?: (calls: ToolCall[]) => void;
+  /** The tool actually ran and this is its real result, fed back to the
+   *  model for its next turn. */
+  onToolResult?: (results: ToolResult[]) => void;
   /** Terminal signal from the server, carrying the analysed intent and
    *  real context-window usage for this turn. */
   onDone?: (payload: {
@@ -115,7 +133,7 @@ export async function streamConversation(
         if (!line.trim()) continue;
         let event: {
           kind: string; text?: string; error?: string; session_id?: string;
-          intent?: any; context?: ContextUsage;
+          intent?: any; context?: ContextUsage; tool_calls?: any[];
         };
         try {
           event = JSON.parse(line);
@@ -128,6 +146,12 @@ export async function streamConversation(
             break;
           case "content":
             handlers.onContent?.(event.text ?? "");
+            break;
+          case "tool_calls":
+            handlers.onToolCall?.((event.tool_calls ?? []) as ToolCall[]);
+            break;
+          case "tool_result":
+            handlers.onToolResult?.((event.tool_calls ?? []) as ToolResult[]);
             break;
           case "done":
             handlers.onDone?.({
