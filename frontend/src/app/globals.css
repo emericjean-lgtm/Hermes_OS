@@ -2,190 +2,251 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ═══════════════════════════════════════════════════════════════════
-   HERMES OS — CYBERPUNK DESIGN SYSTEM
-   ═══════════════════════════════════════════════════════════════════
-   Deep-space substrate, neon signal accents. The palette is built so
-   that colour carries *meaning*: cyan is the system speaking, magenta
-   is a human decision point, green/amber/red are health, violet is
-   autonomous activity. Nothing is decorative-only.
-   ═══════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════
+   HERMES OS — "SODIUM"
+   ══════════════════════════════════════════════════════════════════════
+   An industrial signal terminal, not a neon dashboard.
+
+   The previous system was cyan + magenta on near-black: the default
+   cyberpunk palette, six competing accents, glow on every hover, zero
+   texture. This replaces it with a single organising idea —
+   TEMPERATURE CONTRAST: a cold, blue-tinted carbon chassis carrying one
+   warm sodium-vapour signal. Everything that matters is warm; everything
+   structural is cold. That is the whole grammar.
+
+   Reference points: sodium-vapour street lighting, real aerospace mission
+   control (amber phosphor, fixed-width telemetry, alarm hierarchy),
+   industrial instrument design (cold chassis, one accent, exposed
+   technical labelling), and technical drawings (registration marks,
+   frame numbering).
+
+   Colour carries meaning and nothing is decorative-only:
+     sodium  — the system speaking, and every interactive affordance
+     glacier — a human decision point (cold, rare, deliberate)
+     steel   — autonomous activity
+     arc/gold/alarm — the health scale, read as one continuum
+   ══════════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* ── Substrate ── */
-  --hermes-bg: #05070d;
-  --hermes-bg-deep: #03040a;
-  --hermes-surface: #090c16;
-  --hermes-card: #0d1120;
-  --hermes-elevated: #131829;
-  --hermes-border: #1e2740;
-  --hermes-border-bright: #2c3a5c;
+  /* ── Chassis: cold carbon. Blue-tinted, never pure black — pure #000
+       reads as an absence rather than a material. ── */
+  --hermes-bg: #080a0d;
+  --hermes-bg-deep: #050609;
+  --hermes-surface: #0d1116;
+  --hermes-card: #11161d;
+  --hermes-elevated: #182029;
+  --hermes-border: #212a35;
+  --hermes-border-bright: #33404f;
 
-  /* ── Signal ── */
-  --hermes-cyan: #00e5ff;
-  --hermes-cyan-dim: #0891a8;
-  --hermes-magenta: #ff2d92;
-  --hermes-violet: #a855f7;
-  --hermes-green: #2bff88;
-  --hermes-amber: #ffb020;
-  --hermes-red: #ff3355;
-  --hermes-blue: #3b82f6;
+  /* ── Signal ──
+     One dominant warm accent. Everything else is either the health
+     scale or the cold counterpoint, used sparingly. */
+  --hermes-sodium: #ff9436;
+  --hermes-sodium-deep: #c2701f;
+  --hermes-glacier: #5eb8e8;
+  --hermes-steel: #8ab4f0;
+  --hermes-arc: #9ede3a;
+  --hermes-gold: #ffc93d;
+  --hermes-alarm: #ff5347;
 
-  /* Legacy aliases — kept so existing markup keeps rendering while the
-     Centers migrate to the cyan/magenta vocabulary. */
-  --hermes-amber-bright: #ffc44d;
-  --hermes-purple: #a855f7;
+  /* Legacy names kept as the public API so all 22 Centers inherit the new
+     palette without 22 edits. The name says cyan; the value is sodium.
+     Centers migrate their vocabulary opportunistically, not in a big bang. */
+  --hermes-cyan: var(--hermes-sodium);
+  --hermes-cyan-dim: var(--hermes-sodium-deep);
+  --hermes-magenta: var(--hermes-glacier);
+  --hermes-violet: var(--hermes-steel);
+  --hermes-green: var(--hermes-arc);
+  --hermes-amber: var(--hermes-gold);
+  --hermes-red: var(--hermes-alarm);
+  --hermes-blue: var(--hermes-glacier);
+  --hermes-amber-bright: #ffd97a;
+  --hermes-purple: var(--hermes-steel);
 
-  /* ── Type ── */
-  --hermes-text: #e6ecf7;
+  /* ── Type: cold steel greys against the warm signal ── */
+  --hermes-text: #dfe6ee;
   --hermes-text-bright: #ffffff;
-  --hermes-muted: #7b88a6;
-  --hermes-dim: #4d5876;
+  --hermes-muted: #8695a6;
+  --hermes-dim: #56616f;
 
-  /* ── Glow envelopes ── */
-  --glow-cyan: 0 0 12px rgba(0, 229, 255, 0.45), 0 0 32px rgba(0, 229, 255, 0.15);
-  --glow-magenta: 0 0 12px rgba(255, 45, 146, 0.45), 0 0 32px rgba(255, 45, 146, 0.15);
-  --glow-green: 0 0 12px rgba(43, 255, 136, 0.4), 0 0 28px rgba(43, 255, 136, 0.12);
-  --glow-red: 0 0 12px rgba(255, 51, 85, 0.45), 0 0 28px rgba(255, 51, 85, 0.15);
-  --glow-amber: 0 0 12px rgba(255, 176, 32, 0.4), 0 0 28px rgba(255, 176, 32, 0.12);
+  /* ── Light envelopes ──
+     Tinted to the hue they belong to rather than generic black/white —
+     a sodium glow carries sodium, not a neutral bloom. */
+  --glow-sodium: 0 0 14px rgba(255, 148, 54, 0.32), 0 0 40px rgba(255, 148, 54, 0.10);
+  --glow-glacier: 0 0 14px rgba(94, 184, 232, 0.30), 0 0 40px rgba(94, 184, 232, 0.09);
+  --glow-arc: 0 0 14px rgba(158, 222, 58, 0.28), 0 0 36px rgba(158, 222, 58, 0.08);
+  --glow-alarm: 0 0 14px rgba(255, 83, 71, 0.32), 0 0 36px rgba(255, 83, 71, 0.10);
+  --glow-gold: 0 0 14px rgba(255, 201, 61, 0.28), 0 0 36px rgba(255, 201, 61, 0.08);
+
+  --glow-cyan: var(--glow-sodium);
+  --glow-magenta: var(--glow-glacier);
+  --glow-green: var(--glow-arc);
+  --glow-red: var(--glow-alarm);
+  --glow-amber: var(--glow-gold);
+
+  /* Shadows carry the chassis hue instead of neutral black, so panels sit
+     in the room rather than floating on a grey card. */
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.035) inset,
+                  0 18px 40px -12px rgba(3, 6, 12, 0.9),
+                  0 2px 8px rgba(3, 6, 12, 0.6);
+
+  --rail-w: 56px;
+  --bar-h: 52px;
+  --foot-h: 30px;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
-html,
-body {
+html, body {
   margin: 0;
   padding: 0;
   background: var(--hermes-bg);
   color: var(--hermes-text);
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--font-barlow), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "kern" 1, "liga" 1;
 }
 
-/* The ambient field: a slow perspective grid plus two drifting nebulae.
-   Fixed and behind everything, so scrolling a Center doesn't drag it. */
+/* ── The room ────────────────────────────────────────────────────────
+   Three fixed layers behind everything: a cold horizon wash, a sodium
+   pool bleeding in from the lower-left (a light source in the room, not
+   a symmetric "hero gradient"), and grain. The asymmetry is the point —
+   an even radial glow centred on the viewport is the AI tell. */
+
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background-image:
-    linear-gradient(rgba(0, 229, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 229, 255, 0.045) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 40%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 40%, transparent 100%);
+  background:
+    /* sodium pool, low and off-centre */
+    radial-gradient(70% 55% at 12% 88%, rgba(255, 148, 54, 0.085), transparent 62%),
+    /* cold counter-wash, high and opposite */
+    radial-gradient(60% 45% at 88% 4%, rgba(94, 184, 232, 0.045), transparent 60%),
+    /* horizon lift so the bottom isn't a dead void */
+    linear-gradient(0deg, rgba(255, 148, 54, 0.03), transparent 42%);
 }
 
+/* Engineering grid: measured, not decorative. Fine 8px lattice for the
+   sense of a drawing surface, coarse 96px rules for structure. Masked so
+   it fades out rather than tiling edge to edge. */
 body::after {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(ellipse 60% 50% at 15% 0%, rgba(0, 229, 255, 0.07), transparent 60%),
-    radial-gradient(ellipse 50% 45% at 85% 100%, rgba(255, 45, 146, 0.055), transparent 60%);
-  animation: nebula-drift 24s ease-in-out infinite alternate;
+  background-image:
+    linear-gradient(rgba(133, 149, 166, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(133, 149, 166, 0.055) 1px, transparent 1px),
+    linear-gradient(rgba(133, 149, 166, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(133, 149, 166, 0.022) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 8px 8px, 8px 8px;
+  mask-image: radial-gradient(ellipse 120% 100% at 20% 90%, #000 5%, transparent 72%);
+  -webkit-mask-image: radial-gradient(ellipse 120% 100% at 20% 90%, #000 5%, transparent 72%);
 }
 
-/* Everything the app renders sits above the ambient field. */
-#__next,
-body > div {
-  position: relative;
-  z-index: 1;
+/* Grain + vignette, above the app, inert to the pointer. This is what
+   stops large flat panels reading as sterile vector fills — real
+   instruments have surface. Kept very low opacity: felt, not seen. */
+.room-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.34'/%3E%3C/svg%3E");
 }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+.room-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  pointer-events: none;
+  background: radial-gradient(ellipse 90% 80% at 50% 45%, transparent 55%, rgba(3, 5, 9, 0.55) 100%);
 }
+
+#__next, body > div { position: relative; z-index: 1; }
+
+/* ── Scrollbar: a machined slot, not a rounded pill ── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track {
   background: var(--hermes-bg-deep);
+  border-left: 1px solid var(--hermes-border);
 }
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, var(--hermes-border-bright), var(--hermes-border));
-  border-radius: 4px;
+  background: var(--hermes-border-bright);
+  border: 2px solid var(--hermes-bg-deep);
 }
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, var(--hermes-cyan-dim), var(--hermes-border-bright));
-}
+::-webkit-scrollbar-thumb:hover { background: var(--hermes-sodium-deep); }
 
 ::selection {
-  background: rgba(0, 229, 255, 0.28);
+  background: rgba(255, 148, 54, 0.26);
   color: var(--hermes-text-bright);
 }
 
-/* ── React Flow overrides ── */
-.react-flow__node {
-  font-size: 12px;
+/* Focus is a real, visible affordance — an accessibility requirement,
+   not a style choice. Sodium ring so it reads as "the system responding". */
+:focus-visible {
+  outline: 2px solid var(--hermes-sodium);
+  outline-offset: 2px;
 }
+
+/* ── React Flow ── */
+.react-flow__node { font-size: 12px; }
 .react-flow__edge-path {
-  stroke: var(--hermes-cyan) !important;
+  stroke: var(--hermes-sodium) !important;
   stroke-width: 1.5px !important;
-  filter: drop-shadow(0 0 3px rgba(0, 229, 255, 0.5));
+  filter: drop-shadow(0 0 4px rgba(255, 148, 54, 0.45));
 }
-.react-flow__background {
-  background: transparent !important;
-}
+.react-flow__background { background: transparent !important; }
 
-/* ═══ KEYFRAMES ═══════════════════════════════════════════════════ */
+/* ══ KEYFRAMES ═══════════════════════════════════════════════════════ */
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes nebula-drift {
-  0%   { transform: translate3d(0, 0, 0) scale(1); }
-  100% { transform: translate3d(-2%, 1.5%, 0) scale(1.06); }
+@keyframes count-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Sweep of light across a surface — used on button hover and on the
-   loading bar. translate is GPU-cheap; background-position is not. */
-@keyframes shimmer {
-  0%   { transform: translateX(-120%); }
-  100% { transform: translateX(220%); }
-}
-
-/* A live indicator that reads as a transmitting beacon, not a blink. */
-@keyframes pulse-ring {
-  0%   { transform: scale(0.85); opacity: 0.9; }
-  70%  { transform: scale(2.1); opacity: 0; }
-  100% { transform: scale(2.1); opacity: 0; }
-}
-
-@keyframes glow-breathe {
-  0%, 100% { box-shadow: 0 0 6px rgba(0, 229, 255, 0.25); }
-  50%      { box-shadow: 0 0 18px rgba(0, 229, 255, 0.6), 0 0 40px rgba(0, 229, 255, 0.2); }
-}
-
-/* Travels the border of a panel: a single bright segment orbiting. */
-@keyframes border-orbit {
+/* A single bright segment travelling one edge — reads as a signal moving
+   through the panel rather than a border that "glows". */
+@keyframes edge-run {
   0%   { background-position: 0% 50%; }
   100% { background-position: 200% 50%; }
 }
 
-@keyframes scan-sweep {
-  0%   { top: -10%; opacity: 0; }
-  8%   { opacity: 1; }
-  92%  { opacity: 1; }
-  100% { top: 110%; opacity: 0; }
+@keyframes shimmer {
+  0%   { transform: translateX(-130%); }
+  100% { transform: translateX(240%); }
 }
 
-@keyframes count-in {
-  from { opacity: 0; transform: translateY(6px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+/* Transmitting beacon: solid core, expanding ring. */
+@keyframes pulse-ring {
+  0%   { transform: scale(0.8); opacity: 0.85; }
+  70%  { transform: scale(2.3); opacity: 0; }
+  100% { transform: scale(2.3); opacity: 0; }
+}
+
+@keyframes glow-breathe {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 148, 54, 0.2); }
+  50%      { box-shadow: 0 0 22px rgba(255, 148, 54, 0.5), 0 0 48px rgba(255, 148, 54, 0.16); }
+}
+
+@keyframes scan-sweep {
+  0%   { top: -12%; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: 112%; opacity: 0; }
 }
 
 @keyframes ticker {
@@ -193,58 +254,54 @@ body > div {
   100% { transform: translateX(-50%); }
 }
 
-/* ═══ UTILITY CLASSES ═════════════════════════════════════════════ */
-
-.animate-fade-in { animation: fadeIn 0.45s ease-out; }
-.animate-slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-.animate-count-in { animation: count-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
-.animate-glow-breathe { animation: glow-breathe 3s ease-in-out infinite; }
-.animate-ticker { animation: ticker 40s linear infinite; }
-
-/* Angular corner cuts — the cyberpunk hallmark. Two sizes so a dense
-   table cell and a hero panel don't get the same 14px bite. */
-.clip-corner {
-  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
-}
-.clip-corner-sm {
-  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
-}
-.clip-notch {
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+/* Cold power-on flicker for the display type. Fires once on mount —
+   an instrument coming up, not a loop. */
+@keyframes strike {
+  0%   { opacity: 0; }
+  18%  { opacity: 0.55; }
+  24%  { opacity: 0.12; }
+  38%  { opacity: 0.9; }
+  46%  { opacity: 0.35; }
+  100% { opacity: 1; }
 }
 
-/* Glass panel: translucent substrate + inner top highlight, so panels
-   read as lit from above rather than as flat fills. */
+/* ══ MATERIALS ═══════════════════════════════════════════════════════ */
+
+/* The panel material. Not "glassmorphism" for its own sake — a milled
+   plate: a cold gradient body, a lit top edge, and shadow tinted to the
+   chassis so it sits in the room. Kept as `.glass` because 22 Centers
+   already reference that name. */
 .glass {
-  background: linear-gradient(160deg, rgba(19, 24, 41, 0.88), rgba(9, 12, 22, 0.94));
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 8px 32px rgba(0, 0, 0, 0.5);
+  background:
+    linear-gradient(168deg, rgba(24, 32, 41, 0.86) 0%, rgba(13, 17, 22, 0.94) 100%);
+  backdrop-filter: blur(14px) saturate(118%);
+  -webkit-backdrop-filter: blur(14px) saturate(118%);
+  box-shadow: var(--shadow-panel);
 }
 
 .glass-bright {
-  background: linear-gradient(160deg, rgba(28, 35, 58, 0.9), rgba(13, 17, 32, 0.95));
-  backdrop-filter: blur(14px) saturate(150%);
-  -webkit-backdrop-filter: blur(14px) saturate(150%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 10px 40px rgba(0, 0, 0, 0.55);
+  background:
+    linear-gradient(168deg, rgba(32, 42, 54, 0.9) 0%, rgba(17, 22, 29, 0.95) 100%);
+  backdrop-filter: blur(16px) saturate(124%);
+  -webkit-backdrop-filter: blur(16px) saturate(124%);
+  box-shadow: var(--shadow-panel);
 }
 
-/* Neon edge — a 1px gradient stroke drawn with a mask so it stays crisp
-   at any border-radius and doesn't eat into the padding box. */
-.neon-edge {
-  position: relative;
-}
+/* Hairline edge. A 1px gradient stroke via mask so it stays crisp at any
+   radius. Warm at the lit corner, cold as it wraps away — a single light
+   source, consistently applied. */
+.neon-edge { position: relative; }
 .neon-edge::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(140deg, rgba(0, 229, 255, 0.55), rgba(168, 85, 247, 0.18) 40%, transparent 70%);
+  background: linear-gradient(150deg,
+    rgba(255, 148, 54, 0.42) 0%,
+    rgba(133, 149, 166, 0.16) 34%,
+    rgba(133, 149, 166, 0.05) 68%,
+    transparent 100%);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -252,177 +309,234 @@ body > div {
   pointer-events: none;
 }
 
-/* Same idea, but the bright segment orbits the perimeter. Reserved for
-   panels that are actively doing something. */
+/* Reserved for panels actually doing something. */
 .neon-edge-live::before {
-  background: linear-gradient(
-    90deg,
-    transparent, rgba(0, 229, 255, 0.7), rgba(255, 45, 146, 0.5), transparent
-  );
+  background: linear-gradient(90deg,
+    transparent, rgba(255, 148, 54, 0.75), rgba(158, 222, 58, 0.45), transparent);
   background-size: 200% 100%;
-  animation: border-orbit 3.5s linear infinite;
+  animation: edge-run 3.2s linear infinite;
 }
 
-/* Corner brackets — HUD framing, drawn with two pseudo-elements so no
-   extra DOM nodes are needed per panel. */
-.bracket {
-  position: relative;
+/* Spotlight: the panel edge illuminates under the cursor, tracking real
+   pointer position (set as --mx/--my by the Card component). Depth that
+   responds to the user instead of a static hover glow on everything. */
+.spotlight { position: relative; }
+.spotlight::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(
+    260px circle at var(--mx, 50%) var(--my, 0%),
+    rgba(255, 148, 54, 0.55),
+    rgba(255, 148, 54, 0.12) 42%,
+    transparent 68%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.32s ease;
+  pointer-events: none;
 }
+.spotlight:hover::after { opacity: 1; }
+
+/* Registration marks — the signature framing device, borrowed from
+   technical drawings and film leader. Ticks sit *outside* the corner,
+   so a panel reads as a plate placed on a drawing surface rather than a
+   card with a border. Corner brackets, but earned. */
+.bracket { position: relative; }
 .bracket::before,
 .bracket::after {
   content: "";
   position: absolute;
-  width: 12px;
-  height: 12px;
-  border-color: var(--hermes-cyan);
-  opacity: 0.55;
+  width: 9px;
+  height: 9px;
+  border-color: var(--hermes-sodium);
+  opacity: 0.45;
   pointer-events: none;
-  transition: opacity 0.25s ease, width 0.25s ease, height 0.25s ease;
+  transition: opacity 0.28s ease, width 0.28s ease, height 0.28s ease;
 }
 .bracket::before {
-  top: -1px; left: -1px;
-  border-top: 1.5px solid;
-  border-left: 1.5px solid;
+  top: -3px; left: -3px;
+  border-top: 1px solid;
+  border-left: 1px solid;
 }
 .bracket::after {
-  bottom: -1px; right: -1px;
-  border-bottom: 1.5px solid;
-  border-right: 1.5px solid;
+  bottom: -3px; right: -3px;
+  border-bottom: 1px solid;
+  border-right: 1px solid;
 }
 .bracket:hover::before,
-.bracket:hover::after {
-  opacity: 1;
-  width: 18px;
-  height: 18px;
-}
+.bracket:hover::after { opacity: 1; width: 15px; height: 15px; }
 
-/* A scanline that crosses a panel once per cycle. Opt-in per panel;
-   applying it globally would be motion sickness, not atmosphere. */
-.scanline {
-  position: relative;
-  overflow: hidden;
-}
+/* Scanline. Opt-in per panel — applying it globally is motion sickness,
+   not atmosphere. */
+.scanline { position: relative; overflow: hidden; }
 .scanline::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  height: 28%;
-  background: linear-gradient(180deg, transparent, rgba(0, 229, 255, 0.07), transparent);
-  animation: scan-sweep 7s ease-in-out infinite;
+  left: 0; right: 0;
+  height: 24%;
+  background: linear-gradient(180deg, transparent, rgba(255, 148, 54, 0.055), transparent);
+  animation: scan-sweep 8s ease-in-out infinite;
   pointer-events: none;
 }
 
-/* Button light-sweep. The child span carries the gradient; overflow on
-   the parent clips it to the button's shape. */
-.sweep {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-}
+/* Light sweep on press-worthy surfaces. */
+.sweep { position: relative; overflow: hidden; isolation: isolate; }
 .sweep::after {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 45%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
-  transform: translateX(-120%);
+  top: 0; bottom: 0;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255, 214, 170, 0.18), transparent);
+  transform: translateX(-130%);
   pointer-events: none;
 }
-.sweep:hover::after {
-  animation: shimmer 0.75s ease-out;
+.sweep:hover::after { animation: shimmer 0.7s ease-out; }
+
+/* ── Geometry ────────────────────────────────────────────────────────
+   Radius is varied deliberately, never uniform: chamfered cuts on
+   instrument plates, a tighter bite on dense cells, and a notch that
+   reads as a keyed panel. */
+.clip-corner {
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+}
+.clip-corner-sm {
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px));
+}
+.clip-notch {
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
 }
 
-/* Text that glows in its own colour without a wrapper element. */
-.text-glow-cyan { text-shadow: 0 0 10px rgba(0, 229, 255, 0.65); }
-.text-glow-magenta { text-shadow: 0 0 10px rgba(255, 45, 146, 0.65); }
-.text-glow-green { text-shadow: 0 0 10px rgba(43, 255, 136, 0.6); }
-.text-glow-red { text-shadow: 0 0 10px rgba(255, 51, 85, 0.6); }
-.text-glow-amber { text-shadow: 0 0 10px rgba(255, 176, 32, 0.6); }
+/* ── Type treatments ─────────────────────────────────────────────── */
 
-.shadow-glow-cyan { box-shadow: var(--glow-cyan); }
-.shadow-glow-magenta { box-shadow: var(--glow-magenta); }
-.shadow-glow-green { box-shadow: var(--glow-green); }
-.shadow-glow-red { box-shadow: var(--glow-red); }
-.shadow-glow-amber { box-shadow: var(--glow-amber); }
+.text-glow-cyan    { text-shadow: 0 0 12px rgba(255, 148, 54, 0.5); }
+.text-glow-sodium  { text-shadow: 0 0 12px rgba(255, 148, 54, 0.5); }
+.text-glow-magenta { text-shadow: 0 0 12px rgba(94, 184, 232, 0.5); }
+.text-glow-green   { text-shadow: 0 0 12px rgba(158, 222, 58, 0.45); }
+.text-glow-red     { text-shadow: 0 0 12px rgba(255, 83, 71, 0.5); }
+.text-glow-amber   { text-shadow: 0 0 12px rgba(255, 201, 61, 0.45); }
 
-/* Gradient display type for hero numbers and titles. */
-.text-gradient-cyan {
-  background: linear-gradient(135deg, #ffffff 0%, var(--hermes-cyan) 55%, var(--hermes-violet) 100%);
+.shadow-glow-cyan    { box-shadow: var(--glow-sodium); }
+.shadow-glow-magenta { box-shadow: var(--glow-glacier); }
+.shadow-glow-green   { box-shadow: var(--glow-arc); }
+.shadow-glow-red     { box-shadow: var(--glow-alarm); }
+.shadow-glow-amber   { box-shadow: var(--glow-gold); }
+
+/* Display type: heated metal, not a purple-to-blue web gradient. Runs
+   bone-white through sodium into its deep ember — a single hue family,
+   which is why it reads as material rather than as a "gradient". */
+.text-gradient-cyan,
+.text-gradient-sodium {
+  background: linear-gradient(96deg, #fff3e4 0%, var(--hermes-sodium) 46%, var(--hermes-sodium-deep) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 .text-gradient-signal {
-  background: linear-gradient(135deg, var(--hermes-cyan) 0%, var(--hermes-magenta) 100%);
+  background: linear-gradient(96deg, var(--hermes-sodium) 0%, var(--hermes-gold) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
-/* Transmitting beacon: a solid dot with an expanding ring behind it. */
-.beacon {
-  position: relative;
-  display: inline-flex;
+/* Display face, used for anything that should feel stamped rather than
+   typed: headline numerals, screen titles, the wordmark. */
+.display {
+  font-family: var(--font-chakra), var(--font-barlow), system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
+.animate-strike { animation: strike 0.9s steps(1) both; }
+
+/* Technical label — the small uppercase caption that names a reading.
+   Positive tracking because small caps need air to stay legible. */
+.tech-label {
+  font-family: var(--font-plex), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+  color: var(--hermes-dim);
+}
+
+/* Every numeral in the cockpit is tabular — columns of figures that
+   shift width as they update are unreadable at a glance. */
+.num {
+  font-family: var(--font-plex), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* ── Beacon ── */
+.beacon { position: relative; display: inline-flex; }
 .beacon::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: 9999px;
   background: currentColor;
-  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: pulse-ring 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Respect the OS setting. Atmosphere is not worth a migraine. */
+/* ── Utilities ── */
+.animate-fade-in   { animation: fadeIn 0.45s ease-out; }
+.animate-slide-up  { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-count-in  { animation: count-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.animate-glow-breathe { animation: glow-breathe 3.4s ease-in-out infinite; }
+.animate-ticker    { animation: ticker 44s linear infinite; }
+
+/* Hairline rule that fades — used to close a header without drawing a
+   full-width line across the panel. */
+.rule-fade {
+  background: linear-gradient(90deg, var(--hermes-border-bright), transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  body::after { animation: none; }
+  .room-grain { opacity: 0.32; }
 }
 
-/* ── Chat markdown + syntax highlighting (HOS-074) ────────────────────
-   highlight.js emits `hljs-*` classes; rather than ship one of its stock
-   themes (all designed for a white or generic-dark page), the palette is
-   mapped onto the cockpit's own signal colours so a code block reads as
-   part of Hermes rather than a pasted-in widget. */
-.hermes-md .hljs { color: #e6ecf7; background: transparent; }
+/* ── Chat markdown + syntax highlighting ─────────────────────────────
+   highlight.js emits `hljs-*` classes; rather than ship a stock theme,
+   the palette is mapped onto the cockpit's own signal colours so a code
+   block reads as part of the instrument rather than a pasted-in widget. */
+.hermes-md .hljs { color: #dfe6ee; background: transparent; }
 .hermes-md .hljs-comment,
-.hermes-md .hljs-quote { color: #4d5876; font-style: italic; }
+.hermes-md .hljs-quote { color: #56616f; font-style: italic; }
 .hermes-md .hljs-keyword,
 .hermes-md .hljs-selector-tag,
 .hermes-md .hljs-literal,
-.hermes-md .hljs-doctag { color: #ff2d92; }
+.hermes-md .hljs-doctag { color: #5eb8e8; }
 .hermes-md .hljs-string,
 .hermes-md .hljs-regexp,
-.hermes-md .hljs-addition { color: #2bff88; }
+.hermes-md .hljs-addition { color: #9ede3a; }
 .hermes-md .hljs-number,
 .hermes-md .hljs-symbol,
-.hermes-md .hljs-bullet { color: #ffb020; }
+.hermes-md .hljs-bullet { color: #ffc93d; }
 .hermes-md .hljs-title,
 .hermes-md .hljs-section,
-.hermes-md .hljs-name { color: #00e5ff; }
+.hermes-md .hljs-name { color: #ff9436; }
 .hermes-md .hljs-attr,
 .hermes-md .hljs-attribute,
 .hermes-md .hljs-variable,
-.hermes-md .hljs-template-variable { color: #a855f7; }
+.hermes-md .hljs-template-variable { color: #8ab4f0; }
 .hermes-md .hljs-type,
 .hermes-md .hljs-class .hljs-title,
-.hermes-md .hljs-built_in { color: #3b82f6; }
-.hermes-md .hljs-meta { color: #7b88a6; }
-.hermes-md .hljs-deletion { color: #ff3355; }
+.hermes-md .hljs-built_in { color: #7fd4c1; }
+.hermes-md .hljs-meta { color: #8695a6; }
+.hermes-md .hljs-deletion { color: #ff5347; }
 .hermes-md .hljs-emphasis { font-style: italic; }
 .hermes-md .hljs-strong { font-weight: 600; }
 
-/* The streaming caret: a block that trails the last token while the answer
-   is still arriving, so a pause in generation reads as "still working"
-   rather than "finished". */
+/* Streaming caret: a block trailing the last token, so a pause in
+   generation reads as "still working" rather than "finished". */
 @keyframes hermes-caret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0; } }
 .hermes-caret::after {
   content: "";
@@ -431,7 +545,7 @@ body > div {
   height: 1em;
   margin-left: 2px;
   vertical-align: text-bottom;
-  background: #00e5ff;
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+  background: var(--hermes-sodium);
+  box-shadow: 0 0 10px rgba(255, 148, 54, 0.55);
   animation: hermes-caret 1.1s steps(1) infinite;
 }

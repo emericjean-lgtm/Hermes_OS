@@ -447,14 +447,30 @@ describe("Feature Centers", () => {
 
 // ── Navigation ────────────────────────────────────────
 describe("Navigation", () => {
-  it("Sidebar is exported", async () => {
-    const { Sidebar } = await import("@/components/sidebar");
-    expect(typeof Sidebar).toBe("function");
+  // The expand/collapse Sidebar and the Topbar were replaced by the
+  // permanent icon Rail, the InstrumentBar and the ⌘K CommandPalette.
+  it("Rail is exported", async () => {
+    const { Rail } = await import("@/components/rail");
+    expect(typeof Rail).toBe("function");
   });
 
-  it("Topbar is exported", async () => {
-    const { Topbar } = await import("@/components/topbar");
-    expect(typeof Topbar).toBe("function");
+  it("InstrumentBar is exported", async () => {
+    const { InstrumentBar } = await import("@/components/instrument-bar");
+    expect(typeof InstrumentBar).toBe("function");
+  });
+
+  it("CommandPalette is exported", async () => {
+    const { CommandPalette } = await import("@/components/command-palette");
+    expect(typeof CommandPalette).toBe("function");
+  });
+
+  it("every navigation id resolves to a distinct label", async () => {
+    const { ALL_NAV_ITEMS } = await import("@/components/nav-model");
+    const ids = ALL_NAV_ITEMS.map((i) => i.id);
+    expect(ids.length).toBeGreaterThan(0);
+    // A duplicated id would make two rail entries fight over the same
+    // Center and silently shadow one of them.
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("StatusBar is exported", async () => {

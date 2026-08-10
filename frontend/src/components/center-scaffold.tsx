@@ -35,7 +35,7 @@ export function CenterHeader({
       <div className="min-w-0">
         <div className="flex items-center gap-2.5">
           <span className="h-4 w-[3px] rounded-full bg-gradient-to-b from-hermes-cyan to-hermes-magenta shadow-glow-cyan" />
-          <h1 className="text-xl font-bold font-mono tracking-tight text-gradient-cyan">
+          <h1 className="display text-[22px] leading-tight text-gradient-sodium">
             {title}
           </h1>
         </div>
@@ -77,7 +77,7 @@ export function StatGrid({
             initial={{ opacity: 0, y: 12, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.45, delay: i * 0.05, ease: [0.16, 1, 0.3, 1] }}
-            className="group relative rounded-xl glass neon-edge bracket p-3 text-center overflow-hidden
+            className="group relative clip-corner glass neon-edge bracket p-3 text-center overflow-hidden
               transition-all duration-300 hover:-translate-y-0.5 hover:shadow-glow-cyan"
           >
             <div
@@ -127,7 +127,7 @@ export function Toolbar({
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder={placeholder}
-          className="w-full glass rounded-lg border border-hermes-border pl-7 pr-3 py-2 text-sm
+          className="w-full glass clip-corner-sm border border-hermes-border pl-7 pr-3 py-2 text-sm
             text-hermes-text font-mono placeholder:text-hermes-dim
             focus:outline-none focus:border-hermes-cyan/60 focus:shadow-glow-cyan
             transition-all duration-200"
@@ -137,7 +137,7 @@ export function Toolbar({
         <button
           key={f}
           onClick={() => onFilter?.(f)}
-          className={`sweep clip-corner-sm px-3 py-2 rounded-md text-[11px] font-mono font-semibold
+          className={`sweep clip-corner-sm px-3 py-2 text-[11px] font-mono font-semibold
             uppercase tracking-wider border transition-all duration-200 active:scale-[0.97] ${
               activeFilter === f
                 ? "border-hermes-cyan/60 bg-hermes-cyan/10 text-hermes-cyan shadow-glow-cyan"
@@ -298,7 +298,7 @@ export function CenterTabs<T extends string>({
   onChange: (id: T) => void;
 }) {
   return (
-    <div className="relative flex items-center gap-1 mb-5 p-1 rounded-lg glass border border-hermes-border w-fit">
+    <div className="relative flex items-center gap-1 mb-5 p-1 clip-corner-sm glass border border-hermes-border w-fit">
       {tabs.map((t) => {
         const on = t.id === active;
         return (
@@ -306,7 +306,7 @@ export function CenterTabs<T extends string>({
             key={t.id}
             onClick={() => onChange(t.id)}
             aria-current={on ? "page" : undefined}
-            className={`sweep relative px-4 py-1.5 rounded-md text-[11px] font-mono font-semibold
+            className={`sweep relative px-4 py-1.5 clip-corner-sm text-[11px] font-mono font-semibold
               uppercase tracking-wider transition-colors duration-200 flex items-center gap-2
               ${on ? "text-hermes-cyan" : "text-hermes-muted hover:text-hermes-text"}`}
           >

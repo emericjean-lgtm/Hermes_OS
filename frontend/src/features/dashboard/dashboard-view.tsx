@@ -3,20 +3,28 @@
 import { motion } from "framer-motion";
 import {
   useSystemHealth, useSystemStatistics, useMissions, useAgents,
-  useRuntimes, useApprovals,
+  useRuntimes, useApprovals, useResourceStatus,
 } from "@/hooks/use-api";
 import { useWebSocket, severityColor } from "@/hooks/use-websocket";
 import { useCockpitStore } from "@/hooks/use-store";
-import { Card, Badge, StatCard, ProgressBar, Beacon } from "@/components/ui/card";
+import { Card, Badge, ProgressBar } from "@/components/ui/card";
 import { PanelLoading } from "@/components/center-scaffold";
 import {
-  Target, Users, Zap, ShieldAlert, CheckCircle2, XCircle,
-  Activity, ArrowRight, Radio,
+  Target, Users, Zap, ShieldAlert, ArrowUpRight, Radio, Cpu, Database, Check,
 } from "lucide-react";
 
-/** Écran d'accueil du cockpit. Tout ce qui est affiché ici vient d'un
- *  endpoint réel ; aucune valeur n'est simulée pour remplir la mise en page.
- *  Quand une donnée manque, elle est montrée comme manquante. */
+/** The cockpit's landing surface.
+ *
+ *  Laid out around the operator's real questions, in the order they matter:
+ *  is anything waiting on *me*, is the machine healthy, what is running,
+ *  and what just happened. That hierarchy — not a grid of equal tiles — is
+ *  what decides the sizes here: approvals get width because they block, the
+ *  vitals stack gets a narrow permanent column because it is glanced at
+ *  rather than read, and missions get the full measure because they are the
+ *  thing you actually work on.
+ *
+ *  Every value comes from a real endpoint. Where data is missing it is shown
+ *  as missing; nothing is padded with a plausible-looking number. */
 export function DashboardView() {
   const { data: health, isLoading: healthLoading } = useSystemHealth();
   const { data: stats } = useSystemStatistics();
@@ -24,177 +32,376 @@ export function DashboardView() {
   const { data: agents } = useAgents();
   const { data: runtimes } = useRuntimes();
   const { data: approvals } = useApprovals();
-  const { events: liveEvents, connected } = useWebSocket({ maxEvents: 14 });
+  const { data: res } = useResourceStatus();
+  const { events: liveEvents, connected } = useWebSocket({ maxEvents: 18 });
   const setActiveView = useCockpitStore((s) => s.setActiveView);
 
   const activeMissions =
     missions?.filter((m) => ["RUNNING", "PLANNING", "READY"].includes(m.status)).length ?? 0;
-  const completedMissions = missions?.filter((m) => m.status === "COMPLETED").length ?? 0;
   const failedMissions = missions?.filter((m) => m.status === "FAILED").length ?? 0;
   const activeAgents =
     agents?.filter((a) => a.status === "BUSY" || a.status === "STARTING").length ?? 0;
-  const pendingApprovals = approvals?.filter((a) => a.status === "PENDING").length ?? 0;
+  const pending = approvals?.filter((a) => a.status === "PENDING") ?? [];
 
   const subsystems = Object.entries(health?.subsystems ?? {});
   const healthy = subsystems.filter(([, s]) => s.status === "HEALTHY").length;
-  const healthPct = subsystems.length ? (healthy / subsystems.length) * 100 : 0;
 
   const status = health?.status ?? "UNKNOWN";
-  const tone =
+  const statusTone =
     status === "HEALTHY"
-      ? { text: "text-hermes-green", glow: "text-glow-green", beacon: "green" as const }
+      ? { text: "text-hermes-arc", label: "NOMINAL", dot: "bg-hermes-arc" }
       : status === "DEGRADED"
-      ? { text: "text-hermes-amber", glow: "text-glow-amber", beacon: "amber" as const }
-      : { text: "text-hermes-red", glow: "text-glow-red", beacon: "red" as const };
+      ? { text: "text-hermes-gold", label: "DÉGRADÉ", dot: "bg-hermes-gold" }
+      : status === "UNKNOWN"
+      ? { text: "text-hermes-dim", label: "INCONNU", dot: "bg-hermes-dim" }
+      : { text: "text-hermes-alarm", label: "CRITIQUE", dot: "bg-hermes-alarm" };
+
+  const vramPct =
+    res?.gpu && res.gpu.vram_total_bytes > 0
+      ? (res.gpu.vram_used_bytes / res.gpu.vram_total_bytes) * 100
+      : null;
 
   return (
-    <div>
-      {/* ── Bandeau titre ─────────────────────────────────────────── */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
+    <div className="grid grid-cols-12 gap-4">
+      {/* ══ MASTHEAD ═══════════════════════════════════════════════════
+          A nameplate, not a hero banner: the wordmark set once at scale,
+          the machine's own name beside it, and the subsystem census read
+          as a segmented matrix rather than a percentage bar. */}
+      <motion.section
+        initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-        className="relative mb-6 rounded-xl glass neon-edge bracket scanline overflow-hidden"
+        transition={{ type: "spring", stiffness: 240, damping: 26 }}
+        className="col-span-12 relative clip-corner glass neon-edge bracket scanline overflow-hidden"
       >
-        <div className="relative flex items-center justify-between gap-6 px-6 py-5">
+        <div className="flex flex-wrap items-end justify-between gap-6 px-6 pt-5 pb-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-3">
-              <span className="h-8 w-[3px] rounded-full bg-gradient-to-b from-hermes-cyan to-hermes-magenta shadow-glow-cyan" />
-              <div>
-                <h1 className="text-3xl font-bold font-mono tracking-tight text-gradient-cyan leading-none">
-                  HERMES OS
-                </h1>
-                <p className="text-[11px] text-hermes-muted font-mono mt-2 tracking-[0.16em] uppercase">
-                  AI Operations Cockpit — Autonomous Mission Control
-                </p>
-              </div>
-            </div>
+            <div className="tech-label mb-2">Cockpit d&apos;opérations · agents autonomes locaux</div>
+            <h1 className="display animate-strike text-[38px] leading-[0.92] tracking-[-0.02em]">
+              <span className="text-hermes-text">HERMES</span>
+              <span className="text-gradient-sodium"> OS</span>
+            </h1>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            <div
-              className={`flex items-center gap-2.5 px-4 py-2.5 rounded-lg border clip-corner
-                glass-bright ${tone.text} border-current/40`}
-            >
-              <Beacon tone={tone.beacon} />
-              <div>
-                <div className={`text-sm font-mono font-bold tracking-wider ${tone.glow}`}>
-                  {status}
-                </div>
-                {subsystems.length > 0 && (
-                  <div className="text-[10px] text-hermes-muted font-mono tabular-nums mt-0.5">
-                    {healthy}/{subsystems.length} sous-systèmes
-                  </div>
-                )}
+          <div className="flex items-end gap-7">
+            {res?.gpu?.name && (
+              <Readout label="Processeur graphique" value={res.gpu.name} mono={false} wide />
+            )}
+            <Readout
+              label="Sous-systèmes"
+              value={subsystems.length ? `${healthy}/${subsystems.length}` : "––"}
+            />
+            <div>
+              <div className="tech-label mb-1.5">État</div>
+              <div className="flex items-center gap-2">
+                <span className={`relative flex h-2 w-2 ${statusTone.dot}`}>
+                  <span className={`absolute inline-flex h-full w-full ${statusTone.dot} opacity-60 animate-ping`} />
+                </span>
+                <span className={`display text-[15px] leading-none ${statusTone.text}`}>
+                  {statusTone.label}
+                </span>
               </div>
             </div>
-            <Badge variant={connected ? "success" : "danger"}>
-              {connected && <Beacon tone="green" />}
-              {connected ? "WS LIVE" : "WS OFF"}
-            </Badge>
           </div>
         </div>
 
-        {/* Jauge de santé globale, collée au bas du bandeau. */}
-        {subsystems.length > 0 && (
-          <div className="h-[3px] w-full bg-hermes-bg-deep">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${healthPct}%` }}
-              transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
-              className="h-full bg-gradient-to-r from-hermes-green via-hermes-cyan to-hermes-violet shadow-glow-cyan"
-            />
-          </div>
-        )}
-      </motion.div>
-
-      {/* ── Tuiles clés ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-5 gap-3 mb-6">
-        <StatCard index={0} label="Missions actives" value={activeMissions}
-          icon={<Target size={15} />} trend={activeMissions > 0 ? "up" : "neutral"} />
-        <StatCard index={1} label="Terminées" value={completedMissions}
-          icon={<CheckCircle2 size={15} />} trend="up" />
-        <StatCard index={2} label="Échouées" value={failedMissions}
-          icon={<XCircle size={15} />} trend={failedMissions > 0 ? "down" : "neutral"} />
-        <StatCard index={3} label="Agents occupés" value={`${activeAgents}/${agents?.length ?? 0}`}
-          icon={<Users size={15} />} trend={activeAgents > 0 ? "up" : "neutral"} />
-        <StatCard index={4} label="Approbations" value={pendingApprovals}
-          icon={<ShieldAlert size={15} />} trend={pendingApprovals > 0 ? "down" : "neutral"}
-          description={pendingApprovals > 0 ? "en attente humaine" : undefined} />
-      </div>
-
-      {/* ── Trois colonnes ────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-4 mb-4">
-        {/* Santé par sous-système */}
-        <Card
-          title="Santé des sous-systèmes"
-          subtitle={subsystems.length ? `${healthy} sains sur ${subsystems.length}` : undefined}
-          accent="green"
-          action={<GoTo view="health" onGo={setActiveView} />}
-        >
-          {healthLoading ? (
-            <PanelLoading />
-          ) : subsystems.length === 0 ? (
-            <Empty label="Aucun sous-système rapporté" />
+        {/* Subsystem census. One cell per subsystem, coloured by its real
+            status — a census reads faster than an aggregate percentage,
+            and a single red cell in a row of green is impossible to miss. */}
+        <div className="px-6 pb-4">
+          {subsystems.length === 0 ? (
+            <div className="h-[6px] w-full bg-hermes-border/40" />
           ) : (
-            <div className="flex flex-col gap-1.5 max-h-[248px] overflow-y-auto pr-1">
-              {subsystems.slice(0, 12).map(([name, sub], i) => (
-                <motion.div
+            <div className="flex gap-[2px] h-[6px]" title={`${healthy}/${subsystems.length} sains`}>
+              {subsystems.map(([name, sub], i) => (
+                <motion.span
                   key={name}
-                  initial={{ opacity: 0, x: -6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                  className="group flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md
-                    bg-hermes-bg-deep/50 border border-hermes-border/40
-                    hover:border-hermes-cyan/30 transition-colors"
-                >
-                  <span className="text-[11px] text-hermes-text font-mono truncate">{name}</span>
-                  <Badge
-                    variant={
-                      sub.status === "HEALTHY" ? "success"
-                      : sub.status === "DEGRADED" ? "warning"
-                      : "danger"
-                    }
+                  initial={{ opacity: 0, scaleY: 0.3 }}
+                  animate={{ opacity: 1, scaleY: 1 }}
+                  transition={{ delay: Math.min(i * 0.012, 0.4), duration: 0.3 }}
+                  title={`${name} — ${sub.status}`}
+                  className="flex-1 origin-bottom"
+                  style={{
+                    // The client normalises an unreported status to DEGRADED
+                    // rather than to HEALTHY, so there is no UNKNOWN branch
+                    // to colour here — an unmeasured subsystem reads amber,
+                    // deliberately, instead of being flattered into green.
+                    background:
+                      sub.status === "HEALTHY"
+                        ? "var(--hermes-arc)"
+                        : sub.status === "DEGRADED"
+                        ? "var(--hermes-gold)"
+                        : "var(--hermes-alarm)",
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </motion.section>
+
+      {/* ══ MAIN COLUMN ════════════════════════════════════════════════ */}
+      <div className="col-span-12 xl:col-span-9 flex flex-col gap-4">
+        {/* Primary readouts — three, not five, and sized unequally: the
+            count that changes most often carries the most weight. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <BigReadout
+            index={0}
+            label="Missions actives"
+            value={activeMissions}
+            total={missions?.length}
+            icon={<Target size={14} />}
+            tone="sodium"
+            onOpen={() => setActiveView("missions")}
+            className="lg:col-span-2"
+          />
+          <BigReadout
+            index={1}
+            label="Agents occupés"
+            value={activeAgents}
+            total={agents?.length}
+            icon={<Users size={14} />}
+            tone="steel"
+            onOpen={() => setActiveView("agents")}
+          />
+          <BigReadout
+            index={2}
+            label="Échecs"
+            value={failedMissions}
+            icon={<ShieldAlert size={14} />}
+            tone={failedMissions > 0 ? "alarm" : "muted"}
+            onOpen={() => setActiveView("missions")}
+          />
+        </div>
+
+        {/* Approvals and the live bus, side by side. Approvals lead because
+            they are the only thing on this screen that blocks progress. */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+          <Card
+            title="En attente de vous"
+            subtitle={pending.length ? `${pending.length} décision(s) requise(s)` : undefined}
+            accent="magenta"
+            ref_="S4.01"
+            className="lg:col-span-2"
+            action={<GoTo onGo={() => setActiveView("governance")} />}
+          >
+            {!approvals ? (
+              <PanelLoading />
+            ) : pending.length === 0 ? (
+              /* A composed clear state, not a shrug. Nothing waiting is
+                 good news and should read as such. */
+              <div className="flex flex-col items-center justify-center gap-2.5 py-9">
+                <span className="flex h-8 w-8 items-center justify-center clip-corner-sm
+                  border border-hermes-arc/40 bg-hermes-arc/[0.07]">
+                  <Check size={14} className="text-hermes-arc" />
+                </span>
+                <span className="text-[11.5px] text-hermes-muted">Aucune décision en attente</span>
+                <span className="tech-label">File d&apos;approbation vide</span>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5 max-h-[210px] overflow-y-auto pr-1">
+                {pending.slice(0, 6).map((a, i) => (
+                  <motion.button
+                    key={a.id ?? i}
+                    onClick={() => setActiveView("governance")}
+                    initial={{ opacity: 0, x: -6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: Math.min(i * 0.04, 0.25) }}
+                    className="group text-left flex items-start gap-2.5 px-2.5 py-2 clip-corner-sm
+                      border border-hermes-glacier/25 bg-hermes-glacier/[0.05]
+                      hover:border-hermes-glacier/60 hover:bg-hermes-glacier/[0.1] transition-all"
                   >
-                    {sub.status}
-                  </Badge>
-                </motion.div>
+                    <span className="mt-[3px] h-1.5 w-1.5 shrink-0 bg-hermes-glacier" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11.5px] text-hermes-text truncate">
+                        {a.operation}
+                      </span>
+                      <span className="block num text-[9.5px] text-hermes-dim truncate mt-0.5">
+                        {a.requested_by} · {a.priority}
+                      </span>
+                    </span>
+                    <ArrowUpRight
+                      size={11}
+                      className="shrink-0 mt-0.5 text-hermes-dim group-hover:text-hermes-glacier transition-colors"
+                    />
+                  </motion.button>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card
+            title="Bus d'événements"
+            subtitle={connected ? "flux temps réel" : "flux indisponible"}
+            accent="violet"
+            ref_="S5.03"
+            live={connected}
+            className="lg:col-span-3"
+            action={<GoTo onGo={() => setActiveView("events")} />}
+          >
+            {liveEvents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2.5 py-9">
+                <Radio size={16} className={connected ? "text-hermes-sodium/50" : "text-hermes-dim"} />
+                <span className="text-[11.5px] text-hermes-muted">
+                  {connected ? "En écoute — aucun événement encore" : "Bus déconnecté"}
+                </span>
+              </div>
+            ) : (
+              <div className="flex flex-col max-h-[210px] overflow-y-auto pr-1">
+                {liveEvents.map((evt, i) => (
+                  <motion.div
+                    key={`${evt.type}-${i}`}
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.22 }}
+                    className="group flex items-center gap-2.5 py-[5px] px-1.5
+                      border-b border-hermes-border/30 last:border-0
+                      hover:bg-hermes-sodium/[0.04] transition-colors"
+                  >
+                    <span
+                      className={`h-1 w-1 shrink-0 ${severityColor(evt.severity).replace("text-", "bg-")}`}
+                    />
+                    <span className="num text-[9.5px] text-hermes-steel w-[104px] shrink-0 truncate">
+                      {evt.source}
+                    </span>
+                    <span className="num text-[9.5px] text-hermes-sodium shrink-0 truncate max-w-[150px]">
+                      {evt.type}
+                    </span>
+                    <span className="text-[10px] text-hermes-dim truncate flex-1 hidden sm:block">
+                      {typeof evt.payload === "object" && evt.payload
+                        ? JSON.stringify(evt.payload).slice(0, 60)
+                        : ""}
+                    </span>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* Missions get the full measure — the thing you actually work on. */}
+        <Card
+          title="Missions"
+          subtitle={missions?.length ? `${missions.length} au total` : undefined}
+          accent="cyan"
+          ref_="S1.03"
+          action={<GoTo onGo={() => setActiveView("missions")} />}
+        >
+          {!missions ? (
+            <PanelLoading />
+          ) : missions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-10">
+              <Target size={18} className="text-hermes-dim" />
+              <span className="text-[11.5px] text-hermes-muted">Aucune mission enregistrée</span>
+              <span className="tech-label">Lancez-en une depuis le Mission Center</span>
+            </div>
+          ) : (
+            <div className="flex flex-col max-h-[300px] overflow-y-auto">
+              {missions.slice(0, 10).map((m, i) => (
+                <motion.button
+                  key={m.id}
+                  onClick={() => setActiveView("missions")}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(i * 0.03, 0.3) }}
+                  className="group text-left grid grid-cols-12 items-center gap-3 px-2 py-2.5
+                    border-b border-hermes-border/30 last:border-0
+                    hover:bg-hermes-sodium/[0.04] transition-colors"
+                >
+                  <span className="col-span-12 sm:col-span-5 min-w-0 flex items-center gap-2.5">
+                    <span className="num text-[9px] text-hermes-dim shrink-0 w-5">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[12px] text-hermes-text truncate">
+                        {m.title || "(sans titre)"}
+                      </span>
+                      {m.plan_is_generic && (
+                        <span className="num text-[9px] text-hermes-gold">plan générique</span>
+                      )}
+                    </span>
+                  </span>
+                  <span className="col-span-4 sm:col-span-2 num text-[10px] text-hermes-dim">
+                    {m.completed_nodes ?? 0}/{m.node_count ?? "?"} nœuds
+                  </span>
+                  <span className="col-span-5 sm:col-span-3">
+                    <ProgressBar value={m.progress ?? 0} size="sm" />
+                  </span>
+                  <span className="col-span-3 sm:col-span-2 flex justify-end">
+                    <Badge
+                      variant={
+                        m.status === "RUNNING" ? "info"
+                        : m.status === "COMPLETED" ? "success"
+                        : m.status === "FAILED" ? "danger"
+                        : "default"
+                      }
+                    >
+                      {m.status}
+                    </Badge>
+                  </span>
+                </motion.button>
               ))}
             </div>
           )}
         </Card>
+      </div>
 
-        {/* Runtimes */}
-        <Card
-          title="Runtimes"
-          subtitle={`${runtimes?.length ?? 0} enregistré(s)`}
-          accent="violet"
-          action={<GoTo view="runtime" onGo={setActiveView} />}
-        >
+      {/* ══ VITALS STACK ═══════════════════════════════════════════════
+          A narrow permanent column, read the way an engine instrument
+          stack is read: glanced at, never studied. Deliberately dense and
+          deliberately not card-shaped. */}
+      <aside className="col-span-12 xl:col-span-3 flex flex-col gap-4">
+        <div className="clip-corner glass neon-edge bracket p-4">
+          <div className="tech-label mb-3">Ressources</div>
+
+          <VitalRow
+            icon={<Cpu size={11} />}
+            label="VRAM"
+            value={vramPct !== null ? `${Math.round(vramPct)}%` : "––"}
+            sub={
+              res?.gpu && res.gpu.vram_total_bytes > 0
+                ? `${gb(res.gpu.vram_used_bytes)} / ${gb(res.gpu.vram_total_bytes)} Go`
+                : "indisponible"
+            }
+            pct={vramPct}
+          />
+          <VitalRow
+            icon={<Database size={11} />}
+            label="RAM"
+            value={
+              typeof res?.ram?.usage_pct === "number" ? `${Math.round(res.ram.usage_pct)}%` : "––"
+            }
+            sub={
+              res?.ram && res.ram.total_bytes > 0
+                ? `${gb(res.ram.used_bytes)} / ${gb(res.ram.total_bytes)} Go`
+                : "indisponible"
+            }
+            pct={typeof res?.ram?.usage_pct === "number" ? res.ram.usage_pct : null}
+          />
+        </div>
+
+        <div className="clip-corner glass neon-edge bracket p-4 flex-1">
+          <div className="flex items-center justify-between mb-3">
+            <span className="tech-label">Runtimes</span>
+            <GoTo onGo={() => setActiveView("runtime")} />
+          </div>
           {!runtimes ? (
             <PanelLoading />
           ) : runtimes.length === 0 ? (
-            <Empty label="Aucun runtime enregistré" />
+            <p className="text-[11px] text-hermes-muted py-3">Aucun runtime enregistré</p>
           ) : (
-            <div className="flex flex-col gap-1.5 max-h-[248px] overflow-y-auto pr-1">
-              {runtimes.map((rt) => (
+            <div className="flex flex-col gap-1.5">
+              {runtimes.slice(0, 5).map((rt) => (
                 <div
                   key={rt.name}
-                  className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-md
-                    bg-hermes-bg-deep/50 border border-hermes-border/40
-                    hover:border-hermes-violet/30 transition-colors"
+                  className="flex items-center justify-between gap-2 px-2 py-1.5 clip-corner-sm
+                    border border-hermes-border/50 bg-hermes-bg-deep/40"
                 >
-                  <div className="min-w-0">
-                    <div className="text-[11px] text-hermes-text font-mono truncate">{rt.name}</div>
-                    {rt.type && (
-                      <div className="text-[9px] text-hermes-dim font-mono mt-0.5">{rt.type}</div>
-                    )}
-                  </div>
+                  <span className="text-[11px] text-hermes-text truncate">{rt.name}</span>
                   <Badge
                     variant={
                       rt.status === "AVAILABLE" || rt.status === "started" ? "success"
                       : rt.status === "DEGRADED" ? "warning"
-                      : "danger"
+                      : "default"
                     }
                   >
                     {rt.status}
@@ -203,192 +410,180 @@ export function DashboardView() {
               ))}
             </div>
           )}
-        </Card>
-
-        {/* Flux d'événements */}
-        <Card
-          title="Flux d'événements"
-          subtitle={connected ? "temps réel" : "déconnecté"}
-          accent="magenta"
-          live={connected}
-          action={<GoTo view="events" onGo={setActiveView} />}
-        >
-          {liveEvents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-8">
-              <Radio size={18} className={connected ? "text-hermes-cyan/40" : "text-hermes-dim"} />
-              <span className="text-[10px] text-hermes-muted font-mono">
-                {connected ? "En écoute…" : "Flux indisponible"}
-              </span>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-0.5 max-h-[248px] overflow-y-auto font-mono pr-1">
-              {liveEvents.map((evt, i) => (
-                <motion.div
-                  key={`${evt.type}-${i}`}
-                  initial={{ opacity: 0, x: 8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="flex items-center gap-2 py-1 px-1.5 rounded text-[10px]
-                    hover:bg-hermes-cyan/[0.04] transition-colors"
-                >
-                  <span className={`w-1 h-1 rounded-full shrink-0 ${severityColor(evt.severity).replace("text-", "bg-")}`} />
-                  <span className="text-hermes-violet w-16 shrink-0 truncate">{evt.source}</span>
-                  <span className="text-hermes-cyan shrink-0 truncate max-w-[90px]">{evt.type}</span>
-                  <span className="text-hermes-dim truncate flex-1">
-                    {typeof evt.payload === "object" && evt.payload
-                      ? JSON.stringify(evt.payload).slice(0, 48)
-                      : ""}
-                  </span>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* ── Missions + Agents ─────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4">
-        <Card
-          title="Missions récentes"
-          subtitle={`${activeMissions} active(s)`}
-          accent="cyan"
-          action={<GoTo view="missions" onGo={setActiveView} />}
-        >
-          {!missions ? (
-            <PanelLoading />
-          ) : missions.length === 0 ? (
-            <Empty label="Aucune mission — lancez-en une depuis le Mission Center" />
-          ) : (
-            <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto pr-1">
-              {missions.slice(0, 8).map((m) => (
-                <div
-                  key={m.id}
-                  className="group flex items-center justify-between gap-3 p-2.5 rounded-lg
-                    bg-hermes-bg-deep/50 border border-hermes-border/40
-                    hover:border-hermes-cyan/30 transition-all"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-hermes-text font-medium truncate">
-                      {m.title || "(sans titre)"}
-                    </div>
-                    <div className="text-[9px] text-hermes-dim font-mono mt-0.5">
-                      {m.priority} · {m.completed_nodes ?? 0}/{m.node_count ?? "?"} nœuds
-                    </div>
-                  </div>
-                  <div className="w-20 shrink-0 hidden sm:block">
-                    <ProgressBar value={m.progress ?? 0} size="sm" />
-                  </div>
-                  <Badge
-                    variant={
-                      m.status === "RUNNING" ? "purple"
-                      : m.status === "COMPLETED" ? "success"
-                      : m.status === "FAILED" ? "danger"
-                      : "default"
-                    }
-                  >
-                    {m.status}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        <Card
-          title="Agents"
-          subtitle={`${activeAgents} occupé(s) sur ${agents?.length ?? 0}`}
-          accent="violet"
-          action={<GoTo view="agents" onGo={setActiveView} />}
-        >
-          {!agents ? (
-            <PanelLoading />
-          ) : agents.length === 0 ? (
-            <Empty label="Aucun agent enregistré" />
-          ) : (
-            <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto pr-1">
-              {agents.slice(0, 8).map((a) => (
-                <div
-                  key={a.id}
-                  className="flex items-center justify-between gap-3 p-2.5 rounded-lg
-                    bg-hermes-bg-deep/50 border border-hermes-border/40
-                    hover:border-hermes-violet/30 transition-all"
-                >
-                  <div className="min-w-0">
-                    <div className="text-[11px] text-hermes-text font-medium truncate">{a.name}</div>
-                    <div className="text-[9px] text-hermes-dim font-mono mt-0.5 truncate">
-                      {a.type}{a.runtime ? ` · ${a.runtime}` : ""}
-                    </div>
-                  </div>
-                  <Badge
-                    variant={
-                      a.status === "READY" ? "success"
-                      : a.status === "BUSY" ? "purple"
-                      : a.status === "FAILED" ? "danger"
-                      : "default"
-                    }
-                  >
-                    {a.status}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* ── Compteurs du moteur d'exécution ───────────────────────── */}
-      {stats && (
-        <div className="grid grid-cols-4 gap-3 mt-4">
-          <MiniStat label="Tâches planifiées" value={stats.missions_total} icon={<Activity size={13} />} />
-          <MiniStat label="Agents enregistrés" value={stats.agents_total} icon={<Users size={13} />} />
-          <MiniStat label="Runtimes dispo." value={stats.runtimes_healthy} icon={<Zap size={13} />} />
-          <MiniStat label="Entrées mémoire" value={stats.memory_entries} icon={<Target size={13} />} />
         </div>
-      )}
+
+        <div className="clip-corner glass neon-edge bracket p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="tech-label">Santé détaillée</span>
+            <GoTo onGo={() => setActiveView("health")} />
+          </div>
+          {healthLoading ? (
+            <PanelLoading />
+          ) : subsystems.length === 0 ? (
+            <p className="text-[11px] text-hermes-muted py-3">Aucun sous-système rapporté</p>
+          ) : (
+            <div className="flex flex-col gap-1 max-h-[190px] overflow-y-auto pr-1">
+              {subsystems
+                .filter(([, s]) => s.status !== "HEALTHY")
+                .slice(0, 8)
+                .map(([name, sub]) => (
+                  <div key={name} className="flex items-center justify-between gap-2 py-1">
+                    <span className="num text-[10px] text-hermes-muted truncate">{name}</span>
+                    <Badge variant={sub.status === "DEGRADED" ? "warning" : "danger"}>
+                      {sub.status}
+                    </Badge>
+                  </div>
+                ))}
+              {subsystems.every(([, s]) => s.status === "HEALTHY") && (
+                <div className="flex items-center gap-2 py-2">
+                  <Check size={12} className="text-hermes-arc shrink-0" />
+                  <span className="text-[11px] text-hermes-muted">
+                    Les {subsystems.length} sous-systèmes sont sains
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {stats && (
+          <div className="clip-corner glass neon-edge bracket p-4">
+            <div className="tech-label mb-3">Cumuls</div>
+            <dl className="grid grid-cols-2 gap-y-2.5 gap-x-3">
+              <Cumul label="Missions" value={stats.missions_total} />
+              <Cumul label="Agents" value={stats.agents_total} />
+              <Cumul label="Runtimes OK" value={stats.runtimes_healthy} />
+              <Cumul label="Mémoire" value={stats.memory_entries} />
+            </dl>
+          </div>
+        )}
+      </aside>
     </div>
   );
 }
 
-/* ── Sous-composants ────────────────────────────────────────────── */
+/* ── Parts ─────────────────────────────────────────────────────────── */
 
-function GoTo({ view, onGo }: { view: string; onGo: (v: string) => void }) {
+function gb(bytes: number): string {
+  return (bytes / 1024 ** 3).toFixed(1);
+}
+
+function Readout({
+  label, value, mono = true, wide = false,
+}: { label: string; value: string; mono?: boolean; wide?: boolean }) {
+  return (
+    <div className={wide ? "max-w-[220px] min-w-0" : ""}>
+      <div className="tech-label mb-1.5">{label}</div>
+      <div
+        className={`text-[13px] text-hermes-text leading-none truncate ${mono ? "num" : ""}`}
+        title={value}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+const bigTone = {
+  sodium: { text: "text-hermes-sodium", bar: "var(--hermes-sodium)" },
+  steel: { text: "text-hermes-steel", bar: "var(--hermes-steel)" },
+  alarm: { text: "text-hermes-alarm", bar: "var(--hermes-alarm)" },
+  muted: { text: "text-hermes-muted", bar: "var(--hermes-border-bright)" },
+};
+
+function BigReadout({
+  label, value, total, icon, tone, index = 0, onOpen, className = "",
+}: {
+  label: string;
+  value: number;
+  total?: number;
+  icon: React.ReactNode;
+  tone: keyof typeof bigTone;
+  index?: number;
+  onOpen: () => void;
+  className?: string;
+}) {
+  const t = bigTone[tone];
+  return (
+    <motion.button
+      onClick={onOpen}
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 300, damping: 30, delay: index * 0.05 }}
+      className={`group relative text-left clip-corner glass neon-edge bracket
+        px-4 pt-3.5 pb-4 overflow-hidden transition-transform duration-300
+        hover:-translate-y-[2px] ${className}`}
+    >
+      <span
+        className="absolute bottom-0 left-0 h-[2px] w-7 transition-all duration-[550ms]
+          ease-out-expo group-hover:w-full"
+        style={{ background: `linear-gradient(90deg, ${t.bar}, transparent)` }}
+      />
+      <div className="flex items-start justify-between gap-2">
+        <span className="tech-label">{label}</span>
+        <span className={`${t.text} opacity-40 group-hover:opacity-90 transition-opacity`}>
+          {icon}
+        </span>
+      </div>
+      <div className="mt-2 flex items-baseline gap-1.5">
+        <span className={`display num text-[34px] leading-none ${t.text}`}>{value}</span>
+        {typeof total === "number" && (
+          <span className="num text-[12px] text-hermes-dim">/ {total}</span>
+        )}
+      </div>
+    </motion.button>
+  );
+}
+
+function VitalRow({
+  icon, label, value, sub, pct,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub: string;
+  pct: number | null;
+}) {
+  return (
+    <div className="mb-3.5 last:mb-0">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="flex items-center gap-1.5 text-hermes-muted">
+          {icon}
+          <span className="num text-[10px] tracking-[0.1em]">{label}</span>
+        </span>
+        <span className="num text-[12px] text-hermes-text">{value}</span>
+      </div>
+      {/* invert: on these meters a high reading is the bad one. */}
+      <ProgressBar value={pct ?? 0} size="sm" invert />
+      <div className="num text-[9px] text-hermes-dim mt-1">{sub}</div>
+    </div>
+  );
+}
+
+function Cumul({ label, value }: { label: string; value: number | undefined }) {
+  return (
+    <div>
+      <dt className="tech-label !text-[8.5px]">{label}</dt>
+      <dd className="num text-[15px] text-hermes-text mt-0.5">
+        {typeof value === "number" ? value.toLocaleString("fr-FR") : "––"}
+      </dd>
+    </div>
+  );
+}
+
+function GoTo({ onGo }: { onGo: () => void }) {
   return (
     <button
-      onClick={() => onGo(view)}
-      className="sweep group flex items-center gap-1 px-2 py-1 rounded border border-hermes-border
-        text-[9px] font-mono uppercase tracking-wider text-hermes-muted
-        hover:text-hermes-cyan hover:border-hermes-cyan/50 transition-all active:scale-95"
+      onClick={(e) => {
+        e.stopPropagation();
+        onGo();
+      }}
+      className="group num flex items-center gap-1 px-1.5 py-0.5 clip-corner-sm border
+        border-hermes-border text-[9px] uppercase tracking-[0.1em] text-hermes-dim
+        hover:text-hermes-sodium hover:border-hermes-sodium/50 transition-all"
     >
       Ouvrir
-      <ArrowRight size={9} className="transition-transform group-hover:translate-x-0.5" />
+      <ArrowUpRight size={9} className="transition-transform group-hover:translate-x-[1px] group-hover:-translate-y-[1px]" />
     </button>
-  );
-}
-
-function Empty({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-2 justify-center py-8">
-      <span className="text-hermes-dim font-mono text-xs">◇</span>
-      <span className="text-[10px] text-hermes-muted font-mono">{label}</span>
-    </div>
-  );
-}
-
-function MiniStat({
-  label, value, icon,
-}: { label: string; value: number; icon: React.ReactNode }) {
-  return (
-    <div className="group flex items-center gap-3 px-3.5 py-2.5 rounded-lg glass neon-edge
-      hover:shadow-glow-cyan transition-all duration-300">
-      <span className="text-hermes-cyan/50 group-hover:text-hermes-cyan transition-colors">
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <div className="text-[9px] text-hermes-muted font-mono uppercase tracking-[0.12em] truncate">
-          {label}
-        </div>
-        <div className="text-sm font-bold font-mono text-hermes-text tabular-nums">{value}</div>
-      </div>
-    </div>
   );
 }

@@ -1,3 +1,95 @@
+## HOS-080 — Refonte complète du frontend : direction « SODIUM » (2026-08-10)
+
+Demande de l'utilisateur : refonte complète du Cockpit, style moderne et
+cyberpunk, carte blanche sur le reste, avec une exigence explicite — « une
+interface originale qui ne ressemble pas à un site généré par IA », d'un
+niveau professionnel, sans repartir de la base existante.
+
+### Le problème réel avec l'ancien design
+Audité avant de toucher quoi que ce soit : l'ancien Cockpit cochait la
+plupart des marqueurs « IA générique ». Cyan `#00e5ff` + magenta `#ff2d92`
+sur near-black est *la* palette cyberpunk par défaut ; six accents
+concurrents ; un glow au survol sur absolument tout ; `rounded-xl` uniforme
+partout ; Inter ; aucune texture ; et une police mono déclarée dans
+`tailwind.config.ts` mais **jamais chargée** — chaque libellé `font-mono` du
+cockpit retombait silencieusement sur la mono par défaut de l'OS.
+
+### Direction retenue — « SODIUM »
+Une idée directrice unique : **le contraste de température**. Châssis carbone
+froid bleuté, portant **un seul** signal chaud (sodium `#ff9436`). Tout ce
+qui compte est chaud, tout ce qui est structurel est froid. Références :
+éclairage sodium, salles de contrôle aérospatiales réelles (phosphore ambre,
+télémétrie en chasse fixe, hiérarchie d'alarme), instrumentation industrielle
+(châssis froid, un accent, étiquetage technique apparent), plans techniques
+(marques de repérage). Zéro cyan, zéro magenta, zéro dégradé violet.
+
+- **Typo** : trois rôles réellement chargés via `next/font` — Chakra Petch
+  (display, terminaisons carrées), Barlow (interface), IBM Plex Mono
+  (données, chiffres tabulaires partout).
+- **Texture** : grain SVG + vignette fixes au-dessus de l'app. C'est ce qui
+  empêche les grands aplats de rendre comme du vecteur stérile.
+- **Géométrie** : chanfreins (`clip-corner`) au lieu d'un rayon uniforme.
+
+### Coquille reconstruite
+- `rail.tsx` (nouveau) remplace la sidebar dépliable : rail permanent de 56px,
+  noms en flyout au survol, marques de section (S1…S5) servant aussi d'échelle
+  de position. Un panneau de 232px listant 22 entrées n'est pas une
+  navigation, c'est un inventaire.
+- `command-palette.tsx` (nouveau) — ⌘K, la vraie navigation à 22 écrans.
+  Recherche sur libellé + groupe + mots-clés : « vram » trouve Runtime,
+  « aegis » trouve Security, bien que les mots n'apparaissent nulle part
+  dans le menu.
+- `instrument-bar.tsx` (nouveau) remplace la topbar : position, puis les deux
+  contraintes réelles de ce déploiement (VRAM/RAM) en **tracés live
+  permanents**, puis état et commande.
+- `telemetry-trace.tsx` (nouveau) — la pièce signature : un vrai oscilloscope
+  sur canvas. Il trace ce qu'on lui donne et **tient une ligne plate quand la
+  mesure manque** ; le nourrir de `Math.random()` aurait donné une plus belle
+  image et une image mensongère.
+- `nav-model.ts` (nouveau) — modèle de navigation unique partagé par le rail
+  et la palette, pour qu'ils ne divergent pas.
+- `sidebar.tsx` et `topbar.tsx` supprimés (morts après remplacement).
+
+### Stratégie de propagation aux 22 Centers
+Les noms de tokens et de classes existants (`text-hermes-cyan`, `.glass`,
+`.neon-edge`, `.bracket`…) sont **conservés comme API publique** et
+redéfinis : le nom dit cyan, la couleur est sodium. Les 22 Centers héritent
+donc de la refonte sans 22 éditions simultanées. Vérifié en vrai sur
+Dashboard, Governance et Execution.
+
+### Bugs réels trouvés en vérifiant (pas en auditant)
+- **La palette de commandes bloquait toute l'application.** `AnimatePresence`
+  suit ses enfants par `key` ; sans clé, l'animation de sortie jouait mais le
+  nœud n'était jamais retiré — laissant un overlay plein écran invisible qui
+  avalait *tous* les clics du cockpit. Trouvé parce que la navigation ne
+  marchait plus du tout, diagnostiqué via `document.elementFromPoint`.
+- **Compteur animé retiré après coup.** Un roll-up 0 → valeur avait été
+  ajouté ; il affiche pendant quelques centaines de ms un nombre qui n'est
+  pas la mesure (« 0 échec » quand il y en a trois) et mettait une valeur
+  fausse dans le DOM. Sur un cockpit dont toute la discipline est qu'une
+  valeur affichée est une valeur mesurée, c'est une fioriture qui ment sur
+  l'état — supprimé, pas contourné. C'est le test de non-régression
+  `code-intelligence-center` qui l'a révélé.
+- Deux erreurs de types réelles dans le nouveau Dashboard (`ApprovalRequest`
+  n'a ni `action_type` ni `requesting_agent` ; pas de branche `UNKNOWN` sur
+  un statut de sous-système, le client normalisant déjà l'inconnu en
+  `DEGRADED` plutôt que de le flatter en `HEALTHY`).
+
+### Verified
+- `vitest` : **82/82 verts** (dont le test de non-régression ci-dessus).
+  `tsc --noEmit` : propre.
+- Vérifié en navigateur avec **backend réel démarré**, pas sur des états
+  vides : RX 6800 détecté, 23/35 sous-systèmes, RAM 41 %, matrice de
+  recensement des 35 sous-systèmes aux vraies couleurs, runtime `ollama`
+  STARTED, bus d'événements recevant de vrais `system.metrics`.
+- Palette ⌘K vérifiée en direct (filtrage par mot-clé « vram » → Runtime).
+- Tests mis à jour pour refléter les composants réels (`Rail`,
+  `InstrumentBar`, `CommandPalette`) au lieu des `Sidebar`/`Topbar`
+  supprimés, plus un test d'unicité des identifiants de navigation.
+- **Non vérifié** : les 19 autres Centers n'ont pas été ouverts un par un ;
+  ils héritent des mêmes primitives que les trois contrôlés, mais ce n'est
+  pas une garantie visuelle individuelle.
+
 ## HOS-079 — Ollama : modèles réinstallés et mis à jour, clé de pull régénérée (2026-08-10)
 
 Demande de l'utilisateur suite à un 404 réel (`/api/chat` sur Ollama) :

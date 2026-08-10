@@ -1,9 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Sidebar } from "@/components/sidebar";
-import { Topbar } from "@/components/topbar";
+import { Rail } from "@/components/rail";
+import { InstrumentBar } from "@/components/instrument-bar";
 import { StatusBar } from "@/components/statusbar";
+import { CommandPalette } from "@/components/command-palette";
 import { useCockpitStore } from "@/hooks/use-store";
 import { CenterBoundary } from "@/components/center-boundary";
 import { DashboardView } from "@/features/dashboard/dashboard-view";
@@ -32,14 +34,13 @@ import { WorkspaceCenter } from "@/features/workspace/workspace-center";
 import { ExecutionCenter } from "@/features/execution/execution-center";
 import { ValidationCenter } from "@/features/validation/validation-center";
 
-/** Every id offered by the sidebar must resolve to a Center here.
+/** Every id offered by the rail or the palette must resolve to a Center here.
  *
- *  Eight of these were implemented, exported and never imported: the sidebar
- *  advertised Assistant, Models, Code Intel, Autonomous, Security, System and
- *  Deploy, and clicking any of them silently fell through to the dashboard
- *  because `views` had no entry. The `satisfies` below is what stops that
- *  recurring — a new sidebar id that has no Center is now a type error rather
- *  than a dead menu entry. */
+ *  Eight of these were once implemented, exported and never imported: the
+ *  navigation advertised them and clicking any one silently fell through to
+ *  the dashboard because `views` had no entry. The `satisfies` below is what
+ *  stops that recurring — a nav id with no Center is a type error rather than
+ *  a dead menu entry. */
 const views = {
   dashboard: DashboardView,
   conversation: ConversationCenter,
@@ -76,45 +77,64 @@ const views = {
 } satisfies Record<string, React.FC>;
 
 export default function CockpitShell() {
-  const { activeView, navCollapsed } = useCockpitStore();
+  const { activeView } = useCockpitStore();
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const View = views[activeView as keyof typeof views] ?? DashboardView;
+
+  // ⌘K / Ctrl+K anywhere. Bound on the window rather than a focused element
+  // so it works no matter which Center currently owns focus.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="min-h-screen text-hermes-text">
-      <Sidebar />
-      <Topbar />
-      <motion.main
-        animate={{ marginLeft: navCollapsed ? 68 : 232 }}
-        transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-        // h-screen + overflow-hidden here, overflow-y-auto on the inner div:
-        // without a bounded height, a Center built to scroll internally
-        // (its own flex column with an overflow-y-auto pane, e.g. the
-        // Assistant transcript) instead grows the whole document, and
-        // anything anchored beside that internal pane — a header, a side
-        // rail — scrolls away with it instead of staying in view.
-        className="h-screen overflow-hidden pt-14 pb-8"
+      <Rail onOpenPalette={() => setPaletteOpen(true)} />
+      <InstrumentBar onOpenPalette={() => setPaletteOpen(true)} />
+
+      <main
+        // Bounded height here with the scroll on the inner pane: without it,
+        // a Center built to scroll internally (the Assistant transcript, for
+        // one) grows the whole document instead, and anything anchored beside
+        // that pane scrolls away with it.
+        className="h-screen overflow-hidden"
+        style={{
+          marginLeft: "var(--rail-w)",
+          paddingTop: "var(--bar-h)",
+          paddingBottom: "var(--foot-h)",
+        }}
       >
-        <div className="h-full max-w-[1500px] overflow-y-auto p-6 2xl:max-w-[1900px]">
-          {/* A Center that throws must not take the shell with it. */}
-          <CenterBoundary viewKey={activeView}>
-            {/* Keyed on the view so switching tabs replays the entrance
-                animation instead of swapping content in place. */}
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeView}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                className="h-full"
-              >
-                <View />
-              </motion.div>
-            </AnimatePresence>
-          </CenterBoundary>
+        <div className="h-full overflow-y-auto px-6 py-6 2xl:px-10">
+          {/* Content is left-anchored inside a generous measure rather than
+              centred in the viewport: an operations surface should start
+              where the eye lands after the rail, not float in the middle. */}
+          <div className="max-w-[1560px] 2xl:max-w-[1860px]">
+            <CenterBoundary viewKey={activeView}>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeView}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <View />
+                </motion.div>
+              </AnimatePresence>
+            </CenterBoundary>
+          </div>
         </div>
-      </motion.main>
+      </main>
+
       <StatusBar />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }

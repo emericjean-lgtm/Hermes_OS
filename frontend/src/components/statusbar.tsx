@@ -1,72 +1,84 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { useSystemStatistics } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
 
-/** Bandeau de pied : compteurs agrégés + dernier événement reçu.
+/** The footer readout.
  *
- *  `if (!stats) return null` faisait disparaître toute la barre tant que la
- *  requête n'avait pas abouti, ce qui décalait la mise en page au chargement.
- *  Elle reste désormais en place et affiche des tirets. */
+ *  A row of counters and the last event off the bus. Deliberately quiet: it
+ *  is the one strip on screen that never demands attention, so anything
+ *  that *does* move here (the event ticker) is genuinely new information.
+ *
+ *  It renders unconditionally with em-dashes when data has not arrived —
+ *  an earlier version returned null until the first response, which made
+ *  the whole page reflow on load. */
 export function StatusBar() {
   const { data: stats } = useSystemStatistics();
-  const { liveEvents, navCollapsed } = useCockpitStore();
+  const { liveEvents } = useCockpitStore();
 
   const n = (v: unknown) => (typeof v === "number" ? v : null);
   const pair = (a: unknown, b: unknown) => {
     const x = n(a);
     const y = n(b);
-    return x === null && y === null ? "—" : `${x ?? 0}/${y ?? 0}`;
+    return x === null && y === null ? null : ([x ?? 0, y ?? 0] as const);
   };
 
-  const items = [
-    { label: "Missions", value: pair(stats?.missions_active, stats?.missions_total) },
-    { label: "Agents", value: pair(stats?.agents_active, stats?.agents_total) },
-    { label: "Runtimes", value: pair(stats?.runtimes_healthy, stats?.runtimes_total) },
-    { label: "Mémoire", value: n(stats?.memory_entries)?.toString() ?? "—" },
-    { label: "Événements", value: liveEvents.length.toString() },
+  const readouts: { label: string; pair?: readonly [number, number] | null; single?: string }[] = [
+    { label: "MSN", pair: pair(stats?.missions_active, stats?.missions_total) },
+    { label: "AGT", pair: pair(stats?.agents_active, stats?.agents_total) },
+    { label: "RT", pair: pair(stats?.runtimes_healthy, stats?.runtimes_total) },
+    { label: "MEM", single: n(stats?.memory_entries)?.toLocaleString("fr-FR") ?? "––" },
+    { label: "EVT", single: liveEvents.length.toString() },
   ];
 
   const last = liveEvents[0];
 
   return (
-    <motion.footer
-      animate={{ left: navCollapsed ? 68 : 232 }}
-      transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-      className="fixed right-0 bottom-0 z-30 h-8 flex items-center gap-5 px-6
-        border-t border-hermes-border glass"
+    <footer
+      className="fixed right-0 bottom-0 z-30 flex items-center gap-0
+        border-t border-hermes-border bg-hermes-bg-deep/80 backdrop-blur-xl"
+      style={{ left: "var(--rail-w)", height: "var(--foot-h)" }}
     >
-      <div className="absolute top-0 left-0 h-px w-full bg-gradient-to-r
-        from-transparent via-hermes-cyan/25 to-transparent" />
+      <div className="pointer-events-none absolute top-0 left-0 h-px w-full
+        bg-gradient-to-r from-hermes-border-bright/50 to-transparent" />
 
-      {items.map((item) => (
-        <div key={item.label} className="flex items-center gap-1.5 shrink-0">
-          <span className="text-[9px] text-hermes-dim font-mono uppercase tracking-[0.12em]">
-            {item.label}
-          </span>
-          <span className="text-[10px] text-hermes-cyan font-mono font-semibold tabular-nums">
-            {item.value}
-          </span>
+      {readouts.map((r) => (
+        <div
+          key={r.label}
+          className="flex items-baseline gap-1.5 px-3.5 h-full border-r border-hermes-border/60
+            shrink-0 first:pl-5"
+          style={{ alignItems: "center" }}
+        >
+          <span className="tech-label !text-[8.5px]">{r.label}</span>
+          {r.pair ? (
+            <span className="num text-[10.5px]">
+              <span className="text-hermes-sodium">{r.pair[0]}</span>
+              <span className="text-hermes-dim">/{r.pair[1]}</span>
+            </span>
+          ) : (
+            <span className="num text-[10.5px] text-hermes-muted">{r.single ?? "––"}</span>
+          )}
         </div>
       ))}
 
-      {/* Dernier événement — la seule zone qui bouge en continu. */}
-      {last && (
-        <div className="flex items-center gap-2 min-w-0 flex-1 ml-2">
-          <span className="h-3 w-px bg-hermes-border shrink-0" />
-          <span className="text-[9px] text-hermes-violet font-mono uppercase shrink-0">
-            {last.type}
-          </span>
-          <span className="text-[9px] text-hermes-dim font-mono truncate">
-            {last.source}
-          </span>
-        </div>
-      )}
-
-      <div className="ml-auto text-[9px] text-hermes-dim font-mono tracking-wider shrink-0">
-        HERMES OS
+      {/* The only moving part down here. */}
+      <div className="flex items-center gap-2.5 min-w-0 flex-1 px-4">
+        {last ? (
+          <>
+            <span className="h-1 w-1 rounded-full bg-hermes-steel shrink-0" />
+            <span className="num text-[9.5px] text-hermes-steel uppercase shrink-0 tracking-[0.1em]">
+              {last.type}
+            </span>
+            <span className="text-[10px] text-hermes-dim truncate">{last.source}</span>
+          </>
+        ) : (
+          <span className="text-[10px] text-hermes-dim/70">Aucun événement reçu</span>
+        )}
       </div>
-    </motion.footer>
+
+      <div className="flex items-center gap-2 px-5 shrink-0 border-l border-hermes-border/60 h-full">
+        <span className="tech-label !text-[8.5px]">HERMES OS</span>
+      </div>
+    </footer>
   );
 }
