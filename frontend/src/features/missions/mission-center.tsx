@@ -460,8 +460,8 @@ export function MissionCenter() {
                                   </div>
                                 </button>
                                 {expandedResults[index] && (
-                                  <div className="border-t border-hermes-border/20 p-2 bg-hermes-bg/50">
-                                    <div className="text-[9px] font-mono text-hermes-text/80 whitespace-pre-wrap break-words max-h-96 overflow-y-auto bg-hermes-bg/30 p-2 rounded border border-hermes-border/20">
+                                  <div className="border-t border-hermes-border/20 p-2 bg-hermes-bg/50 max-h-[600px] overflow-y-auto">
+                                    <div className="text-[9px] font-mono text-hermes-text/80 whitespace-pre-wrap break-words bg-hermes-bg/30 p-2 rounded border border-hermes-border/20">
                                       {output.content}
                                     </div>
                                   </div>
