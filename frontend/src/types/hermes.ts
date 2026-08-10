@@ -122,7 +122,7 @@ export interface MissionReport {
   tasks_completed: number;
   tasks_failed: number;
   runtimes_used: string[];
-  outputs: string[];
+  outputs: Array<{ task: string; chars: number; content: string }>;
   errors: string[];
   generated_at: string;
   decomposition_method?: string;

@@ -14,7 +14,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Mission, MissionStatus } from "@/types/hermes";
 import { CenterHeader } from "@/components/center-scaffold";
-import { Play, Pause, XCircle, AlertCircle } from "lucide-react";
+import { Play, Pause, XCircle, AlertCircle, ChevronDown, Search } from "lucide-react";
 
 const statusBadge: Record<MissionStatus, keyof typeof statusColors> = {
   CREATED: "default",
@@ -87,6 +87,11 @@ export function MissionCenter() {
 
   const rep = report.data;
   const busy = action.start.isPending || action.pause.isPending || action.resume.isPending || action.cancel.isPending;
+
+  // Report panel state
+  const [reportTab, setReportTab] = useState<"summary" | "results" | "errors">("summary");
+  const [expandedResults, setExpandedResults] = useState<Record<number, boolean>>({});
+  const [searchResults, setSearchResults] = useState("");
 
   return (
     <div className="animate-fade-in">
@@ -351,29 +356,151 @@ export function MissionCenter() {
                   build_mission_report()). */}
               {rep && (
                 <div className="pt-2 border-t border-hermes-border/30">
-                  <div className="text-[10px] text-hermes-muted font-mono uppercase mb-1">Rapport</div>
-                  <div className="text-[10px] font-mono text-hermes-text bg-hermes-bg p-2 rounded border border-hermes-border/50 mb-2">
-                    {rep.summary}
+                  <div className="text-[10px] text-hermes-muted font-mono uppercase mb-2">Rapport</div>
+
+                  {/* Tabs */}
+                  <div className="flex gap-1 mb-2 border-b border-hermes-border/20">
+                    {["summary", "results", "errors"].map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setReportTab(tab as typeof reportTab)}
+                        className={`px-2 py-1 text-[9px] font-mono uppercase transition-colors ${
+                          reportTab === tab
+                            ? "text-hermes-accent border-b-2 border-hermes-accent"
+                            : "text-hermes-muted hover:text-hermes-text border-b-2 border-transparent"
+                        }`}
+                      >
+                        {tab === "summary" && `Résumé`}
+                        {tab === "results" && `Résultats (${rep.outputs?.length ?? 0})`}
+                        {tab === "errors" && `Erreurs (${rep.errors?.length ?? 0})`}
+                      </button>
+                    ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
-                    <div className="flex items-center justify-between">
-                      <span className="text-hermes-muted">Tâches</span>
-                      <span className="text-hermes-text">{rep.tasks_completed}/{rep.tasks_total} ({rep.tasks_failed} échec(s))</span>
+
+                  {/* Summary Tab */}
+                  {reportTab === "summary" && (
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-mono text-hermes-text bg-hermes-bg p-2 rounded border border-hermes-border/50 mb-2">
+                        {rep.summary}
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
+                        <div className="flex items-center justify-between">
+                          <span className="text-hermes-muted">Tâches</span>
+                          <span className="text-hermes-text">{rep.tasks_completed}/{rep.tasks_total} ({rep.tasks_failed} échec(s))</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-hermes-muted">Durée</span>
+                          <span className="text-hermes-text">{(rep.total_duration_ms ?? 0).toFixed(0)}ms</span>
+                        </div>
+                        <div className="flex items-center justify-between col-span-2">
+                          <span className="text-hermes-muted">Runtimes</span>
+                          <span className="text-hermes-text">{rep.runtimes_used.join(", ") || "aucun"}</span>
+                        </div>
+                        <div className="flex items-center justify-between col-span-2">
+                          <span className="text-hermes-muted">Méthode</span>
+                          <span className="text-hermes-text">{rep.decomposition_method}</span>
+                        </div>
+                      </div>
+                      {rep.plan_is_generic && (
+                        <div className="text-[9px] text-hermes-amber bg-hermes-amber/10 p-2 rounded border border-hermes-amber/30">
+                          ⚠ Plan générique (décomposition réelle échouée)
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-hermes-muted">Durée</span>
-                      <span className="text-hermes-text">{(rep.total_duration_ms ?? 0).toFixed(0)}ms</span>
+                  )}
+
+                  {/* Results Tab */}
+                  {reportTab === "results" && (
+                    <div className="space-y-2">
+                      {rep.outputs && rep.outputs.length > 0 ? (
+                        <>
+                          <div className="flex items-center gap-1 mb-2 bg-hermes-bg px-2 py-1.5 rounded border border-hermes-border/30">
+                            <Search className="w-3 h-3 text-hermes-muted" />
+                            <input
+                              type="text"
+                              placeholder="Filtrer par titre..."
+                              value={searchResults}
+                              onChange={(e) => setSearchResults(e.target.value.toLowerCase())}
+                              className="bg-transparent text-[9px] flex-1 outline-none text-hermes-text placeholder-hermes-muted/50"
+                            />
+                          </div>
+                          {rep.outputs
+                            .map((output, i) => ({
+                              index: i,
+                              output,
+                              matches: output.task.toLowerCase().includes(searchResults),
+                            }))
+                            .filter((item) => !searchResults || item.matches)
+                            .map(({ index, output }) => (
+                              <div
+                                key={`output-${index}`}
+                                className="bg-hermes-bg rounded border border-hermes-border/30 overflow-hidden"
+                              >
+                                <button
+                                  onClick={() =>
+                                    setExpandedResults({
+                                      ...expandedResults,
+                                      [index]: !expandedResults[index],
+                                    })
+                                  }
+                                  className="w-full flex items-center justify-between p-2 hover:bg-hermes-border/10 transition-colors"
+                                >
+                                  <div className="flex items-center gap-2 flex-1 text-left">
+                                    <ChevronDown
+                                      className={`w-3 h-3 text-hermes-muted transition-transform ${
+                                        expandedResults[index] ? "rotate-180" : ""
+                                      }`}
+                                    />
+                                    <span className="text-[10px] font-mono text-hermes-accent truncate">
+                                      {output.task}
+                                    </span>
+                                    <span className="text-[9px] text-hermes-muted ml-auto">
+                                      {output.chars} chars
+                                    </span>
+                                  </div>
+                                </button>
+                                {expandedResults[index] && (
+                                  <div className="border-t border-hermes-border/20 p-2 bg-hermes-bg/50">
+                                    <div className="text-[9px] font-mono text-hermes-text/80 whitespace-pre-wrap break-words max-h-40 overflow-y-auto bg-hermes-bg/30 p-2 rounded border border-hermes-border/20">
+                                      {output.content}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          {rep.outputs.filter((o) =>
+                            o.task.toLowerCase().includes(searchResults),
+                          ).length === 0 && (
+                            <div className="text-[9px] text-hermes-muted py-4 text-center">
+                              Aucun résultat ne correspond au filtre
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-[9px] text-hermes-muted py-4 text-center">
+                          Aucun résultat disponible
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between col-span-2">
-                      <span className="text-hermes-muted">Runtimes</span>
-                      <span className="text-hermes-text">{rep.runtimes_used.join(", ") || "aucun"}</span>
-                    </div>
-                  </div>
-                  {rep.errors.length > 0 && (
-                    <div className="mt-1.5 flex flex-col gap-1">
-                      {rep.errors.map((e, i) => (
-                        <div key={`err-${i}`} className="text-[9px] text-hermes-red font-mono">{e}</div>
-                      ))}
+                  )}
+
+                  {/* Errors Tab */}
+                  {reportTab === "errors" && (
+                    <div className="space-y-2">
+                      {rep.errors && rep.errors.length > 0 ? (
+                        rep.errors.map((err, i) => (
+                          <div
+                            key={`err-${i}`}
+                            className="text-[9px] text-hermes-red bg-hermes-red/10 p-2 rounded border border-hermes-red/30 font-mono whitespace-pre-wrap break-words"
+                          >
+                            {err}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-[9px] text-hermes-green py-4 text-center">
+                          ✓ Aucune erreur
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
