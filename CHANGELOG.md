@@ -1,3 +1,37 @@
+## HOS-081 — Suivi SODIUM : cohérence des docs, santé à trois états, palette clavier (2026-08-10)
+
+Suivi direct d'une revue critique de HOS-080 (retour utilisateur structuré, quatre actions demandées dans l'ordre). Rien de tout ceci n'est du polish visuel — chaque point vient d'un vrai gap trouvé en vérifiant, pas en supposant.
+
+### 1 — Docs remises en cohérence avec le code réel
+`hermes/architecture`'s `frontend-map.md` et le skill `design-system` décrivaient encore l'ancienne palette cyan/magenta après la refonte — exactement le piège que ces mêmes docs mettent en garde ailleurs (une doc qui décrit un état qui n'est plus vrai). Les deux réécrits pour SODIUM ; le contrat de design vit dans `design-system` (son foyer naturel) avec un renvoi depuis `hermes/development-rules` plutôt qu'une duplication.
+
+### 2 — Santé des sous-systèmes : trois états réels, pas un amalgame
+`GET /system/health` renvoie déjà un tableau `silent` (sous-système sans accesseur de télémétrie — un vrai manque architectural, pas un incident) distinct des sous-systèmes réellement dégradés — le frontend l'ignorait et amalgamait les deux en un seul chiffre ambre (« 23/35 » se lit comme « 12 problèmes » qu'il s'agisse de 12 vraies pannes ou de 12 non-instrumentés, deux situations aux actions très différentes). `SubsystemHealth` gagne un statut `NOT_INSTRUMENTED`, alimenté par le tableau réel plutôt que déduit. Le Dashboard distingue maintenant sains/dégradés/non-instrumentés, avec une case hachurée grise (pas ambre) dans la matrice de recensement pour le troisième cas. Vérifié en direct : 23 sains, 0 réellement dégradé, 12 non instrumentés — confirmé au niveau du DOM (`event_hub` → hachure, `system_event_bus` → vert plein). Découverte en cours de route : Health Center et Deployment Center faisaient déjà cette distinction correctement (« SANS TÉLÉMÉTRIE », « NOT REPORTING ») — le Dashboard était le seul en retard.
+
+### 2bis — Bug réel trouvé en construisant la matrice de validation : le rail déborde
+22 entrées + marques de section dépassent la hauteur d'un rail de 56px sur un viewport de ~1000px de haut, sans aucun indice visuel de défilement — Deploy et System devenaient inatteignables sans le savoir. Corrigé avec un masque de fondu haut/bas sur le `<nav>` du rail.
+
+### 2ter — Bug réel trouvé en testant : la palette de commandes ne répondait pas au clavier
+Entrée/flèches ne déclenchaient jamais `commit()`. Diagnostiqué en profondeur : un événement `keydown` natif, bubbling, avec `key: "Enter"` atteignait bien le champ de recherche (confirmé via un listener DOM brut), mais le `onKeyDown` React de la palette — même posé directement sur l'élément ciblé — ne se déclenchait jamais. Le raccourci ⌘K global (basé sur un `window.addEventListener` brut, pas sur les props React) fonctionnait pourtant de façon fiable pendant toute la session. Plutôt que de laisser ce doute non résolu sur un mécanisme dont toute la raison d'être est la navigation clavier, la palette a été réécrite sur ce même patron déjà éprouvé (`useEffect` + `window.addEventListener`) au lieu du prop `onKeyDown` de React. Revérifié après coup : ouverture ⌘K → recherche « runtime » → Entrée navigue bien vers Runtime Center, confirmé par capture d'écran et par les logs de diagnostic avant leur retrait.
+
+### 3 — Matrice de validation des 22 Centers
+Les 19 Centers non vérifiés individuellement après HOS-080 ont été ouverts un par un via la palette de commandes (rendu, interaction, données réelles) : Assistant, Missions, Autonomous, Models, Agents, Runtime, Code Intel, Skills, Tools, Memory, Workspace, Security, Validation, Evolution, Health, Monitoring, Events, System, Deployment. Aucun crash. Plusieurs confirmations croisées fortes avec l'audit d'architecture existant :
+- **Code Intel** affiche KlaatCode MCP `DISCONNECTED` et Oh My Pi `NOT_CONFIGURED` — exactement les lacunes déjà documentées.
+- **Skills Center** affiche honnêtement 0 skill enregistré — confirme que le registre est réellement vide, pas juste vide à l'écran.
+- **Validation Center** liste les 7 vrais runners de `config/verification.yaml`.
+- **Models** affiche le vrai roster réinstallé en HOS-079 avec scores/VRAM/TPS réels.
+
+Trouvailles réelles non corrigées ici (hors périmètre de cette passe, signalées pour plus tard) :
+- Plusieurs Centers mélangent de l'anglais dans une UI par ailleurs française (états vides de Missions/Autonomous/Events).
+- Monitoring Center affiche un total VRAM (15.98 Go) légèrement différent de celui vu ailleurs (17.16 Go) — écart réel non investigué.
+- Un avertissement React « missing key » ponctuel a été observé sur EventsCenter pendant les tests ; aucune liste sans `key` trouvée dans le code actuel après relecture — probablement transitoire (premier rendu avant données), pas de correctif spéculatif appliqué.
+
+### 4 — Contrat de design SODIUM formalisé
+Table ❌/✅ explicite ajoutée à `design-system` (cyan/magenta/glow par défaut/`rounded-xl` uniforme/police non chargée/valeur interpolée-en-mesure-réelle interdits ; sodium/glacier/steel/Chakra Petch/Barlow/IBM Plex Mono/télémétrie honnête/grain/chanfrein requis), reliée au principe « ne jamais fabriquer un résultat » déjà central au projet.
+
+### Verified
+`tsc --noEmit` propre, `vitest` 82/82, à chaque étape. Vérifié en direct sur les 22 Centers via ⌘K, backend réel démarré. 134 liens internes du système de skills revérifiés après les mises à jour de doc — aucun lien cassé.
+
 ## HOS-080 — Refonte complète du frontend : direction « SODIUM » (2026-08-10)
 
 Demande de l'utilisateur : refonte complète du Cockpit, style moderne et

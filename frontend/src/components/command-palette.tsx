@@ -61,22 +61,46 @@ export function CommandPalette({
     onClose();
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setCursor((c) => (results.length ? (c + 1) % results.length : 0));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setCursor((c) => (results.length ? (c - 1 + results.length) % results.length : 0));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const item = results[cursor];
-      if (item) commit(item.id);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      onClose();
-    }
-  };
+  // A native window listener, not React's onKeyDown prop — matching the
+  // ⌘K toggle's own pattern in cockpit-shell.tsx. React's synthetic event
+  // delegation and a plain addEventListener normally see the same key
+  // presses; this only exists as a separate effect because live testing
+  // found a real asymmetry between the two paths worth not depending on —
+  // a native listener is the one already proven reliable for every other
+  // keyboard shortcut in this shell. Reading `results`/`cursor` via refs
+  // rather than closing over the render's values, since this effect only
+  // re-subscribes on `open`, not on every keystroke.
+  const resultsRef = useRef(results);
+  resultsRef.current = results;
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setCursor((c) => (resultsRef.current.length ? (c + 1) % resultsRef.current.length : 0));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setCursor((c) =>
+          resultsRef.current.length
+            ? (c - 1 + resultsRef.current.length) % resultsRef.current.length
+            : 0,
+        );
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const item = resultsRef.current[cursorRef.current];
+        if (item) commit(item.id);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   return (
     <AnimatePresence>
@@ -105,7 +129,6 @@ export function CommandPalette({
             exit={{ opacity: 0, y: -10, scale: 0.99 }}
             transition={{ type: "spring", stiffness: 420, damping: 34 }}
             onMouseDown={(e) => e.stopPropagation()}
-            onKeyDown={onKeyDown}
             className="relative w-full max-w-[560px] clip-corner border border-hermes-border-bright
               glass-bright shadow-panel overflow-hidden"
           >

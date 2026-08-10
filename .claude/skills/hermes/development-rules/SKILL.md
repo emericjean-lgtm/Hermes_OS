@@ -30,7 +30,7 @@ The same discipline applies to `config/security.yaml` (autonomy level, permissio
 
 ## Frontend conventions
 
-Real conventions (there's no populated `CLAUDE.md`/`AGENTS.md` describing these today — this section is filling that gap from the actual code):
+Real conventions (there's no populated `CLAUDE.md`/`AGENTS.md` describing these today — this section is filling that gap from the actual code). The frontend also carries an explicit visual identity contract (SODIUM, since HOS-080) — see [design-system](../../design-system/SKILL.md)'s contract table before introducing a new colour, font, or a generic-looking pattern; it's the same "never fabricate a result" principle above, applied to what a panel is allowed to display as a live measurement:
 
 - **API access**: a new backend capability gets a typed method on the relevant domain client object in `services/client.ts`, plus a React Query hook in `hooks/use-api.ts` (one hook per capability, matching the existing 99). Don't call `fetch` directly from a component.
 - **DTOs**: add/extend a type in `types/hermes.ts`, and if the backend's wire shape differs from what the UI wants (a case mismatch, an envelope wrapper, a field rename — this project has several real, documented examples), write the normalization in `client.ts`, not scattered across components.

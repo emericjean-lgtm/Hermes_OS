@@ -51,9 +51,19 @@ export function Rail({ onOpenPalette }: { onOpenPalette: () => void }) {
 
       <div className="h-px w-6 bg-hermes-border shrink-0" />
 
-      {/* ── Groups ── */}
+      {/* ── Groups ──
+          Real gap found while verifying: 22 items + section marks overflow
+          a ~1000px-tall viewport with zero visible hint that Deploy/System
+          are reachable only by scrolling this 56px strip. The fade mask is
+          a static top+bottom hint rather than a scroll-position-tracked one
+          — cheap, CSS-only, and enough to say "there's more" without a
+          scroll listener for a rail this narrow. */}
       <nav className="flex-1 w-full overflow-y-auto overflow-x-visible py-2
-        [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{
+          maskImage: "linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%)",
+          WebkitMaskImage: "linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%)",
+        }}>
         {NAV_GROUPS.map((group, gi) => (
           <div key={group.label} className="relative mb-3 last:mb-0">
             {/* Section reference — a drawing callout, and a scale marker. */}

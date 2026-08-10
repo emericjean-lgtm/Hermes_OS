@@ -511,8 +511,13 @@ export interface SystemHealth {
   subsystems: Record<string, SubsystemHealth>;
 }
 
+// NOT_INSTRUMENTED is real, distinct backend information (the `silent` array
+// in GET /system/health) — a subsystem with no telemetry accessor wired yet,
+// not one reporting a bad state. Collapsing it into DEGRADED (as this type
+// used to) makes an architectural gap look like an incident; see
+// services/client.ts's health() and dashboard-view.tsx's subsystem census.
 export interface SubsystemHealth {
-  status: "HEALTHY" | "DEGRADED" | "UNHEALTHY";
+  status: "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "NOT_INSTRUMENTED";
   message?: string;
   latency_ms?: number;
 }

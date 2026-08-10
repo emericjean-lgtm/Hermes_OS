@@ -1,31 +1,48 @@
 ---
 name: design-system
-description: Check for an existing component, token, or pattern before building a new one in Hermes OS's frontend. Use before creating any new UI component, adding a color/spacing value, or building a new Center's layout.
+description: Check for an existing component, token, or pattern before building a new one in Hermes OS's frontend — the "SODIUM" design system. Use before creating any new UI component, adding a color/spacing value, or building a new Center's layout.
 ---
 
 # Design System — Check Before You Build
 
-The question this skill exists to force, every time: **does this already exist?** Hermes OS's frontend has a real, if inconsistently-adopted, shared system — building a one-off instead of reusing or extending it is how a 22-Center app ends up with 22 different layouts, which is exactly the fragmentation this system was built to prevent (see its own in-code doc-comment stating that intent directly).
+The question this skill exists to force, every time: **does this already exist?** Hermes OS's frontend has a real, shared system — building a one-off instead of reusing or extending it is how a 22-Center app ends up with 22 different layouts, which is exactly the fragmentation this system was built to prevent (see its own in-code doc-comment stating that intent directly).
+
+As of HOS-080 the system carries a specific visual identity — codenamed **SODIUM** — chosen deliberately to avoid the generic AI-dashboard look (cyan/magenta neon, glow on every hover, uniform rounding). See the contract at the bottom of this file before introducing anything that looks like that default.
 
 ## Before creating a new component, check in order
 
-1. **Does a primitive already cover this?** `components/ui/card.tsx` — `Card`, `Badge` (7 variants), `Beacon` (pulsing status dot), `StatCard`, `ProgressBar` (color-ramped, invertible for "high is bad" meters), `Button` (4 variants). Most low-level visual needs are already here.
+1. **Does a primitive already cover this?** `components/ui/card.tsx` — `Card`, `Badge` (7 variants), `Beacon` (pulsing status dot), `StatCard` (a gauge readout with pointer-tracked spotlight depth), `ProgressBar` (a segmented 24-cell meter, colour-ramped, invertible for "high is bad" meters), `Button` (4 variants, only `primary` carries the sodium fill). Most low-level visual needs are already here.
 2. **Does the Center-composition tier already cover this?** `components/center-scaffold.tsx` — `CenterHeader`, `StatGrid`, `Toolbar`, `AsyncPanel` (the loading/error/empty/content pattern — use this rather than hand-rolling those four states again), `PanelLoading`, `DataTable<T>`, `CenterTabs<T>`, `LiveBadge`. This tier exists specifically so a new Center doesn't need its own bespoke layout logic.
-3. **Does an existing token already express this value?** Colors, in `app/globals.css`'s CSS custom properties (`--hermes-cyan`/`--hermes-magenta`/`--hermes-violet`/`--hermes-green`/`--hermes-amber`/`--hermes-red`/`--hermes-blue`, plus bg/text/muted/dim), mirrored into `tailwind.config.ts`'s `theme.extend.colors.hermes`. **Both files must stay in sync** — the Tailwind mirror is what makes `text-hermes-*` classes compile to anything at all; a token added to one without the other silently does nothing.
-4. **Does a similar Center already solve this exact layout problem?** Memory and Governance Centers are the current best examples — both fully built on the Tier-2 scaffold. If extending or building a Center, look at one of these first, not an older hand-rolled one, even though several older Centers exist as precedent — they predate the scaffold's full adoption and are legacy, not the pattern to copy forward.
+3. **Does an existing token already express this value?** Colour, in `app/globals.css`'s CSS custom properties. **Use the semantic names for new work**: `--hermes-sodium` (the one warm accent — system speaking, every interactive affordance), `--hermes-glacier` (cold, a human decision point), `--hermes-steel` (autonomous activity), `--hermes-arc`/`--hermes-gold`/`--hermes-alarm` (the health scale: good/caution/bad). The old names (`cyan`/`magenta`/`violet`/`green`/`amber`/`red`) still resolve — they're aliases kept for markup that hasn't been revisited — but they now point at the SODIUM values, not their old literal hex codes; don't read the class name as a colour guarantee. **Both `globals.css` and `tailwind.config.ts` must stay in sync** — the Tailwind mirror is what makes `text-hermes-*` classes compile to anything at all.
+4. **Does a similar Center already solve this exact layout problem?** Memory and Governance Centers are the current best examples — both fully built on the Tier-2 scaffold. If extending or building a Center, look at one of these first, not an older hand-rolled one.
 
 Only build new if none of the above genuinely fits — and if you do, consider whether the new thing belongs in the shared component tier (if it's likely to be reused) rather than living locally in one Center's file.
 
-## The real token system
+## Type
 
-Color is semantic, not decorative — cyan means the system is speaking, magenta means a human decision point, green/amber/red are health states, violet means autonomous activity. Reuse this meaning for anything new rather than picking a color for its aesthetics alone; introducing a new color for a concept that already has a semantic home creates a second, competing visual language.
+Three roles, all actually loaded via `next/font/google` in `app/layout.tsx` (a pre-HOS-080 bug had one of these declared in Tailwind config but never loaded, so it silently fell back to the OS default — verify a new font actually reaches a `<Fonts .../>` call, not just a config entry, before trusting it renders). **Chakra Petch** (`.display` utility, `--font-chakra`) — numerals, screen titles, the wordmark; type that should feel stamped, not typed. **Barlow** (default body face, `--font-barlow`). **IBM Plex Mono** (`.num` utility, `--font-plex`, also sets tabular figures) — every id, telemetry value, and code block.
 
-## Real gaps to know about, not to silently "fix" as a side effect
+## Geometry and texture
 
-- **Dark theme only, on purpose (so far)** — no theme toggle, no `next-themes`, no `dark:` Tailwind variant in use, and `<html>`'s `dark` class is hardcoded. If a task explicitly asks for a light theme, that's real, scoped work — [frontend-design](../frontend-design/SKILL.md) and [hermes/architecture](../hermes/architecture/references/frontend-map.md) have the token/CSS-variable structure that would need a light-mode counterpart. Don't add light-mode styling opportunistically while working on something unrelated.
-- **The declared monospace stack (`JetBrains Mono, Fira Code, ...`) is never actually loaded** (no `next/font`, no `@font-face`) — it silently falls back to whatever monospace the OS provides. If you're touching typography and this matters for what you're building, that's worth flagging explicitly rather than assuming the intended font is what's rendering.
-- **Scaffold adoption is inconsistent across the 22 Centers** — don't assume every existing Center is a good model to copy; check which generation it's actually using (see `references/frontend-map.md` under [hermes/architecture](../hermes/architecture/SKILL.md) for the current per-Center breakdown) before treating it as precedent.
+Chamfered corners (`.clip-corner` / `.clip-corner-sm` / `.clip-notch`) replace uniform rounding — vary the chamfer deliberately (tighter on dense cells, wider on hero panels), don't default to one radius everywhere. `.room-grain` and `.room-vignette` (mounted once in `app/layout.tsx`, above the whole app) are what keep large flat panels from reading as sterile vector fills — don't disable or duplicate them per-Center.
 
-## When extending a token or primitive
+## Live data, honestly rendered
 
-Changing an existing token or primitive affects every Center that uses it — this is shared-contract territory. Check real usage across `features/` before changing a `Badge` variant's meaning or a color token's hex value, the same discipline as [architecture-review](../architecture-review/SKILL.md) applied to the frontend.
+The signature pattern for anything showing a live/operational metric: `components/telemetry-trace.tsx`'s canvas oscilloscope holds a flat baseline when a reading is genuinely unavailable, rather than interpolating or inventing motion to keep the picture busy. See the contract's data-integrity rule below — this isn't a style choice, it's load-bearing for a cockpit whose whole premise is that a displayed value is a measured value.
+
+## SODIUM design contract
+
+A change that introduces any of the left column, without a specific and explicit reason tied to the task at hand, is very likely reintroducing the generic-AI look this system was deliberately built away from — treat it as a stop-and-check, not a shrug.
+
+| ❌ Don't reach for | ✅ Use instead |
+|---|---|
+| Cyan/magenta/violet as literal new colour choices | The semantic tokens — `sodium`/`glacier`/`steel`/`arc`/`gold`/`alarm` |
+| A second or third "accent" colour competing with sodium | One dominant accent; everything else is the health scale or a deliberately rare cold counterpoint |
+| Glow/shadow on hover as a default for every element | Reserve glow for genuinely live/active state (`.neon-edge-live`, a running process) — see [ui-ux](../ui-ux/SKILL.md) on keeping "live" meaningful |
+| Uniform `rounded-xl`/`rounded-lg` | `.clip-corner`/`.clip-corner-sm`, varied deliberately |
+| A new font not loaded through `next/font` in `app/layout.tsx` | Chakra Petch (display) / Barlow (interface) / IBM Plex Mono (data) — extend this trio before adding a fourth |
+| An interpolated, randomized, or count-up-from-zero value standing in for a real measurement, even briefly | Render the real value directly; if data is missing, show it as missing (an em-dash, a flat baseline) — see `hermes/verification`'s "never fabricate a result" |
+| A purple-to-blue "AI gradient" hero, symmetric radial glow centred on the viewport, or a flat sterile panel with no texture | The room's actual light source (a sodium pool, off-centre, per `globals.css`'s `body::before`) + `.room-grain`/`.room-vignette` |
+| A brand-new visual language for one Center | The existing Tier-1/Tier-2 primitives — extend them if they're missing something, don't route around them |
+
+This contract describes the current, real state of `app/globals.css`/`tailwind.config.ts` — if a deliberate future redesign changes the direction, update this table in the same change, not after.

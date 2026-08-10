@@ -129,10 +129,16 @@ export const systemClient = {
       fetchJSON<SystemHealthWire>("/system/health"),
       fetchJSON<RootHealthWire>("/health").catch(() => ({} as RootHealthWire)),
     ]);
+    // The wire payload's own `silent` array already distinguishes "no
+    // telemetry accessor exists for this subsystem" from "reporting a real
+    // problem" — both used to collapse into the same DEGRADED status here,
+    // which made an architectural gap (12 of 35 subsystems, confirmed real)
+    // read as 12 incidents. Read the real list rather than re-deriving it.
+    const silent = new Set(agg.silent ?? []);
     const subsystems: SystemHealth["subsystems"] = {};
     for (const [name, info] of Object.entries(agg.detail ?? {})) {
       subsystems[name] = {
-        status: normaliseStatus(info?.status),
+        status: silent.has(name) ? "NOT_INSTRUMENTED" : normaliseStatus(info?.status),
         message: info?.detail,
       };
     }
