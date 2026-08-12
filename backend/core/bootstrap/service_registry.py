@@ -19,10 +19,14 @@ handler functions. No subsystem is reimplemented.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Callable, Optional
 
 from backend.core.integration.component_registry import ComponentCategory
+
+logger = logging.getLogger("hermes_os.bootstrap.services")
 
 # A factory receives the container and returns the single instance.
 Factory = Callable[[Any], Any]
@@ -424,6 +428,7 @@ def _make_task_executor(c: Any) -> Any:
         vram_gb_for=_vram_gb_for,
         workspace_project_for=_workspace_project_for,
         mission_brief_for=_mission_brief_for,
+        agentic_capable_for=_agentic_capable_for,
     )
 
 
@@ -498,6 +503,57 @@ def _mission_brief_for(task: Any) -> Optional[str]:
         if value:
             return value
     return None
+
+
+@lru_cache(maxsize=64)
+def _agentic_capable_for(model_id: str) -> Optional[bool]:
+    """Can this model actually drive Hermes Agent's loop (HOS-088)?
+
+    Asks Ollama's own ``/api/show`` for the model's declared capabilities and
+    parameter count, then lets ModelProfile.agentic_capable apply the policy.
+    Returns None when the model is unknown or Ollama is unreachable, which
+    the caller treats as "not proven" rather than "yes" — handing Hermes a
+    brain that cannot call tools produces a mission that reports success and
+    accomplishes nothing, the exact failure HOS-085 chased down.
+
+    Cached: this is asked once per task and the answer only changes when the
+    model itself is replaced.
+    """
+    try:
+        import httpx
+
+        from backend.core.config import get_settings
+        from backend.model_intelligence.model_intelligence_models import ModelProfile
+
+        base = get_settings().ollama_api_url.rstrip("/")
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(f"{base}/api/show", json={"model": model_id})
+            response.raise_for_status()
+            payload = response.json()
+    except Exception:
+        logger.debug("agentic capability probe failed for %r", model_id, exc_info=True)
+        return None
+
+    capabilities = [str(c).lower() for c in (payload.get("capabilities") or [])]
+    details = payload.get("details") or {}
+    raw_size = str(details.get("parameter_size") or "").strip().upper()
+    try:
+        parameters_b = (float(raw_size.rstrip("B")) if raw_size.endswith("B")
+                        else float(raw_size.rstrip("M")) / 1000.0 if raw_size.endswith("M")
+                        else 0.0)
+    except ValueError:
+        parameters_b = 0.0
+
+    profile = ModelProfile(
+        model_id=model_id,
+        name=model_id,
+        parameters_b=parameters_b,
+        declares_tools="tools" in capabilities,
+        # An embedding model is not a chat model, however it advertises
+        # itself — qwen3-embedding:0.6b reports "tools".
+        chat_capable="embedding" not in capabilities,
+    )
+    return profile.agentic_capable
 
 
 def _make_cloud_chat() -> Optional[Any]:

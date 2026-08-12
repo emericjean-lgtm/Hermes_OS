@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar, Optional
 
 
 class ModelArchitecture(str, Enum):
@@ -90,6 +90,41 @@ class ModelProfile:
     # smallest of all twelve) with every other ranking signal still at its
     # neutral untrained default.
     chat_capable: bool = True
+    #: What Ollama's own /api/show reports under "capabilities" — the real
+    #: source, not a guess from the tag. Necessary for agentic work, and
+    #: demonstrably not sufficient: qwen3.5:2b and even
+    #: qwen3-embedding:0.6b both declare "tools".
+    declares_tools: bool = False
+    #: Set from a real measured run when one exists. None means "never
+    #: measured", which is why agentic_capable falls back to a size
+    #: heuristic rather than assuming either answer.
+    measured_agentic_success: Optional[bool] = None
+
+    #: Below this, a model that declares tool support still narrates instead
+    #: of calling tools. Measured on this deployment, same prompt/toolset/
+    #: workspace, only the model changed: devstral (23.6B) wrote the file,
+    #: qwen3.5:2b (2.3B) wrote nothing. The exact inflection between those
+    #: two points is not measured; 7B is the conservative industry one and
+    #: is deliberately a documented heuristic, superseded per-model by
+    #: measured_agentic_success as soon as a real run provides it.
+    AGENTIC_MIN_PARAMETERS_B: ClassVar[float] = 7.0
+
+    @property
+    def agentic_capable(self) -> bool:
+        """Can this model actually drive an agent loop (HOS-088)?
+
+        Replaces the hard-coded model-name list HOS-085 introduced as a
+        stopgap. Order matters: a real measurement beats a declaration, and
+        a declaration beats a name. Embedding-only models are excluded for
+        the same reason chat_capable excludes them.
+        """
+        if not self.chat_capable:
+            return False
+        if self.measured_agentic_success is not None:
+            return self.measured_agentic_success
+        if not self.declares_tools:
+            return False
+        return self.parameters_b >= self.AGENTIC_MIN_PARAMETERS_B
 
     def __post_init__(self) -> None:
         if not self.last_used:

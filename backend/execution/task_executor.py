@@ -74,19 +74,10 @@ _MAX_TOOL_ROUNDS = 3
 #: nothing is not a neutral default — it starts the agent with zero tools.
 _HERMES_AGENT_TOOLSETS: tuple[str, ...] = ("coding",)
 
-#: Models known to actually drive Hermes Agent's tool loop on this
-#: deployment. ModelRouter ranks for VRAM/latency on a *single completion*,
-#: which is the wrong objective for agentic execution: it picks a 2B model
-#: for a short node title like "Create test file", and a 2B model does not
-#: reliably call tools. Measured directly, same prompt/toolset/workspace,
-#: only the model changed: devstral wrote the file; qwen3.5:2b wrote nothing
-#: and narrated instead. Hermes still decides *what* to do — this only keeps
-#: Hermes OS from handing it a brain too small to act, which is squarely
-#: Hermes OS's job ("this model is not viable for this runtime").
-_HERMES_AGENT_CAPABLE_MODELS: tuple[str, ...] = (
-    "devstral", "qwen3-coder", "qwen3.6:27b", "gpt-oss:20b", "deepseek-r1:32b",
-)
-#: Used when the router's pick is not in the list above.
+#: Used when the routed model cannot drive an agent loop. A single named
+#: model rather than a capability query: this is the last resort *after*
+#: capability resolution has already failed, and it must be something known
+#: to work on this deployment (measured — see ModelProfile.agentic_capable).
 _HERMES_AGENT_FALLBACK_MODEL = "devstral"
 
 
@@ -229,12 +220,12 @@ class RealTaskExecutor:
         workspace_project_for: Optional[Callable[[Any], Optional[tuple[str, str]]]] = None,
         hermes_toolsets: tuple[str, ...] = _HERMES_AGENT_TOOLSETS,
         mission_brief_for: Optional[Callable[[Any], Optional[str]]] = None,
-        capable_models: tuple[str, ...] = _HERMES_AGENT_CAPABLE_MODELS,
+        agentic_capable_for: Optional[Callable[[str], Optional[bool]]] = None,
         agentic_fallback_model: str = _HERMES_AGENT_FALLBACK_MODEL,
     ) -> None:
         self._hermes_toolsets = hermes_toolsets
         self._mission_brief_for = mission_brief_for
-        self._capable_models = capable_models
+        self._agentic_capable_for = agentic_capable_for
         self._fallback_model = agentic_fallback_model
         self._chat = chat
         self._model_for = model_for
@@ -572,18 +563,28 @@ class RealTaskExecutor:
     def _agentic_model(self, model: str) -> str:
         """Keep Hermes Agent off models that cannot drive its tool loop.
 
-        See _HERMES_AGENT_CAPABLE_MODELS for the measurement this encodes.
-        Substitution is logged rather than silent: the router's choice is
-        real telemetry-backed reasoning, and overriding it is a decision the
-        operator should be able to see in the logs.
+        HOS-085 shipped this as a hard-coded list of model names, which was
+        a stopgap: it could not answer for a model nobody had thought to
+        list. The question is now asked of the model's own capability
+        profile (HOS-088) — Ollama's declared tool support, its parameter
+        count, and a real measured run where one exists. Substitution is
+        logged rather than silent: the router's pick is telemetry-backed
+        reasoning, and overriding it is something an operator should see.
         """
         name = (model or "").strip()
-        if name and any(name.startswith(ok) for ok in self._capable_models):
+        capable: Optional[bool] = None
+        if name and self._agentic_capable_for is not None:
+            try:
+                capable = self._agentic_capable_for(name)
+            except Exception:  # pragma: no cover - never fail a task over this
+                logger.debug("agentic capability lookup failed for %r", name, exc_info=True)
+        if capable:
             return name
         logger.info(
-            "hermes-agent: substituting %r for %r — the routed model is not "
-            "in the tool-capable list for agentic execution",
+            "hermes-agent: substituting %r for %r — %s",
             self._fallback_model, name or "<unset>",
+            "no capability profile available" if capable is None
+            else "the routed model cannot drive an agent loop",
         )
         return self._fallback_model
 

@@ -171,18 +171,54 @@ def test_task_prompt_carries_the_mission_objective(hermes_agent, monkeypatch, tm
     assert "Create test file" in user_turn
 
 
-def test_agentic_model_floor(monkeypatch, tmp_path):
+def test_agentic_model_floor():
     """Measured on this deployment: same prompt, same "coding" toolset, same
     workspace — devstral wrote the file, qwen3.5:2b wrote nothing and
     narrated. ModelRouter optimises a single completion for VRAM/latency and
     picks the 2B model for a short node title, so without this floor the
-    whole integration routes correctly and still accomplishes nothing."""
-    executor = RealTaskExecutor()
-    assert executor._agentic_model("qwen3.5:2b") == "devstral"  # noqa: SLF001
-    assert executor._agentic_model("") == "devstral"  # noqa: SLF001
-    # A capable pick is left alone — this is a floor, not a hard-coded model.
+    whole integration routes correctly and still accomplishes nothing.
+
+    The decision now comes from a capability profile, not a name list
+    (HOS-088), so this asserts the *policy*: capable through, incapable and
+    unknown substituted."""
+    capable = {"devstral:latest": True, "qwen3.5:2b": False}
+    executor = RealTaskExecutor(agentic_capable_for=capable.get)
+
     assert executor._agentic_model("devstral:latest") == "devstral:latest"  # noqa: SLF001
-    assert executor._agentic_model("qwen3-coder:30b") == "qwen3-coder:30b"  # noqa: SLF001
+    assert executor._agentic_model("qwen3.5:2b") == "devstral"  # noqa: SLF001
+    # Unknown is not treated as capable: an unprobeable model that cannot
+    # call tools yields a mission that reports success and does nothing.
+    assert executor._agentic_model("something-new:8b") == "devstral"  # noqa: SLF001
+    assert executor._agentic_model("") == "devstral"  # noqa: SLF001
+
+
+def test_agentic_capability_is_measured_not_named():
+    """A declaration is not a demonstration: qwen3.5:2b and even
+    qwen3-embedding:0.6b report "tools" to Ollama. The profile must weigh a
+    real measurement over the declaration, and the declaration over the
+    name."""
+    from backend.model_intelligence.model_intelligence_models import ModelProfile
+
+    def profile(**kw):
+        return ModelProfile(model_id="m", name="m", **kw)
+
+    # Declares tools but far too small — the observed narration case.
+    assert not profile(parameters_b=2.3, declares_tools=True).agentic_capable
+    # Declares tools and large enough.
+    assert profile(parameters_b=23.6, declares_tools=True).agentic_capable
+    # Big but no tool support at all.
+    assert not profile(parameters_b=30.0, declares_tools=False).agentic_capable
+    # Embedding models are excluded however they advertise themselves.
+    assert not profile(
+        parameters_b=30.0, declares_tools=True, chat_capable=False,
+    ).agentic_capable
+    # A real measured run overrides the size heuristic in both directions.
+    assert profile(
+        parameters_b=2.3, declares_tools=True, measured_agentic_success=True,
+    ).agentic_capable
+    assert not profile(
+        parameters_b=30.0, declares_tools=True, measured_agentic_success=False,
+    ).agentic_capable
 
 
 def test_per_task_context_is_not_shared_state(hermes_agent, monkeypatch, tmp_path):

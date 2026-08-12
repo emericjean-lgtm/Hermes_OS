@@ -789,6 +789,57 @@ async def classify_request(request: str, default: str = "conversation") -> dict:
 # ── Kronos: tasks ────────────────────────────────────────────────────
 
 
+def _canonical_project_id(value: str | None) -> str | None:
+    """Normalise whatever the caller used to name a project (HOS-087).
+
+    Hermes Agent runs with the workspace as its cwd, so it naturally passes a
+    filesystem path where Hermes OS stores a canonical Project id. Storing
+    one form and filtering on the other is why ``tasks_create`` followed by
+    ``tasks_list(project_id=...)`` came back empty: the SQL filter is an
+    exact match and was always comparing two different strings.
+
+    Accepts an id or any path inside a registered Project (its root or a
+    subdirectory) and returns the id. Unknown values pass through unchanged
+    rather than becoming None — silently widening a scoped query to "all
+    projects" would leak one project's tasks into another's listing.
+    """
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        from backend.projects.store import get_project_store
+        store = get_project_store()
+        if store.get(raw) is not None:
+            return raw
+        from pathlib import Path
+        candidate = Path(raw).expanduser()
+        try:
+            candidate = candidate.resolve()
+        except OSError:
+            return raw
+        best: tuple[int, str] | None = None
+        for project in store.list():
+            root = (project.root_path or "").strip()
+            if not root:
+                continue
+            try:
+                root_path = Path(root).expanduser().resolve()
+            except OSError:
+                continue
+            if candidate == root_path or root_path in candidate.parents:
+                # Deepest matching root wins, so a project nested inside
+                # another project's tree resolves to itself.
+                depth = len(root_path.parts)
+                if best is None or depth > best[0]:
+                    best = (depth, project.id)
+        return best[1] if best else raw
+    except Exception:  # never let normalisation break a task call
+        logger.debug("project id normalisation failed for %r", value, exc_info=True)
+        return raw
+
+
 def tasks_create(
     title: str,
     description: str = "",
@@ -798,14 +849,14 @@ def tasks_create(
     project_id: str | None = None,
 ) -> dict:
     """Create a new task. Status starts at 'todo'. project_id optionally
-    scopes it to a project (see projects_* tools)."""
+    scopes it to a project — an id, or any path inside its workspace."""
     task = _kronos().create_task(
         title=title,
         description=description,
         objective=objective,
         priority=priority,
         agent=agent,
-        project_id=project_id,
+        project_id=_canonical_project_id(project_id),
     )
     return _task_to_dict(task)
 
@@ -819,8 +870,15 @@ def tasks_get(task_id: str) -> dict | None:
 def tasks_list(status: str | None = None, project_id: str | None = None) -> list[dict]:
     """List tasks, optionally filtered by status (todo/in_progress/
     blocked/awaiting_validation/in_test/done/cancelled/reversible/
-    partially_successful/to_resume) and/or project_id."""
-    return [_task_to_dict(t) for t in _kronos().list_tasks(status=status, project_id=project_id)]
+    partially_successful/to_resume) and/or project_id — an id, or any path
+    inside the project's workspace (normalised the same way tasks_create
+    normalises it, which is what makes create-then-list actually work)."""
+    return [
+        _task_to_dict(t)
+        for t in _kronos().list_tasks(
+            status=status, project_id=_canonical_project_id(project_id),
+        )
+    ]
 
 
 def tasks_update(
@@ -851,7 +909,9 @@ def tasks_update(
         models_used=models_used,
         test_results=test_results,
         note=note,
-        project_id=project_id,
+        # Same normalisation as create/list — a task reassigned by path must
+        # land under the id the listing filters on (HOS-087).
+        project_id=_canonical_project_id(project_id),
     )
     if task is None:
         return None
