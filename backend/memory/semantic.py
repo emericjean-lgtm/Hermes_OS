@@ -22,30 +22,46 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
     path requires."""
 
     def __init__(
-        self, base_url: str, model: str, timeout: float = 60.0, keep_alive: object = -1
+        self, base_url: str, model: str, timeout: float = 60.0, keep_alive: object = -1,
+        num_ctx: int | None = None,
     ) -> None:
         """`keep_alive` is forwarded to /api/embeddings; -1 means "hold in
         VRAM indefinitely". Defaults to -1 because config/models.yaml marks
         the embedding role `always_loaded`. This path previously sent no
         keep_alive at all, so nomic-embed-text fell back to Ollama's own
         short default and was evicted between indexing runs — every later
-        RAG query then paid a cold reload (§22)."""
+        RAG query then paid a cold reload (§22).
+
+        `num_ctx` must be sent explicitly (HOS-093). Sending nothing lets
+        Ollama apply its process-wide OLLAMA_CONTEXT_LENGTH, which is sized
+        for agentic chat, not for embedding a 512-word chunk. Measured when
+        that default was raised to 65536: this 0.64 GB model was loaded with
+        32768 context and occupied **5.88 GB of VRAM** — nine times its
+        weights — and a single embedding call took 57 seconds, timing out
+        document indexing. config/models.yaml has always said 2048; it was
+        simply never forwarded."""
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout
         self._keep_alive = keep_alive
+        self._num_ctx = num_ctx
 
     def __call__(self, input: Documents) -> Embeddings:  # noqa: A002 - chromadb's protocol name
         vectors: Embeddings = []
         with httpx.Client(base_url=self._base_url, timeout=self._timeout) as client:
+            payload: dict = {
+                "model": self._model,
+                "keep_alive": self._keep_alive,
+            }
+            if self._num_ctx:
+                # /api/embeddings honours options, unlike the OpenAI-compatible
+                # /v1 endpoint the chat path uses — so here the context really
+                # can be pinned per request.
+                payload["options"] = {"num_ctx": self._num_ctx}
             for text in input:
                 response = client.post(
                     "/api/embeddings",
-                    json={
-                        "model": self._model,
-                        "prompt": text,
-                        "keep_alive": self._keep_alive,
-                    },
+                    json={**payload, "prompt": text},
                 )
                 response.raise_for_status()
                 vectors.append(response.json()["embedding"])
@@ -61,7 +77,8 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
     @staticmethod
     def build_from_config(config: dict) -> "OllamaEmbeddingFunction":
         return OllamaEmbeddingFunction(
-            base_url=config["base_url"], model=config["model"], timeout=config.get("timeout", 60.0)
+            base_url=config["base_url"], model=config["model"],
+            timeout=config.get("timeout", 60.0), num_ctx=config.get("num_ctx"),
         )
 
 

@@ -1,3 +1,57 @@
+## HOS-093 — Le correctif de contexte étranglait les embeddings (2026-08-12)
+
+Régression introduite par HOS-091, révélée par un test qui a viré au rouge et non par une inspection. `OLLAMA_CONTEXT_LENGTH=65536` est nécessaire pour que les schémas d'outils de Hermes Agent cessent d'être tronqués — mais ce réglage est **global**, et s'applique donc aussi au modèle qui embarque des chunks RAG de 512 mots.
+
+Mesuré sur ce déploiement :
+
+| | sans `num_ctx` | avec `num_ctx=2048` |
+|---|---|---|
+| contexte servi | 32768 | 2048 |
+| VRAM | **5,88 Go** | 2,23 Go |
+| latence par appel | **57,5 s** | 2,4 s |
+
+Un modèle de 0,64 Go occupait neuf fois ses poids en VRAM, et l'indexation documentaire partait en timeout. `config/models.yaml` déclarait `num_ctx: 2048` pour ce rôle depuis HOS-079 ; la valeur n'était simplement jamais transmise à Ollama.
+
+Corrigeable ici, contrairement au chat : `/api/embeddings` honore `options`, là où l'endpoint OpenAI-compatible `/v1` ne transporte aucun `num_ctx`. C'est la même asymétrie que celle qui avait causé HOS-090, exploitée cette fois dans le bon sens.
+
+Effet secondaire mesuré : la suite complète passe de **46 minutes à 3 minutes 08**.
+
+Un des garde-fous vérifie que le `num_ctx` accompagne **chaque** chunk — une option qui n'atterrirait que sur la première requête d'une indexation laisserait tout le reste au défaut global, et le bug serait revenu à moitié.
+
+**Ce que cet incident expose et qui n'est pas corrigé** : le garde-fou de HOS-091 surveille le plancher agentique et reste aveugle au gaspillage inverse. Un défaut global optimal pour un rôle est nuisible pour un autre ; un profil de contexte par rôle serait la vraie réponse. Signalé, non implémenté.
+
+## HOS-092 — Une mission « réussie » doit être confrontée au disque (2026-08-12)
+
+Bilan de la campagne HOS-085 → HOS-091 : cinq défauts distincts — le tool loop HOS écrasant Hermes Agent, les toolsets CLI vidés, l'objectif perdu à la décomposition, un contexte servi à 4k, un timeout de 180s — et **cinq rapports verts** au-dessus d'un workspace vide à chaque fois. Le défaut commun n'était aucun des cinq : c'était que « completed » signifiait « chaque nœud a renvoyé du texte », et du texte est précisément ce qu'un modèle produit quand il ne peut pas faire le travail.
+
+`backend/mission/verification.py` pose une question différente, et sans interroger l'agent : comparer le workspace avant et après. Un diff de système de fichiers est une vérité de terrain — il n'exige aucune coopération du modèle, ne peut pas être argumenté, et aurait attrapé les cinq.
+
+Trois choix de conception qui portent l'essentiel :
+
+- **Empreinte par hachage, pas taille+mtime.** Une réécriture de même longueur dans la granularité d'horodatage du système passerait inaperçue — or c'est exactement le cas « l'agent a réécrit le fichier avec un autre contenu ».
+- **Répertoires de bruit ignorés** (`.git`, `__pycache__`, `node_modules`…). Sans cela, toute mission dans un dépôt git paraît productive parce qu'un cache a bougé.
+- **L'absence de mesure n'est pas une contradiction.** Une mission sans workspace lié n'a rien à confronter ; la signaler comme faux succès serait la sanctionner pour n'avoir pas produit une preuve qu'elle n'était pas en position de produire. Ce défaut existait dans la première version du module — un test l'a attrapé, d'où le champ `measured` explicite.
+
+Volontairement **pas** un juge sémantique de l'objectif. Décider si « alpha/beta/gamma » est le bon contenu pour un but donné n'est pas du ressort de cette couche, et prétendre le contraire ne ferait que déplacer la fabrication d'un cran. Le module rapporte ce qui a physiquement changé ; savoir si cela satisfait l'objectif reste à l'opérateur.
+
+### Verified
+
+Confronté aux artefacts réels de cette session, pas à des fixtures :
+
+```
+SUCCÈS RÉEL  -> verified=True  contradicted=False  | 1 created: HERMES_OS_FINAL_INTEGRATION_TEST.md
+FAUX SUCCÈS  -> verified=False contradicted=True   | no file was created, modified or deleted
+```
+
+Puis **câblé** dans `GraphExecutor` — empreinte prise à `start_mission`, confrontée à la complétion — et vérifié sur un vrai exécuteur, pas seulement en unitaire :
+
+```
+nœud qui n'écrit rien -> contradicted=True,  événement mission.unverified émis
+nœud qui écrit        -> verified=True,      created=['out.md']
+```
+
+`mission.unverified` est un événement distinct de `mission.completed` à dessein : l'événement vert reste vert, et la contradiction devient impossible à ne pas lire.
+
 ## HOS-091 — Le contexte dégradé devient détectable au lieu d'être subi (2026-08-12)
 
 HOS-090 avait corrigé le contexte servi, mais par une variable d'environnement de session : au premier redémarrage d'Ollama, la panne revenait en silence. Mesuré une fois la variable retirée — et c'est pire que ce que HOS-090 avait observé : Ollama redémarre à **4096**, pas 8192.

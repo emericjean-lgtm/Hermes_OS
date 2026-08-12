@@ -51,6 +51,11 @@ class EchoAgent:
             settings.ollama_api_url,
             embedding_model,
             keep_alive=-1 if embedding_role.get("always_loaded") else settings.ollama_keep_alive,
+            # Forward the role's own num_ctx (HOS-093). Omitting it hands the
+            # embedding model Ollama's process-wide default, which is sized
+            # for agentic chat: measured at 5.88 GB of VRAM for a 0.64 GB
+            # model and 57s per call once that default was raised to 65536.
+            num_ctx=embedding_role.get("num_ctx"),
         )
         self._documents = DocumentStore(embedding_fn, persist_directory=settings.chroma_path)
         # Cosine distance, not Chroma's default (L2): its [0, ~2] range,

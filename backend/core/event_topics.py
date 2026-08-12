@@ -183,6 +183,11 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     "mission.node_failed",
     "mission.node_ready",
     "mission.started",
+    # HOS-092: emitted when a mission reports success over a workspace that
+    # did not change. Separate from mission.completed on purpose — the green
+    # event stays green, and this one makes the contradiction impossible to
+    # read past.
+    "mission.unverified",
     # ohmypi
     "ohmypi.ast.analyzed",
     "ohmypi.lsp.diagnostics",

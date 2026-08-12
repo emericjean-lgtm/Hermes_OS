@@ -6,6 +6,7 @@ Integrates with RuntimeOrchestrator (HOS-038) for node execution.
 
 from __future__ import annotations
 
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -23,6 +24,9 @@ from backend.mission.mission_models import (
 )
 
 
+logger = logging.getLogger("hermes_os.mission.graph_executor")
+
+
 class GraphExecutor:
     """Executes missions by traversing the DAG.
 
@@ -38,6 +42,10 @@ class GraphExecutor:
         self._lock = threading.Lock()
         self._graph = MissionGraph()
         self._resolver = DependencyResolver()
+        # HOS-092: workspace fingerprints taken at start_mission, consumed
+        # once at completion. Keyed by mission so concurrent missions cannot
+        # read each other's baseline.
+        self._snapshots: dict = {}
         self._on_event = on_event
         self._execute_node = execute_node or (lambda n: True)
         # HOS-068: bounded, deliberately small — see mission_max_parallel_tasks
@@ -85,6 +93,12 @@ class GraphExecutor:
         with self._lock:
             mission.status = MissionStatus.RUNNING
             mission.started_at = datetime.now(timezone.utc)
+
+        # HOS-092: fingerprint the workspace now, so completion can be
+        # confronted with what physically changed rather than with the
+        # agent's account of it. Best-effort by construction — a snapshot
+        # that fails must never prevent a mission from running.
+        self._snapshot_workspace(mission)
 
         if self._on_event:
             self._on_event("mission.started", {
@@ -171,12 +185,25 @@ class GraphExecutor:
                         mission.status = MissionStatus.COMPLETED if all_success else MissionStatus.FAILED
                         mission.completed_at = datetime.now(timezone.utc)
 
+                        verification = self._verify_workspace(mission, all_success)
+
                         if self._on_event:
                             ev_type = "mission.completed" if all_success else "mission.completed"
-                            self._on_event(ev_type, {
+                            payload = {
                                 "mission_id": mission.mission_id,
                                 "failed": progress["failed"],
-                            }, severity="info" if all_success else "error")
+                            }
+                            if verification is not None:
+                                payload["verification"] = verification
+                            self._on_event(ev_type, payload,
+                                           severity="info" if all_success else "error")
+                            # A mission claiming success over an untouched
+                            # workspace is the failure mode that hid five
+                            # separate defects — it gets its own event so it
+                            # is impossible to read the green one alone.
+                            if verification is not None and verification.get("contradicted"):
+                                self._on_event("mission.unverified", verification,
+                                               severity="warning")
 
             # Notify newly ready nodes
             new_ready = self._resolver.get_ready_nodes(mission)
@@ -189,6 +216,46 @@ class GraphExecutor:
                     }, severity="info")
 
         return count
+
+    def _workspace_root(self, mission: Mission) -> str | None:
+        """The directory a mission's work should land in, or None.
+
+        Resolved through the same Project binding RealTaskExecutor uses, so
+        verification looks at exactly the tree Hermes Agent was given.
+        """
+        project_id = getattr(mission.context, "project_id", "") or ""
+        if not project_id:
+            return None
+        try:
+            from backend.projects.store import get_project_store
+            project = get_project_store().get(project_id)
+        except Exception:
+            return None
+        return (project.root_path or None) if project is not None else None
+
+    def _snapshot_workspace(self, mission: Mission) -> None:
+        try:
+            from backend.mission.verification import snapshot
+
+            root = self._workspace_root(mission)
+            if root:
+                self._snapshots[mission.mission_id] = snapshot(root)
+        except Exception:  # pragma: no cover - diagnostics never block a run
+            logger.debug("workspace snapshot failed", exc_info=True)
+
+    def _verify_workspace(self, mission: Mission, reported_success: bool) -> dict | None:
+        """Confront the mission's verdict with the filesystem's."""
+        try:
+            from backend.mission.verification import snapshot, verify
+
+            root = self._workspace_root(mission)
+            before = self._snapshots.pop(mission.mission_id, None)
+            after = snapshot(root) if root else None
+            result = verify(mission.mission_id, reported_success, root, before, after)
+            return result.as_dict()
+        except Exception:  # pragma: no cover
+            logger.debug("workspace verification failed", exc_info=True)
+            return None
 
     def cancel_mission(self, mission: Mission) -> bool:
         with self._lock:
