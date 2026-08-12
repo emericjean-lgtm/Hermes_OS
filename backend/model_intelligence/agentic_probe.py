@@ -214,7 +214,7 @@ def _exclusive_probe():
         _PROBE_LOCK.release()
 
 
-def probe(model: str, *, config=None) -> AgenticProbeResult:
+def probe(model: str, *, config=None, timeout_s: float = _PROBE_TIMEOUT_S) -> AgenticProbeResult:
     """Run one real agentic task and read the verdict off the disk.
 
     Uses the installed Hermes Agent exactly as mission execution does, so a
@@ -223,12 +223,18 @@ def probe(model: str, *, config=None) -> AgenticProbeResult:
 
     Exclusive by construction: see _exclusive_probe. Raises rather than
     queueing if another probe holds the slot.
+
+    ``timeout_s`` is adjustable because a timeout and a refusal are
+    different findings and must not be conflated: a model that would have
+    answered in 500s is slow, whereas one that returns in 310s having
+    called no tool has declined the work. Raise it before concluding
+    anything from a timeout.
     """
     with _exclusive_probe():
-        return _probe_once(model, config)
+        return _probe_once(model, config, timeout_s)
 
 
-def _probe_once(model: str, config) -> AgenticProbeResult:
+def _probe_once(model: str, config, timeout_s: float = _PROBE_TIMEOUT_S) -> AgenticProbeResult:
     from backend.ral.adapters.hermes_agent_cli import HermesAgentCliConfig
 
     cfg = config or HermesAgentCliConfig()
@@ -254,7 +260,7 @@ def _probe_once(model: str, config) -> AgenticProbeResult:
     try:
         completed = subprocess.run(
             command, cwd=str(workspace), env=env, capture_output=True,
-            text=True, encoding="utf-8", errors="replace", timeout=_PROBE_TIMEOUT_S,
+            text=True, encoding="utf-8", errors="replace", timeout=timeout_s,
         )
         stdout = completed.stdout or ""
         detail = "" if completed.returncode == 0 else f"exit {completed.returncode}"
@@ -262,7 +268,7 @@ def _probe_once(model: str, config) -> AgenticProbeResult:
         return AgenticProbeResult(
             model=model, success=False, tool_calls=0,
             duration_s=time.perf_counter() - started, artifact_verified=False,
-            detail=f"timed out after {_PROBE_TIMEOUT_S:.0f}s",
+            detail=f"timed out after {timeout_s:.0f}s",
         )
     except OSError as exc:
         return AgenticProbeResult(

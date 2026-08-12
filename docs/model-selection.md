@@ -32,7 +32,42 @@ mesurent la contention, pas le modèle.
 | **`lfm2.5-2.6b-128k`** | 2,7 Md | 131072 | **1,67 Go** | **3/3** | 28-41 s |
 | `qwen3.5:9b-128k` | 9,7 Md | 131072 | 10,18 Go | 3/3 | ~47 s |
 | `devstral` | 23,6 Md | 65536 | déborde 10,75 Go sur CPU | 1/3 | ~300 s |
-| `gemma4:12b-64k` | 11,9 Md | 65536 | 8,49 Go | 0/3 | timeout |
+| `gemma4:12b-64k` | 11,9 Md | 65536 | 8,49 Go | 0/3 | ~430 s |
+| `gemma4:12b-128k` | 11,9 Md | 131072 | 8,19 Go | 0/2 | ~945 s |
+
+## Ce que cette sonde mesure vraiment — et ce qu'elle ne mesure pas
+
+Elle demande de **créer un fichier avec un chemin et un contenu**. Elle
+mesure donc « mener à bien une écriture », ce qui confond deux capacités
+distinctes : choisir le bon outil, et construire correctement ses arguments.
+
+Le cas `gemma4:12b` le montre. Des tests antérieurs menés séparément contre
+les outils MCP de Hermes OS ont donné :
+
+- `files_list` ✅ — appel réel, vraies données du workspace
+- `files_read` ✅ — README.md et ARCHITECTURE.md réellement lus
+- `security_evaluate` ✅ — a bien renvoyé `require_human_validation`
+- `files_diff` ⚠️ — bon outil sélectionné, **paramètre `path` manquant**
+
+Donc gemma4 **sait** comprendre une tâche, choisir un outil et exploiter un
+résultat. Sa faiblesse observée porte sur la construction des arguments — et
+c'est précisément ce que la sonde exige. Un `0/3` ici ne signifie pas
+« incapable d'agentique », mais « ne mène pas à bien une écriture ».
+
+Cette nuance ne change pas la décision : une mission produit toujours un
+artefact, donc un modèle qui échoue à écrire n'est pas utilisable comme
+cerveau de mission. Elle change en revanche l'usage ailleurs — gemma4 reste
+un candidat correct pour de l'analyse en lecture seule.
+
+**Limite connue de l'instrument** : la sonde n'enregistre pas les arguments
+générés. Elle ne peut donc pas distinguer « le modèle a omis `path` » de
+« l'adaptateur ou le transport MCP l'a perdu ». Attribuer un échec de
+paramètre au modèle demande un test contrôlé — même prompt, même schéma,
+deux modèles, arguments comparés — que cet outil ne sait pas encore mener.
+
+Le contexte n'y change rien : `gemma4:12b-128k`, créé via Modelfile et servi
+à 131072 sans le moindre débordement (8,19 Go, 0 % CPU), donne le même 0
+appel d'outil pour un temps doublé.
 
 ## Ce qui ne prédit rien
 
