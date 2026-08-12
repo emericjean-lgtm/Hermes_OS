@@ -1,3 +1,21 @@
+## HOS-098 — La mémoire unifiée survit enfin au processus (2026-08-12)
+
+Audit du dernier gros doublon cognitif (§8). Sur les 18 modules de `backend/memory/`, **huit n'ont aucun import hors de `memory/` et des tests** — dont deux paires qui se ressemblent de façon suspecte : `episodic` (utilisé 4×) contre `episodic_memory` (0), `semantic` (1×) contre `semantic_memory` (0). Aucun n'est supprimé ici : la dépréciation demande de vérifier les dépendances avant, et ce n'est pas ce qui bloquait.
+
+Ce qui bloquait est plus grave. `UnifiedMemory` est la façade prévue pour toutes les portées — session, mission, agent, projet, utilisateur, global, expérience — avec une interface `MemoryBackend` enfichable pour que le stockage puisse devenir durable « plus tard ». Plus tard n'est jamais venu : **`InMemoryBackend`, un simple `dict`, était la seule implémentation existante**. Et ses trois consommateurs réels sont `mission_control`, `hos_routes` et **l'adaptateur Hermes Agent**.
+
+Autrement dit, le système portait deux mémoires aux garanties opposées : `episodic.py` persiste en SQLite et répond à `memory_remember`/`memory_search` (réparé en HOS-086), tandis que la façade qu'utilise l'intégration de l'agent ne persistait rien du tout. Tout ce que l'adaptateur mémorisait mourait avec le processus.
+
+`backend/memory/unified_sqlite_backend.py` comble ce trou **en donnant un backend durable à la façade existante, pas en ajoutant un troisième magasin**. Il réutilise le moteur et les sessions de `memory/db.py`, donc le même fichier SQLite que toutes les autres tables. Portée, importance et dates deviennent des colonnes indexées pour que les filtres de `MemoryQuery` se traduisent en SQL ; tags et métadonnées restent du JSON filtré en Python, mais **après** le filtrage SQL, sur un ensemble déjà réduit — et la pagination s'applique en dernier, sinon une limite posée avant le filtre JSON renverrait moins de lignes que demandé.
+
+Table distincte de celle d'`episodic` à dessein : les deux portent des champs différents (portée et importance ici, type et confiance là), et les fusionner reviendrait à perdre des champs d'un côté ou de l'autre. Même base, même fabrique de sessions, préoccupations distinctes.
+
+L'adaptateur Hermes Agent est désormais durable par défaut, avec repli sur le `dict` **journalisé** si SQLite est inaccessible — une base illisible doit dégrader la mémoire, pas empêcher une mission de tourner, mais une mémoire silencieusement volatile est pire qu'une mémoire absente.
+
+### Verified
+
+993 passed, 2 skipped. Huit tests de persistance qui détruisent l'instance entre l'écriture et la relecture — un identifiant renvoyé par `store` n'est pas accepté comme preuve. Couvrent la survie au redémarrage, la préservation de **tous** les champs (tags, importance, métadonnées, date de création — ce sont eux qui portent les filtres, un aller-retour qui les perd conserve le texte et casse la recherche), les requêtes par portée/tag/importance après redémarrage, l'isolation des portées, la mise à jour sans duplication, la suppression persistée (une mémoire qui réapparaît après suppression est pire qu'une mémoire perdue) et la pagination appliquée après filtrage.
+
 ## HOS-097 — Le RAG peut enfin répondre « rien de pertinent » (2026-08-12)
 
 Audit du RAG, devenu possible une fois les embeddings réparés (HOS-093 : 57 s → 2,4 s par appel). La chaîne fonctionne — ingestion de trois documents en 3,3 s, classement correct, portée par projet respectée. Un défaut de fond subsistait.

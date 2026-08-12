@@ -10,6 +10,7 @@ the rest of the system interacts only through this adapter's public API.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
@@ -215,6 +216,28 @@ class HermesAgentCapabilities:
 # ======================================================================
 
 
+logger = logging.getLogger("hermes_os.integrations.hermes_agent")
+
+
+def _default_memory_backend():
+    """SQLite when it can be reached, the in-memory dict otherwise.
+
+    Falling back rather than raising: a database that cannot be opened must
+    degrade the adapter's memory, not stop it from running a mission. The
+    fallback is logged so a silently volatile memory is at least visible.
+    """
+    try:
+        from backend.memory.unified_sqlite_backend import SqliteMemoryBackend
+
+        return SqliteMemoryBackend()
+    except Exception:
+        logger.warning(
+            "unified memory falling back to the in-memory backend — anything "
+            "remembered will be lost on restart", exc_info=True,
+        )
+        return None
+
+
 class HermesAgentAdapter:
     """Bridges Hermes OS abstractions with the Hermes Agent codebase.
 
@@ -251,7 +274,12 @@ class HermesAgentAdapter:
         self._ollama_client = ollama_client
         self._model_router = model_router
         self._agent = agent
-        self._memory = memory or UnifiedMemory()
+        # HOS-098: durable by default. UnifiedMemory's own default backend is
+        # an in-memory dict, so everything this adapter remembered used to die
+        # with the process — the opposite guarantee from episodic.py, which
+        # answers memory_remember/memory_search from SQLite. A caller can
+        # still inject a volatile backend for tests.
+        self._memory = memory or UnifiedMemory(backend=_default_memory_backend())
         self._skill_orchestrator = skill_orchestrator or AdaptiveSkillOrchestrator()
         self._echo_agent = echo_agent
 
