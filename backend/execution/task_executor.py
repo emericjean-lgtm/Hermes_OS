@@ -67,6 +67,28 @@ logger = logging.getLogger("hermes_os.execution.task")
 #: asking for tools without ever answering cannot hang a task forever.
 _MAX_TOOL_ROUNDS = 3
 
+#: Toolsets Hermes OS makes available to Hermes Agent for mission work.
+#: "coding" is Hermes Agent's own bundle (files, terminal, search, todo,
+#: delegate, vision, browser — 32 tools as of v0.19.0). Hermes OS names what
+#: is *available*; Hermes alone decides what to actually call. Passing
+#: nothing is not a neutral default — it starts the agent with zero tools.
+_HERMES_AGENT_TOOLSETS: tuple[str, ...] = ("coding",)
+
+#: Models known to actually drive Hermes Agent's tool loop on this
+#: deployment. ModelRouter ranks for VRAM/latency on a *single completion*,
+#: which is the wrong objective for agentic execution: it picks a 2B model
+#: for a short node title like "Create test file", and a 2B model does not
+#: reliably call tools. Measured directly, same prompt/toolset/workspace,
+#: only the model changed: devstral wrote the file; qwen3.5:2b wrote nothing
+#: and narrated instead. Hermes still decides *what* to do — this only keeps
+#: Hermes OS from handing it a brain too small to act, which is squarely
+#: Hermes OS's job ("this model is not viable for this runtime").
+_HERMES_AGENT_CAPABLE_MODELS: tuple[str, ...] = (
+    "devstral", "qwen3-coder", "qwen3.6:27b", "gpt-oss:20b", "deepseek-r1:32b",
+)
+#: Used when the router's pick is not in the list above.
+_HERMES_AGENT_FALLBACK_MODEL = "devstral"
+
 
 class RuntimeUnavailableError(RuntimeError):
     """No runtime could serve the task.
@@ -205,7 +227,15 @@ class RealTaskExecutor:
         list_running_for: Optional[Callable[[], Any]] = None,
         unload_for: Optional[Callable[[str], Any]] = None,
         workspace_project_for: Optional[Callable[[Any], Optional[tuple[str, str]]]] = None,
+        hermes_toolsets: tuple[str, ...] = _HERMES_AGENT_TOOLSETS,
+        mission_brief_for: Optional[Callable[[Any], Optional[str]]] = None,
+        capable_models: tuple[str, ...] = _HERMES_AGENT_CAPABLE_MODELS,
+        agentic_fallback_model: str = _HERMES_AGENT_FALLBACK_MODEL,
     ) -> None:
+        self._hermes_toolsets = hermes_toolsets
+        self._mission_brief_for = mission_brief_for
+        self._capable_models = capable_models
+        self._fallback_model = agentic_fallback_model
         self._chat = chat
         self._model_for = model_for
         self._workspace = workspace_manager
@@ -298,31 +328,43 @@ class RealTaskExecutor:
         """
         runtime_id = (getattr(assignment, "runtime_id", "")
                       or getattr(task, "assigned_runtime", "")
-                      or "ollama")
+                      or "hermes-agent")
         model = self._resolve_model(task, assignment)
         num_ctx = self._resolve_num_ctx(task)
         workspace = self._resolve_workspace(task)
-        messages = self._build_messages(task, assignment, workspace)
-        prompt_chars = sum(len(m.get("content", "")) for m in messages)
 
         chat = self._chat or self._default_chat
         use_cloud = self._cloud_chat is not None and self._resolve_runtime(task) == "openrouter"
         if use_cloud:
             runtime_id = "openrouter"
         requested_runtime = runtime_id
+        hermes_agent_runs_it = (runtime_id == "hermes-agent"
+                                and self._chat is None and not use_cloud)
 
-        # Real workspace tool-calling only on the local path — the cloud
-        # fallback below already exists independently of tools, and
-        # bounding this to local keeps the surface this pass adds small
-        # and matches the Assistant chat's own scope decision (this is
-        # still the first real Mission-execution consumer of the layer).
-        if workspace is not None and not use_cloud:
+        messages = self._build_messages(
+            task, assignment, workspace, hermes_agent=hermes_agent_runs_it,
+        )
+        prompt_chars = sum(len(m.get("content", "")) for m in messages)
+
+        # HOS-085: when Hermes Agent is the runtime it IS the brain — it owns
+        # reasoning, tool selection and tool execution, reaching this very
+        # backend's tools through its own MCP client (its config.yaml points
+        # mcp_servers at http://127.0.0.1:8010/mcp, the app mounted in
+        # backend/main.py). Hermes OS must therefore NOT run its own
+        # tool-calling loop on top: doing so made Hermes OS a second
+        # cognitive orchestrator and silently bypassed Hermes entirely
+        # whenever a mission was workspace-bound. _chat_with_tools_for stays
+        # for the explicit local-Ollama runtime, which has no agent of its
+        # own and would otherwise get no tools at all.
+        if runtime_id == "hermes-agent" and self._chat is None and not use_cloud:
+            chat = self._hermes_agent_chat_for(task, workspace)
+        elif workspace is not None and not use_cloud:
             chat = self._chat_with_tools_for(workspace)
 
         started = time.perf_counter()
         try:
             active_chat = self._cloud_chat if use_cloud else chat
-            if not use_cloud:
+            if not use_cloud and runtime_id != "hermes-agent":
                 self._check_vram_admission(model)
             response = self._run_coro(
                 active_chat(messages=messages, model=model, num_ctx=num_ctx), self._timeout_s
@@ -473,6 +515,95 @@ class RealTaskExecutor:
                 await client.aclose()
             except Exception:  # pragma: no cover - best-effort cleanup
                 logger.debug("closing Ollama client failed", exc_info=True)
+
+    def _hermes_agent_chat_for(
+        self, task: Any, workspace: Optional[tuple[str, str]],
+    ) -> Callable[..., Any]:
+        """A chat-shaped callable that runs the task through the installed
+        Hermes Agent (NousResearch/hermes-agent) instead of a bare model call.
+
+        The per-task context is captured in this closure rather than stashed
+        on ``self``: the executor is shared and MissionExecutor can run tasks
+        concurrently, so instance attributes would let one task read another
+        task's workspace — the same reason _chat_with_tools_for is built this
+        way.
+        """
+        project_id, project_root = workspace if workspace is not None else ("", "")
+        runtime_ctx = {
+            "mission_id": getattr(task, "mission_id", "") or "",
+            "task_id": getattr(task, "task_id", "") or "",
+            "task_type": getattr(task, "task_type", "") or "",
+            "project_id": project_id,
+            "workspace": project_root or self._scratch_workspace(task),
+            "skills": list(getattr(task, "assigned_skills", []) or []),
+            # Without this Hermes Agent starts with "0 tools · 0 skills" and
+            # can only *describe* the work — verified live: the same task that
+            # merely printed "Creating the file..." with no toolset actually
+            # wrote the file once "coding" was passed. The adapter only sends
+            # --toolsets when Hermes OS supplies one, so supplying none meant
+            # a toolless agent. Hermes still decides which of these tools to
+            # use, and when; Hermes OS only says which are available.
+            "toolsets": list(self._hermes_toolsets),
+        }
+
+        async def _chat(*, messages: list[dict[str, Any]], model: str,
+                        num_ctx: Optional[int] = None) -> Any:
+            from backend.ral.adapters.hermes_agent_cli import (
+                HermesAgentCliConfig,
+                HermesAgentCliRuntime,
+            )
+
+            model = self._agentic_model(model)
+            runtime = HermesAgentCliRuntime(
+                HermesAgentCliConfig(model=model, timeout_seconds=self._timeout_s)
+            )
+            await runtime.start()
+            cap = runtime.get("chat")
+            if cap is None:
+                raise RuntimeUnavailableError("Hermes Agent chat capability unavailable")
+            return await cap.chat(messages, runtime_ctx={
+                **runtime_ctx,
+                "model": model,
+                "policy": {"runtime": "hermes-agent", "num_ctx": num_ctx},
+            })
+
+        return _chat
+
+    def _agentic_model(self, model: str) -> str:
+        """Keep Hermes Agent off models that cannot drive its tool loop.
+
+        See _HERMES_AGENT_CAPABLE_MODELS for the measurement this encodes.
+        Substitution is logged rather than silent: the router's choice is
+        real telemetry-backed reasoning, and overriding it is a decision the
+        operator should be able to see in the logs.
+        """
+        name = (model or "").strip()
+        if name and any(name.startswith(ok) for ok in self._capable_models):
+            return name
+        logger.info(
+            "hermes-agent: substituting %r for %r — the routed model is not "
+            "in the tool-capable list for agentic execution",
+            self._fallback_model, name or "<unset>",
+        )
+        return self._fallback_model
+
+    def _scratch_workspace(self, task: Any) -> str:
+        """Where Hermes Agent runs a task that is bound to no Project.
+
+        Never the process CWD: that is the Hermes OS source tree itself, and
+        the adapter would otherwise hand Hermes Agent write access to the
+        very codebase running it (HermesAgentCliConfig falls back to
+        ``os.getcwd()`` when given no workspace). An empty per-mission
+        scratch directory keeps an unbound mission harmless; a mission that
+        needs real files is expected to bind a validated Project.
+        """
+        import tempfile
+        from pathlib import Path
+
+        mission_id = getattr(task, "mission_id", "") or "unbound"
+        root = Path(tempfile.gettempdir()) / "hermes_os_scratch" / mission_id
+        root.mkdir(parents=True, exist_ok=True)
+        return str(root)
 
     async def _default_list_running(self) -> list[dict[str, Any]]:
         """Real resident models, from Ollama's own /api/ps (HOS-072) —
@@ -748,9 +879,11 @@ class RealTaskExecutor:
                 logger.debug("num_ctx_for callback failed", exc_info=True)
         return None
 
-    @staticmethod
     def _build_messages(
+        self,
         task: Any, assignment: Any, workspace: Optional[tuple[str, str]] = None,
+        *,
+        hermes_agent: bool = False,
     ) -> list[dict[str, Any]]:
         """Build the one chat completion this execution actually is.
 
@@ -759,14 +892,16 @@ class RealTaskExecutor:
         below) remains a text hint only, per the HOS-069 finding — nothing
         parses it or invokes anything from it. ``workspace``, when given
         (this task's Mission is bound to a real, validated Project — see
-        _resolve_workspace), is different: the real filesystem tool
-        schemas are attached to this same completion by execute()
-        swapping in _chat_with_tools_for(), and the paragraph below tells
-        the model those tools genuinely exist and what they're scoped to
-        — mirroring conversation/conversation_manager.py's
-        _workspace_context_block for the chat path, at the same bounded
-        depth (name/root/permissions/a short root listing, never the
-        whole tree).
+        _resolve_workspace), is different: real tools genuinely exist, and
+        the paragraph below says so.
+
+        ``hermes_agent`` selects *which* toolset the prompt may name. Hermes
+        Agent arrives with its own ("coding") and is launched with the
+        workspace as its cwd, so naming Hermes OS's ``workspace_*`` tools
+        would describe an API it does not have — a prompt that lies about
+        the tools available is worse than one that stays quiet. Only the
+        local-Ollama path, whose tools this executor attaches itself via
+        _chat_with_tools_for(), gets the explicit ``workspace_*`` listing.
         """
         title = getattr(task, "title", "") or getattr(task, "task_id", "task")
         agent = getattr(assignment, "agent_id", "") or getattr(task, "assigned_agent", "")
@@ -787,17 +922,42 @@ class RealTaskExecutor:
             system += f" Available tools: {', '.join(tools)}."
         if workspace is not None:
             _project_id, project_root = workspace
-            system += (
-                f" You have real filesystem access to the workspace at "
-                f"{project_root!r} via workspace_list/workspace_exists/"
-                f"workspace_read/workspace_write — paths are relative to "
-                f"that root. Use workspace_list before reading a file whose "
-                f"exact path you don't already know; do not guess paths."
-            )
+            if hermes_agent:
+                # Hermes Agent brings its own tools (the "coding" toolset) and
+                # is launched with this directory as its cwd. Naming Hermes
+                # OS's workspace_* tools here would advertise tools it does
+                # not have — the prompt must describe the ground, not invent
+                # an API for the brain that already owns one.
+                system += (
+                    f" Your working directory is {project_root!r} and you have "
+                    f"real filesystem access to it. Inspect before you write: "
+                    f"do not guess paths."
+                )
+            else:
+                system += (
+                    f" You have real filesystem access to the workspace at "
+                    f"{project_root!r} via workspace_list/workspace_exists/"
+                    f"workspace_read/workspace_write — paths are relative to "
+                    f"that root. Use workspace_list before reading a file whose "
+                    f"exact path you don't already know; do not guess paths."
+                )
+
+        # The node title alone is usually too thin to act on (see
+        # _mission_brief_for): "Create test file" names no file and no
+        # content. The Mission's objective is the only place the real
+        # requirement survives decomposition.
+        brief = ""
+        if self._mission_brief_for is not None:
+            try:
+                brief = (self._mission_brief_for(task) or "").strip()
+            except Exception:  # pragma: no cover - a brief is never worth failing over
+                logger.debug("mission brief lookup failed", exc_info=True)
+        user = (f"Mission objective: {brief}\n\nYour task in that mission: {title}"
+                if brief else f"Task: {title}")
 
         return [
             {"role": "system", "content": system},
-            {"role": "user", "content": f"Task: {title}"},
+            {"role": "user", "content": user},
         ]
 
     @staticmethod

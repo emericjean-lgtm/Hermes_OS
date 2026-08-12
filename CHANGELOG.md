@@ -1,3 +1,61 @@
+## HOS-085 — Hermes Agent redevient le cerveau des missions (2026-08-12)
+
+Audit demandé : « quand une mission s'exécute depuis Hermes OS, est-ce réellement Hermes Agent officiel qui raisonne et orchestre ? ». Réponse trouvée : **non**, sur le chemin principal. Trois défauts distincts l'empêchaient, chacun invisible pour la suite de tests.
+
+**1. Hermes OS était devenu un second orchestrateur cognitif et gagnait.** `execution/task_executor.py` sélectionnait bien Hermes Agent, puis l'écrasait deux lignes plus bas :
+
+```python
+if runtime_id == "hermes-agent" and self._chat is None and not use_cloud:
+    chat = self._hermes_agent_chat          # Hermes Agent choisi
+if workspace is not None and not use_cloud:
+    chat = self._chat_with_tools_for(...)   # ...et immédiatement remplacé
+```
+
+`_chat_with_tools_for` → `_run_tool_loop` instancie `OllamaClient` en direct et fait sa propre boucle d'outils. Donc **toute mission liée à un workspace — le cas de production, celui que HOS-084 venait d'introduire — contournait Hermes Agent**. Le Mission Center l'affichait sans ambiguïté (`Runtimes : ollama`) et personne ne l'avait lu comme un défaut. Corrigé en `elif` : quand Hermes Agent est le runtime, il possède la sélection et l'exécution des outils (il atteint ce backend par son propre MCP, `config.yaml` pointe déjà `mcp_servers` sur `http://127.0.0.1:8010/mcp`). La boucle HOS reste pour le runtime `ollama` explicite, qui n'a pas d'agent et n'aurait autrement aucun outil.
+
+**2. Hermes Agent tournait sans aucun outil.** L'adaptateur ne passe `--toolsets` que si Hermes OS en fournit — et Hermes OS n'en fournissait aucun. Vérifié en direct : `0 tools · 0 skills`, et l'agent se contentait de *décrire* le travail (« Creating the file… ») pendant que rien n'était écrit sur disque. Le même prompt avec `--toolsets coding` (32 outils : files, terminal, delegate…) a réellement créé le fichier. Hermes OS nomme désormais ce qui est *disponible* ; Hermes seul décide de ce qu'il appelle.
+
+**3. L'objectif de la mission n'atteignait jamais l'agent.** `TaskDecomposer` produit des titres de nœuds génériques (« Create test file ») avec une `description` vide, et `_build_messages` n'envoyait que `Task: {title}`. Une mission dont l'objectif nommait le fichier, ses trois lignes et l'étape de vérification arrivait donc à l'agent sous la forme `Task: Create test file` — sans nom de fichier ni contenu. L'agent partait à la dérive (jusqu'à lire `C:\Users\emeri\.gitlab-ci.yml`, hors workspace) et la mission rapportait malgré tout 4/4 « completed ». Nouveau résolveur `_mission_brief_for` : l'objectif accompagne désormais le titre du nœud.
+
+**4. Le routeur donnait à Hermes un cerveau trop petit pour agir.** Les trois correctifs ci-dessus rétablissaient un routage correct, et la mission n'accomplissait toujours rien. Expérience contrôlée — même prompt, même toolset `coding`, même workspace, seul le modèle change : `devstral` écrit le fichier, `qwen3.5:2b` n'écrit rien et se contente de narrer (il est même allé créer une entrée de suivi de tâche à la place). `ModelRouter` classe les modèles pour *une complétion isolée* (VRAM, latence) et choisit donc un 2B pour un titre de nœud court comme « Create test file » ; c'est le bon objectif pour une complétion, le mauvais pour une boucle agentique. Nouveau plancher `_HERMES_AGENT_CAPABLE_MODELS` (repli `devstral`, substitution journalisée, liste paramétrable par constructeur). Hermes continue de décider *quoi* faire ; Hermes OS se contente de ne plus lui tendre un modèle incapable d'appeler un outil — ce qui relève bien de sa responsabilité (« ce modèle n'est pas viable pour ce runtime »). **Arbitrage à connaître : ce plancher consomme plus de VRAM que le choix du routeur.**
+
+**Corrections de robustesse trouvées en chemin.** Le contexte par tâche était stocké sur `self` (`_current_workspace`…) alors que `MissionExecutor` peut exécuter des tâches en parallèle : une tâche pouvait lire le workspace d'une autre. Remplacé par une closure, comme `_chat_with_tools_for`. Et l'adaptateur retombe sur `os.getcwd()` quand aucun workspace n'est fourni — soit l'arborescence source de Hermes OS elle-même : une mission non liée reçoit désormais un répertoire scratch vide.
+
+**Prompt** : quand Hermes Agent exécute, le prompt ne nomme plus `workspace_list/workspace_read/workspace_write` — ce sont les outils *de Hermes OS*, que l'agent n'a pas. Un prompt qui ment sur les outils disponibles est pire qu'un prompt silencieux.
+
+### Verified
+
+Hermes Agent officiel : `NousResearch/hermes-agent`, commit `fb8d824`, version `0.19.0`, installé sous `%LOCALAPPDATA%\hermes\hermes-agent`.
+
+Backend : 925 passed, 2 skipped, 0 failed (contre 920 avant). Cinq garde-fous ajoutés (`test_hermes_agent_is_the_brain.py`) qui portent sur la *décision de routage*, pas sur le fonctionnement d'une boucle d'outils — c'est précisément ce que l'ancienne suite ne vérifiait pas. Leur capacité à détecter la régression a été prouvée en la réintroduisant : deux échouent alors avec « REGRESSION: Hermes OS ran its own Ollama tool loop for a hermes-agent mission ».
+
+**Preuve d'exécution réelle**, mission lancée par l'API Hermes OS, processus capturé pendant qu'il tournait :
+
+```
+PID 24808  ...\hermes-agent\venv\Scripts\python.exe  ...\hermes-agent\cli.py
+  --query "Contexte fourni par Hermes OS: - mission_id: 215f448b... - workspace: C:\Users\emeri\hermes_e2e
+           - project_id: 889f2463... - policy: {"runtime": "hermes-agent"}"
+  --model qwen3.5:2b --provider custom --base_url http://127.0.0.1:11434/v1
+  --max_turns 20 --toolsets coding --quiet --usage-file ...
+```
+
+Le rapport de mission confirme `runtimes_used: ['hermes-agent']` — là où le même test rapportait `['ollama']` avant ce correctif.
+
+**Artefact réel produit de bout en bout.** Mission `HERMES_OS_INTEGRATION_TEST` créée via l'API Hermes OS, liée à un Project validé, exécutée par Hermes Agent, avec vérification indépendante sur disque (pas la narration de l'agent) :
+
+```
+$ cat C:\Users\emeri\hermes_e2e\HERMES_OS_INTEGRATION_TEST.md
+line one
+line two
+line three
+```
+
+Les quatre défauts ci-dessus ont été trouvés parce que ce fichier n'apparaissait pas : les runs successifs rapportaient tous `success: True, 4/4 completed` avec un répertoire vide. Un rapport de mission « réussie » n'a jamais constitué une preuve ici — seul le contenu du disque compte.
+
+### Non modifié
+
+Le cœur de Hermes Agent et sa `config.yaml` (dont `disabled_toolsets`, qui désactive `delegation` et `skills` — à revoir avant tout test de délégation à des subagents). Le chat Assistant (`conversation/routes.py`, `api/routes/chat.py`) continue d'utiliser `BaseAgent.respond_events`, la boucle d'outils interne de Hermes OS : c'est une surface distincte des missions, et la basculer sur Hermes Agent est une décision séparée. `_run_tool_loop` est conservé pour le runtime `ollama` explicite. Aucun composant HOS supprimé. L'Autonomous Engine hérite automatiquement du correctif (il passe par `mission_executor.execute_task`).
+
 ## HOS-084 — Mission Execution câblée sur le filesystem tool layer (2026-08-10)
 
 Suite directe de HOS-083 : « Filesystem centralisé disponible pour Assistant/Chat et MCP, Mission Execution reste à intégrer » — c'est ce dernier point qui est traité ici. Objectif : qu'une Mission liée à un Project validé puisse réellement appeler `workspace_list`/`workspace_read`/`workspace_write` pendant l'exécution de ses tâches, avec la même sécurité Aegis que le chat, sans dupliquer la logique.

@@ -144,7 +144,7 @@ def create_app() -> FastAPI:
         # reality; it does not yet route real inference through this
         # registry/RuntimeOrchestrator — that remains a separate, larger
         # rewiring (see the item flagged as such in CHANGELOG.md).
-        runtime_holder = await init_runtime_registry_in_holder(default_runtime="ollama")
+        runtime_holder = await init_runtime_registry_in_holder(default_runtime="hermes-agent")
         _app.state.runtime_holder = runtime_holder
         _app.state.runtime_registry = get_runtime_registry()
 

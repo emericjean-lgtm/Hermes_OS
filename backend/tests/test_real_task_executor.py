@@ -20,6 +20,11 @@ class _FakeTask:
     title: str = "Do the thing"
     mission_id: str = ""
     assigned_agent: str = ""
+    # HOS-085: "" resolves to the "hermes-agent" runtime, which owns its own
+    # tool loop. The tests below that exercise Hermes OS's *own* local tool
+    # loop therefore pin this to "ollama" explicitly — that loop is now the
+    # local-Ollama path only, not what a default mission does.
+    assigned_runtime: str = ""
     assigned_skills: list = field(default_factory=list)
     assigned_tools: list = field(default_factory=list)
     retries: int = 0
@@ -83,12 +88,12 @@ def test_resolve_workspace_returns_resolver_result():
 
 
 def test_build_messages_without_workspace_has_no_filesystem_mention():
-    messages = RealTaskExecutor._build_messages(_FakeTask(), None)  # noqa: SLF001
+    messages = RealTaskExecutor()._build_messages(_FakeTask(), None)  # noqa: SLF001
     assert not any("filesystem access" in m["content"] for m in messages)
 
 
 def test_build_messages_with_workspace_mentions_real_tools_and_root():
-    messages = RealTaskExecutor._build_messages(  # noqa: SLF001
+    messages = RealTaskExecutor()._build_messages(  # noqa: SLF001
         _FakeTask(), None, ("proj-1", "C:\\Users\\emeri\\Skill360 Industry"),
     )
     system = messages[0]["content"]
@@ -218,7 +223,7 @@ async def test_tool_loop_reads_real_file_and_returns_real_content(
     executor = RealTaskExecutor(
         workspace_project_for=lambda task: (project.id, str(workspace)),
     )
-    outcome = executor.execute(_FakeTask(mission_id="m-1"))
+    outcome = executor.execute(_FakeTask(mission_id="m-1", assigned_runtime="ollama"))
 
     assert "Real agent instructions." in outcome.result
     assert outcome.metadata.get("tool_calls_made") == 1
@@ -260,7 +265,7 @@ async def test_tool_loop_reports_aegis_refusal_without_fabricating_success(
     executor = RealTaskExecutor(
         workspace_project_for=lambda task: ("not-a-real-project", str(outside)),
     )
-    outcome = executor.execute(_FakeTask(mission_id="m-2"))
+    outcome = executor.execute(_FakeTask(mission_id="m-2", assigned_runtime="ollama"))
 
     assert "Refusé par Aegis" in outcome.result or "refusé" in outcome.result.lower()
 
@@ -318,7 +323,7 @@ async def test_tool_loop_bounded_rounds_forces_final_answer(monkeypatch, tmp_pat
     executor = RealTaskExecutor(
         workspace_project_for=lambda task: (project.id, str(workspace)),
     )
-    outcome = executor.execute(_FakeTask(mission_id="m-3"))
+    outcome = executor.execute(_FakeTask(mission_id="m-3", assigned_runtime="ollama"))
 
     assert outcome.result == "forced final answer"
 

@@ -355,7 +355,8 @@ def _make_task_executor(c: Any) -> Any:
             decision = mi_routes._get_router().recommend_for_text(  # noqa: SLF001
                 title, max_vram_mb=_max_vram_mb_now(), task_type_hint=_task_type_hint(task),
             )
-            return decision.runtime.value
+            runtime = decision.runtime.value
+            return "openrouter" if runtime == "openrouter" else "hermes-agent"
         except Exception:
             return None
 
@@ -422,6 +423,7 @@ def _make_task_executor(c: Any) -> Any:
         resource_manager=c.get("resource_manager"),
         vram_gb_for=_vram_gb_for,
         workspace_project_for=_workspace_project_for,
+        mission_brief_for=_mission_brief_for,
     )
 
 
@@ -461,6 +463,41 @@ def _workspace_project_for(task: Any) -> Optional[tuple[str, str]]:
     if project.validation_status != ValidationStatus.VALID.value:
         return None
     return (project_id, project.root_path)
+
+
+def _mission_brief_for(task: Any) -> Optional[str]:
+    """The Mission's own objective, for a task that only knows its node title.
+
+    TaskDecomposer routinely produces generic node titles ("Create test
+    file", "Verify file contents") and leaves node.description empty, so a
+    task built from one carries no trace of what was actually asked. Live
+    proof (HOS-085): a mission whose objective named the file, its three
+    lines and the verification step reached Hermes Agent as nothing but
+    ``Task: Create test file`` — the agent had no filename and no content
+    to work from, wandered outside the workspace, and the mission still
+    reported 4/4 completed. Passing the objective alongside the node title
+    is what makes a decomposed task actionable at all.
+    """
+    mission_id = getattr(task, "mission_id", "") or ""
+    if not mission_id:
+        return None
+    try:
+        from backend.mission.routes import get_mission_by_id
+        mission = get_mission_by_id(mission_id)
+    except Exception:
+        return None
+    if mission is None:
+        return None
+    # objective first, then description: POST /missions maps them from two
+    # separate payload fields and the Mission Center's create form only ever
+    # fills "description", so a mission built from the UI has an empty
+    # objective. mission/routes.py makes the same substitution in both
+    # directions already (``mission.objective or mission.title``).
+    for attr in ("objective", "description"):
+        value = (getattr(mission, attr, "") or "").strip()
+        if value:
+            return value
+    return None
 
 
 def _make_cloud_chat() -> Optional[Any]:

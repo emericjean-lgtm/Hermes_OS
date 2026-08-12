@@ -270,7 +270,7 @@ async def init_runtime_registry_in_holder(default_runtime: str = "stub") -> Runt
 
     Steps:
 
-    1. Register ``stub`` and ``ollama`` builders in the module-level
+    1. Register ``stub``, ``ollama`` and ``hermes-agent`` builders in the module-level
        :class:`RuntimeFactory`.
     2. Create the ``default_runtime`` instance, start it, and register
        it (done automatically by the factory).
@@ -286,6 +286,7 @@ async def init_runtime_registry_in_holder(default_runtime: str = "stub") -> Runt
         The active :class:`RuntimeHolder`.
     """
     from backend.ral.adapters.hermes_ollama import HermesOllamaRuntime
+    from backend.ral.adapters.hermes_agent_cli import HermesAgentCliRuntime
     from backend.ral.adapters.stub_runtime import StubRuntime
     from backend.ral.runtime_config import RuntimeConfig
     from backend.connectors.ollama_client import OllamaClient
@@ -307,10 +308,16 @@ async def init_runtime_registry_in_holder(default_runtime: str = "stub") -> Runt
             event_bus=bus,
         ),
     )
+    factory.register_builder(
+        "hermes-agent",
+        lambda: HermesAgentCliRuntime(event_bus=bus),
+    )
 
     # Create and start the requested default runtime.
     if default_runtime == "stub":
         runtime = factory.create("stub")
+    elif default_runtime == "hermes-agent":
+        runtime = factory.create("hermes-agent")
     elif default_runtime == "ollama":
         # Read from the same sources every other real Ollama call site uses
         # (Settings, config/models.yaml's "standard" role) rather than a
