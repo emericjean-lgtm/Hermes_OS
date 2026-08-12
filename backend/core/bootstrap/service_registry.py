@@ -559,12 +559,14 @@ def _agentic_capable_for(model_id: str) -> Optional[bool]:
     except Exception:
         measured = None
 
+    served, offload = _runtime_footprint_for(model_id)
     profile = ModelProfile(
         model_id=model_id,
         name=model_id,
         parameters_b=parameters_b,
         context_window=supported_context or 4096,
-        served_context=_served_context_for(model_id),
+        served_context=served,
+        cpu_offload_bytes=offload,
         measured_agentic_success=measured,
         declares_tools="tools" in capabilities,
         # An embedding model is not a chat model, however it advertises
@@ -572,6 +574,40 @@ def _agentic_capable_for(model_id: str) -> Optional[bool]:
         chat_capable="embedding" not in capabilities,
     )
     return profile.agentic_capable
+
+
+def _runtime_footprint_for(model_id: str) -> tuple[Optional[int], Optional[int]]:
+    """(served_context, cpu_offload_bytes) for a currently-loaded model.
+
+    ``/api/ps`` reports both the context a model was given and how much of it
+    fits in VRAM. The gap between ``size`` and ``size_vram`` is the number
+    that decides usability on fixed hardware (HOS-096): devstral at 65536
+    needs 25.52 GB and leaves 10.75 GB on CPU on a 16 GB card. It answers
+    normally, so nothing errors — it just takes ~300s per task and calls
+    tools erratically, which reads as an unreliable *model* until you look.
+
+    Returns (None, None) when the model is not resident: nothing has been
+    served, so there is nothing to measure.
+    """
+    try:
+        import httpx
+
+        from backend.core.config import get_settings
+
+        base = get_settings().ollama_api_url.rstrip("/")
+        with httpx.Client(timeout=5.0) as client:
+            running = client.get(f"{base}/api/ps").json().get("models") or []
+    except Exception:
+        return (None, None)
+    for entry in running:
+        name = str(entry.get("name") or "")
+        if name == model_id or name.split(":")[0] == model_id.split(":")[0]:
+            served = entry.get("context_length")
+            total, vram = entry.get("size"), entry.get("size_vram")
+            offload = (max(0, int(total) - int(vram))
+                       if isinstance(total, int) and isinstance(vram, int) else None)
+            return (int(served) if isinstance(served, int) and served > 0 else None, offload)
+    return (None, None)
 
 
 def _served_context_for(model_id: str) -> Optional[int]:

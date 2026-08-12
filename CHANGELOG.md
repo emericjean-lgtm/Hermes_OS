@@ -1,3 +1,27 @@
+## HOS-096 — Aucune heuristique ne prédit la capacité agentique (2026-08-12)
+
+Quatre modèles, trois essais chacun, même tâche, même toolset, artefact vérifié sur disque :
+
+| Modèle | Taille | ctx servi | Tient en VRAM | Succès | Durée à chaud |
+|---|---|---|---|---|---|
+| **`lfm2.5-2.6b-128k`** | **2,7 Md** | 131072 | ✅ 1,67 Go | **3/3** | **~25 s** |
+| `qwen3.5:9b-128k` | 9,7 Md | 131072 | ✅ 10,18 Go | 3/3 | ~47 s |
+| `gemma4:12b-64k` | 11,9 Md | 65536 | ✅ 8,49 Go | **0/3** | timeout |
+| `devstral` | 23,6 Md | 65536 | ❌ 10,75 Go sur CPU | 1/3 | ~300 s |
+
+**Chacun de mes signaux structurels a été réfuté par la mesure suivante.** La taille s'inverse : 2,7 Md réussit 3/3, 11,9 Md échoue 0/3. La déclaration `tools` est faite jusque par `qwen3-embedding:0.6b`. Ni les 64k de contexte servi ni la tenue en VRAM n'ont sauvé `gemma4:12b`. Le plancher de 7 Md aurait rejeté le meilleur modèle disponible sur cette machine.
+
+Ce qui sépare réellement ces modèles est leur **post-entraînement** : LFM2.5-2.6B a été entraîné par renforcement agentique (ToolSandbox 77,83, revendiqué *« competitive with models 4× larger on tool use »*), les autres sont des modèles généralistes à qui l'on demande de se comporter en agent. Rien de tout cela n'apparaît dans les métadonnées d'un modèle.
+
+Conséquences appliquées :
+
+- **`AGENTIC_MIN_PARAMETERS_B` passe à 0** — conservé pour décrire un modèle, plus jamais pour le juger.
+- **Un modèle non mesuré est « non prouvé », pas « capable ».** Choix délibérément conservateur : deviner s'est révélé faux une fois sur deux, et le coût d'une erreur est une mission qui rapporte un succès sans rien produire — la défaillance que tout ce travail vise à supprimer. Les contrôles structurels ne peuvent plus que **disqualifier** ; seule une mesure qualifie.
+- **Les disqualifiants passent avant la mesure.** Un verdict passé a été rendu dans des conditions passées : `devstral` a mesuré 1/3 *parce qu'il débordait*, et un modèle qui se met à déborder après un changement de contexte est dans cet état quel qu'ait été son score.
+- **Repli agentique → `lfm2.5-2.6b-128k`** : deux fois plus rapide que le 9B, six fois moins de VRAM, même taux parfait. Il laisse ~14 Go libres sur une carte de 16, ce qui rend enfin possible la cohabitation de l'embedding et de l'agent sans éviction.
+
+**Bug attrapé en vérifiant le résolveur en direct** : `qwen3.5:2b` était rapporté capable sans avoir jamais été sondé. La correspondance par nom de base lui faisait hériter du 3/3 de `qwen3.5:9b-128k` — une famille n'est pas un modèle. Seule la paire nom-nu/`:latest` désigne les mêmes poids ; tout autre tag est un autre modèle.
+
 ## HOS-095 — La sonde agentique, et ce qu'elle corrige dans les entrées précédentes (2026-08-12)
 
 `ModelProfile.agentic_capable` classait ses preuves depuis HOS-088 — une mesure prime sur une déclaration, une déclaration prime sur un nom — mais **rien ne produisait jamais la mesure**. Toutes les réponses venaient donc de l'heuristique de taille. `backend/model_intelligence/agentic_probe.py` est le producteur manquant : il lance une vraie tâche via le CLI Hermes Agent installé et lit le verdict **sur le disque**, jamais dans la réponse du modèle — la règle qui avait démasqué cinq faux succès.

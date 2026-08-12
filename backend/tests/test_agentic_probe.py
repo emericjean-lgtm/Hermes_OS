@@ -94,6 +94,20 @@ def test_tag_variants_resolve_to_the_same_model(store):
         save_result(_result(model="devstral:latest", success=True))
 
     assert measured_success_for("devstral") is True
+    assert measured_success_for("devstral:latest") is True
+
+
+def test_siblings_in_a_family_do_not_share_a_verdict(store):
+    """A family name is not a model. Matching on it made qwen3.5:2b inherit
+    qwen3.5:9b-128k's 3/3 and be reported capable although it had never been
+    probed and is known to narrate instead of calling tools — a measured
+    verdict promoting a model that was never measured."""
+    for _ in range(3):
+        save_result(_result(model="qwen3.5:9b-128k", success=True))
+
+    assert measured_success_for("qwen3.5:2b") is None
+    assert measured_success_for("qwen3.5:4b") is None
+    assert measured_success_for("qwen3.5:9b-128k") is True
 
 
 def test_run_history_is_bounded(store):

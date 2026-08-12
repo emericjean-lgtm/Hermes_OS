@@ -196,32 +196,61 @@ def test_agentic_model_floor():
 
 
 def test_agentic_capability_is_measured_not_named():
-    """A declaration is not a demonstration: qwen3.5:2b and even
-    qwen3-embedding:0.6b report "tools" to Ollama. The profile must weigh a
-    real measurement over the declaration, and the declaration over the
-    name."""
+    """Only a measurement qualifies a model; structure can only disqualify.
+
+    Every structural signal was tried and refuted by the next measurement
+    (HOS-096, three trials each): parameter count inverts — lfm2.5-2.6b
+    passes 3/3 while gemma4:12b fails 0/3 — a "tools" declaration is made
+    even by qwen3-embedding:0.6b, and neither 64k of served context nor
+    fitting in VRAM saved gemma4:12b. So an unmeasured model is unproven,
+    never assumed capable."""
     from backend.model_intelligence.model_intelligence_models import ModelProfile
 
     def profile(**kw):
         return ModelProfile(model_id="m", name="m", **kw)
 
-    # Declares tools but far too small — the observed narration case.
+    # Unproven, whatever the size: guessing was wrong about half the time.
     assert not profile(parameters_b=2.3, declares_tools=True).agentic_capable
-    # Declares tools and large enough.
-    assert profile(parameters_b=23.6, declares_tools=True).agentic_capable
-    # Big but no tool support at all.
+    assert not profile(parameters_b=23.6, declares_tools=True).agentic_capable
+    # Structural disqualifiers still rule a model out immediately.
     assert not profile(parameters_b=30.0, declares_tools=False).agentic_capable
-    # Embedding models are excluded however they advertise themselves.
     assert not profile(
         parameters_b=30.0, declares_tools=True, chat_capable=False,
     ).agentic_capable
-    # A real measured run overrides the size heuristic in both directions.
+    # A measured run is the only thing that qualifies — and it does so for a
+    # 2.7B model that every heuristic would have rejected.
     assert profile(
-        parameters_b=2.3, declares_tools=True, measured_agentic_success=True,
+        parameters_b=2.7, declares_tools=True, measured_agentic_success=True,
     ).agentic_capable
     assert not profile(
         parameters_b=30.0, declares_tools=True, measured_agentic_success=False,
     ).agentic_capable
+
+
+def test_a_model_spilling_out_of_vram_is_not_agentically_capable():
+    """Measured on this 16 GB card (HOS-096): devstral given the 65536 of
+    context that stops tool schemas being truncated needs 25.52 GB, so
+    10.75 GB — 42% of the model — runs on CPU. Nothing errors; it just takes
+    ~300s per task and calls tools erratically, which reads as an unreliable
+    model until you look at the split. Raising the context is precisely what
+    causes the overflow, so the two cannot be judged separately."""
+    from backend.model_intelligence.model_intelligence_models import ModelProfile
+
+    def profile(**kw):
+        return ModelProfile(
+            model_id="m", name="m", parameters_b=23.6, declares_tools=True,
+            served_context=65536, measured_agentic_success=True, **kw,
+        )
+
+    # Fitting entirely in VRAM keeps a measured-good model usable.
+    assert profile(cpu_offload_bytes=0).agentic_capable
+    assert profile(cpu_offload_bytes=None).agentic_capable  # never measured
+    # Overflow disqualifies even a model that measured well: it is the same
+    # weights, running far slower and erratically on this hardware.
+    assert not profile(cpu_offload_bytes=10_750_000_000).agentic_capable
+    # Even a sliver of offload disqualifies: partial CPU execution is what
+    # makes the model slow and erratic, not the size of the spill.
+    assert not profile(cpu_offload_bytes=1).agentic_capable
 
 
 def test_served_context_gates_agentic_capability():
@@ -235,21 +264,21 @@ def test_served_context_gates_agentic_capability():
 
     def profile(served):
         return ModelProfile(
-            model_id="m", name="m", parameters_b=23.6,
-            declares_tools=True, served_context=served,
+            model_id="m", name="m", parameters_b=23.6, declares_tools=True,
+            served_context=served, measured_agentic_success=True,
         )
 
     assert profile(65536).agentic_capable
     assert profile(131072).agentic_capable
+    assert profile(None).agentic_capable  # never probed for context
+    # A starved runtime disqualifies even a model that measured well: the
+    # tool schema gets truncated regardless of how the model once scored.
     assert not profile(8192).agentic_capable
-    # None means never probed: judged on size alone rather than rejected, so
-    # a model this deployment has not measured yet is not silently excluded.
-    assert profile(None).agentic_capable
     # Supported context is explicitly NOT the gate — a model can advertise
     # 131072 and still be served 8192, which is exactly what happened.
     starved = ModelProfile(
         model_id="m", name="m", parameters_b=23.6, declares_tools=True,
-        context_window=131072, served_context=8192,
+        context_window=131072, served_context=8192, measured_agentic_success=True,
     )
     assert not starved.agentic_capable
 

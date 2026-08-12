@@ -78,16 +78,24 @@ _HERMES_AGENT_TOOLSETS: tuple[str, ...] = ("coding",)
 #: model rather than a capability query: this is the last resort *after*
 #: capability resolution has already failed.
 #:
-#: Was "devstral" until the agentic probe (HOS-095) produced actual numbers
-#: instead of impressions. Three trials each, same task, same toolset:
+#: Chosen from measured probe data (HOS-095/096), three trials each on real
+#: agentic work:
 #:
-#:     devstral         1/3 success, ~300s per trial, 14.33 GB
-#:     qwen3.5:9b-128k  3/3 success,  ~47s per trial,  6.59 GB
+#:     lfm2.5-2.6b-128k   2.7B   3/3   ~25s warm    1.67 GB
+#:     qwen3.5:9b-128k    9.7B   3/3   ~47s        10.18 GB
+#:     devstral          23.6B   1/3   ~300s       spills 10.75 GB to CPU
+#:     gemma4:12b-64k    11.9B   0/3   timeout      8.49 GB
 #:
-#: Three times more reliable, six times faster, half the VRAM. devstral had
-#: been chosen on a couple of manual runs that happened to pass — the very
-#: n=1 reasoning this probe exists to replace, and it was wrong.
-_HERMES_AGENT_FALLBACK_MODEL = "qwen3.5:9b-128k"
+#: The smallest model wins on every axis: twice as fast as the 9B, six times
+#: less VRAM, same perfect rate. It leaves ~14 GB free on a 16 GB card,
+#: which is what makes an embedding model and an agent coexist without
+#: eviction. LFM2.5 was post-trained with agentic reinforcement learning;
+#: the models it beats are general ones asked to act like agents.
+#:
+#: This constant has moved twice, both times because a measurement refuted
+#: the previous choice. It is a starting point for an unprobed deployment,
+#: not a verdict — agentic_probe.py is what settles it.
+_HERMES_AGENT_FALLBACK_MODEL = "lfm2.5-2.6b-128k"
 
 #: An agent loop is not a completion. The default 180s here was sized for
 #: one model call; a Hermes Agent task spawns a process, loads a toolset,

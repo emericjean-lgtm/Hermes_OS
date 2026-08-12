@@ -105,15 +105,31 @@ class ModelProfile:
     #: encodes: devstral supports 131072 and was being served 8192. None
     #: means never probed.
     served_context: Optional[int] = None
+    #: Bytes of this model pushed out of VRAM at its served context. The
+    #: number that actually decides usability on fixed local hardware
+    #: (HOS-096): devstral given 65536 needs 25.52 GB, of which 10.75 GB —
+    #: 42% of the model — lands on CPU on a 16 GB card. It still answers, so
+    #: nothing reports an error; it simply takes ~300s per task and calls
+    #: tools erratically. Raising the context to fix truncation is what
+    #: pushed it over the edge, so the two settings cannot be reasoned about
+    #: separately. None means never measured.
+    cpu_offload_bytes: Optional[int] = None
 
-    #: Below this, a model that declares tool support still narrates instead
-    #: of calling tools. Measured on this deployment, same prompt/toolset/
-    #: workspace, only the model changed: devstral (23.6B) wrote the file,
-    #: qwen3.5:2b (2.3B) wrote nothing. The exact inflection between those
-    #: two points is not measured; 7B is the conservative industry one and
-    #: is deliberately a documented heuristic, superseded per-model by
-    #: measured_agentic_success as soon as a real run provides it.
-    AGENTIC_MIN_PARAMETERS_B: ClassVar[float] = 7.0
+    #: Kept only to describe a model, never to judge it. HOS-096 measured
+    #: three trials each on real agentic work and found parameter count has
+    #: no predictive value here — if anything it inverts:
+    #:
+    #:     lfm2.5-2.6b-128k   2.7B   3/3   ~25s   1.67 GB
+    #:     qwen3.5:9b-128k    9.7B   3/3   ~47s  10.18 GB
+    #:     gemma4:12b-64k    11.9B   0/3   timeout
+    #:     devstral          23.6B   1/3   ~300s (spills 10.75 GB to CPU)
+    #:
+    #: A 2.7B model wins outright while an 11.9B one never completes a
+    #: single trial. The earlier 7B floor would have rejected the best model
+    #: available on this hardware. What separates them is post-training:
+    #: LFM2.5 was trained with agentic reinforcement learning, the others
+    #: are general models asked to behave like agents.
+    AGENTIC_MIN_PARAMETERS_B: ClassVar[float] = 0.0
 
     #: Hermes Agent's own guidance, corroborated here by measurement: below
     #: roughly 64k of *served* context, agents call tools far less reliably
@@ -129,27 +145,45 @@ class ModelProfile:
 
     @property
     def agentic_capable(self) -> bool:
-        """Can this model actually drive an agent loop (HOS-088)?
+        """Can this model actually drive an agent loop?
 
-        Replaces the hard-coded model-name list HOS-085 introduced as a
-        stopgap. Order matters: a real measurement beats a declaration, and
-        a declaration beats a name. Embedding-only models are excluded for
-        the same reason chat_capable excludes them.
+        Only a measured run answers this (HOS-096). Every structural signal
+        was tried and each one was refuted by the next measurement: parameter
+        count inverts (2.7B passes 3/3, 11.9B fails 0/3), a declared "tools"
+        capability is claimed even by an embedding model, 64k of served
+        context did not save gemma4:12b, and fitting in VRAM did not either.
+
+        So an unmeasured model is treated as **unproven**, not as capable.
+        That is deliberately conservative: guessing was wrong roughly half
+        the time on real models here, and the cost of guessing wrong is a
+        mission that reports success and accomplishes nothing — the failure
+        this whole line of work exists to remove. Callers substitute a
+        known-good fallback for anything unproven, and agentic_probe.py is
+        how a model earns its way out of that state.
+
+        The checks below are fast structural disqualifiers, not evidence of
+        capability: they can only rule a model *out*.
         """
+        # Disqualifiers first, and deliberately ahead of the measurement:
+        # a past verdict was taken under past conditions, and the runtime
+        # can invalidate it. devstral measured 1/3 *because* it was spilling
+        # to CPU; a model that starts overflowing after a context change is
+        # in that same state whatever it once scored.
         if not self.chat_capable:
             return False
-        if self.measured_agentic_success is not None:
-            return self.measured_agentic_success
         if not self.declares_tools:
             return False
         if self.parameters_b < self.AGENTIC_MIN_PARAMETERS_B:
             return False
-        # Judge on what will actually be served. None means never probed,
-        # left permissive so an unmeasured model is assessed on size rather
-        # than rejected outright.
-        if self.served_context is not None:
-            return self.served_context >= self.AGENTIC_MIN_CONTEXT
-        return True
+        if self.cpu_offload_bytes:
+            return False
+        if self.served_context is not None and self.served_context < self.AGENTIC_MIN_CONTEXT:
+            return False
+        if self.measured_agentic_success is not None:
+            return self.measured_agentic_success
+        # Survived every disqualifier, but none of them is positive evidence
+        # — gemma4:12b clears all of them and still failed 0/3. Unproven.
+        return False
 
     def __post_init__(self) -> None:
         if not self.last_used:

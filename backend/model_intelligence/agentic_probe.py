@@ -116,6 +116,19 @@ def save_result(result: AgenticProbeResult) -> None:
 _MIN_SUCCESS_RATE = 0.6
 
 
+def _same_model_aliases(model: str) -> tuple[str, ...]:
+    """Other names for *the same* model, never for a sibling.
+
+    Ollama treats a bare name and its ``:latest`` tag as one model. Any
+    other tag identifies a different set of weights — ``qwen3.5:2b`` and
+    ``qwen3.5:9b-128k`` share a family name and nothing else.
+    """
+    if ":" not in model:
+        return (f"{model}:latest",)
+    name, _, tag = model.partition(":")
+    return (name,) if tag == "latest" else ()
+
+
 def measured_success_for(model: str) -> Optional[bool]:
     """What real runs said about this model, or None if never probed.
 
@@ -125,13 +138,18 @@ def measured_success_for(model: str) -> Optional[bool]:
     flipped both ways between runs, and a routing decision built on one
     sample is how a narrator gets promoted to mission brain.
     """
-    entry = load_results().get(model)
+    results = load_results()
+    entry = results.get(model)
     if entry is None:
-        # A tag and its :latest form are the same model to Ollama.
-        base = model.split(":")[0]
-        for key, value in load_results().items():
-            if key.split(":")[0] == base:
-                entry = value
+        # "devstral" and "devstral:latest" are one model to Ollama, so a
+        # measurement of either answers for the other. Matching on the bare
+        # family name would not be equivalent — it made qwen3.5:2b inherit
+        # qwen3.5:9b-128k's 3/3 and be promoted despite never being probed
+        # and being known to fail. Only the bare/:latest pair is the same
+        # model; every other tag is a different one.
+        for candidate in _same_model_aliases(model):
+            if candidate in results:
+                entry = results[candidate]
                 break
     if entry is None:
         return None
