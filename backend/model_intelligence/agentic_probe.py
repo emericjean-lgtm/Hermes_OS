@@ -32,7 +32,9 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -162,13 +164,71 @@ def measured_success_for(model: str) -> Optional[bool]:
     return (successes / trials) >= _MIN_SUCCESS_RATE
 
 
+#: Serialises probes across threads *and* processes. Two probes running at
+#: once put two models in VRAM simultaneously, and on a 16 GB card that
+#: turns a measurement of the model into a measurement of the contention:
+#: gemma4:12b was first recorded 0/3 while an lfm2.5 probe happened to be
+#: running alongside it. Re-measured alone it was still 0/3, so that
+#: particular verdict survived — but it survived by luck, and a benchmark
+#: whose result depends on what else is running is not a benchmark.
+_PROBE_LOCK = threading.Lock()
+
+
+def _lock_file() -> Path:
+    return Path(tempfile.gettempdir()) / "hermes_agentic_probe.lock"
+
+
+@contextmanager
+def _exclusive_probe():
+    """Hold the probe slot, refusing rather than queueing.
+
+    Refuses because a caller that silently waited would produce a result
+    whose timing includes another model's load — the timings are part of the
+    verdict here, not incidental.
+    """
+    if not _PROBE_LOCK.acquire(blocking=False):
+        raise RuntimeError("another agentic probe is already running in this process")
+    lock_path = _lock_file()
+    handle = None
+    try:
+        try:
+            handle = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            # Stale locks outlive crashed probes; a lock older than one full
+            # probe timeout cannot belong to a live run.
+            age = time.time() - lock_path.stat().st_mtime if lock_path.exists() else 0.0
+            if age <= _PROBE_TIMEOUT_S + 60:
+                raise RuntimeError(
+                    "another agentic probe is running (lock at "
+                    f"{lock_path}); run probes one at a time so the "
+                    "measurement reflects the model, not VRAM contention"
+                ) from None
+            logger.warning("clearing stale probe lock (%.0fs old)", age)
+            lock_path.unlink(missing_ok=True)
+            handle = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        yield
+    finally:
+        if handle is not None:
+            os.close(handle)
+            lock_path.unlink(missing_ok=True)
+        _PROBE_LOCK.release()
+
+
 def probe(model: str, *, config=None) -> AgenticProbeResult:
     """Run one real agentic task and read the verdict off the disk.
 
     Uses the installed Hermes Agent exactly as mission execution does, so a
     pass here means the same path a mission takes actually works — not that
     some simplified harness works.
+
+    Exclusive by construction: see _exclusive_probe. Raises rather than
+    queueing if another probe holds the slot.
     """
+    with _exclusive_probe():
+        return _probe_once(model, config)
+
+
+def _probe_once(model: str, config) -> AgenticProbeResult:
     from backend.ral.adapters.hermes_agent_cli import HermesAgentCliConfig
 
     cfg = config or HermesAgentCliConfig()

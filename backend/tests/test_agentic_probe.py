@@ -120,6 +120,40 @@ def test_run_history_is_bounded(store):
     assert len(entry["runs"]) <= 10
 
 
+def test_two_probes_cannot_run_at_once(monkeypatch, tmp_path):
+    """Two probes at once put two models in VRAM, and on a 16 GB card that
+    measures the contention rather than the model. gemma4:12b was first
+    recorded 0/3 while an lfm2.5 probe happened to be running alongside it;
+    re-measured alone it was still 0/3, so that verdict survived — by luck.
+    A benchmark whose result depends on what else is running is not one."""
+    monkeypatch.setattr(agentic_probe, "_lock_file", lambda: tmp_path / "probe.lock")
+
+    with agentic_probe._exclusive_probe():  # noqa: SLF001
+        with pytest.raises(RuntimeError, match="already running"):
+            with agentic_probe._exclusive_probe():  # noqa: SLF001
+                pass
+
+    # Released afterwards, so a serial sequence of probes still works.
+    with agentic_probe._exclusive_probe():  # noqa: SLF001
+        pass
+
+
+def test_a_stale_lock_does_not_wedge_the_probe(monkeypatch, tmp_path):
+    """A crashed probe leaves its lock behind; refusing forever afterwards
+    would be worse than the contention it guards against."""
+    import os
+    import time
+
+    lock = tmp_path / "probe.lock"
+    monkeypatch.setattr(agentic_probe, "_lock_file", lambda: lock)
+    lock.write_text("")
+    ancient = time.time() - (agentic_probe._PROBE_TIMEOUT_S + 3600)  # noqa: SLF001
+    os.utime(lock, (ancient, ancient))
+
+    with agentic_probe._exclusive_probe():  # noqa: SLF001
+        pass  # must not raise
+
+
 def test_a_broken_store_never_breaks_the_caller(monkeypatch, tmp_path):
     """This feeds model routing; losing a diagnostic must not fail a task."""
     monkeypatch.setattr(

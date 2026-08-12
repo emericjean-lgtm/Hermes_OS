@@ -20,6 +20,8 @@ Conséquences appliquées :
 - **Les disqualifiants passent avant la mesure.** Un verdict passé a été rendu dans des conditions passées : `devstral` a mesuré 1/3 *parce qu'il débordait*, et un modèle qui se met à déborder après un changement de contexte est dans cet état quel qu'ait été son score.
 - **Repli agentique → `lfm2.5-2.6b-128k`** : deux fois plus rapide que le 9B, six fois moins de VRAM, même taux parfait. Il laisse ~14 Go libres sur une carte de 16, ce qui rend enfin possible la cohabitation de l'embedding et de l'agent sans éviction.
 
+**Défaut de protocole signalé par l'utilisateur, vérifié.** Les sondes de `gemma4:12b` et `lfm2.5` avaient été lancées en parallèle : deux modèles en VRAM simultanément sur une carte de 16 Go, ce qui mesure la contention et non le modèle. Re-mesuré seul, VRAM purgée au préalable, `gemma4:12b-64k` reste **0/3** — le verdict tient, mais il tenait par chance. Un banc d'essai dont le résultat dépend de ce qui tourne à côté n'en est pas un : `probe()` prend désormais un verrou exclusif (processus + inter-processus) et **refuse** plutôt que d'attendre, puisque les temps mesurés font partie du verdict et incluraient le chargement d'un autre modèle. Verrou périmé nettoyé automatiquement, pour qu'une sonde crashée ne bloque pas les suivantes.
+
 **Bug attrapé en vérifiant le résolveur en direct** : `qwen3.5:2b` était rapporté capable sans avoir jamais été sondé. La correspondance par nom de base lui faisait hériter du 3/3 de `qwen3.5:9b-128k` — une famille n'est pas un modèle. Seule la paire nom-nu/`:latest` désigne les mêmes poids ; tout autre tag est un autre modèle.
 
 ## HOS-095 — La sonde agentique, et ce qu'elle corrige dans les entrées précédentes (2026-08-12)
