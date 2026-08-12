@@ -544,16 +544,52 @@ def _agentic_capable_for(model_id: str) -> Optional[bool]:
     except ValueError:
         parameters_b = 0.0
 
+    # What the weights support, from the model's own metadata.
+    info = payload.get("model_info") or {}
+    supported_context = next(
+        (int(v) for k, v in info.items()
+         if k.endswith(".context_length") and isinstance(v, int)), 0,
+    )
     profile = ModelProfile(
         model_id=model_id,
         name=model_id,
         parameters_b=parameters_b,
+        context_window=supported_context or 4096,
+        served_context=_served_context_for(model_id),
         declares_tools="tools" in capabilities,
         # An embedding model is not a chat model, however it advertises
         # itself — qwen3-embedding:0.6b reports "tools".
         chat_capable="embedding" not in capabilities,
     )
     return profile.agentic_capable
+
+
+def _served_context_for(model_id: str) -> Optional[int]:
+    """What Ollama is actually handing out for a currently-loaded model.
+
+    ``/api/ps`` reports the context a loaded model was given, which is the
+    number that matters and is routinely far below what the weights
+    support: the OpenAI-compatible ``/v1`` endpoint Hermes Agent uses
+    carries no num_ctx, so Ollama applies its own default
+    (``OLLAMA_CONTEXT_LENGTH``). Returns None when the model is not
+    resident — nothing has been served yet, so there is nothing to judge.
+    """
+    try:
+        import httpx
+
+        from backend.core.config import get_settings
+
+        base = get_settings().ollama_api_url.rstrip("/")
+        with httpx.Client(timeout=5.0) as client:
+            running = client.get(f"{base}/api/ps").json().get("models") or []
+    except Exception:
+        return None
+    for entry in running:
+        name = str(entry.get("name") or "")
+        if name == model_id or name.split(":")[0] == model_id.split(":")[0]:
+            value = entry.get("context_length")
+            return int(value) if isinstance(value, int) and value > 0 else None
+    return None
 
 
 def _make_cloud_chat() -> Optional[Any]:

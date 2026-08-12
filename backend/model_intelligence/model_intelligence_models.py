@@ -99,6 +99,12 @@ class ModelProfile:
     #: measured", which is why agentic_capable falls back to a size
     #: heuristic rather than assuming either answer.
     measured_agentic_success: Optional[bool] = None
+    #: What the runtime will actually hand out, as opposed to
+    #: ``context_window`` above, which is what the weights support. Kept as
+    #: a separate field precisely because conflating the two is the bug this
+    #: encodes: devstral supports 131072 and was being served 8192. None
+    #: means never probed.
+    served_context: Optional[int] = None
 
     #: Below this, a model that declares tool support still narrates instead
     #: of calling tools. Measured on this deployment, same prompt/toolset/
@@ -108,6 +114,18 @@ class ModelProfile:
     #: is deliberately a documented heuristic, superseded per-model by
     #: measured_agentic_success as soon as a real run provides it.
     AGENTIC_MIN_PARAMETERS_B: ClassVar[float] = 7.0
+
+    #: Hermes Agent's own guidance, corroborated here by measurement: below
+    #: roughly 64k of *served* context, agents call tools far less reliably
+    #: and hallucinate results more. Note "served", not "supported" — the
+    #: distinction cost real debugging time (HOS-090): devstral advertises
+    #: 131072 and Hermes' own context cache knows it, yet Ollama was handing
+    #: out 8192 because the OpenAI-compatible /v1 endpoint carries no
+    #: num_ctx and Ollama falls back to its own default. A tool schema plus
+    #: a mission brief does not fit in 8k, so the tools were silently
+    #: truncated away and the agent answered that it had no file access —
+    #: which was true.
+    AGENTIC_MIN_CONTEXT: ClassVar[int] = 65536
 
     @property
     def agentic_capable(self) -> bool:
@@ -124,7 +142,14 @@ class ModelProfile:
             return self.measured_agentic_success
         if not self.declares_tools:
             return False
-        return self.parameters_b >= self.AGENTIC_MIN_PARAMETERS_B
+        if self.parameters_b < self.AGENTIC_MIN_PARAMETERS_B:
+            return False
+        # Judge on what will actually be served. None means never probed,
+        # left permissive so an unmeasured model is assessed on size rather
+        # than rejected outright.
+        if self.served_context is not None:
+            return self.served_context >= self.AGENTIC_MIN_CONTEXT
+        return True
 
     def __post_init__(self) -> None:
         if not self.last_used:

@@ -80,6 +80,15 @@ _HERMES_AGENT_TOOLSETS: tuple[str, ...] = ("coding",)
 #: to work on this deployment (measured — see ModelProfile.agentic_capable).
 _HERMES_AGENT_FALLBACK_MODEL = "devstral"
 
+#: An agent loop is not a completion. The default 180s here was sized for
+#: one model call; a Hermes Agent task spawns a process, loads a toolset,
+#: and may run up to _MAX_TOOL_ROUNDS of inference-plus-tool-execution on
+#: local hardware. Measured: a trivial single-file task already takes
+#: 37-57s, so a real multi-step task routinely exceeded 180s and every
+#: task in a mission failed with "runtime 'hermes-agent' timed out" —
+#: producing a mission that ran for 12 minutes and completed 0/5 tasks.
+_HERMES_AGENT_TIMEOUT_S = 900.0
+
 
 class RuntimeUnavailableError(RuntimeError):
     """No runtime could serve the task.
@@ -222,7 +231,9 @@ class RealTaskExecutor:
         mission_brief_for: Optional[Callable[[Any], Optional[str]]] = None,
         agentic_capable_for: Optional[Callable[[str], Optional[bool]]] = None,
         agentic_fallback_model: str = _HERMES_AGENT_FALLBACK_MODEL,
+        agentic_timeout_s: float = _HERMES_AGENT_TIMEOUT_S,
     ) -> None:
+        self._agentic_timeout_s = agentic_timeout_s
         self._hermes_toolsets = hermes_toolsets
         self._mission_brief_for = mission_brief_for
         self._agentic_capable_for = agentic_capable_for
@@ -358,7 +369,9 @@ class RealTaskExecutor:
             if not use_cloud and runtime_id != "hermes-agent":
                 self._check_vram_admission(model)
             response = self._run_coro(
-                active_chat(messages=messages, model=model, num_ctx=num_ctx), self._timeout_s
+                active_chat(messages=messages, model=model, num_ctx=num_ctx),
+                # An agent loop needs its own budget — see _HERMES_AGENT_TIMEOUT_S.
+                self._agentic_timeout_s if runtime_id == "hermes-agent" else self._timeout_s,
             )
         except Exception as exc:
             if use_cloud:
@@ -546,7 +559,7 @@ class RealTaskExecutor:
 
             model = self._agentic_model(model)
             runtime = HermesAgentCliRuntime(
-                HermesAgentCliConfig(model=model, timeout_seconds=self._timeout_s)
+                HermesAgentCliConfig(model=model, timeout_seconds=self._agentic_timeout_s)
             )
             await runtime.start()
             cap = runtime.get("chat")

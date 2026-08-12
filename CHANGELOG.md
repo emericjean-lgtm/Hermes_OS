@@ -1,3 +1,46 @@
+## HOS-090 — Contexte servi et budget de temps : une boucle agentique n'est pas une complétion (2026-08-12)
+
+Deux dernières causes derrière « la mission réussit, rien n'est produit ». Toutes deux viennent de la même erreur de cadrage : Hermes OS traitait une exécution agentique comme un appel de modèle.
+
+**Contexte servi ≠ contexte supporté.** Piste ouverte par une observation de l'utilisateur (« Hermes préconise ≥ 64k ; en dessous les modèles appellent moins bien les outils et hallucinent davantage »), confirmée par la mesure :
+
+| | |
+|---|---|
+| devstral **supporte** | 131 072 |
+| Le cache de contexte de Hermes **le sait** | 131 072 |
+| Ollama **servait** | **8 192** |
+
+Hermes Agent parle à Ollama par l'endpoint OpenAI-compatible `/v1`, qui ne transporte aucun `num_ctx` : Ollama applique donc son propre défaut. Un schéma de 32 outils plus un brief de mission ne tiennent pas dans 8k, les outils étaient tronqués, et l'agent répondait qu'il n'avait pas accès aux fichiers — ce qui était exact. Corrigé côté serveur (`OLLAMA_CONTEXT_LENGTH=65536`), et surtout inscrit dans le modèle de données pour que le piège soit détectable : `ModelProfile.served_context` est désormais distinct de `context_window`, `AGENTIC_MIN_CONTEXT = 65536`, et une sonde `/api/ps` lit ce qui est réellement servi. Un modèle servi sous ce seuil est refusé pour l'agentique **même s'il annonce 131k**.
+
+**Le timeout.** `RealTaskExecutor._timeout_s` valait 180s, dimensionné pour une complétion. Une tâche Hermes Agent lance un processus, charge un toolset et enchaîne inférence et exécution d'outils sur du matériel local — une tâche triviale mesurée à 37-57s. Résultat observé : une mission tournant 765s pour finir 0/5, chaque tâche portant `not executed: runtime 'hermes-agent' timed out after 180s`, tout en rapportant une durée comme si du travail avait eu lieu. Budget dédié `_HERMES_AGENT_TIMEOUT_S = 900s`, appliqué au wrapper *et* à la config de l'adaptateur — les deux valaient 180s, corriger un seul n'aurait rien changé.
+
+Une nuance mesurée, contre l'intuition : un grand contexte est nécessaire mais **pas suffisant**. `qwen3.5:9b-128k` servi à 131 072 n'a produit aucun appel d'outil sur la même sonde où devstral en produit deux. La taille de contexte est un plancher, pas un prédicteur de capacité agentique.
+
+### Verified — chaîne complète, bout en bout
+
+Mission créée par l'API Hermes OS, liée à un Project validé, exécutée par Hermes Agent officiel, artefact vérifié **sur disque** et non d'après le rapport de l'agent :
+
+```
+status: completed | runtimes_used: ['hermes-agent'] | 5/5 tâches | 0 échec | errors: []
+
+$ cat C:\Users\emeri\hermes_e2e\HERMES_OS_FINAL_INTEGRATION_TEST.md
+alpha
+beta
+gamma
+```
+
+Cinq causes distinctes séparaient ce résultat du point de départ, et **chacune produisait une mission "réussie"** : le tool loop de Hermes OS écrasant Hermes Agent (HOS-085), `platform_toolsets.cli: []` (HOS-089), l'objectif perdu à la décomposition (HOS-085), le contexte servi à 8k (HOS-090), le timeout de 180s (HOS-090). Aucune n'aurait été trouvée en faisant confiance au rapport de mission : il faut à chaque fois avoir lu le disque, les erreurs de tâche, la ligne de commande du processus ou le compteur `tool calls` du CLI.
+
+## HOS-089 — `platform_toolsets.cli: []` privait Hermes Agent de tous ses outils (2026-08-12)
+
+Une mission qui devait lire un fichier, en créer un autre puis vérifier son contenu a rapporté `success: True, 5/5` sans qu'aucun fichier n'existe. Les sorties de tâches disaient exactement ce qui se passait, à condition de les lire : la tâche 1 a « lu » le fichier existant et annoncé `"This is a test file."` — un contenu **halluciné**, le vrai fichier contenant `line one/two/three` — et les quatre suivantes ont répondu *« I don't have the capability to directly access or modify files »*. Le CLI le confirmait en une ligne : `Messages: 2 (1 user, 0 tool calls)`.
+
+**Diagnostic par élimination**, parce que la première hypothèse était fausse. Le suspect évident était le changement de config du même jour (activation de `delegation`/`skills`) : restauration de la config d'origine → **échoue toujours**, donc ce n'était pas ça. Ont ensuite été écartés, chacun par une mesure : serveur MCP (arrêté → identique), pression VRAM et état du modèle (déchargé/rechargé → identique), auto-mise à jour de Hermes Agent (même commit `fb8d824`), répertoire de travail (le répertoire où les tests avaient réussi → identique). Test décisif d'isolement modèle/agent : `devstral` interrogé **directement** via `/api/chat` d'Ollama avec un schéma d'outil renvoie un `tool_calls` parfaitement formé. Le modèle n'avait rien perdu — l'agent ne recevait tout simplement aucun outil.
+
+Cause réelle : `platform_toolsets.cli: []` dans la config Hermes Agent. Une liste vide pour la plateforme CLI vide les toolsets **quel que soit** le `--toolsets` passé en argument. Corrigé en `cli: [coding]`. Effet immédiat et reproductible sur la même sonde : `Messages: 4 (1 user, 2 tool calls)` et le fichier réellement écrit sur disque.
+
+Deux enseignements consignés ici parce qu'ils se represententeront : un argument de ligne de commande n'écrase pas nécessairement une politique de configuration, et « l'agent dit qu'il n'a pas d'outils » est une information exploitable, pas une excuse du modèle — c'était littéralement vrai.
+
 ## HOS-086/087/088 — Mémoire retrouvable, identifiants projet canoniques, routage par capacités (2026-08-12)
 
 Trois bugs signalés comme distincts, une même racine : **deux représentations d'une même chose, comparées sans normalisation.**

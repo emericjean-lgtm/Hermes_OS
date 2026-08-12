@@ -221,6 +221,66 @@ def test_agentic_capability_is_measured_not_named():
     ).agentic_capable
 
 
+def test_served_context_gates_agentic_capability():
+    """Hermes Agent's own guidance, corroborated by measurement here: below
+    ~64k of *served* context, tool calling degrades badly. The distinction
+    between served and supported is the whole point — devstral advertises
+    131072 while Ollama was handing out 8192, which is not enough for a tool
+    schema plus a mission brief, so the tools were truncated away and the
+    agent truthfully reported having no file access."""
+    from backend.model_intelligence.model_intelligence_models import ModelProfile
+
+    def profile(served):
+        return ModelProfile(
+            model_id="m", name="m", parameters_b=23.6,
+            declares_tools=True, served_context=served,
+        )
+
+    assert profile(65536).agentic_capable
+    assert profile(131072).agentic_capable
+    assert not profile(8192).agentic_capable
+    # None means never probed: judged on size alone rather than rejected, so
+    # a model this deployment has not measured yet is not silently excluded.
+    assert profile(None).agentic_capable
+    # Supported context is explicitly NOT the gate — a model can advertise
+    # 131072 and still be served 8192, which is exactly what happened.
+    starved = ModelProfile(
+        model_id="m", name="m", parameters_b=23.6, declares_tools=True,
+        context_window=131072, served_context=8192,
+    )
+    assert not starved.agentic_capable
+
+
+def test_agent_loop_gets_its_own_timeout_budget(hermes_agent, monkeypatch, tmp_path):
+    """An agent loop is not a completion. With the 180s completion budget, a
+    real mission ran for 12 minutes and finished 0/5 tasks, every one of
+    them failing with "runtime 'hermes-agent' timed out after 180s" — while
+    the mission still reported a duration as though work had happened."""
+    _forbid_ollama(monkeypatch)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    seen: dict = {}
+
+    class _TimeoutRecordingRuntime(_RecordingHermesAgentRuntime):
+        def __init__(self, config=None):
+            seen["timeout"] = getattr(config, "timeout_seconds", None)
+            super().__init__(config)
+
+    monkeypatch.setattr(
+        "backend.ral.adapters.hermes_agent_cli.HermesAgentCliRuntime", _TimeoutRecordingRuntime,
+    )
+
+    executor = RealTaskExecutor(
+        workspace_project_for=lambda task: ("proj-1", str(workspace)),
+    )
+    executor.execute(_FakeTask(mission_id="m-1"))
+
+    assert seen["timeout"] > 180.0, (
+        "Hermes Agent inherited the single-completion timeout; a real "
+        "multi-step task cannot finish inside it"
+    )
+
+
 def test_per_task_context_is_not_shared_state(hermes_agent, monkeypatch, tmp_path):
     """Two tasks executed through the same executor must not leak each
     other's workspace. The first implementation stashed this on ``self``,
