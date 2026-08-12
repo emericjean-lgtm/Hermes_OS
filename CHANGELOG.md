@@ -1,3 +1,26 @@
+## HOS-095 — La sonde agentique, et ce qu'elle corrige dans les entrées précédentes (2026-08-12)
+
+`ModelProfile.agentic_capable` classait ses preuves depuis HOS-088 — une mesure prime sur une déclaration, une déclaration prime sur un nom — mais **rien ne produisait jamais la mesure**. Toutes les réponses venaient donc de l'heuristique de taille. `backend/model_intelligence/agentic_probe.py` est le producteur manquant : il lance une vraie tâche via le CLI Hermes Agent installé et lit le verdict **sur le disque**, jamais dans la réponse du modèle — la règle qui avait démasqué cinq faux succès.
+
+### ⚠️ Correction des entrées HOS-085, HOS-088 et HOS-090
+
+Ces entrées affirment, sur la foi de runs manuels, que `devstral` est capable d'exécution agentique et que `qwen3.5:9b-128k` ne l'est pas. **La mesure dit le contraire.** Trois essais chacun, même tâche, même toolset, même workspace :
+
+| Modèle | Succès | Durée moyenne | VRAM |
+|---|---|---|---|
+| `devstral` | **1/3 (33 %)** | ~300 s | 14,33 Go |
+| `qwen3.5:9b-128k` | **3/3 (100 %)** | **~47 s** | **6,59 Go** |
+
+Trois fois plus fiable, six fois plus rapide, moitié moins de VRAM. `_HERMES_AGENT_FALLBACK_MODEL` passe donc à `qwen3.5:9b-128k`. Le choix de `devstral` reposait sur deux runs manuels qui s'étaient bien passés — précisément le raisonnement à n=1 que cette sonde existe pour remplacer, et il était faux.
+
+Ce que HOS-090 tenait pour une différence de capacité entre modèles était en réalité de la **variance**. Les deux modèles réussissent et échouent selon les runs ; seul le taux les distingue.
+
+### Un seul essai n'est pas une mesure
+
+La première version de ce module écrasait le résultat à chaque run. Les deux premières exécutions se sont contredites — `devstral` 0 appel d'outil en 305 s après avoir réussi toute la journée, `qwen3.5:9b-128k` réussissant après avoir échoué. Conception corrigée en conséquence : `save_result` **accumule**, `measured_success_for` refuse de répondre en dessous de deux essais, et le seuil est un taux de 60 % — ni 100 % (irréaliste vu la variance mesurée), ni un-sur-N (un coup de chance promouvrait un modèle peu fiable).
+
+Vérifié en bout de chaîne : `devstral` est désormais rejeté (`agentic_capable=False`) malgré 23,6 Md de paramètres et une déclaration `tools`, parce qu'une mesure réelle prime sur les deux.
+
 ## HOS-094 — Délégation : mesurée, et incompatible avec le mode one-shot (2026-08-12)
 
 La délégation était activée depuis HOS-087 mais jamais démontrée. Mesurée maintenant, avec un travail réellement parallélisable (deux fichiers de service indépendants à analyser puis synthétiser). Verdict : **BROKEN dans l'intégration actuelle**, pour une raison structurelle et non un bug de Hermes Agent.

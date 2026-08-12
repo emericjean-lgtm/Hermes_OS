@@ -172,24 +172,27 @@ def test_task_prompt_carries_the_mission_objective(hermes_agent, monkeypatch, tm
 
 
 def test_agentic_model_floor():
-    """Measured on this deployment: same prompt, same "coding" toolset, same
-    workspace — devstral wrote the file, qwen3.5:2b wrote nothing and
-    narrated. ModelRouter optimises a single completion for VRAM/latency and
-    picks the 2B model for a short node title, so without this floor the
-    whole integration routes correctly and still accomplishes nothing.
+    """ModelRouter optimises a single completion for VRAM and latency, so it
+    picks a 2B model for a short node title — without this floor the whole
+    integration routes correctly to Hermes Agent and still accomplishes
+    nothing, because that model narrates instead of calling tools.
 
-    The decision now comes from a capability profile, not a name list
-    (HOS-088), so this asserts the *policy*: capable through, incapable and
-    unknown substituted."""
-    capable = {"devstral:latest": True, "qwen3.5:2b": False}
+    Asserts the *policy*, not which model currently wins it: capable through,
+    incapable and unknown substituted. The fallback itself comes from
+    measured probe data (HOS-095) and already moved from devstral to
+    qwen3.5:9b-128k the first time real numbers arrived — a test naming the
+    model would break on every honest re-measurement."""
+    from backend.execution.task_executor import _HERMES_AGENT_FALLBACK_MODEL as FALLBACK
+
+    capable = {"a-capable-model:9b": True, "qwen3.5:2b": False}
     executor = RealTaskExecutor(agentic_capable_for=capable.get)
 
-    assert executor._agentic_model("devstral:latest") == "devstral:latest"  # noqa: SLF001
-    assert executor._agentic_model("qwen3.5:2b") == "devstral"  # noqa: SLF001
+    assert executor._agentic_model("a-capable-model:9b") == "a-capable-model:9b"  # noqa: SLF001
+    assert executor._agentic_model("qwen3.5:2b") == FALLBACK  # noqa: SLF001
     # Unknown is not treated as capable: an unprobeable model that cannot
     # call tools yields a mission that reports success and does nothing.
-    assert executor._agentic_model("something-new:8b") == "devstral"  # noqa: SLF001
-    assert executor._agentic_model("") == "devstral"  # noqa: SLF001
+    assert executor._agentic_model("something-new:8b") == FALLBACK  # noqa: SLF001
+    assert executor._agentic_model("") == FALLBACK  # noqa: SLF001
 
 
 def test_agentic_capability_is_measured_not_named():

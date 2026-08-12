@@ -550,12 +550,22 @@ def _agentic_capable_for(model_id: str) -> Optional[bool]:
         (int(v) for k, v in info.items()
          if k.endswith(".context_length") and isinstance(v, int)), 0,
     )
+    # A real measured run outranks every other signal (HOS-095). None until
+    # the model has been probed, which leaves the size/context heuristic in
+    # charge rather than assuming an answer.
+    try:
+        from backend.model_intelligence.agentic_probe import measured_success_for
+        measured = measured_success_for(model_id)
+    except Exception:
+        measured = None
+
     profile = ModelProfile(
         model_id=model_id,
         name=model_id,
         parameters_b=parameters_b,
         context_window=supported_context or 4096,
         served_context=_served_context_for(model_id),
+        measured_agentic_success=measured,
         declares_tools="tools" in capabilities,
         # An embedding model is not a chat model, however it advertises
         # itself — qwen3-embedding:0.6b reports "tools".

@@ -76,9 +76,18 @@ _HERMES_AGENT_TOOLSETS: tuple[str, ...] = ("coding",)
 
 #: Used when the routed model cannot drive an agent loop. A single named
 #: model rather than a capability query: this is the last resort *after*
-#: capability resolution has already failed, and it must be something known
-#: to work on this deployment (measured — see ModelProfile.agentic_capable).
-_HERMES_AGENT_FALLBACK_MODEL = "devstral"
+#: capability resolution has already failed.
+#:
+#: Was "devstral" until the agentic probe (HOS-095) produced actual numbers
+#: instead of impressions. Three trials each, same task, same toolset:
+#:
+#:     devstral         1/3 success, ~300s per trial, 14.33 GB
+#:     qwen3.5:9b-128k  3/3 success,  ~47s per trial,  6.59 GB
+#:
+#: Three times more reliable, six times faster, half the VRAM. devstral had
+#: been chosen on a couple of manual runs that happened to pass — the very
+#: n=1 reasoning this probe exists to replace, and it was wrong.
+_HERMES_AGENT_FALLBACK_MODEL = "qwen3.5:9b-128k"
 
 #: An agent loop is not a completion. The default 180s here was sized for
 #: one model call; a Hermes Agent task spawns a process, loads a toolset,
