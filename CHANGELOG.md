@@ -1,3 +1,15 @@
+## HOS-091 — Le contexte dégradé devient détectable au lieu d'être subi (2026-08-12)
+
+HOS-090 avait corrigé le contexte servi, mais par une variable d'environnement de session : au premier redémarrage d'Ollama, la panne revenait en silence. Mesuré une fois la variable retirée — et c'est pire que ce que HOS-090 avait observé : Ollama redémarre à **4096**, pas 8192.
+
+Le problème n'est pas corrigeable au niveau d'une requête. Hermes Agent atteint Ollama par l'endpoint OpenAI-compatible `/v1`, qui ne transporte aucun `num_ctx` ; le défaut d'Ollama gagne toujours. Hermes OS ne peut donc que **détecter et le dire fort** — d'où un garde-fou plutôt qu'un correctif.
+
+`backend/runtime/context_guard.py` compare ce qui est réellement servi au plancher agentique, à chaque démarrage du backend. Un contexte insuffisant émet `runtime.context_degraded` avec une remédiation qui **nomme le vrai levier** (`OLLAMA_CONTEXT_LENGTH`, sa valeur actuelle, et pourquoi aucun argument de ligne de commande ne peut s'y substituer) au lieu d'un vague « augmentez le contexte ».
+
+Deux choix délibérés dans la politique. Un contexte **non mesuré** n'est jamais signalé comme dégradé : aucun modèle résident signifie que rien n'a encore été servi, et avertir sur une inconnue ferait crier le système à chaque démarrage à froid jusqu'à ce qu'on ignore le seul message qui compte. Et le contexte **supporté** n'excuse jamais un runtime affamé — annoncer 131072 ne change rien si 4096 est servi ; c'est le bug entier tenu dans une assertion.
+
+Configuration rendue permanente au niveau utilisateur, puis vérifiée par un vrai redémarrage d'Ollama : `served=65536, DEGRADED=False`.
+
 ## HOS-090 — Contexte servi et budget de temps : une boucle agentique n'est pas une complétion (2026-08-12)
 
 Deux dernières causes derrière « la mission réussit, rien n'est produit ». Toutes deux viennent de la même erreur de cadrage : Hermes OS traitait une exécution agentique comme un appel de modèle.

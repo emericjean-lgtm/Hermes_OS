@@ -19,6 +19,11 @@ class RuntimeEventType(str, Enum):
     RUNTIME_HEALTH_CHANGED = "runtime.health_changed"
     RUNTIME_OVERLOADED = "runtime.overloaded"
     RUNTIME_UNAVAILABLE = "runtime.unavailable"
+    #: The runtime is serving less context than agentic work needs. Not a
+    #: failure — everything answers normally — which is exactly why it needs
+    #: to be an event: an under-served context silently truncates tool
+    #: schemas, and the agent then reports having no tools (HOS-090).
+    RUNTIME_CONTEXT_DEGRADED = "runtime.context_degraded"
 
     # ── Model lifecycle ─────────────────────────────────────
     MODEL_LOADED = "model.loaded"

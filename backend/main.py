@@ -81,6 +81,38 @@ _LEGACY_ROUTERS = (
 )
 
 
+def _warn_if_context_degraded() -> None:
+    """Compare what Ollama is actually serving against what agents need.
+
+    Uses whichever model is currently resident: that is the one a mission
+    would run on right now, and its served value reflects the live
+    OLLAMA_CONTEXT_LENGTH rather than any repo-side configuration. When
+    nothing is loaded there is genuinely nothing to measure, and the check
+    stays silent rather than guessing (see ContextCheck.degraded).
+    """
+    import httpx
+
+    from backend.core.config import get_settings
+    from backend.core.event_hub import get_event_hub
+    from backend.runtime.context_guard import check_served_context, report
+
+    base = get_settings().ollama_api_url.rstrip("/")
+    with httpx.Client(timeout=5.0) as client:
+        running = client.get(f"{base}/api/ps").json().get("models") or []
+    if not running:
+        logger.debug("served-context check: no resident model to measure")
+        return
+
+    hub = get_event_hub()
+    for entry in running:
+        served = entry.get("context_length")
+        check = check_served_context(
+            str(entry.get("name") or "?"),
+            int(served) if isinstance(served, int) and served > 0 else None,
+        )
+        report(check, publish=hub.publish)
+
+
 def create_app() -> FastAPI:
     """Builds a fresh app, a fresh bootstrap, and a fresh MCP server.
 
@@ -160,6 +192,17 @@ def create_app() -> FastAPI:
         # one app (every test run) the last one built would otherwise be the one
         # answering HTTP calls.
         bootstrap.rebind_routes()
+
+        # --- Served-context verification (HOS-091) ---
+        # Checked at boot because the failure it catches has no error in it:
+        # an under-served context truncates tool schemas, and the only
+        # symptom is an agent that later claims it has no tools. Ollama's
+        # default is process-wide and set outside this app, so it can drift
+        # back silently on any restart of Ollama.
+        try:
+            _warn_if_context_degraded()
+        except Exception:  # never let a diagnostic stop startup
+            logger.debug("served-context check failed", exc_info=True)
 
         # --- Subsystem health verification (STEP 9 / STEP 10) ---
         health = bootstrap.health()
