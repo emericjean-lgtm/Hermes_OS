@@ -1,3 +1,24 @@
+## HOS-097 — Le RAG peut enfin répondre « rien de pertinent » (2026-08-12)
+
+Audit du RAG, devenu possible une fois les embeddings réparés (HOS-093 : 57 s → 2,4 s par appel). La chaîne fonctionne — ingestion de trois documents en 3,3 s, classement correct, portée par projet respectée. Un défaut de fond subsistait.
+
+Un index vectoriel a **toujours** un plus proche voisin. Sans plancher, la question « chocolate cake recipe » posée à un corpus sur Hermes OS renvoyait le passage sur le modèle de repli agentique, classé premier, sans rien dans le résultat pour signaler l'absurdité. Donné à un modèle de langage, cela devient du carburant à hallucination, avec une citation à l'appui.
+
+C'est la forme « récupération » de la défaillance que toute cette campagne poursuit : un système qui répond au lieu d'admettre qu'il n'a pas de réponse.
+
+Seuil **mesuré**, pas choisi. Avec `qwen3-embedding:0.6b`, en distance cosinus, contre des fixtures réelles :
+
+| | Distance |
+|---|---|
+| Questions dans le sujet | 0,683 – 0,949 |
+| Questions hors sujet | 1,272 – 1,514 |
+
+`MAX_RELEVANT_DISTANCE = 1.1` se place **dans l'écart**, pas sur un bord : ni une formulation maladroite ni une question hors sujet un peu moins absurde ne bascule. Le classement brut reste accessible via `max_distance=None`, sans quoi un résultat vide serait indiscernable d'un index vide.
+
+Corrigé au passage, rencontré en écrivant les fixtures : Chroma rejette un dictionnaire de métadonnées vide (« Expected metadata to be a non-empty dict »), transformant le cas parfaitement ordinaire « ce document n'a pas de métadonnées » en erreur que chaque appelant devait connaître. `add_document` porte désormais l'identifiant du document à la place — toujours vrai, toujours utile.
+
+Deux tests préexistants ont dû passer `max_distance=None` : ils vérifient la sémantique de `n_results` et du filtre `where`, orthogonale à la pertinence, avec une fonction d'embedding factice dont les distances arbitraires seraient légitimement écartées par le plancher.
+
 ## HOS-096 — Aucune heuristique ne prédit la capacité agentique (2026-08-12)
 
 Quatre modèles, trois essais chacun, même tâche, même toolset, artefact vérifié sur disque :

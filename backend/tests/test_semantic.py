@@ -68,7 +68,11 @@ def test_document_store_search_respects_n_results():
         # ChromaDB 1.x rejects an empty metadata dict, hence {"i": i}.
         store.add_document(f"doc-{i}", f"document number {i}", {"i": i})
 
-    assert len(store.search("document", n_results=2)) == 2
+    # max_distance=None: this asserts result-count semantics, not relevance.
+    # FakeEmbeddingFunction's distances are arbitrary, so the HOS-097
+    # relevance floor would legitimately drop them and mask what is under
+    # test here.
+    assert len(store.search("document", n_results=2, max_distance=None)) == 2
 
 
 def test_document_store_search_filters_by_where_metadata():
@@ -79,7 +83,11 @@ def test_document_store_search_filters_by_where_metadata():
     store.add_document("where-0", "Hermes Ollama is a local AI copilot", {"project_id": "proj-1"})
     store.add_document("where-1", "The RX 6800 has 16GB of VRAM", {"project_id": "proj-2"})
 
-    results = store.search("document", n_results=5, where={"project_id": "proj-1"})
+    # max_distance=None for the same reason as above: the metadata filter is
+    # what is under test, not whether the fake distances look relevant.
+    results = store.search(
+        "document", n_results=5, where={"project_id": "proj-1"}, max_distance=None,
+    )
 
     assert [r["id"] for r in results] == ["where-0"]
 

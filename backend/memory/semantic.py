@@ -104,6 +104,20 @@ def chunk_text(text: str, chunk_size: int = 512, overlap: int = 64) -> list[str]
     return chunks
 
 
+#: Cosine-distance ceiling above which a passage is treated as no answer
+#: rather than as a weak one. Measured against real fixtures with
+#: qwen3-embedding:0.6b (HOS-097):
+#:
+#:     on-topic     0.683 .. 0.949   ("which port", "how is a mission verified")
+#:     off-topic    1.272 .. 1.514   ("chocolate cake recipe", "weather in Tokyo")
+#:
+#: 1.1 sits inside that gap rather than on either edge, so neither a slightly
+#: awkward phrasing nor a slightly-less-absurd off-topic query flips sides.
+#: Re-measure it if the embedding model changes — the numbers belong to this
+#: model, not to cosine distance in general.
+MAX_RELEVANT_DISTANCE = 1.1
+
+
 class DocumentStore:
     def __init__(
         self,
@@ -121,17 +135,44 @@ class DocumentStore:
         )
 
     def add_document(self, doc_id: str, text: str, metadata: dict) -> None:
-        self._collection.add(ids=[doc_id], documents=[text], metadatas=[metadata])
+        # Chroma rejects an empty metadata dict outright ("Expected metadata
+        # to be a non-empty dict"), which makes "this document has no
+        # metadata" — a perfectly ordinary case — an error the caller has to
+        # know about. Carry the id instead: always true, always useful.
+        self._collection.add(
+            ids=[doc_id], documents=[text], metadatas=[metadata or {"doc_id": doc_id}],
+        )
 
-    def search(self, query: str, n_results: int = 5, where: dict | None = None) -> list[dict]:
+    def search(
+        self, query: str, n_results: int = 5, where: dict | None = None,
+        max_distance: float | None = MAX_RELEVANT_DISTANCE,
+    ) -> list[dict]:
+        """Nearest documents, with irrelevant ones dropped rather than ranked.
+
+        A vector index always has a nearest neighbour, so without a floor
+        this returns its best guess for *any* question and the caller cannot
+        tell an answer from a shrug. Measured on this embedding model with
+        cosine distance (HOS-097): on-topic questions land between 0.68 and
+        0.95, off-topic ones ("chocolate cake recipe", "football scores
+        1998") between 1.27 and 1.51 — a clear gap, and MAX_RELEVANT_DISTANCE
+        sits in it.
+
+        Pass ``max_distance=None`` for the raw ranking, e.g. to inspect why
+        nothing passed the floor.
+        """
         result = self._collection.query(query_texts=[query], n_results=n_results, where=where)
         ids = result.get("ids") or [[]]
         documents = result.get("documents") or [[]]
         metadatas = result.get("metadatas") or [[]]
         distances = result.get("distances") or [[]]
-        return [
+        hits = [
             {"id": i, "content": d, "metadata": m or {}, "distance": dist}
             for i, d, m, dist in zip(
                 ids[0], documents[0], metadatas[0], distances[0] or [None] * len(ids[0])
             )
         ]
+        if max_distance is None:
+            return hits
+        # A hit with no distance is kept: an unscored result is not evidence
+        # of irrelevance, and silently dropping it would hide an index issue.
+        return [h for h in hits if h["distance"] is None or h["distance"] <= max_distance]
