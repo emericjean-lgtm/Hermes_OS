@@ -1,3 +1,33 @@
+## HOS-094 — Délégation : mesurée, et incompatible avec le mode one-shot (2026-08-12)
+
+La délégation était activée depuis HOS-087 mais jamais démontrée. Mesurée maintenant, avec un travail réellement parallélisable (deux fichiers de service indépendants à analyser puis synthétiser). Verdict : **BROKEN dans l'intégration actuelle**, pour une raison structurelle et non un bug de Hermes Agent.
+
+`delegate` fonctionne mécaniquement — les subagents sont bien créés :
+
+```
+delegate 2x: Summarize SERVICE_A.md... | Summarize SERVICE_B.md...
+Background 2 tasks running — I'll resume when they finish. Keep chatting.
+```
+
+Mais la délégation de Hermes Agent est **asynchrone** : le parent dispatche, répond immédiatement et attend qu'une session interactive reste ouverte jusqu'au retour des subagents. L'adaptateur invoque le CLI en one-shot `--query`, donc le processus sort dès la réponse du parent et tue les subagents en plein appel :
+
+```
+[subagent-0] Interrupted during API call.
+  x [1/2] Summarize SERVICE_A.md  (37.11s)
+  x [2/2] Summarize SERVICE_B.md  (37.11s)
+```
+
+Aucun flag du CLI ne permet de bloquer sur les tâches de fond, et `--resume` n'aide pas puisqu'il ne reste rien à reprendre. Contrainte documentée dans le docstring de l'adaptateur, là où un mainteneur la cherchera.
+
+**Découverte annexe, contre-intuitive et reproductible** : mentionner la délégation dans un prompt suffit à faire dérailler le modèle local. Même tâche, même modèle, même toolset :
+
+| Prompt | Tool calls | Artefact | Durée |
+|---|---|---|---|
+| « you may delegate … if you judge it useful » | **0** | aucun | 5 min 13 |
+| sans cette phrase | **6** | ✅ synthèse correcte des deux fichiers | 1 min 46 |
+
+Une seule phrase de différence. Ce qui est par ailleurs la **preuve que le travail multi-étapes fonctionne** : six appels d'outils, deux fichiers lus, synthèse exacte écrite sur disque. Ce n'est pas le parallélisme d'outils qui manque — c'est le parallélisme d'agents que ce mode d'invocation ne peut pas héberger.
+
 ## HOS-093 — Le correctif de contexte étranglait les embeddings (2026-08-12)
 
 Régression introduite par HOS-091, révélée par un test qui a viré au rouge et non par une inspection. `OLLAMA_CONTEXT_LENGTH=65536` est nécessaire pour que les schémas d'outils de Hermes Agent cessent d'être tronqués — mais ce réglage est **global**, et s'applique donc aussi au modèle qui embarque des chunks RAG de 512 mots.

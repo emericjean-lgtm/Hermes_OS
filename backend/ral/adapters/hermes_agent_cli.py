@@ -4,6 +4,31 @@ This adapter is intentionally a thin bridge to the *installed* Hermes Agent
 runtime. It does not talk to Ollama directly: Hermes Agent owns model routing,
 tool loop behaviour, skills, memory, and its OpenAI-compatible Ollama backend.
 Hermes OS only supplies mission context and supervises the result.
+
+Known constraint — delegation does not survive this invocation mode
+(HOS-094). Hermes Agent's ``delegate`` tool is *asynchronous*: the parent
+dispatches subagents, answers immediately ("Background 2 tasks running —
+I'll resume when they finish. Keep chatting."), and expects an interactive
+session to stay open until they report back. This adapter runs the CLI
+one-shot with ``--query``, so the process exits as soon as the parent
+replies and the subagents die mid-request:
+
+    [subagent-0] Interrupted during API call.
+    [subagent-1] Interrupted during API call.
+      x [1/2] Summarize SERVICE_A.md  (37.11s)
+      x [2/2] Summarize SERVICE_B.md  (37.11s)
+
+Measured, not inferred. The CLI exposes no flag to block on background
+tasks, and ``--resume`` cannot help because there is nothing left to
+resume. Parallel *tool* work inside a single agent is unaffected and works
+(6 tool calls producing a correct multi-file synthesis in one run); it is
+parallel *agents* that this mode cannot host.
+
+Worth knowing before "fixing" it: merely mentioning delegation in a prompt
+derails the local model. Same task, same model, same toolset — with "you
+may delegate ... if you judge it useful" the run made 0 tool calls and
+produced nothing in 5m13s; without that sentence it made 6 and wrote the
+correct file in 1m46.
 """
 
 from __future__ import annotations
