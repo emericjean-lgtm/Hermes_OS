@@ -2,12 +2,14 @@
 
 Quatre modèles, trois essais chacun, même tâche, même toolset, artefact vérifié sur disque :
 
-| Modèle | Taille | ctx servi | Tient en VRAM | Succès | Durée à chaud |
+| Modèle | Taille | ctx servi | Tient en VRAM | Succès | Durée |
 |---|---|---|---|---|---|
-| **`lfm2.5-2.6b-128k`** | **2,7 Md** | 131072 | ✅ 1,67 Go | **3/3** | **~25 s** |
+| **`lfm2.5-2.6b-128k`** | **2,7 Md** | 131072 | ✅ 1,67 Go | **3/3** | **28-41 s** |
 | `qwen3.5:9b-128k` | 9,7 Md | 131072 | ✅ 10,18 Go | 3/3 | ~47 s |
 | `gemma4:12b-64k` | 11,9 Md | 65536 | ✅ 8,49 Go | **0/3** | timeout |
 | `devstral` | 23,6 Md | 65536 | ❌ 10,75 Go sur CPU | 1/3 | ~300 s |
+
+Chaque ligne est mesurée un modèle à la fois, VRAM vérifiée vide avant. Les deux séries initialement lancées en parallèle (`gemma4:12b` et `lfm2.5`) ont été **refaites intégralement** sous verrou plutôt que conservées : toutes deux ont reconduit leur verdict — 0/3 et 3/3 — mais un taux propre et un taux contaminé ne se mélangent pas dans la même moyenne.
 
 **Chacun de mes signaux structurels a été réfuté par la mesure suivante.** La taille s'inverse : 2,7 Md réussit 3/3, 11,9 Md échoue 0/3. La déclaration `tools` est faite jusque par `qwen3-embedding:0.6b`. Ni les 64k de contexte servi ni la tenue en VRAM n'ont sauvé `gemma4:12b`. Le plancher de 7 Md aurait rejeté le meilleur modèle disponible sur cette machine.
 
