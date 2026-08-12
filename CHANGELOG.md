@@ -1,3 +1,23 @@
+## HOS-086/087/088 — Mémoire retrouvable, identifiants projet canoniques, routage par capacités (2026-08-12)
+
+Trois bugs signalés comme distincts, une même racine : **deux représentations d'une même chose, comparées sans normalisation.**
+
+**HOS-086 — `memory_remember` → `memory_search` ne retrouvait rien.** Pas un problème de qualité de recherche : les deux outils MCP adressaient des stores différents. `memory_remember` écrivait une ligne `MemoryEntry` via `episodic.add_memory` ; `memory_search` appelait `EchoAgent.recall`, qui interroge l'index vectoriel de *documents*. Rien n'écrivait jamais un fait mémorisé dans cet index — la recherche ne *pouvait pas* aboutir. Ajout de `episodic.search_memories` (LIKE sur contenu + tags, classé par nombre de termes réellement présents) et de `EchoAgent.search_memories`. `memory_search` couvre désormais les deux stores, mémoires d'abord : un fait explicitement mémorisé est une meilleure réponse qu'un passage qui partage des mots. **Volontairement pas un second index vectoriel** — ces lignes sont des faits courts et explicites, et fabriquer un deuxième store d'embeddings serait exactement la duplication mémoire que ce système cherche à supprimer. Effet de bord corrigé au passage : `memory_search` ne échoue plus en bloc quand Ollama est arrêté, les faits mémorisés restant accessibles sans embeddings.
+
+**HOS-087 — `tasks_create` puis `tasks_list(project_id)` renvoyait `[]`.** Le filtre SQL n'a jamais été faux ; les deux appels comparaient deux chaînes différentes. Hermes Agent s'exécute avec le workspace comme cwd, il nomme donc un projet par son chemin, là où Hermes OS stocke un id canonique. Normalisation posée à la frontière MCP — l'endroit précis où un appelant qui n'a qu'un chemin rencontre un store indexé par id : un id, une racine de projet ou n'importe quel sous-répertoire résolvent vers la même portée. Une valeur inconnue est **conservée telle quelle** plutôt que ramenée à `None` : une requête filtrée qui s'élargit silencieusement à tous les projets est plus dangereuse qu'une requête qui ne renvoie rien.
+
+**HOS-088 — le plancher modèle n'est plus une liste de noms.** HOS-085 avait livré une liste codée en dur, incapable de répondre pour un modèle que personne n'avait pensé à y inscrire. `/api/show` d'Ollama expose les capacités réelles — et l'audit montre qu'**une déclaration n'est pas une démonstration** : `qwen3.5:2b` *et* `qwen3-embedding:0.6b` annoncent tous deux `tools`, alors que le 2B narre au lieu d'agir (mesuré). `ModelProfile.agentic_capable` hiérarchise donc les preuves : une mesure réelle prime sur une déclaration, une déclaration prime sur un nom, et les modèles d'embedding sont exclus exactement comme `chat_capable` les excluait déjà. Vérifié sur le catalogue réel : `devstral`, `qwen3.5:9b-128k`, `qwen3-coder:30b` et `Hermes-4-14B` capables ; `qwen3.5:2b`, `lfm2.5-2.6b` et l'embedding non ; un modèle inconnu renvoie `None` et est traité comme **non prouvé**, jamais comme capable.
+
+**Toolsets Hermes Agent.** `delegation` et `skills` étaient désactivés dans toutes les sauvegardes de config jusqu'à la plus ancienne — c'est le défaut amont, pas un arbitrage de sécurité pris ici — et ils bloquaient entièrement les travaux sur les subagents et la création de skills. Réactivés, config d'origine sauvegardée.
+
+### Verified
+
+Backend : 939 passed, 2 skipped, 0 failed (contre 926). Nouveaux tests : `test_memory_remember_search_roundtrip.py` (dont **survie intersession réelle** — un `id` en retour de `memory_remember` n'est pas accepté comme preuve), `test_tasks_project_id_normalisation.py` (dont isolation entre projets et non-élargissement d'une portée inconnue), plus deux gardes de capacité modèle.
+
+### Catalogue Ollama réel (17 modèles)
+
+Interrogé, pas supposé. `nomic-embed-text` **n'est pas installé** malgré sa présence dans la documentation historique. `qwen3.5:9b` et `qwen3.5:9b-128k` font **exactement la même taille (6,59 Go)** : le suffixe `128k` ne prouve rien sur la fenêtre réellement chargée.
+
 ## HOS-085 — Hermes Agent redevient le cerveau des missions (2026-08-12)
 
 Audit demandé : « quand une mission s'exécute depuis Hermes OS, est-ce réellement Hermes Agent officiel qui raisonne et orchestre ? ». Réponse trouvée : **non**, sur le chemin principal. Trois défauts distincts l'empêchaient, chacun invisible pour la suite de tests.
