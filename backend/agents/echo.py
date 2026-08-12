@@ -120,6 +120,37 @@ class EchoAgent:
         where = {"project_id": project_id} if project_id else None
         return self._documents.search(query, n_results=n_results, where=where)
 
+    def search_memories(
+        self, query: str, n_results: int = 5, *, project_id: str | None = None
+    ) -> list[dict]:
+        """Find entries written by :meth:`remember` (HOS-086).
+
+        ``recall`` searches indexed *documents*; this searches the episodic
+        rows ``remember`` writes. They were conflated behind one MCP tool
+        name, which is why a remembered fact was never retrievable. Kept as
+        a separate method rather than folded into ``recall`` so existing
+        document-retrieval callers keep their exact semantics.
+        """
+        from backend.memory import episodic
+
+        with self._session_factory() as session:
+            entries = episodic.search_memories(
+                session, query, limit=n_results, project_id=project_id,
+            )
+            return [
+                {
+                    "id": e.id,
+                    "type": e.type,
+                    "content": e.content,
+                    "tags": e.tags,
+                    "confidence": e.confidence,
+                    "project_id": e.project_id,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                    "source": "memory",
+                }
+                for e in entries
+            ]
+
     # ── Skill library (SQLite) — self-evolution, §20 ──────────────────────────
     def remember_skill(
         self,

@@ -365,9 +365,26 @@ def memory_index(
 
 
 def memory_search(query: str, n_results: int = 5, project_id: str | None = None) -> list[dict]:
-    """Semantic search over indexed documents, optionally scoped to a
-    project. Requires a live Ollama server for embeddings."""
-    return _echo().recall(query, n_results=n_results, project_id=project_id)
+    """Search everything Hermes remembers, optionally scoped to a project.
+
+    Covers both stores (HOS-086): the entries ``memory_remember`` writes, and
+    the semantic index over ingested documents. It used to search documents
+    only, so a fact stored seconds earlier through ``memory_remember`` came
+    back as ``[]`` — the tool pair looked like one round trip and was two
+    unrelated systems. Memories are listed first: an explicitly remembered
+    fact is a stronger answer than a passage that merely mentions the words.
+
+    Document search needs a live Ollama server for embeddings; memory search
+    does not, so a remembered fact stays retrievable even when Ollama is
+    down rather than the whole call failing.
+    """
+    echo = _echo()
+    results = echo.search_memories(query, n_results=n_results, project_id=project_id)
+    try:
+        results.extend(echo.recall(query, n_results=n_results, project_id=project_id))
+    except Exception as exc:  # embeddings unavailable — memories still answer
+        logger.warning("memory_search: document index unavailable (%s)", exc)
+    return results[: n_results * 2]
 
 
 def memory_project_brief(project_id: str) -> dict:

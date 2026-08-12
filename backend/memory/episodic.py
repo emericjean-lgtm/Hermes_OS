@@ -11,7 +11,7 @@ import hashlib
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Float, String, Text, select
+from sqlalchemy import DateTime, Float, String, Text, or_, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from backend.memory.db import Base
@@ -83,6 +83,56 @@ def list_memories(
     if project_id is not None:
         stmt = stmt.where(MemoryEntry.project_id == project_id)
     return list(session.execute(stmt).scalars())
+
+
+def search_memories(
+    session: Session,
+    query: str,
+    *,
+    limit: int = 5,
+    type_: str | None = None,
+    project_id: str | None = None,
+) -> list[MemoryEntry]:
+    """Text search over what ``add_memory`` actually stored (HOS-086).
+
+    ``memory_remember``/``memory_search`` looked like one round trip and were
+    two unrelated stores: remember wrote a MemoryEntry row here, while search
+    queried the *document* vector index, so a freshly remembered fact was
+    never findable — the failure the user reported as
+    ``memory_remember → OK, memory_search → []``.
+
+    Deliberately a LIKE scan over content and tags rather than an embedding
+    lookup: these rows are short, explicitly-written facts, they are not
+    embedded anywhere today, and inventing a second vector index for them is
+    exactly the parallel-memory duplication this system is trying to shed.
+    Semantic retrieval over *documents* stays where it already is.
+    """
+    terms = [t for t in (query or "").split() if t]
+    if not terms:
+        return []
+    stmt = select(MemoryEntry).order_by(MemoryEntry.created_at.desc())
+    if type_:
+        stmt = stmt.where(MemoryEntry.type == type_)
+    if project_id is not None:
+        stmt = stmt.where(MemoryEntry.project_id == project_id)
+    # Any term may match (OR): a caller searching "hermes deployment port"
+    # should still find a memory that only mentions the port.
+    stmt = stmt.where(
+        or_(*[MemoryEntry.content.ilike(f"%{t}%") for t in terms]
+            + [MemoryEntry.tags.ilike(f"%{t}%") for t in terms])
+    )
+    rows = list(session.execute(stmt).scalars())
+    # Rank by how many distinct terms a row actually matches, so an exact hit
+    # outranks an incidental one-word overlap; recency breaks ties via the
+    # ORDER BY above (Python's sort is stable).
+    lowered = [t.lower() for t in terms]
+
+    def _score(entry: MemoryEntry) -> int:
+        haystack = f"{entry.content or ''} {entry.tags or ''}".lower()
+        return sum(1 for t in lowered if t in haystack)
+
+    rows.sort(key=_score, reverse=True)
+    return rows[:limit]
 
 
 def get_memory(session: Session, memory_id: str) -> MemoryEntry | None:

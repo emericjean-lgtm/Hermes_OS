@@ -54,9 +54,10 @@ def _forbid_ollama(monkeypatch) -> None:
 
     def _boom(*args, **kwargs):
         raise AssertionError(
-            "REGRESSION: Hermes OS ran its own Ollama tool loop for a "
-            "hermes-agent mission. Hermes Agent must own tool selection and "
-            "execution (it reaches this backend's tools over MCP)."
+            "HERMES_AGENT_BYPASS_DETECTED: Hermes OS ran its own Ollama tool "
+            "loop for a hermes-agent mission. Hermes Agent must own tool "
+            "selection and execution (it reaches this backend's tools over "
+            "MCP). See HOS-085."
         )
 
     monkeypatch.setattr("backend.connectors.ollama_client.OllamaClient", _boom)
