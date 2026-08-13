@@ -56,6 +56,19 @@ répond quand même, sans erreur, dix fois plus lentement et de façon
 erratique — ce qui ressemble à un modèle peu fiable jusqu'à ce qu'on
 regarde `size` moins `size_vram` dans `/api/ps`.
 
+**Mais `/api/ps` ne mesure que les poids.** Ni le cache KV, ni les tampons
+de calcul. Mesuré sur Muse-Glimmer-30B à 64k : `/api/ps` annonçait
+9,55 Gio pendant que le processus `llama-server` en détenait 13,21. L'écart
+va toujours dans le mauvais sens — il fait croire qu'il reste de la place
+pour un second modèle. Pour l'occupation réelle, lire le compteur GPU du
+processus d'inférence : `backend/model_intelligence/model_bench.py`
+(`gpu_dedicated_bytes`).
+
+Et ne pas calculer un cache KV sans regarder le motif d'attention. Muse
+Glimmer est en « Local, Local, Local, Global » avec fenêtre glissante de
+2048 : passer de 64k à 128k lui coûte 0,43 Gio, pas les 3,25 Gio d'un
+calcul qui suppose toutes les couches globales.
+
 ## Contexte Ollama : le piège le plus coûteux
 
 L'endpoint OpenAI-compatible `/v1` qu'utilise Hermes Agent **ne transporte

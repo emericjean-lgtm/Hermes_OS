@@ -1,3 +1,66 @@
+## HOS-105 — Une tâche voit enfin ce que les précédentes ont produit (2026-08-13)
+
+Prérequis au routage par modèle, et découvert en cherchant tout autre chose. Une tâche recevait l'objectif de la mission et son propre titre — rien d'autre. `mark_completed` posait un statut et une date ; `result_summary`, écrit sur **chaque** nœud par `node_execution`, n'était relu par personne. Une mission décomposée se comportait donc comme une série de prompts isolés sans rapport entre eux.
+
+L'inquiétude formulée était « changer de modèle en cours de mission repartira d'un contexte vide ». La réalité est plus large : **chaque tâche repartait déjà de zéro, avec ou sans changement de modèle.** Le routage par modèle n'aurait pas créé ce défaut, il l'aurait rendu visible — et on aurait débogué la mauvaise chose.
+
+`_upstream_results_for` suit le motif de `_mission_brief_for` : le résolveur vit dans le bootstrap, l'exécuteur ne connaît qu'un callback. Trois bornes délibérées :
+
+- **Dépendances directes seulement.** Remonter l'historique transitif reconstruirait le mur des 64k documenté dans CLAUDE.md, celui où les schémas d'outils sont tronqués et l'agent répond qu'il n'a pas d'outils.
+- **400 caractères par résumé, 6 nœuds au plus.** Un nœud de convergence peut dépendre de beaucoup d'autres ; c'est le total qui doit rester assez petit pour ne pas noyer les instructions propres à la tâche.
+- **Une dépendance sans résumé est quand même nommée.** « Ça a tourné et n'a rien dit » n'est pas « ça n'a jamais existé », et une tâche qui distingue les deux peut décider d'aller vérifier.
+
+Porté en **texte**, pas en état de runtime. C'est le point qui compte pour la suite : le routage enverra des tâches voisines à des modèles différents, et tout ce qui serait tenu dans un cache KV ou une session côté fournisseur s'évaporerait précisément à cet instant.
+
+### Verified
+
+12 tests. Celui qui porte le reste s'appelle `test_the_carried_context_is_text_and_survives_a_model_change` : rien n'est lié à un runtime, un identifiant de session ou un cache — l'état vit sur la Mission, donc le même appel rend la même chaîne quel que soit le modèle. Les autres gardent les bornes (transitivité, taille, nombre) et le fait qu'un résolveur qui lève une exception ne fait jamais échouer la tâche.
+
+## HOS-104 — Une batterie mesurée pour juger un modèle local (2026-08-13)
+
+`agentic_probe` répond à une question — ce modèle sait-il faire un vrai travail outillé — et reste seul juge de celle-là. Elle ne dit rien des qualités qui décident si un modèle est *utilisable* ici : combien de VRAM il prend réellement, s'il déborde silencieusement sur le CPU, s'il sait émettre un schéma JSON exact, s'il retrouve un fait enfoui à 128k.
+
+`backend/model_intelligence/model_bench.py` mesure ces dimensions-là. Deux règles la façonnent.
+
+**Chaque verdict est vérifiable mécaniquement.** Aucun modèle n'en note un autre, rien n'est jugé à l'impression. Une réponse JSON se parse et correspond au schéma, ou non. Une aiguille est retrouvée mot pour mot, ou non. Une contrainte de sept mots se compte.
+
+**Les chiffres viennent du runtime, pas d'un chronomètre local.** Le débit est lu sur les compteurs `eval_count`/`eval_duration` d'Ollama, l'empreinte sur `/api/ps` — une mesure prise dans le processus appelant inclurait la file d'attente et le HTTP, et flatterait ou punirait un modèle pour des raisons qui ne le concernent pas.
+
+Le contexte est fixé par requête via `options.num_ctx`, que les endpoints **natifs** honorent. C'est aussi pourquoi le volet agentique de la batterie a besoin d'un modèle étiqueté par Modelfile, là où les autres n'en ont pas besoin : `/v1`, qu'utilise Hermes Agent, ne transporte pas `num_ctx`.
+
+**Un défaut d'instrument, trouvé avant qu'il ne produise un faux verdict.** La première version extrayait le JSON par `raw[find("{") : rfind("}")+1]` — un intervalle glouton. Un modèle qui raisonne à voix haute *avant et après* sa réponse fait couvrir à cet intervalle l'objet **plus** le commentaire qui suit ; `json.loads` échoue sur « Extra data » et un objet parfaitement conforme est noté zéro. Mesuré sur LFM2.5-2.6B : **0/5**, alors que la réponse brute contenait un objet impeccable à chaque essai. Corrigé par un balayage des accolades équilibrées, chaînes comprises. Même modèle après correction : **5/5**.
+
+C'est le principe du projet retourné vers l'instrument : un banc d'essai ne vaut que ses vérificateurs, et un vérificateur faux produit un chiffre confiant et faux.
+
+### Verified
+
+29 tests sur les vérificateurs purs — les parties qui parlent à Ollama sont l'instrument, pas le jugement. Celui qui compte nomme l'incident : un modèle qui narre autour de sa réponse doit passer, un objet malformé doit échouer même entouré de prose, et l'objet conforme doit l'emporter sur une ébauche fautive voisine (les modèles s'auto-corrigent — punir cela punirait exactement ce dont la boucle agentique dépend).
+
+Première mesure de référence, LFM2.5-2.6B-128k à 64k : empreinte 3,1 Gio sans débordement CPU à 172 tok/s (1,00), JSON structuré 5/5 (1,00), **suivi d'instruction 0/2** (198 mots quand on en demande 7), aiguille 1/3. Score global **0,58**.
+
+### Un second défaut d'instrument, signalé par l'utilisateur
+
+Le banc rapportait 9,66 Gio à 8k et **9,55 Gio à 64k** — plus de contexte pour moins de mémoire, ce qui est physiquement impossible. L'anomalie n'a pas été trouvée en relisant le code mais parce que quelqu'un a trouvé le chiffre bizarre.
+
+Cause : **`/api/ps` ne rapporte que les poids du modèle.** Ni le cache KV, ni les tampons de calcul. Mesuré au même instant sur Muse-Glimmer-30B à 64k : `/api/ps` annonçait 9,55 Gio pendant que le processus `llama-server` en détenait **13,21**. Les 3,66 Gio manquants correspondent presque exactement au cache KV calculé (3,25 Gio).
+
+Le sens de l'erreur est le pire possible : « 9,5 Gio sur une carte de 16 » invite à charger un second modèle qui ne rentrera pas. `gpu_dedicated_bytes()` lit désormais le compteur GPU par PID du processus d'inférence — la première version filtrait par nom de processus, or le compteur nomme ses instances `pid_<n>_luid_…` et ne trouvait donc rien, en renvoyant silencieusement « non mesurable ».
+
+Note pour CLAUDE.md : `size` moins `size_vram` reste juste pour détecter un **débordement des poids** vers le CPU. Ça ne dit rien de l'occupation VRAM totale.
+
+### Ce que la première campagne a mesuré
+
+Muse-Glimmer-30B (UD-IQ2_XXS), après mise à jour d'Ollama en 0.32.9 — la 0.32.5 refusait de le charger, `unknown model architecture: 'muse-glimmer'`, le support ayant été fusionné dans llama.cpp le 10 août :
+
+| Contexte déclaré | VRAM totale réelle |
+|---|---|
+| 64k | 13,21 Gio |
+| 128k | **13,64 Gio** |
+
+**Doubler le contexte coûte 0,43 Gio**, pas 3,25. L'architecture est « Local, Local, Local, Global » avec une fenêtre glissante de 2048 : une couche sur quatre garde un cache de longueur complète, les autres sont plafonnées quel que soit le contexte. Cette information figurait dans les spécifications lues au moment de l'analyse initiale, et le calcul de cache KV l'a ignorée en traitant les 52 couches comme globales. Trois prédictions VRAM successives (16,3 Gio, puis 12,7, puis « débordement à 128k ») ont toutes été démenties par la mesure.
+
+Le coût de ce modèle n'est pas la mémoire, c'est le **calcul** : traitement de prompt à 134 tok/s au départ, **65 tok/s** à 54 000 tokens — un seul appel à long contexte prend 837 s. La batterie 64k complète a dépassé quarante minutes là où LFM2.5 en demandait 236 s. Pour un catalogue de routage, c'est un verdict utilisable : ce modèle est disqualifié pour les tâches à long contexte, non parce qu'il se trompe mais parce qu'il ne finit pas.
+
 ## HOS-103 — Hermes OS a son propre environnement Python (2026-08-13)
 
 `python` sur le PATH était l'interpréteur du venv de **Hermes Agent**. Hermes OS — son backend, sa suite complète, chromadb — tournait donc entièrement dans l'environnement de l'agent. Ni `VIRTUAL_ENV` ni `PYTHONPATH` : c'était le PATH lui-même, et rien ne le disait nulle part.
