@@ -428,6 +428,7 @@ def _make_task_executor(c: Any) -> Any:
         vram_gb_for=_vram_gb_for,
         workspace_project_for=_workspace_project_for,
         mission_brief_for=_mission_brief_for,
+        upstream_results_for=_upstream_results_for,
         agentic_capable_for=_agentic_capable_for,
     )
 
@@ -503,6 +504,71 @@ def _mission_brief_for(task: Any) -> Optional[str]:
         if value:
             return value
     return None
+
+
+#: How much of each upstream node's summary travels forward. Node summaries
+#: are already capped at 500 chars where they are written
+#: (mission/node_execution.py); this second cap exists because a node can
+#: have several dependencies and the total is what has to stay small enough
+#: not to crowd out the task's own instructions on a 64k model.
+_UPSTREAM_SUMMARY_CHARS = 400
+_UPSTREAM_MAX_NODES = 6
+
+
+def _upstream_results_for(task: Any) -> Optional[str]:
+    """What the tasks this one depends on actually produced (HOS-105).
+
+    Until now a task received the mission objective and its own title and
+    nothing else: ``mark_completed`` set a status and a timestamp, and
+    ``result_summary`` — written on every node — was never read by anyone.
+    Every task therefore started from zero and had to rediscover the ground,
+    which is why a decomposed mission behaved like a set of unrelated
+    one-shot prompts rather than a plan.
+
+    Text, deliberately, not a model's internal state. A summary survives the
+    model being swapped between two tasks, which is the whole point: the
+    catalogue work that follows routes different tasks to different models,
+    and anything carried as KV cache or a provider-specific session would
+    evaporate at exactly that moment.
+
+    Only *direct* dependencies, and only their summaries. Walking the whole
+    transitive history would reproduce the 64k wall documented in CLAUDE.md
+    — the one where tool schemas get truncated and the agent answers that it
+    has no tools.
+    """
+    mission_id = getattr(task, "mission_id", "") or ""
+    node_id = getattr(task, "task_id", "") or getattr(task, "node_id", "") or ""
+    if not mission_id or not node_id:
+        return None
+    try:
+        from backend.mission.routes import get_mission_by_id
+        mission = get_mission_by_id(mission_id)
+    except Exception:
+        return None
+    if mission is None:
+        return None
+
+    node = next((n for n in mission.nodes if n.node_id == node_id), None)
+    if node is None or not getattr(node, "depends_on", None):
+        return None
+
+    by_id = {n.node_id: n for n in mission.nodes}
+    lines: list[str] = []
+    for dependency_id in list(node.depends_on)[:_UPSTREAM_MAX_NODES]:
+        upstream = by_id.get(dependency_id)
+        if upstream is None:
+            continue
+        summary = (getattr(upstream, "result_summary", "") or "").strip()
+        if not summary:
+            # A dependency that produced no summary is still worth naming:
+            # "this ran and told us nothing" is different from "this never
+            # existed", and a task that knows the difference can decide to
+            # go and look.
+            summary = "(aucun résumé)"
+        title = (getattr(upstream, "title", "") or dependency_id).strip()
+        lines.append(f"- {title} : {summary[:_UPSTREAM_SUMMARY_CHARS]}")
+
+    return "\n".join(lines) if lines else None
 
 
 @lru_cache(maxsize=64)

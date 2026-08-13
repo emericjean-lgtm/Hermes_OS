@@ -246,6 +246,7 @@ class RealTaskExecutor:
         workspace_project_for: Optional[Callable[[Any], Optional[tuple[str, str]]]] = None,
         hermes_toolsets: tuple[str, ...] = _HERMES_AGENT_TOOLSETS,
         mission_brief_for: Optional[Callable[[Any], Optional[str]]] = None,
+        upstream_results_for: Optional[Callable[[Any], Optional[str]]] = None,
         agentic_capable_for: Optional[Callable[[str], Optional[bool]]] = None,
         agentic_fallback_model: str = _HERMES_AGENT_FALLBACK_MODEL,
         agentic_timeout_s: float = _HERMES_AGENT_TIMEOUT_S,
@@ -253,6 +254,7 @@ class RealTaskExecutor:
         self._agentic_timeout_s = agentic_timeout_s
         self._hermes_toolsets = hermes_toolsets
         self._mission_brief_for = mission_brief_for
+        self._upstream_results_for = upstream_results_for
         self._agentic_capable_for = agentic_capable_for
         self._fallback_model = agentic_fallback_model
         self._chat = chat
@@ -985,6 +987,26 @@ class RealTaskExecutor:
                 logger.debug("mission brief lookup failed", exc_info=True)
         user = (f"Mission objective: {brief}\n\nYour task in that mission: {title}"
                 if brief else f"Task: {title}")
+
+        # HOS-105: what the tasks this one depends on actually produced.
+        # Before this, every task started from zero — result_summary was
+        # written on each node and read by nobody — so a decomposed mission
+        # behaved like a set of unrelated one-shot prompts. Carried as plain
+        # text on purpose: it has to survive the model being swapped between
+        # two tasks, which anything held as KV cache or a provider session
+        # would not.
+        upstream = ""
+        if self._upstream_results_for is not None:
+            try:
+                upstream = (self._upstream_results_for(task) or "").strip()
+            except Exception:  # pragma: no cover - context is never worth failing over
+                logger.debug("upstream results lookup failed", exc_info=True)
+        if upstream:
+            user += (
+                "\n\nAlready done by the tasks yours depends on:\n" + upstream
+                + "\n\nBuild on that work — do not redo it. Anything it left "
+                  "on disk is there; check before assuming."
+            )
 
         return [
             {"role": "system", "content": system},
