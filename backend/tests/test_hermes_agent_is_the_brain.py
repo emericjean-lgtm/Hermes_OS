@@ -355,3 +355,38 @@ def test_explicit_ollama_runtime_still_gets_hermes_os_tools(monkeypatch, tmp_pat
         executor.execute(_FakeTask(mission_id="m-1", assigned_runtime="ollama"))
 
     assert constructed, "explicit ollama runtime should still use the HOS tool loop"
+
+
+def test_the_agent_is_invoked_with_its_own_interpreter():
+    """Hermes OS and Hermes Agent must not share a Python environment.
+
+    Until HOS-103 they did: `python` on PATH was the agent's venv
+    interpreter, so `hermes update` resynchronised Hermes OS's dependencies
+    without saying so. On 2026-08-13 one such update left
+    opentelemetry-exporter-otlp-proto-grpc at 1.44.0 against a 1.39.1
+    family and eight Hermes OS test modules stopped importing, with no
+    change to Hermes OS at all.
+
+    The failure mode this guards is a plausible, well-meaning edit:
+    replacing the absolute path below with `sys.executable`, which reads
+    like removing a hardcoded path but would launch cli.py under an
+    interpreter that has none of the agent's dependencies.
+
+    Asserted as a property rather than as a literal path, so it holds on
+    any machine: whatever the adapter points at, it is not the interpreter
+    Hermes OS is running under.
+    """
+    import sys
+    from pathlib import Path
+
+    from backend.ral.adapters.hermes_agent_cli import HermesAgentCliConfig
+
+    configured = Path(HermesAgentCliConfig().python_exe)
+
+    assert configured != Path(sys.executable), (
+        "the adapter is launching Hermes Agent with Hermes OS's own "
+        "interpreter — the two environments are separate on purpose"
+    )
+    assert "hermes-agent" in configured.as_posix(), (
+        f"expected an interpreter inside the Hermes Agent install, got {configured}"
+    )

@@ -57,6 +57,13 @@ class HermesAgentCliConfig:
 
     hermes_home: str = r"C:\Users\emeri\AppData\Local\hermes"
     agent_root: str = r"C:\Users\emeri\AppData\Local\hermes\hermes-agent"
+    #: Hermes Agent's *own* interpreter, deliberately absolute — never
+    #: sys.executable. Since HOS-103 Hermes OS runs in its own virtualenv
+    #: (.venv), which has none of the agent's dependencies; resolving this
+    #: from the running process would launch cli.py under an interpreter
+    #: that cannot import it. The two environments are separate on purpose:
+    #: that is what stops a `hermes update` from changing Hermes OS's
+    #: dependency tree, as it did on 2026-08-13.
     python_exe: str = (
         r"C:\Users\emeri\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"
     )

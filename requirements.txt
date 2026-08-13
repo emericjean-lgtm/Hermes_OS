@@ -1,0 +1,59 @@
+# Hermes OS — dépendances Python (HOS-103)
+#
+# Ce fichier n'existait pas. Hermes OS tournait dans le virtualenv de
+# Hermes Agent et se servait de ce qui s'y trouvait, si bien que ses
+# dépendances réelles n'étaient écrites nulle part. Le 13 août 2026 une
+# mise à jour de l'agent a resynchronisé ce venv et laissé
+# opentelemetry-exporter-otlp-proto-grpc en 1.44.0 face à une famille en
+# 1.39.1 : huit modules de test de Hermes OS ne s'importaient plus, sans
+# qu'une seule ligne de Hermes OS ait changé.
+#
+# La liste ci-dessous est *dérivée*, pas devinée : tous les imports de
+# premier niveau sous backend/ ont été collectés par analyse de l'AST, la
+# bibliothèque standard et les paquets du dépôt retirés, puis chaque
+# module rattaché à sa distribution. Les versions sont celles contre
+# lesquelles la suite passait au moment de l'extraction — c'est le seul
+# point de départ honnête, pas un choix esthétique.
+#
+# Volontairement absentes : les dépendances optionnelles qu'aucun
+# environnement de cette machine n'a jamais eues (whisper, piper,
+# python-docx, pypdf, psycopg2, py-cpuinfo, ktransformers). Leurs modules
+# les importent sous garde et la suite passe sans elles ; les inscrire ici
+# imposerait des paquets lourds pour des chemins de code inactifs.
+
+# ── Service HTTP ────────────────────────────────────────────────────
+fastapi==0.133.1
+# Lancé, jamais importé (voir .claude/launch.json et backend/main.py) —
+# l'analyse d'imports ne pouvait pas le trouver.
+uvicorn==0.41.0
+
+# ── Modèles et configuration ────────────────────────────────────────
+pydantic==2.13.4
+pydantic-settings==2.13.1
+PyYAML==6.0.3
+
+# ── Persistance ─────────────────────────────────────────────────────
+SQLAlchemy==2.0.51
+# Mémoire sémantique. Tire à lui seul la famille opentelemetry qui a
+# cassé la suite le 13 août : dans un venv propre, son résolveur choisit
+# un ensemble cohérent au lieu d'en hériter un incompatible.
+chromadb==1.5.9
+
+# ── Réseau ──────────────────────────────────────────────────────────
+httpx==0.28.1
+requests==2.33.0
+urllib3==2.7.0
+
+# ── Intégration agent ───────────────────────────────────────────────
+mcp==1.28.1
+
+# ── Système ─────────────────────────────────────────────────────────
+psutil==7.2.2
+
+# ── Tests ───────────────────────────────────────────────────────────
+# Gardés ici plutôt que dans un fichier séparé : la suite complète fait
+# partie du flux de travail normal de ce dépôt (voir CLAUDE.md), pas d'un
+# environnement d'intégration continue distinct.
+pytest==8.3.2
+pytest-asyncio==0.24.0
+pytest-timeout==2.4.0

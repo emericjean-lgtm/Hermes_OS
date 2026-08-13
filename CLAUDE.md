@@ -74,11 +74,27 @@ En dessous de ~64k servis, les schémas d'outils sont tronqués et l'agent
 répond qu'il n'a pas d'outils — ce qui est alors littéralement vrai.
 `backend/runtime/context_guard.py` le détecte au démarrage.
 
+## Environnements Python : il y en a deux, et c'est voulu
+
+Hermes OS a son propre virtualenv, `.venv`, décrit par `requirements.txt`.
+Hermes Agent a le sien, sous `%LOCALAPPDATA%\hermes\hermes-agent\venv`.
+
+Ils étaient confondus jusqu'à HOS-103 : `python` sur le PATH était
+l'interpréteur de l'agent, si bien que `hermes update` resynchronisait les
+dépendances de Hermes OS sans que rien ne le dise. Le 13 août 2026, une
+mise à jour a laissé `opentelemetry-exporter-otlp-proto-grpc` en 1.44.0
+face à une famille en 1.39.1 et huit modules de test ont cessé de
+s'importer, sans qu'une ligne de Hermes OS ait changé.
+
+`backend/ral/adapters/hermes_agent_cli.py` pointe **en absolu** vers
+l'interpréteur de l'agent. Ne jamais remplacer ce chemin par
+`sys.executable` : `.venv` n'a aucune des dépendances de l'agent.
+
 ## Commandes
 
 ```bash
-python -m pytest backend/tests -q          # ~4 min, doit être vert
-cd frontend && npx tsc --noEmit            # typecheck
+.venv/Scripts/python.exe -m pytest backend/tests -q   # ~4 min, doit être vert
+cd frontend && npx tsc --noEmit                       # typecheck
 ```
 
 Backend et frontend se lancent via `preview_start` (`.claude/launch.json`),

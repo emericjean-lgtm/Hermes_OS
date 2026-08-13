@@ -1,3 +1,27 @@
+## HOS-103 — Hermes OS a son propre environnement Python (2026-08-13)
+
+`python` sur le PATH était l'interpréteur du venv de **Hermes Agent**. Hermes OS — son backend, sa suite complète, chromadb — tournait donc entièrement dans l'environnement de l'agent. Ni `VIRTUAL_ENV` ni `PYTHONPATH` : c'était le PATH lui-même, et rien ne le disait nulle part.
+
+La mise à jour v0.19.0 → v0.20.0 en a fait la démonstration le jour même. Son `uv sync` a laissé `opentelemetry-exporter-otlp-proto-grpc` en 1.44.0 alors que le reste de la famille restait en 1.39.1 ; **huit modules de test de Hermes OS ont cessé de s'importer**, sans qu'une seule ligne de Hermes OS ait changé. Le correctif immédiat (rétrograder l'exporteur pour rejoindre la famille que Hermes épingle) était juste, mais il ne traitait que le symptôme : tant que les deux partagent un environnement, chaque mise à jour de l'agent peut casser l'OS sans prévenir.
+
+**Reconstituer les dépendances, pas les deviner.** Aucun `requirements.txt` n'existait — il n'y en avait jamais eu besoin. La liste a été *dérivée* : analyse de l'AST de tous les fichiers sous `backend/`, collecte des imports de premier niveau, retrait de la bibliothèque standard et des paquets du dépôt, puis rattachement de chaque module à sa distribution. 12 dépendances résolues, plus `uvicorn` — lancé mais jamais importé, donc invisible à cette analyse et ajouté à la main.
+
+Huit modules restaient non résolus (`whisper`, `piper`, `python-docx`, `pypdf`, `psycopg2`, `py-cpuinfo`, `ktransformers`, `kt_kernel`). Vérification faite, **aucun n'était installé** dans le venv partagé : leurs chemins de code sont inactifs et la suite passait sans eux. Les inscrire aurait imposé des paquets lourds pour rien.
+
+**Un effet secondaire qui valide la séparation.** Dans le venv propre, le résolveur a choisi toute la famille opentelemetry en **1.44.0** — cohérente. C'est l'inverse exact du correctif du matin, qui rétrogradait en 1.39.1. Les deux sont justes dans leur contexte : là-bas les épinglages de Hermes imposaient 1.39.1, ici plus rien ne contraint. C'est précisément ce qu'on gagne à ne plus partager.
+
+`backend/ral/adapters/hermes_agent_cli.py` continue de pointer **en absolu** vers l'interpréteur de l'agent, et un commentaire dit maintenant pourquoi : `.venv` n'a aucune des dépendances de l'agent, donc résoudre ce chemin depuis le processus courant lancerait `cli.py` sous un interpréteur incapable de l'importer. La séparation est le but, pas un accident à corriger.
+
+Le test qui garde ça (`test_hermes_agent_is_the_brain.py`) vise une modification *plausible et bien intentionnée* : remplacer ce chemin codé en dur par `sys.executable`, ce qui ressemble à un nettoyage et casserait tout. Il l'énonce comme une propriété, pas comme un littéral — quel que soit l'interpréteur visé, ce n'est pas celui sous lequel Hermes OS tourne — pour rester vrai sur une autre machine.
+
+### Verified
+
+**1032 passed, 2 skipped en 227 s** dans le venv dédié, résultat identique au venv partagé. Au passage, la durée confirme rétrospectivement le diagnostic de HOS-102 : les 440 s observées alors venaient bien d'un objectif autonome qui occupait Ollama pendant la passe, pas d'une régression.
+
+**La vérification qui compte, parce que c'est le risque introduit ici** : Hermes OS tourne désormais sous un interpréteur, l'agent sous un autre, et l'appel doit traverser cette frontière. Éprouvé depuis `.venv`, en important la vraie configuration de l'adaptateur plutôt qu'en retapant ses chemins — deux interpréteurs distincts confirmés, puis une tâche réelle exécutée par l'agent dans un workspace vide : `CROSS_VENV.md` créé, contenu exact, **lu sur le disque**.
+
+**Un cas d'école du couplage, rencontré pendant le travail** : `hermes update` a refusé de s'exécuter parce qu'un processus tenait le venv de l'agent — c'était le backend de Hermes OS. Le produit empêchait la mise à jour de son propre cerveau. Après cette séparation, le venv de l'agent ne porte plus que le gateway.
+
 ## HOS-102 — La tâche qui disparaissait quand on changeait d'onglet (2026-08-13)
 
 Symptôme rapporté : « quand je lance une tâche dans un onglet et que je change d'onglets, des fois la tâche disparaît ».
