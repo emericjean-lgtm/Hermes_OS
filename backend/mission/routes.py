@@ -28,6 +28,7 @@ from backend.mission.mission_models import (
     MissionPriority,
     MissionStatus,
     MissionType,
+    NodeStatus,
     build_mission_report,
 )
 
@@ -499,8 +500,55 @@ async def _run_mission_steps(mission: Mission) -> int:
 
     if mission.status in terminal:
         _record_episode(mission)
+        # HOS-100: the mission finished, but if the filesystem contradicted
+        # its own success report GraphExecutor left a brief behind. Run it
+        # once more with that evidence rather than only labelling the
+        # failure — this is the half of the loop HOS-099 stopped short of.
+        executed += await _run_retry_if_suggested(mission)
 
     return executed
+
+
+async def _run_retry_if_suggested(mission: Mission) -> int:
+    """Re-run a mission whose result the workspace contradicted.
+
+    Driven from here rather than from GraphExecutor because this is the
+    function that owns the execution walk: a re-run needs the same pass
+    ceiling, the same yielding to the event loop so ``/pause`` still works,
+    and the same episode recording. Hiding it inside a completion handler
+    would give it none of those.
+
+    The brief reaches the agent through ``mission.objective``, which
+    service_registry's ``_mission_brief_for`` already forwards to Hermes
+    Agent — no new plumbing, and it means every node of the retry sees the
+    evidence, not just the first.
+    """
+    brief = mission.metadata.pop("retry_brief", None)
+    if not brief:
+        return 0
+
+    attempts = int(mission.metadata.get("attempts", 1))
+    mission.metadata["attempts"] = attempts + 1
+    mission.metadata.setdefault("original_objective",
+                                mission.objective or mission.description)
+    mission.objective = brief
+
+    logger.info("mission %s: retrying (attempt %d) — workspace contradicted "
+                "the reported success", mission.mission_id, attempts + 1)
+
+    # Reset every node so the whole graph runs again. Per-node resumption
+    # would be wrong here: the mission produced nothing, so there is no
+    # partial work worth keeping, and a node that "succeeded" while writing
+    # nothing is exactly what is being re-attempted.
+    for node in mission.nodes:
+        node.status = NodeStatus.PENDING
+        node.result_summary = ""
+    _executor.build_graph(mission, mission.nodes, list(mission.edges or []))
+    mission.status = MissionStatus.READY
+    if not _executor.start_mission(mission):
+        logger.warning("mission %s: could not restart for retry", mission.mission_id)
+        return 0
+    return await _run_mission_steps(mission)
 
 
 @router.post("/{mission_id}/start")

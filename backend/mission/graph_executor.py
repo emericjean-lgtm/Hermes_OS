@@ -187,6 +187,15 @@ class GraphExecutor:
 
                         verification = self._verify_workspace(mission, all_success)
 
+                        # HOS-099/100: computed before and outside the event
+                        # block on purpose. Retrying is a behaviour, not
+                        # telemetry — making it conditional on someone having
+                        # wired a listener meant a mission silently lost its
+                        # second attempt whenever no handler was attached,
+                        # which is exactly how this was first written and what
+                        # the retry tests caught.
+                        self._suggest_retry(mission, verification)
+
                         if self._on_event:
                             ev_type = "mission.completed" if all_success else "mission.completed"
                             payload = {
@@ -204,11 +213,6 @@ class GraphExecutor:
                             if verification is not None and verification.get("contradicted"):
                                 self._on_event("mission.unverified", verification,
                                                severity="warning")
-                                # HOS-099: a verdict is not a loop. Publish the
-                                # brief that would make a second attempt
-                                # different from the first — the evidence, not
-                                # just "try again".
-                                self._suggest_retry(mission, verification)
 
             # Notify newly ready nodes
             new_ready = self._resolver.get_ready_nodes(mission)
@@ -222,7 +226,7 @@ class GraphExecutor:
 
         return count
 
-    def _suggest_retry(self, mission: Mission, verification: dict) -> None:
+    def _suggest_retry(self, mission: Mission, verification: dict | None) -> None:
         """Emit the retry brief for a mission the filesystem contradicts.
 
         Publishes rather than re-running: relaunching a mission graph is the

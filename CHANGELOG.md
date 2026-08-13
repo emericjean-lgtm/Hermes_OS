@@ -1,3 +1,21 @@
+## HOS-100 — La relance s'exécute réellement (2026-08-13)
+
+HOS-099 produisait la décision et le brief, puis s'arrêtait — la boucle restait ouverte : le système savait qu'une mission avait rapporté un succès au-dessus d'un workspace intact, savait quoi lui dire, et ne faisait rien.
+
+`_run_mission_steps` (mission/routes.py) rejoue désormais la mission une fois, avec la preuve attachée. Piloté depuis là et non depuis `GraphExecutor` parce que c'est cette fonction qui possède la marche d'exécution : une relance a besoin du même plafond de passes, du même `await` qui laisse `/pause` fonctionner, et du même enregistrement d'épisode. Cachée dans un gestionnaire de complétion, elle n'aurait rien de tout cela.
+
+Le brief atteint l'agent via `mission.objective`, que `_mission_brief_for` transmet déjà à Hermes Agent — aucune tuyauterie nouvelle, et **chaque nœud** de la relance voit la preuve, pas seulement le premier. L'objectif d'origine est conservé dans `metadata["original_objective"]`.
+
+Tous les nœuds sont réinitialisés plutôt que repris là où ils en étaient : la mission n'a rien produit, il n'y a donc aucun travail partiel à préserver, et un nœud « réussi » qui n'a rien écrit est précisément ce qu'on rejoue.
+
+**Défaut trouvé par les tests, dans ma propre conception.** La suggestion de relance avait été placée *à l'intérieur* du bloc `if self._on_event:` — la relance dépendait donc de la présence d'un écouteur d'événements. Une mission perdait silencieusement sa seconde chance dès qu'aucun gestionnaire n'était branché. Rejouer est un **comportement**, pas de la télémétrie ; c'est désormais calculé avant et en dehors du bloc.
+
+### Verified
+
+1008 passed, 2 skipped. Cinq tests qui pilotent le vrai helper de route : une mission dont la première tentative n'écrit rien est réellement rejouée et la seconde écrit (l'artefact est vérifié sur disque) ; le second objectif contient bien la preuve *et* l'objectif d'origine ; une mission réussie n'est pas rejouée ; une mission sans workspace non plus ; et — le test qui compte — un nœud qui n'écrit **jamais** rien s'arrête après le budget au lieu de boucler indéfiniment.
+
+**Instabilité connue, non corrigée** : `test_throughput_is_measured_from_the_first_token` échoue par intermittence en suite complète (2 fois sur 4 observées), passe systématiquement isolé, et passe aussi en suite complète sans qu'aucune modification lui soit apportée. Les échecs coïncidaient avec l'activité d'Ollama pendant les sondes de modèles. Hypothèse d'une résolution d'horloge insuffisante **réfutée par la mesure** (`elapsed == 0` dans 0 cas sur 40). Cause réelle non établie.
+
 ## HOS-099 — Fermer la boucle : une vérification qui échoue produit une seconde tentative (2026-08-13)
 
 HOS-092 avait donné aux missions un verdict que l'agent ne peut pas contourner : comparer le workspace avant et après, et signaler une mission qui rapporte un succès sans avoir rien changé. Mais **un verdict n'est pas une boucle**. Le système constatait la contradiction et s'arrêtait là — du diagnostic sans traitement. La défaillance que tout ce travail vise à supprimer se produisait toujours ; elle était simplement étiquetée.
