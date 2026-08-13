@@ -3,16 +3,25 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  AlertTriangle, Clock, Compass, HelpCircle, History, MessageSquarePlus,
+  AlertTriangle, Clock, Compass, HelpCircle, History, MessageSquarePlus, Trash2,
 } from "lucide-react";
-import { conversationClient, type ConversationContextResponseDTO } from "@/services/client";
+import {
+  conversationClient,
+  type ConversationContextResponseDTO,
+  type ConversationSummaryDTO,
+} from "@/services/client";
 
 /**
  * Slash commands (HOS-075, extended v2) — a small, honest set.
  *
  * `/clean` and `/resume` wrap real, pre-existing capabilities the Assistant
  * never surfaced (a fresh session, and `GET /conversation/sessions` which
- * had zero UI callers before this). `/context` wraps a second such
+ * had zero UI callers before this). Until HOS-101 `/resume` could only ever
+ * offer conversations from the *current* backend process — the server kept
+ * them in a dict — so the picker was empty after every restart and dropped
+ * the oldest once a hundred had accumulated. It now lists what is on disk,
+ * titled by each conversation's first question, and can erase one.
+ * `/context` wraps a second such
  * endpoint — `GET /conversation/{id}/context` — which returns the
  * conversation's actual linked state (mission, agents, runtime, security
  * level), not the token-count estimate the composer already shows.
@@ -38,7 +47,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     icon: HelpCircle, implemented: true },
   { cmd: "/clean", label: "/clean", description: "Démarrer une nouvelle conversation",
     icon: MessageSquarePlus, implemented: true },
-  { cmd: "/resume", label: "/resume", description: "Reprendre une session précédente",
+  { cmd: "/resume", label: "/resume", description: "Reprendre une conversation — y compris d'avant un redémarrage",
     icon: History, implemented: true },
   { cmd: "/context", label: "/context", description: "État réel de la conversation — mission, agents, runtime, sécurité",
     icon: Compass, implemented: true },
@@ -87,22 +96,20 @@ export function SlashCommandMenu({
   );
 }
 
-interface SessionSummary {
-  session_id: string;
-  status: string;
-  message_count: number;
-  updated_at: string;
-}
-
 export function SessionPicker({
-  currentSessionId, onPick, onClose,
+  currentSessionId, onPick, onClose, onDeleted,
 }: {
   currentSessionId: string;
   onPick: (sessionId: string) => void;
   onClose: () => void;
+  /** Called when the *active* conversation is the one erased — the caller
+   *  is then pointing at a session that no longer exists and has to open a
+   *  fresh one. */
+  onDeleted?: (sessionId: string) => void;
 }) {
-  const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
+  const [sessions, setSessions] = useState<ConversationSummaryDTO[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -115,13 +122,32 @@ export function SessionPicker({
     (async () => {
       try {
         const data = await conversationClient.sessions();
-        if (!cancelled) setSessions(data.sessions as SessionSummary[]);
+        if (!cancelled) setSessions(data.sessions);
       } catch {
         if (!cancelled) setError("Impossible de charger les sessions.");
       }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Two clicks, not a browser confirm(): erasing a transcript is
+  // irreversible, and a native dialog in a full-screen cockpit reads as a
+  // crash. The row itself becomes the confirmation.
+  const remove = async (id: string) => {
+    if (confirmingId !== id) { setConfirmingId(id); return; }
+    setConfirmingId(null);
+    setSessions((prev) => (prev ?? []).filter((s) => s.session_id !== id));
+    try {
+      await conversationClient.remove(id);
+      if (id === currentSessionId) onDeleted?.(id);
+    } catch {
+      setError("Suppression impossible — la conversation est toujours là.");
+      try {
+        const data = await conversationClient.sessions();
+        setSessions(data.sessions);
+      } catch { /* the error above already says what happened */ }
+    }
+  };
 
   const sorted = useMemo(
     () => [...(sessions ?? [])].sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
@@ -154,26 +180,48 @@ export function SessionPicker({
             <p className="px-3 py-3 text-[11px] text-hermes-dim">Aucune session enregistrée.</p>
           )}
           {sorted.map((s) => (
-            <button
+            <div
               key={s.session_id}
-              onClick={() => onPick(s.session_id)}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors
+              className={`group flex items-center gap-1 rounded-lg pr-1.5 transition-colors
                 ${s.session_id === currentSessionId ? "bg-hermes-cyan/[0.09]" : "hover:bg-hermes-elevated/60"}`}
             >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-mono text-[11px] text-hermes-text-bright">
-                  {s.session_id}
+              <button
+                onClick={() => onPick(s.session_id)}
+                className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left"
+              >
+                <span className="min-w-0 flex-1">
+                  {/* The title is what a person recognises; the id is what
+                      they quote in a bug report. Both, in that order. */}
+                  <span className={`block truncate text-[11.5px] ${s.title
+                    ? "text-hermes-text-bright" : "italic text-hermes-dim"}`}>
+                    {s.title || "Conversation sans message"}
+                  </span>
+                  <span className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-hermes-muted">
+                    <Clock size={9} />{new Date(s.updated_at).toLocaleString("fr-FR")}
+                    <span>· {s.message_count} message(s)</span>
+                  </span>
                 </span>
-                <span className="mt-0.5 flex items-center gap-2 text-[10px] text-hermes-muted">
-                  <Clock size={9} />{new Date(s.updated_at).toLocaleString("fr-FR")}
-                  <span>· {s.message_count} message(s)</span>
-                </span>
-              </span>
-              {s.session_id === currentSessionId && (
-                <span className="shrink-0 rounded border border-hermes-cyan/40 bg-hermes-cyan/10
-                  px-1.5 py-0.5 font-mono text-[8.5px] uppercase text-hermes-cyan">active</span>
-              )}
-            </button>
+                {s.session_id === currentSessionId && (
+                  <span className="shrink-0 rounded border border-hermes-cyan/40 bg-hermes-cyan/10
+                    px-1.5 py-0.5 font-mono text-[8.5px] uppercase text-hermes-cyan">active</span>
+                )}
+              </button>
+              <button
+                onClick={() => void remove(s.session_id)}
+                onBlur={() => setConfirmingId((id) => (id === s.session_id ? null : id))}
+                aria-label={confirmingId === s.session_id
+                  ? "Confirmer la suppression" : "Supprimer la conversation"}
+                title={confirmingId === s.session_id
+                  ? "Cliquer à nouveau pour supprimer définitivement"
+                  : "Supprimer la conversation"}
+                className={`shrink-0 rounded-md p-1.5 transition-all
+                  ${confirmingId === s.session_id
+                    ? "bg-hermes-red/15 text-hermes-red opacity-100"
+                    : "text-hermes-dim opacity-0 hover:text-hermes-red focus:opacity-100 group-hover:opacity-100"}`}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
           ))}
         </div>
       </motion.div>

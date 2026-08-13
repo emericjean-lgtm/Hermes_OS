@@ -1000,6 +1000,20 @@ export interface ConversationSessionDTO {
   }[];
 }
 
+/** One row of GET /conversation/sessions. `title` is derived server-side
+ *  from the conversation's first user message and stored, so listing never
+ *  loads a transcript (HOS-101). It is empty for a session nobody has
+ *  spoken in yet — the caller decides what to show instead. */
+export interface ConversationSummaryDTO {
+  session_id: string;
+  user_id: string;
+  status: string;
+  title: string;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export const conversationClient = {
   start: (userRequest?: string) =>
     fetchJSON<{ success: boolean; session_id: string; status: string }>(
@@ -1007,8 +1021,15 @@ export const conversationClient = {
       { method: "POST", body: JSON.stringify({ user_request: userRequest ?? "" }) },
     ),
   sessions: () =>
-    fetchJSON<{ success: boolean; sessions: unknown[]; total: number }>(
+    fetchJSON<{ success: boolean; sessions: ConversationSummaryDTO[]; total: number }>(
       "/conversation/sessions",
+    ),
+  /** Erase a conversation, in memory and on disk (HOS-101). Transcripts now
+   *  outlive the process, so there has to be a way out of them. */
+  remove: (sessionId: string) =>
+    fetchJSON<{ success: boolean; deleted: boolean; session_id: string }>(
+      `/conversation/${sessionId}`,
+      { method: "DELETE" },
     ),
   session: (sessionId: string) =>
     fetchJSON<ConversationSessionDTO>(`/conversation/${sessionId}`),

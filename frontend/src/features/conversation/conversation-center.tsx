@@ -645,6 +645,10 @@ export default function ConversationCenter() {
           currentSessionId={sessionId}
           onPick={(id) => void switchSession(id)}
           onClose={() => setSessionPickerOpen(false)}
+          // Erasing the conversation you are in leaves the app pointing at
+          // a session the server no longer has: open a fresh one instead of
+          // waiting for the next message to fail.
+          onDeleted={() => void newConversation()}
         />
       )}
 
