@@ -204,6 +204,11 @@ class GraphExecutor:
                             if verification is not None and verification.get("contradicted"):
                                 self._on_event("mission.unverified", verification,
                                                severity="warning")
+                                # HOS-099: a verdict is not a loop. Publish the
+                                # brief that would make a second attempt
+                                # different from the first — the evidence, not
+                                # just "try again".
+                                self._suggest_retry(mission, verification)
 
             # Notify newly ready nodes
             new_ready = self._resolver.get_ready_nodes(mission)
@@ -216,6 +221,35 @@ class GraphExecutor:
                     }, severity="info")
 
         return count
+
+    def _suggest_retry(self, mission: Mission, verification: dict) -> None:
+        """Emit the retry brief for a mission the filesystem contradicts.
+
+        Publishes rather than re-running: relaunching a mission graph is the
+        caller's decision (it owns scheduling, budgets and the operator's
+        consent), and burying an automatic re-execution inside a completion
+        handler would make a mission cost twice as much with nothing in the
+        UI to say why.
+        """
+        try:
+            from backend.mission.retry_policy import decide
+
+            attempts = int(mission.metadata.get("attempts", 1))
+            objective = mission.objective or mission.description or mission.title
+            decision = decide(verification, objective=objective, attempts_made=attempts)
+            if not decision.should_retry:
+                logger.debug("no retry for %s: %s", mission.mission_id, decision.reason)
+                return
+            mission.metadata["retry_brief"] = decision.brief
+            if self._on_event:
+                self._on_event("mission.retry_suggested", {
+                    "mission_id": mission.mission_id,
+                    "attempt": decision.attempt,
+                    "reason": decision.reason,
+                    "brief": decision.brief,
+                }, severity="warning")
+        except Exception:  # pragma: no cover - diagnostics never break a run
+            logger.debug("retry suggestion failed", exc_info=True)
 
     def _workspace_root(self, mission: Mission) -> str | None:
         """The directory a mission's work should land in, or None.

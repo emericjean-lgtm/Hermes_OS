@@ -1,3 +1,27 @@
+## HOS-099 — Fermer la boucle : une vérification qui échoue produit une seconde tentative (2026-08-13)
+
+HOS-092 avait donné aux missions un verdict que l'agent ne peut pas contourner : comparer le workspace avant et après, et signaler une mission qui rapporte un succès sans avoir rien changé. Mais **un verdict n'est pas une boucle**. Le système constatait la contradiction et s'arrêtait là — du diagnostic sans traitement. La défaillance que tout ce travail vise à supprimer se produisait toujours ; elle était simplement étiquetée.
+
+C'est exactement le motif que le *loop engineering* formalise : solliciter, **vérifier**, ré-injecter l'échec, recommencer. La partie difficile est la vérification — elle suppose de refuser la parole du modèle comme preuve, ce qui était déjà fait. Il manquait la ré-injection.
+
+`backend/mission/retry_policy.py` répond à deux questions : faut-il rejouer, et que faut-il dire cette fois. **La seconde compte davantage.** Renvoyer le prompt identique à un modèle qui vient d'échouer reproduit surtout l'échec ; la relance doit porter la **preuve** — l'objectif d'origine, ce que le système de fichiers montre réellement, et la consigne de relire son propre travail avant de déclarer un succès.
+
+Le brief énonce des faits plutôt que des reproches. « Le workspace est inchangé » est vérifiable ; « tu as échoué » invite le modèle à s'excuser et à produire un paragraphe confiant de plus — précisément le comportement corrigé.
+
+Trois refus délibérés :
+
+- **Au niveau mission, pas nœud par nœud.** Beaucoup de nœuds ne produisent légitimement aucun fichier — « analyser les besoins », « choisir une approche ». Un nœud qui n'écrit rien n'est pas un signal ; une mission entière qui n'écrit rien en est un.
+- **Une seule relance.** Une mission coûte des minutes d'inférence locale ; un modèle qui échoue deux fois sur la même preuve ne réussira pas à la cinquième.
+- **Une mission réellement en échec n'est pas rejouée.** Elle a échoué pour une raison que la couche de vérification ne voit pas (timeout, runtime indisponible), et la relancer à l'aveugle ne ferait que répéter ça.
+
+`GraphExecutor` **publie** `mission.retry_suggested` au lieu de rejouer lui-même : relancer un graphe appartient à l'appelant, qui possède l'ordonnancement, les budgets et le consentement de l'opérateur. Enterrer une ré-exécution automatique dans un gestionnaire de complétion ferait doubler le coût d'une mission sans que rien dans l'UI n'explique pourquoi.
+
+### Verified
+
+1003 passed, 2 skipped. Dix tests sur la politique, plus une vérification sur un vrai `GraphExecutor` : un nœud qui n'écrit rien déclenche `mission.retry_suggested` (attempt 2, brief contenant l'objectif *et* la preuve), un nœud qui écrit ne déclenche rien.
+
+**Ce qui reste à faire, et n'est pas livré ici** : la ré-exécution automatique du graphe à partir du brief. La décision et le message sont prêts ; le déclenchement reste manuel.
+
 ## HOS-098 — La mémoire unifiée survit enfin au processus (2026-08-12)
 
 Audit du dernier gros doublon cognitif (§8). Sur les 18 modules de `backend/memory/`, **huit n'ont aucun import hors de `memory/` et des tests** — dont deux paires qui se ressemblent de façon suspecte : `episodic` (utilisé 4×) contre `episodic_memory` (0), `semantic` (1×) contre `semantic_memory` (0). Aucun n'est supprimé ici : la dépréciation demande de vérifier les dépendances avant, et ce n'est pas ce qui bloquait.

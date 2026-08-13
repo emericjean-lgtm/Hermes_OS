@@ -188,6 +188,9 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # event stays green, and this one makes the contradiction impossible to
     # read past.
     "mission.unverified",
+    # HOS-099: carries the brief that would make a second attempt differ from
+    # the first — the filesystem evidence, not just "try again".
+    "mission.retry_suggested",
     # ohmypi
     "ohmypi.ast.analyzed",
     "ohmypi.lsp.diagnostics",
