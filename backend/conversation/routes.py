@@ -274,6 +274,16 @@ def handle_list_sessions(limit: int = 20) -> dict[str, Any]:
     }
 
 
+def handle_delete_session(session_id: str) -> dict[str, Any]:
+    """DELETE /conversation/{session_id}
+
+    Now that transcripts outlive the process (HOS-101), erasing one has to
+    be possible from the same surface that keeps it.
+    """
+    deleted = _get_manager().delete_session(session_id)
+    return {"success": True, "deleted": deleted, "session_id": session_id}
+
+
 # ── HTTP surface ─────────────────────────────────────────────
 # Paths mirror get_routes() below. "/sessions" precedes "/{session_id}" so the
 # literal segment wins the match.
@@ -486,6 +496,11 @@ async def cancel(session_id: str) -> dict[str, Any]:
     return handle_cancel(session_id)
 
 
+@router.delete("/{session_id}")
+async def delete_session(session_id: str) -> dict[str, Any]:
+    return handle_delete_session(session_id)
+
+
 def get_routes() -> dict[str, Any]:
     """Return route map for framework integration."""
     return {
@@ -496,4 +511,5 @@ def get_routes() -> dict[str, Any]:
         "POST /conversation/{id}/cancel": handle_cancel,
         "GET /conversation/{id}/context": handle_get_context,
         "GET /conversation/sessions": handle_list_sessions,
+        "DELETE /conversation/{id}": handle_delete_session,
     }

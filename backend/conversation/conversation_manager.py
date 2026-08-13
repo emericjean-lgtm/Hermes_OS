@@ -6,6 +6,7 @@ with Hermes OS core systems (memory, missions, agents).
 
 from __future__ import annotations
 
+import logging
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -25,12 +26,42 @@ from .context_builder import ContextBuilder
 from .intent_analyzer import IntentAnalyzer
 from .response_generator import ResponseGenerator
 
+logger = logging.getLogger("hermes_os.conversation.manager")
+
+
+def _title_of(session: ConversationSession) -> str:
+    """The session's display title, using the same rule the store persists.
+
+    Imported lazily so this module keeps working — degraded but working —
+    if the persistence layer cannot be loaded at all.
+    """
+    try:
+        from backend.conversation.conversation_store import derive_title
+
+        return derive_title(session.messages)
+    except Exception:  # pragma: no cover
+        return ""
+
 
 class ConversationManager:
-    """Central manager for Hermes OS conversational interactions."""
+    """Central manager for Hermes OS conversational interactions.
 
-    def __init__(self) -> None:
+    Sessions live in ``_sessions`` for the life of the process and in
+    SQLite for good (HOS-101). The dict is now a *cache* in front of the
+    store rather than the only copy: an unknown session id is looked up on
+    disk before being treated as new, and eviction (see
+    ``_cleanup_old_sessions``) drops a transcript from memory without
+    destroying it.
+    """
+
+    def __init__(self, store: Any = None) -> None:
         self._sessions: dict[str, ConversationSession] = {}
+        #: Constructed on first use, not here: merely instantiating a
+        #: manager — which several tests and every import-time singleton do —
+        #: must not open a database or fix a path that a fixture is about
+        #: to monkeypatch.
+        self._store = store
+        self._store_ready = store is not None
         self._lock = threading.RLock()
         self._intent_analyzer = IntentAnalyzer()
         self._context_builder = ContextBuilder()
@@ -43,6 +74,68 @@ class ConversationManager:
         self._memory_manager: Any = None
         self._mission_planner: Any = None
         self._max_sessions = 100
+
+    # ── Persistence (HOS-101) ───────────────────────────────────────
+
+    def _store_or_none(self) -> Any:
+        """The durable store, or None if it cannot be opened.
+
+        A conversation that cannot be saved is still a conversation the
+        user is having: losing the database must degrade this manager back
+        to its previous in-memory behaviour, never fail a reply. The
+        failure is logged once — ``_store_ready`` stops it from being
+        retried (and re-logged) on every keystroke of a broken install.
+        """
+        if not self._store_ready:
+            self._store_ready = True
+            try:
+                from backend.conversation.conversation_store import (
+                    SqliteConversationStore,
+                )
+
+                self._store = SqliteConversationStore()
+            except Exception:
+                logger.warning(
+                    "Conversation persistence unavailable — transcripts will "
+                    "not survive a restart.", exc_info=True)
+                self._store = None
+        return self._store
+
+    def _persist(self, session: ConversationSession) -> None:
+        """Write a session through to disk. Never raises.
+
+        Called after every mutation. ``sync`` derives what to write from
+        the database, so calling it more often than necessary is cheap and
+        calling it once too few only defers the write to the next turn.
+        """
+        store = self._store_or_none()
+        if store is None:
+            return
+        try:
+            store.sync(session)
+        except Exception:  # pragma: no cover - persistence never breaks a reply
+            logger.debug("conversation persist failed", exc_info=True)
+
+    def _cached_or_loaded(self, session_id: str) -> ConversationSession | None:
+        """A live session, rehydrating it from disk if it is not in memory.
+
+        This is what makes a transcript survive both a restart and an
+        eviction. Callers must hold ``self._lock`` (it is re-entrant).
+        """
+        session = self._sessions.get(session_id)
+        if session is not None or not session_id:
+            return session
+        store = self._store_or_none()
+        if store is None:
+            return None
+        try:
+            restored = store.load(session_id)
+        except Exception:  # pragma: no cover
+            logger.debug("conversation load failed", exc_info=True)
+            return None
+        if restored is not None:
+            self._sessions[session_id] = restored
+        return restored
 
     # ── Public API ──
 
@@ -64,11 +157,12 @@ class ConversationManager:
                 context=context,
             )
             self._sessions[session_id] = session
+            self._persist(session)
             return session
 
     def get_session(self, session_id: str) -> ConversationSession | None:
         with self._lock:
-            return self._sessions.get(session_id)
+            return self._cached_or_loaded(session_id)
 
     def set_project(self, session_id: str, project_id: str | None) -> ConversationSession | None:
         """Bind (or unbind, with project_id=None) this session to a Project
@@ -78,11 +172,12 @@ class ConversationManager:
         appear in _conversation_tools() once this has been called with a
         real project_id (see conversation/routes.py)."""
         with self._lock:
-            session = self._sessions.get(session_id)
+            session = self._cached_or_loaded(session_id)
             if session is None:
                 return None
             session.context.active_project_id = project_id or ""
             session.updated_at = datetime.now(timezone.utc).isoformat()
+            self._persist(session)
             return session
 
     # ── Streaming (HOS-074) ─────────────────────────────────────────
@@ -108,7 +203,7 @@ class ConversationManager:
         ``handle_message`` does.
         """
         with self._lock:
-            session = self._sessions.get(session_id)
+            session = self._cached_or_loaded(session_id)
             if not session:
                 session = self.create_session()
                 session_id = session.session_id
@@ -120,6 +215,10 @@ class ConversationManager:
             intent = self._intent_analyzer.analyze(content)
             session.context = self._context_builder.build_context(content, session.context)
             model_messages = self.build_model_messages(session)
+            # Written before the inference, not after it: a generation that
+            # crashes, times out or is killed mid-stream must not take the
+            # user's question down with it.
+            self._persist(session)
 
         return session_id, model_messages, intent
 
@@ -226,7 +325,7 @@ class ConversationManager:
         """
         try:
             with self._lock:
-                session = self._sessions.get(session_id)
+                session = self._cached_or_loaded(session_id)
                 if session is None:
                     return
                 if content.strip():
@@ -237,12 +336,13 @@ class ConversationManager:
                     ))
                 session.status = ConversationStatus.ACTIVE
                 session.updated_at = datetime.now(timezone.utc).isoformat()
+                self._persist(session)
         except Exception:  # pragma: no cover - bookkeeping must never break a reply
             pass
 
     def handle_message(self, session_id: str, content: str) -> ConversationResponse:
         with self._lock:
-            session = self._sessions.get(session_id)
+            session = self._cached_or_loaded(session_id)
             if not session:
                 session = self.create_session()
                 session_id = session.session_id
@@ -280,6 +380,7 @@ class ConversationManager:
                 session.status = ConversationStatus.ACTIVE
 
             session.updated_at = datetime.now(timezone.utc).isoformat()
+            self._persist(session)
 
             # Trigger callbacks
             for cb in self._callbacks.get("message", []):
@@ -292,7 +393,7 @@ class ConversationManager:
 
     def approve_action(self, session_id: str) -> ConversationResponse:
         with self._lock:
-            session = self._sessions.get(session_id)
+            session = self._cached_or_loaded(session_id)
             if not session:
                 raise ValueError(f"Session {session_id} not found")
 
@@ -306,6 +407,7 @@ class ConversationManager:
             session.messages.append(hermes_msg)
             session.status = ConversationStatus.ACTIVE
             session.updated_at = datetime.now(timezone.utc).isoformat()
+            self._persist(session)
 
             for cb in self._callbacks.get("approval", []):
                 try:
@@ -317,7 +419,7 @@ class ConversationManager:
 
     def cancel_action(self, session_id: str) -> ConversationResponse:
         with self._lock:
-            session = self._sessions.get(session_id)
+            session = self._cached_or_loaded(session_id)
             if not session:
                 raise ValueError(f"Session {session_id} not found")
 
@@ -330,10 +432,25 @@ class ConversationManager:
             hermes_msg = response.message
             session.messages.append(hermes_msg)
             session.updated_at = datetime.now(timezone.utc).isoformat()
+            self._persist(session)
 
             return response
 
     def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Recent conversations, newest first.
+
+        Answered from the store, which holds every conversation ever had —
+        including the ones evicted from memory and the ones from before the
+        last restart. Falls back to the in-memory cache only when there is
+        no store, which is the same list this used to return.
+        """
+        store = self._store_or_none()
+        if store is not None:
+            try:
+                return store.list_recent(limit=limit)
+            except Exception:  # pragma: no cover
+                logger.debug("conversation listing failed", exc_info=True)
+
         with self._lock:
             sessions = sorted(
                 self._sessions.values(),
@@ -345,6 +462,7 @@ class ConversationManager:
                     "session_id": s.session_id,
                     "user_id": s.user_id,
                     "status": s.status.value,
+                    "title": _title_of(s),
                     "message_count": len(s.messages),
                     "created_at": s.created_at,
                     "updated_at": s.updated_at,
@@ -367,6 +485,23 @@ class ConversationManager:
             for m in session.messages[-limit:]
         ]
 
+    def delete_session(self, session_id: str) -> bool:
+        """Forget a conversation, in memory and on disk.
+
+        Persistence without a way out is a liability, not a feature: a user
+        who can never delete a transcript is a user who learns not to say
+        anything in it.
+        """
+        with self._lock:
+            existed = self._sessions.pop(session_id, None) is not None
+        store = self._store_or_none()
+        if store is not None:
+            try:
+                existed = store.delete(session_id) or existed
+            except Exception:  # pragma: no cover
+                logger.debug("conversation delete failed", exc_info=True)
+        return existed
+
     def on(self, event: str, callback: Callable) -> None:
         if event in self._callbacks:
             self._callbacks[event].append(callback)
@@ -382,6 +517,13 @@ class ConversationManager:
                 pass
 
     def _cleanup_old_sessions(self) -> None:
+        """Evict the least recently used sessions from the in-memory cache.
+
+        Before HOS-101 this was destruction: the dict was the only copy, so
+        the 101st conversation permanently deleted the first. Now that every
+        session is on disk, dropping one here only means the next access
+        pays a rehydration — which is what a cache is supposed to do.
+        """
         if len(self._sessions) < self._max_sessions:
             return
         oldest = sorted(

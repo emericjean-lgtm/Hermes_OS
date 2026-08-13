@@ -65,6 +65,7 @@ def _load_all_models() -> None:
     from backend.workflows import run_store  # noqa: F401
 
     try:
+        from backend.conversation import conversation_store  # noqa: F401
         from backend.core import message_bus  # noqa: F401
         from backend.projects import project_manager  # noqa: F401
     except ImportError:  # pragma: no cover - defensive, keeps init_db usable

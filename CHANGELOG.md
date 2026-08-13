@@ -1,3 +1,32 @@
+## HOS-101 — Les conversations survivent au processus (2026-08-13)
+
+`ConversationManager` gardait chaque session dans `self._sessions`, un simple dictionnaire, avec un LRU de 100 par-dessus. Deux conséquences, toutes deux visibles depuis l'onglet Assistant : **redémarrer le backend effaçait tous les échanges**, et la 101ᵉ conversation supprimait définitivement la première — puisque rien d'autre n'en gardait copie.
+
+C'est le même manque qu'avait `UnifiedMemory` avant HOS-098, et il reçoit le même remède : un backend durable **sous** la façade existante, dans le fichier SQLite où vivent déjà toutes les autres tables — pas un magasin parallèle que le reste du système devrait apprendre à connaître.
+
+`backend/conversation/conversation_store.py` : deux tables (`conversation_session`, `conversation_message`). Deux choix méritent d'être énoncés, parce que ce sont eux qui rendent l'écriture assez peu coûteuse pour être faite à **chaque tour** :
+
+- **Les messages sont ajoutés, jamais réécrits.** `sync` demande à la base combien de lignes une session possède déjà et n'insère que la suite. Re-sérialiser une transcription entière à chaque tour serait quadratique sur une longue conversation — précisément celle qu'on tient à garder.
+- **`sync` est idempotent et auto-réparateur.** Le delta se déduit de la base, pas d'un compteur en mémoire : un site d'appel qui oublierait de persister ne perd pas le message, il en diffère l'écriture au tour suivant. Entre une optimisation qui peut perdre des données quand quelqu'un modifiera ce fichier dans un an, et un `SELECT COUNT`, ce module prend le compte.
+
+L'ordre des tours est porté par une colonne `seq` écrite par l'appelant. Trier par horodatage serait faux : une question et sa réponse peuvent tomber dans la même milliseconde, et deux chaînes ISO issues de lectures d'horloge distinctes ne départagent rien.
+
+Le dictionnaire devient un **cache** devant le magasin : un identifiant inconnu est cherché sur disque avant d'être traité comme nouveau, et `_cleanup_old_sessions` — qui détruisait — se contente désormais d'évincer.
+
+Trois décisions annexes :
+
+- **Le message utilisateur est écrit *avant* l'inférence**, pas après. Une génération qui plante, expire ou est interrompue en plein flux ne doit pas emporter la question avec elle.
+- **Une base cassée ne casse pas le chat.** Toute défaillance du magasin ramène le manager à son comportement d'avant HOS-101, journalisée une seule fois. Persister est une amélioration sur « tout perdre », pas une condition pour parler.
+- **`DELETE /conversation/{id}`.** Une persistance sans porte de sortie est un risque, pas une fonctionnalité : un utilisateur qui ne peut jamais effacer une transcription apprend à ne rien y écrire.
+
+Les sessions portent maintenant un **titre**, dérivé de la première question de l'utilisateur (jamais de la réponse du modèle : un titre issu de la réponse décrirait ce que le modèle a dit, pas ce que l'utilisateur cherchait). Il est stocké, donc lister les conversations ne charge jamais leurs transcriptions.
+
+### Verified
+
+1022 passed, 2 skipped. 14 nouveaux tests, dont celui qui porte tout le reste : un **second** manager construit sur la même base — ce qu'est réellement un redémarrage — retrouve la transcription, son ordre, et le Project lié. Les autres gardent des régressions silencieuses : messages dupliqués par des sauvegardes répétées, ordre des tours face à un horodatage identique, éviction qui détruirait encore, magasin en panne.
+
+**Preuve hors tests** : deux processus Python distincts, chemin de construction par défaut (non injecté), base de développement réelle. Écriture dans le premier, lecture dans le second après démarrage à froid — 4 messages, ordre exact, `active_project_id` et titre restitués. Tables `conversation_session` et `conversation_message` créées dans `./data/db/hermes.db`. Session de démonstration supprimée ensuite.
+
 ## HOS-100 — La relance s'exécute réellement (2026-08-13)
 
 HOS-099 produisait la décision et le brief, puis s'arrêtait — la boucle restait ouverte : le système savait qu'une mission avait rapporté un succès au-dessus d'un workspace intact, savait quoi lui dire, et ne faisait rien.
