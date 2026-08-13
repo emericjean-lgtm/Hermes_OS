@@ -819,6 +819,14 @@ export const autonomousClient = {
     }),
   goal: (goalId: string) =>
     fetchJSON<AutonomousGoalDTO>(`/autonomous/${goalId}`),
+  /** GET /autonomous/goals — every goal the engine still holds, newest
+   *  first (HOS-102). Before this, a goal was reachable only through the id
+   *  returned by `start`, so a running goal became unreachable the moment
+   *  the Center that launched it unmounted. */
+  goals: () =>
+    fetchJSON<{ success: boolean; goals: AutonomousGoalDTO[]; total: number }>(
+      "/autonomous/goals",
+    ),
   report: (goalId: string) =>
     fetchJSON<AutonomousReportDTO>(`/autonomous/${goalId}/report`),
   timeline: (goalId: string) =>

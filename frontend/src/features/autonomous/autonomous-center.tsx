@@ -4,11 +4,14 @@ import { useState } from "react";
 import { Card, Badge } from "@/components/ui/card";
 import {
   useAutonomousAction,
+  useAutonomousGoal,
+  useAutonomousGoals,
   useAutonomousReport,
   useAutonomousStatus,
   useAutonomousTimeline,
   useStartAutonomousGoal,
 } from "@/hooks/use-api";
+import { useCockpitStore } from "@/hooks/use-store";
 import {
   BrainCircuit,
   Play,
@@ -16,6 +19,7 @@ import {
   XCircle,
   CheckCircle,
   AlertCircle,
+  History,
 } from "lucide-react";
 import { CenterHeader } from "@/components/center-scaffold";
 
@@ -40,17 +44,30 @@ export function AutonomousCenter() {
   const [localPath, setLocalPath] = useState("");
   const [repository, setRepository] = useState("");
   const [branch, setBranch] = useState("");
-  const [goalId, setGoalId] = useState<string | undefined>(undefined);
+  // Deliberately NOT component state (HOS-102). The Cockpit shell keys its
+  // AnimatePresence on the active view, so switching tabs unmounts this
+  // Center outright — a goal id held in useState died with it while the
+  // goal itself kept running on the server, which is exactly the "the task
+  // disappeared" the operator reported.
+  const { selectedGoalId, selectGoal } = useCockpitStore();
+  const goalId = selectedGoalId ?? undefined;
 
   const status = useAutonomousStatus();
+  const goals = useAutonomousGoals();
   const start = useStartAutonomousGoal();
   const action = useAutonomousAction();
+  // Read from the polled query rather than from start.data: a mutation's
+  // result is a snapshot frozen at the instant the goal was created, so the
+  // status badge below used to show "analyzing" forever — and it vanished
+  // with the mutation on unmount.
+  const goalQuery = useAutonomousGoal(goalId);
   const report = useAutonomousReport(goalId);
   const timeline = useAutonomousTimeline(goalId);
 
-  const goal = start.data;
+  const goal = goalQuery.data;
   const rep = report.data;
   const busy = start.isPending;
+  const knownGoals = goals.data?.goals ?? [];
 
   const execute = () => {
     const text = request.trim();
@@ -61,7 +78,7 @@ export function AutonomousCenter() {
     if (branch.trim()) context.branch = branch.trim();
     start.mutate(
       { userRequest: text, context },
-      { onSuccess: (g) => setGoalId(g.goal_id) },
+      { onSuccess: (g) => selectGoal(g.goal_id) },
     );
   };
 
@@ -167,10 +184,41 @@ export function AutonomousCenter() {
         ))}
       </div>
 
+      {/* Reattachment (HOS-102). The engine holds every goal it has run,
+          but nothing could enumerate them, so a goal whose id the UI had
+          lost — by unmounting, or by a page reload — kept running with no
+          way back to it. Shown whenever there is something to return to,
+          including while another goal is selected: an operator who launched
+          two goals should be able to switch between them. */}
+      {knownGoals.length > 0 && (
+        <Card title="Reprendre un objectif" className="mb-6">
+          <div className="flex flex-col gap-1.5">
+            {knownGoals.slice(0, 8).map((g) => (
+              <button
+                key={g.goal_id}
+                onClick={() => selectGoal(g.goal_id)}
+                className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors
+                  ${g.goal_id === goalId
+                    ? "border-hermes-amber/40 bg-hermes-amber/[0.07]"
+                    : "border-hermes-border/60 hover:bg-hermes-elevated/60"}`}
+              >
+                <History className="w-3 h-3 shrink-0 text-hermes-muted" />
+                <span className="min-w-0 flex-1 truncate text-[11px] font-mono text-hermes-text">
+                  {g.user_request}
+                </span>
+                {statusBadge(g.status)}
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {!goalId && (
         <Card title="Objectif en cours" className="mb-6">
           <div className="text-xs text-hermes-muted font-mono py-3">
-            Aucun objectif en cours. Décrivez-en un ci-dessus pour démarrer une mission réelle.
+            {knownGoals.length > 0
+              ? "Aucun objectif sélectionné. Reprenez-en un ci-dessus, ou décrivez-en un nouveau."
+              : "Aucun objectif en cours. Décrivez-en un ci-dessus pour démarrer une mission réelle."}
           </div>
         </Card>
       )}

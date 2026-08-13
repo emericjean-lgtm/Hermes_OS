@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
 
 from .autonomous_engine import AutonomousEngine
 
@@ -35,6 +35,17 @@ def handle_start_goal(data: dict) -> dict:
 def handle_get_goal(goal_id: str) -> dict | None:
     engine = get_engine()
     return engine.get_goal(goal_id)
+
+
+def handle_list_goals(limit: int = 50) -> dict:
+    """GET /autonomous/goals — what is running, and what ran before.
+
+    Without this a goal could only be reached through an id the caller had
+    captured when starting it, which is why a running goal became
+    unreachable the moment the Autonomous Center unmounted (HOS-102).
+    """
+    goals = get_engine().list_goals(limit)
+    return {"success": True, "goals": goals, "total": len(goals)}
 
 
 def handle_pause_goal(goal_id: str) -> dict:
@@ -81,8 +92,27 @@ async def get_status() -> dict:
     return handle_get_status()
 
 
+# Like "/status" above, this literal must precede "/{goal_id}" or FastAPI
+# matches "goals" as a goal id.
+@router.get("/goals")
+async def list_goals(limit: int = Query(50, ge=1, le=500)) -> dict:
+    return handle_list_goals(limit)
+
+
+# Deliberately NOT `async def` (HOS-102). start_goal runs the whole
+# pipeline synchronously — planning plus real local inference, minutes. In
+# an async handler that work executes on the event loop thread, so uvicorn
+# serves *nothing* else for the duration: not /autonomous/goals, not
+# /missions, not /health. FastAPI runs a plain `def` path operation in its
+# threadpool instead, which is what makes the goal listing below reachable
+# while a goal is actually running.
+#
+# Narrowing the orchestrator's lock (see AutonomousOrchestrator.start_goal)
+# was necessary but not sufficient: with that lock already narrow, a live
+# GET /autonomous/status still timed out at 25 s, which is what showed the
+# block was above the lock rather than in it.
 @router.post("/start")
-async def start_goal(payload: dict = Body(...)) -> dict:
+def start_goal(payload: dict = Body(...)) -> dict:
     return handle_start_goal(payload)
 
 
@@ -131,4 +161,5 @@ AUTONOMOUS_ROUTES = [
     {"path": "/autonomous/{id}/timeline", "method": "GET", "handler": handle_get_timeline},
     {"path": "/autonomous/{id}/report", "method": "GET", "handler": handle_get_report},
     {"path": "/autonomous/status", "method": "GET", "handler": handle_get_status},
+    {"path": "/autonomous/goals", "method": "GET", "handler": handle_list_goals},
 ]

@@ -1,3 +1,37 @@
+## HOS-102 — La tâche qui disparaissait quand on changeait d'onglet (2026-08-13)
+
+Symptôme rapporté : « quand je lance une tâche dans un onglet et que je change d'onglets, des fois la tâche disparaît ».
+
+**Cause immédiate.** Le shell du Cockpit indexe son `AnimatePresence` sur la vue active (`key={activeView}`) : changer d'onglet **démonte** entièrement le Center précédent. `AutonomousCenter` gardait l'identifiant de l'objectif lancé dans un `useState`, et lisait l'objectif lui-même dans `start.data` — le résultat d'une *mutation*. Les deux meurent au démontage. La tâche, elle, continuait à tourner sur le serveur ; l'UI avait simplement oublié laquelle elle regardait. `MissionCenter` faisait déjà correctement la même chose via `selectedMissionId` dans le store — le précédent existait, il n'avait pas été suivi.
+
+Effet de bord du même défaut : `start.data` est un instantané figé à l'instant du démarrage. Le badge de statut affichait donc « analyzing » indéfiniment. Il vient maintenant de `useAutonomousGoal`, qui sonde toutes les 3 s.
+
+**Ce qui manquait pour réparer.** Le moteur conservait tous les objectifs dans `_goals`, mais **rien ne pouvait les énumérer** : `get_status()` les comptait sans pouvoir les nommer. Un objectif n'était donc joignable que par un identifiant que l'appelant devait avoir capturé au démarrage — un rechargement de page le rendait définitivement inatteignable pendant qu'il continuait de tourner. D'où `list_goals()` et `GET /autonomous/goals`, et une carte « Reprendre un objectif » dans le Center.
+
+**Le défaut plus profond, trouvé en vérifiant le correctif.** `start_goal` tenait `self._lock` sur tout le pipeline — interprétation, planification et **inférence locale réelle**, soit des minutes. Toute autre méthode prenant ce verrou attendait derrière. Mesuré sur le backend en fonctionnement : un `GET /autonomous/goals` émis pendant un objectif actif a **expiré au bout de 25 s sans réponse**. Conséquence bien plus grave que le bug d'onglet : pendant qu'un objectif tourne, on ne peut pas lire son statut, et surtout **on ne peut pas l'annuler** — la seule opération dont un opérateur a réellement besoin face à une exécution qui dérape.
+
+C'est exactement le défaut que HOS-069 avait retiré de `MissionExecutor`. Le verrou n'entoure plus que les mutations des conteneurs partagés (`_goals`, `_sessions`, `_session_by_goal`, `_reports`). `goal` et `session` appartiennent à l'appel ; un lecteur qui attrape un statut en pleine transition voit l'ancienne ou la nouvelle valeur, jamais un conteneur incohérent.
+
+**Et un troisième défaut, que le verrou masquait.** Verrou resserré, tests unitaires à 0,00 s — et pourtant, sur le backend réel, `/autonomous/goals` expirait encore à 25 s. `POST /autonomous/start` était déclaré `async def` : FastAPI exécute alors le corps **sur le thread de la boucle d'événements**, et `handle_start_goal` est synchrone et dure des minutes. Le serveur ne répondait donc plus à *rien* — `/missions` et `/health` expiraient aussi. Autrement dit, un objectif autonome en cours **gelait l'API entière de Hermes OS**, pas seulement son propre onglet. Le handler est désormais un `def` simple, que FastAPI place dans son pool de threads.
+
+Mesure après correction, pendant un objectif en cours : `/autonomous/goals` 0,12 s · `/autonomous/status` 0,00 s · `/missions` 0,00 s · `/health` 0,00 s. Et la preuve qui compte le plus, parce que c'est l'opération qui était purement impossible : **annuler un objectif en cours d'exécution répond en 0,01 s**, statut `cancelled` confirmé derrière.
+
+C'est aussi la leçon de méthode de cet incident : **le verrou étroit était juste, nécessaire, prouvé par un test — et insuffisant.** Sans la vérification sur l'application réelle, le correctif aurait été livré vert et inopérant.
+
+### Verified
+
+8 nouveaux tests. Deux points méritent d'être dits, parce que les deux premières versions ne prouvaient rien :
+
+**Les tests ne devaient pas appeler de modèle.** La première version prenait **278 s pour 7 tests** : `AutonomousEngine()` sans argument construit un vrai `MissionExecutor`, donc chaque `start_goal` lançait une inférence locale réelle. Un exécuteur instantané injecté par la couture existante ramène l'ensemble à **0,12 s**, mêmes assertions.
+
+**Le test de verrou était faux, puis sa validation aussi.** Écrit d'abord sans borne de temps, il aurait réussi contre le bug qu'il vise : sous l'ancien verrou les lectures *finissaient* par répondre, après avoir attendu toute la phase lente. Ce qui est fautif, c'est l'attente — il mesure donc le temps. La première tentative de le valider a utilisé `git stash` sur l'orchestrateur, ce qui a aussi annulé `list_goals` : l'échec observé était un `AttributeError`, sans rapport. Revalidé en simulant fidèlement l'ancien comportement (envelopper `start_goal` entier dans le verrou) : **0,00 s** avec le verrou étroit, **10,02 s** avec le large. Le test distingue bien les deux.
+
+Suite complète : **1032 passed, 2 skipped**. Le décompte mérite d'être expliqué plutôt que subi : 1022 avant, plus 9 tests ajoutés ici — 8 écrits à la main et **un généré tout seul**, `test_smoke_live_server.py` lisant les routes sur l'application elle-même et en produisant un par route GET sans paramètre. Le nouvel endpoint est donc fumigé sans qu'une ligne ait été écrite pour lui.
+
+Durée observée 440 s contre ~205 s d'habitude : un objectif autonome tournait sur Ollama pendant la passe, et beaucoup de tests y touchent. Contention, pas régression — mais mesurée, pas supposée.
+
+Vérifié dans le Cockpit, pas seulement en test : objectif lancé, passage à l'onglet Missions, retour — la tâche est là, statut `executing` à jour. Après un rechargement complet de page, la sélection est perdue (le store n'est pas persisté) mais l'objectif reste listé et se reprend d'un clic.
+
 ## HOS-101 — Les conversations survivent au processus (2026-08-13)
 
 `ConversationManager` gardait chaque session dans `self._sessions`, un simple dictionnaire, avec un LRU de 100 par-dessus. Deux conséquences, toutes deux visibles depuis l'onglet Assistant : **redémarrer le backend effaçait tous les échanges**, et la 101ᵉ conversation supprimait définitivement la première — puisque rien d'autre n'en gardait copie.

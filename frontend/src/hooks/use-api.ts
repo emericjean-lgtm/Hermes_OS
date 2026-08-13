@@ -547,6 +547,21 @@ export function useAutonomousStatus() {
   });
 }
 
+/** Every goal the engine still holds, newest first (HOS-102).
+ *
+ *  This is what lets the Autonomous Center reattach to a goal it launched
+ *  and then lost — by switching tabs, which unmounts the Center, or by
+ *  reloading the page. Polled on the same cadence as the status counters
+ *  it sits next to, so a goal that finishes while you are looking at the
+ *  list stops claiming to be running. */
+export function useAutonomousGoals() {
+  return useQuery({
+    queryKey: ["autonomous", "goals"],
+    queryFn: () => autonomousClient.goals(),
+    refetchInterval: 5_000,
+  });
+}
+
 export function useAutonomousGoal(goalId: string | undefined) {
   return useQuery({
     queryKey: ["autonomous", "goal", goalId],

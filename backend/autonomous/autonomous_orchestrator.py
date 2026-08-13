@@ -132,208 +132,228 @@ class AutonomousOrchestrator:
         5. Validate
         6. Learn
         7. Report
-        """
-        with self._lock:
-            ctx = context or {}
 
-            # 1. Interpret
-            goal = self.interpreter.interpret(user_request, ctx)
-            goal.status = GoalStatus.ANALYZING
+        Runs **outside** ``self._lock`` (HOS-102). This whole body used to
+        sit inside one ``with self._lock:``, held across planning and real
+        local inference — minutes. Every other method that takes the lock
+        was blocked for that entire time, which meant that while a goal was
+        running you could not list goals, could not read ``get_status``, and
+        **could not cancel the goal** — the one operation an operator
+        actually needs from a run that is going wrong. Measured: a
+        ``GET /autonomous/goals`` issued during a live goal timed out after
+        25 s with no response.
+
+        The same defect was already removed from ``MissionExecutor`` by
+        HOS-069 for the same reason. The lock is now taken only around the
+        mutations of the shared containers (``_goals``, ``_sessions``,
+        ``_session_by_goal``, ``_reports``); ``goal`` and ``session`` are
+        objects this call owns, and a reader that catches a status
+        mid-transition sees either the old value or the new one, never a
+        torn container.
+        """
+        ctx = context or {}
+
+        # 1. Interpret
+        goal = self.interpreter.interpret(user_request, ctx)
+        goal.status = GoalStatus.ANALYZING
+        with self._lock:
             self._goals[goal.goal_id] = goal
             self._evict_oldest()
-            self._publish(AUTONOMOUS_EVENTS["goal_received"], {
-                "goal_id": goal.goal_id, "request": user_request,
-            })
+        self._publish(AUTONOMOUS_EVENTS["goal_received"], {
+            "goal_id": goal.goal_id, "request": user_request,
+        })
 
-            # 2. Create session
-            session = AutonomousSession(
-                session_id=f"session_{goal.goal_id}",
-                goal_id=goal.goal_id,
-                status=GoalStatus.PLANNING,
-            )
+        # 2. Create session
+        session = AutonomousSession(
+            session_id=f"session_{goal.goal_id}",
+            goal_id=goal.goal_id,
+            status=GoalStatus.PLANNING,
+        )
+        with self._lock:
             self._sessions[session.session_id] = session
             self._session_by_goal[session.goal_id] = session.session_id
 
-            # Security, before any planning work happens (HOS-067):
-            # 1. If the goal is bound to a local project, it must be visible
-            #    to Hermes at all — the same ALLOWED_PATHS whitelist every
-            #    other file access in this codebase respects, checked here
-            #    as a plain read (mutating actions a task later takes are
-            #    still separately gated at the point of use).
-            if goal.local_path:
-                path_verdict = self.guard.check_action(
-                    "file_read", goal.local_path,
-                    context={"target_path": goal.local_path},
-                )
-                if path_verdict != GuardVerdict.ALLOW:
-                    goal.status = GoalStatus.FAILED
-                    self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
-                        "goal_id": goal.goal_id,
-                        "reason": f"local_path {goal.local_path!r} denied by Aegis",
-                    })
-                    return goal
-
-            # 2. Is *this* goal's execution authorized right now? Before this,
-            #    AutonomousGuard's set_security_engine/set_policy_engine hooks
-            #    were never wired to anything (confirmed by a repo-wide
-            #    search) — every goal reached ALLOW regardless of
-            #    autonomy_level. See AegisSecurityAdapter (autonomous_guard.py)
-            #    and _make_autonomous_engine (service_registry.py).
-            #
-            #    Deliberately risk-based, not a blanket gate on every goal:
-            #    a pure text generation/analysis goal with no project binding
-            #    has no real-world footprint (no file/git/network action is
-            #    even reachable from it today — see the module's own report
-            #    on what execution actually does), so gating it identically
-            #    to one bound to a real repo would just be friction with no
-            #    corresponding risk, and would silently defeat the entire
-            #    point of this tab at the shipped autonomy_level. A goal
-            #    touching a real project, or one the interpreter already
-            #    flagged security-sensitive (constraints["security_required"],
-            #    from words like "secure"/"security" in the request), is the
-            #    real trigger for asking Aegis.
-            is_risk_relevant = bool(
-                goal.local_path or goal.repository or goal.contraints.get("security_required")
+        # Security, before any planning work happens (HOS-067):
+        # 1. If the goal is bound to a local project, it must be visible
+        #    to Hermes at all — the same ALLOWED_PATHS whitelist every
+        #    other file access in this codebase respects, checked here
+        #    as a plain read (mutating actions a task later takes are
+        #    still separately gated at the point of use).
+        if goal.local_path:
+            path_verdict = self.guard.check_action(
+                "file_read", goal.local_path,
+                context={"target_path": goal.local_path},
             )
-            if is_risk_relevant:
-                guard_verdict = self.guard.check_action(
-                    "autonomous_goal_execute", f"goal/{goal.goal_id}",
-                    context={"goal_id": goal.goal_id, "target_path": goal.local_path or None},
-                )
-                if guard_verdict == GuardVerdict.BLOCK:
-                    goal.status = GoalStatus.FAILED
-                    self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
-                        "goal_id": goal.goal_id, "reason": "Guard blocked",
-                    })
-                    return goal
-                if guard_verdict == GuardVerdict.REVIEW:
-                    # A real human-in-the-loop signal, not a fabricated pause —
-                    # Aegis's own REQUIRE_HUMAN_VALIDATION verdict. Resuming a
-                    # paused goal today only flips its status (see
-                    # resume_goal); it does not yet re-enter planning/
-                    # execution — a real, separate gap, not hidden here.
-                    goal.status = GoalStatus.PAUSED
-                    session.status = GoalStatus.PAUSED
-                    self._publish(AUTONOMOUS_EVENTS["goal_paused"], {
-                        "goal_id": goal.goal_id, "reason": "Requires human validation (Aegis)",
-                    })
-                    return goal
-
-            # 3. Plan
-            goal.status = GoalStatus.PLANNING
-            self._publish(AUTONOMOUS_EVENTS["goal_analyzed"], {
-                "goal_id": goal.goal_id, "interpretation": goal.interpreted_goal,
-            })
-
-            use_real_pipeline = self.mission_planner is not None and self.graph_executor is not None
-            dag_mission = None
-            if use_real_pipeline:
-                # Real multi-node DAG via the same pipeline /missions uses
-                # (HOS-067) — decomposition, dependencies, per-task runtime
-                # recommendation, all real; publishes its own plan_created.
-                plan_decisions, dag_mission = self._plan_via_dag(goal, session, ctx)
-                if dag_mission is None:
-                    # Planning itself produced nothing real to run — report
-                    # that honestly rather than falling back to a fabricated
-                    # single task.
-                    goal.status = GoalStatus.FAILED
-                    self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
-                        "goal_id": goal.goal_id, "reason": "planning produced no executable tasks",
-                    })
-                    return goal
-            else:
-                plan_decisions = self._create_plan(goal, ctx)
-                session.active_agents = [d.selected_option for d in plan_decisions
-                                         if d.decision_type == DecisionType.AGENT_SELECTION]
-                session.timeline.append({
-                    "event": "plan_created",
-                    "timestamp": time.time(),
-                    "decisions": [d.decision_id for d in plan_decisions],
-                })
-                self._publish(AUTONOMOUS_EVENTS["plan_created"], {
-                    "goal_id": goal.goal_id, "decisions": len(plan_decisions),
-                })
-
-            # 4. Execute
-            goal.status = GoalStatus.EXECUTING
-            session.status = GoalStatus.EXECUTING
-            self._publish(AUTONOMOUS_EVENTS["execution_started"], {
-                "goal_id": goal.goal_id, "session_id": session.session_id,
-            })
-
-            # Execute for real through the Mission Executor (HOS-050), or the
-            # real DAG pipeline (HOS-067) when wired.
-            #
-            # This replaced `success = random.random() > 0.15` and
-            # `duration = random.uniform(500, 5000)`. Those two lines meant every
-            # autonomous goal returned a fabricated outcome with an invented
-            # duration, and because the API reported success no caller could tell.
-            # Outcome and duration are now whatever actually happened.
-            if use_real_pipeline:
-                exec_result = self._execute_via_dag(goal, session, dag_mission)
-            else:
-                exec_result = self._execute_plan(goal, session, plan_decisions)
-            success = exec_result["success"]
-            duration = exec_result["duration_ms"]
-            if not success and exec_result.get("runtime_available") is False:
-                # The work could not be attempted at all. That is a failed goal,
-                # not a completed one, and the reason has to reach the report.
+            if path_verdict != GuardVerdict.ALLOW:
                 goal.status = GoalStatus.FAILED
                 self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
                     "goal_id": goal.goal_id,
-                    "reason": "runtime_unavailable",
-                    "detail": exec_result.get("error", ""),
+                    "reason": f"local_path {goal.local_path!r} denied by Aegis",
                 })
+                return goal
 
-            # 5. Validate
-            goal.status = GoalStatus.VALIDATING
-
-            # 6. Generate report
-            report = AutonomousReport(
-                goal_id=goal.goal_id,
-                user_request=goal.user_request,
-                interpreted_goal=goal.interpreted_goal,
-                execution_summary=exec_result["summary"],
-                results=exec_result["results"],
-                improvements=exec_result["improvements"],
-                lessons=exec_result["lessons"],
-                decisions=[d.to_dict() for d in plan_decisions],
-                total_duration_ms=duration,
-                agents_used=session.active_agents,
-                # Measured, not asserted. This was hardcoded to
-                # ["ktransformers"] regardless of what ran — and nothing ran.
-                runtimes_used=exec_result["runtimes_used"],
-                tools_used=[d.selected_option for d in plan_decisions
-                           if d.decision_type == DecisionType.TOOL_SELECTION],
-                success=success,
+        # 2. Is *this* goal's execution authorized right now? Before this,
+        #    AutonomousGuard's set_security_engine/set_policy_engine hooks
+        #    were never wired to anything (confirmed by a repo-wide
+        #    search) — every goal reached ALLOW regardless of
+        #    autonomy_level. See AegisSecurityAdapter (autonomous_guard.py)
+        #    and _make_autonomous_engine (service_registry.py).
+        #
+        #    Deliberately risk-based, not a blanket gate on every goal:
+        #    a pure text generation/analysis goal with no project binding
+        #    has no real-world footprint (no file/git/network action is
+        #    even reachable from it today — see the module's own report
+        #    on what execution actually does), so gating it identically
+        #    to one bound to a real repo would just be friction with no
+        #    corresponding risk, and would silently defeat the entire
+        #    point of this tab at the shipped autonomy_level. A goal
+        #    touching a real project, or one the interpreter already
+        #    flagged security-sensitive (constraints["security_required"],
+        #    from words like "secure"/"security" in the request), is the
+        #    real trigger for asking Aegis.
+        is_risk_relevant = bool(
+            goal.local_path or goal.repository or goal.contraints.get("security_required")
+        )
+        if is_risk_relevant:
+            guard_verdict = self.guard.check_action(
+                "autonomous_goal_execute", f"goal/{goal.goal_id}",
+                context={"goal_id": goal.goal_id, "target_path": goal.local_path or None},
             )
+            if guard_verdict == GuardVerdict.BLOCK:
+                goal.status = GoalStatus.FAILED
+                self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
+                    "goal_id": goal.goal_id, "reason": "Guard blocked",
+                })
+                return goal
+            if guard_verdict == GuardVerdict.REVIEW:
+                # A real human-in-the-loop signal, not a fabricated pause —
+                # Aegis's own REQUIRE_HUMAN_VALIDATION verdict. Resuming a
+                # paused goal today only flips its status (see
+                # resume_goal); it does not yet re-enter planning/
+                # execution — a real, separate gap, not hidden here.
+                goal.status = GoalStatus.PAUSED
+                session.status = GoalStatus.PAUSED
+                self._publish(AUTONOMOUS_EVENTS["goal_paused"], {
+                    "goal_id": goal.goal_id, "reason": "Requires human validation (Aegis)",
+                })
+                return goal
 
-            # 7. Learn
-            goal.status = GoalStatus.LEARNING
-            self.memory_loop.process_report(report)
-            self._publish(AUTONOMOUS_EVENTS["learning_completed"], {
-                "goal_id": goal.goal_id, "lessons": len(report.lessons),
+        # 3. Plan
+        goal.status = GoalStatus.PLANNING
+        self._publish(AUTONOMOUS_EVENTS["goal_analyzed"], {
+            "goal_id": goal.goal_id, "interpretation": goal.interpreted_goal,
+        })
+
+        use_real_pipeline = self.mission_planner is not None and self.graph_executor is not None
+        dag_mission = None
+        if use_real_pipeline:
+            # Real multi-node DAG via the same pipeline /missions uses
+            # (HOS-067) — decomposition, dependencies, per-task runtime
+            # recommendation, all real; publishes its own plan_created.
+            plan_decisions, dag_mission = self._plan_via_dag(goal, session, ctx)
+            if dag_mission is None:
+                # Planning itself produced nothing real to run — report
+                # that honestly rather than falling back to a fabricated
+                # single task.
+                goal.status = GoalStatus.FAILED
+                self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
+                    "goal_id": goal.goal_id, "reason": "planning produced no executable tasks",
+                })
+                return goal
+        else:
+            plan_decisions = self._create_plan(goal, ctx)
+            session.active_agents = [d.selected_option for d in plan_decisions
+                                     if d.decision_type == DecisionType.AGENT_SELECTION]
+            session.timeline.append({
+                "event": "plan_created",
+                "timestamp": time.time(),
+                "decisions": [d.decision_id for d in plan_decisions],
+            })
+            self._publish(AUTONOMOUS_EVENTS["plan_created"], {
+                "goal_id": goal.goal_id, "decisions": len(plan_decisions),
             })
 
-            # 8. Complete
-            goal.status = GoalStatus.COMPLETED if success else GoalStatus.FAILED
-            import datetime as _dt
-            goal.completed_at = _dt.datetime.now(_dt.timezone.utc)
-            session.status = goal.status
-            session.end_time = goal.completed_at
+        # 4. Execute
+        goal.status = GoalStatus.EXECUTING
+        session.status = GoalStatus.EXECUTING
+        self._publish(AUTONOMOUS_EVENTS["execution_started"], {
+            "goal_id": goal.goal_id, "session_id": session.session_id,
+        })
+
+        # Execute for real through the Mission Executor (HOS-050), or the
+        # real DAG pipeline (HOS-067) when wired.
+        #
+        # This replaced `success = random.random() > 0.15` and
+        # `duration = random.uniform(500, 5000)`. Those two lines meant every
+        # autonomous goal returned a fabricated outcome with an invented
+        # duration, and because the API reported success no caller could tell.
+        # Outcome and duration are now whatever actually happened.
+        if use_real_pipeline:
+            exec_result = self._execute_via_dag(goal, session, dag_mission)
+        else:
+            exec_result = self._execute_plan(goal, session, plan_decisions)
+        success = exec_result["success"]
+        duration = exec_result["duration_ms"]
+        if not success and exec_result.get("runtime_available") is False:
+            # The work could not be attempted at all. That is a failed goal,
+            # not a completed one, and the reason has to reach the report.
+            goal.status = GoalStatus.FAILED
+            self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
+                "goal_id": goal.goal_id,
+                "reason": "runtime_unavailable",
+                "detail": exec_result.get("error", ""),
+            })
+
+        # 5. Validate
+        goal.status = GoalStatus.VALIDATING
+
+        # 6. Generate report
+        report = AutonomousReport(
+            goal_id=goal.goal_id,
+            user_request=goal.user_request,
+            interpreted_goal=goal.interpreted_goal,
+            execution_summary=exec_result["summary"],
+            results=exec_result["results"],
+            improvements=exec_result["improvements"],
+            lessons=exec_result["lessons"],
+            decisions=[d.to_dict() for d in plan_decisions],
+            total_duration_ms=duration,
+            agents_used=session.active_agents,
+            # Measured, not asserted. This was hardcoded to
+            # ["ktransformers"] regardless of what ran — and nothing ran.
+            runtimes_used=exec_result["runtimes_used"],
+            tools_used=[d.selected_option for d in plan_decisions
+                       if d.decision_type == DecisionType.TOOL_SELECTION],
+            success=success,
+        )
+
+        # 7. Learn
+        goal.status = GoalStatus.LEARNING
+        self.memory_loop.process_report(report)
+        self._publish(AUTONOMOUS_EVENTS["learning_completed"], {
+            "goal_id": goal.goal_id, "lessons": len(report.lessons),
+        })
+
+        # 8. Complete
+        goal.status = GoalStatus.COMPLETED if success else GoalStatus.FAILED
+        import datetime as _dt
+        goal.completed_at = _dt.datetime.now(_dt.timezone.utc)
+        session.status = goal.status
+        session.end_time = goal.completed_at
+        with self._lock:
             self._reports.append(report)
             self._execution_count += 1
 
-            if success:
-                self._publish(AUTONOMOUS_EVENTS["execution_completed"], {
-                    "goal_id": goal.goal_id, "duration_ms": duration,
-                })
-            else:
-                self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
-                    "goal_id": goal.goal_id, "reason": "Execution failed",
-                })
+        if success:
+            self._publish(AUTONOMOUS_EVENTS["execution_completed"], {
+                "goal_id": goal.goal_id, "duration_ms": duration,
+            })
+        else:
+            self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
+                "goal_id": goal.goal_id, "reason": "Execution failed",
+            })
 
-            return goal
+        return goal
 
     def pause_goal(self, goal_id: str) -> bool:
         with self._lock:
@@ -362,6 +382,21 @@ class AutonomousOrchestrator:
     def get_goal(self, goal_id: str) -> AutonomousGoal | None:
         with self._lock:
             return self._goals.get(goal_id)
+
+    def list_goals(self, limit: int = 50) -> list[AutonomousGoal]:
+        """Goals most recently started first.
+
+        ``get_status`` has always counted these; nothing could enumerate
+        them. That left a goal reachable only by an id the caller had to
+        have captured at start time — so the Autonomous Center lost track
+        of a running goal the moment its component unmounted, and a page
+        reload made the goal permanently unreachable while it kept running
+        (HOS-102).
+        """
+        with self._lock:
+            # _goals is insertion-ordered and start_goal appends, so the
+            # newest are at the end.
+            return list(reversed(list(self._goals.values())))[:limit]
 
     def get_session(self, goal_id: str) -> AutonomousSession | None:
         with self._lock:

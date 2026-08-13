@@ -72,6 +72,9 @@ class AutonomousEngine:
         goal = self._orchestrator.get_goal(goal_id)
         return goal.to_dict() if goal else None
 
+    def list_goals(self, limit: int = 50) -> list[dict]:
+        return [g.to_dict() for g in self._orchestrator.list_goals(limit)]
+
     def get_timeline(self, goal_id: str) -> dict:
         session = self._orchestrator.get_session(goal_id)
         if session:

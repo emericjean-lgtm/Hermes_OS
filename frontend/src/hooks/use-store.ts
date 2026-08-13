@@ -36,6 +36,14 @@ interface CockpitStore {
   selectMission: (id: string | null) => void;
   selectedAgentId: string | null;
   selectAgent: (id: string | null) => void;
+  /** The autonomous goal being watched. Kept here rather than in
+   *  AutonomousCenter's own useState because the Cockpit shell keys its
+   *  AnimatePresence on the active view: switching tabs unmounts the
+   *  Center outright, and the goal id went with it while the goal kept
+   *  running on the server (HOS-102). MissionCenter has always used
+   *  selectedMissionId above for exactly this reason. */
+  selectedGoalId: string | null;
+  selectGoal: (id: string | null) => void;
 }
 
 export const useCockpitStore = create<CockpitStore>((set) => ({
@@ -66,4 +74,6 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   selectMission: (id) => set({ selectedMissionId: id }),
   selectedAgentId: null,
   selectAgent: (id) => set({ selectedAgentId: id }),
+  selectedGoalId: null,
+  selectGoal: (id) => set({ selectedGoalId: id }),
 }));
