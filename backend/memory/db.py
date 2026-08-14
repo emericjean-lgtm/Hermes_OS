@@ -58,6 +58,7 @@ def _load_all_models() -> None:
     invisible coupling that let memory_long drift in the first place.
     """
     from backend.memory import episodic, skill_library  # noqa: F401
+    from backend.model_intelligence import bench_store  # noqa: F401
     from backend.memory import unified_sqlite_backend  # noqa: F401
     from backend.core import audit_log  # noqa: F401
     from backend.security import approvals  # noqa: F401

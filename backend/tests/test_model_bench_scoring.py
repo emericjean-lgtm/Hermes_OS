@@ -13,7 +13,9 @@ from __future__ import annotations
 import pytest
 
 from backend.model_intelligence.model_bench import (
+    MAX_OFFLOAD_RATIO,
     build_haystack,
+    choose_tier,
     score_forbidden_letter,
     score_needle,
     score_structured_json,
@@ -186,6 +188,116 @@ def test_the_needle_lands_where_it_was_asked_to(depth):
     assert abs(position / len(lines) - depth) < 0.1, (
         f"aiguille à {position / len(lines):.0%} au lieu de {depth:.0%}"
     )
+
+
+# ── le palier de contexte retenu ─────────────────────────────────────────
+
+def _tier(num_ctx: int, offload: float | None = 0.0, **extra):
+    return {"num_ctx": num_ctx, "cpu_offload_ratio": offload, **extra}
+
+
+def test_the_largest_fitting_tier_wins():
+    """Le but de toute la campagne : garder le plus grand contexte qui
+    tient entièrement en VRAM."""
+    retained = choose_tier([
+        _tier(32768), _tier(65536), _tier(131072), _tier(262144, offload=0.31),
+    ])
+
+    assert retained == 131072
+
+
+def test_a_spilling_tier_is_never_retained():
+    """Un modèle qui déborde répond quand même, sans erreur, plusieurs fois
+    plus lentement et de façon erratique — mesuré sur Muse-Glimmer Q3_K_XL,
+    21 % de débordement donnaient 13 tok/s. Le retenir serait inscrire au
+    catalogue un modèle qui semble marcher."""
+    assert choose_tier([_tier(32768, offload=0.21), _tier(65536, offload=0.25)]) is None
+
+
+def test_a_tier_that_failed_to_load_is_not_retained():
+    """Un modèle entraîné jusqu'à 128k refusera 256k. C'est une réponse, pas
+    une panne de la campagne — mais ce palier ne doit pas être retenu."""
+    retained = choose_tier([
+        _tier(65536), _tier(131072), _tier(262144, offload=None, error="HTTP 500"),
+    ])
+
+    assert retained == 131072
+
+
+def test_no_tier_fits_returns_none_rather_than_the_least_bad():
+    """Rapporter le moins mauvais ferait entrer au catalogue un modèle qui
+    déborde à tous les paliers."""
+    assert choose_tier([_tier(32768, offload=0.4), _tier(65536, offload=0.6)]) is None
+
+
+def test_a_trace_of_offload_is_tolerated():
+    """La mesure a du bruit ; exiger exactement zéro écarterait des paliers
+    utilisables."""
+    assert choose_tier([_tier(65536, offload=MAX_OFFLOAD_RATIO)]) == 65536
+    assert choose_tier([_tier(65536, offload=MAX_OFFLOAD_RATIO + 0.01)]) is None
+
+
+def test_an_empty_ladder_returns_none():
+    assert choose_tier([]) is None
+
+
+def test_the_served_context_wins_over_the_requested_one():
+    """Ollama rabote au maximum du modèle sans le dire.
+
+    Mesuré : LFM2.5-2.6B interrogé à 256k en sert 125k, gpt-oss:20b en sert
+    131072, Hermes-4-14B 40960. La première version de cette fonction
+    retenait la valeur demandée et aurait inscrit « LFM2.5 : 256k » au
+    catalogue — un contexte que le modèle n'a jamais accordé, et dans
+    lequel le routage aurait envoyé des tâches deux fois trop longues.
+    """
+    retained = choose_tier([
+        _tier(131072, context_length=128000),
+        _tier(262144, context_length=128000),
+    ])
+
+    assert retained == 128000
+
+
+def test_the_heavy_profile_tolerates_some_spill_when_speed_holds():
+    """Un gros modèle réservé au code complexe, appelé rarement, peut
+    déborder un peu si le débit reste utilisable."""
+    retained = choose_tier(
+        [_tier(65536, offload=0.16, context_length=65536, output_tokens_per_s=39.6)],
+        profile="heavy")
+
+    assert retained == 65536
+
+
+def test_the_heavy_profile_still_rejects_a_slow_model():
+    """Le taux de débordement seul ne prédit rien. Mesuré le 13/08 :
+    qwen3-coder:30b à 31 % tenait 39,6 tok/s, deepseek-r1:32b à 48 %
+    tombait à 5,7. C'est le débit qui décide."""
+    assert choose_tier(
+        [_tier(65536, offload=0.18, context_length=65536, output_tokens_per_s=5.7)],
+        profile="heavy") is None
+
+
+def test_the_heavy_profile_still_requires_the_64k_floor():
+    """En dessous, les schémas d'outils sont tronqués et l'agent répond
+    qu'il n'a pas d'outils (CLAUDE.md). Aucune tolérance là-dessus."""
+    assert choose_tier(
+        [_tier(32768, offload=0.10, context_length=32768, output_tokens_per_s=80)],
+        profile="heavy") is None
+
+
+def test_the_strict_profile_stays_strict():
+    """Le profil par défaut ne bouge pas : un modèle d'usage courant qui
+    déborde de 16 % reste écarté."""
+    assert choose_tier(
+        [_tier(65536, offload=0.16, context_length=65536, output_tokens_per_s=39.6)]
+    ) is None
+
+
+def test_a_runtime_that_reports_no_served_context_falls_back():
+    """Tous les runtimes ne rapportent pas context_length. La valeur
+    demandée est alors la seule disponible — on la prend, plutôt que
+    d'écarter une mesure par ailleurs valide."""
+    assert choose_tier([_tier(65536)]) == 65536
 
 
 def test_the_filler_is_varied_rather_than_one_repeated_line():

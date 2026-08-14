@@ -36,6 +36,7 @@ import re
 import string
 import time
 from dataclasses import dataclass, field, asdict
+from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
 import requests
@@ -64,16 +65,37 @@ class CheckResult:
 
 def generate(model: str, prompt: str, *, num_ctx: int,
              timeout_s: float = 900.0, **options: Any) -> dict:
-    """One completion, with the context window this call actually wants."""
+    """One turn, with the context window this call actually wants.
+
+    Uses ``/api/chat`` and returns the assistant's **answer** in
+    ``response``, with any reasoning kept separately under ``thinking``.
+
+    That distinction is the whole reason this does not call
+    ``/api/generate``. Asked for a sentence of exactly seven words,
+    Muse-Glimmer replied « La mer murmure doucement sous la lune » — seven
+    words — after 1726 characters of visible reasoning. ``/api/generate``
+    merges the two, so the word count came to 316 and a model that had
+    obeyed the instruction scored zero. LFM2.5 failed the same check the
+    same way, which is what made the number suspect: two models with
+    nothing in common do not fail identically.
+
+    Grading the reasoning would measure verbosity, not obedience.
+    """
     body = {
         "model": model,
-        "prompt": prompt,
+        "messages": [{"role": "user", "content": prompt}],
         "stream": False,
         "options": {"num_ctx": num_ctx, "temperature": 0.0, **options},
     }
-    response = requests.post(f"{OLLAMA}/api/generate", json=body, timeout=timeout_s)
-    response.raise_for_status()
-    return response.json()
+    http = requests.post(f"{OLLAMA}/api/chat", json=body, timeout=timeout_s)
+    http.raise_for_status()
+    payload = http.json()
+    message = payload.get("message") or {}
+    # Older builds, and models with no reasoning channel, put everything in
+    # content — the fallback is then simply the whole answer.
+    payload["response"] = message.get("content", "") or ""
+    payload["thinking"] = message.get("thinking", "") or ""
+    return payload
 
 
 def gpu_dedicated_bytes(process_name: str = "llama-server") -> Optional[int]:
@@ -431,6 +453,124 @@ def check_footprint(model: str, num_ctx: int) -> CheckResult:
          "gpu_dedicated_bytes": dedicated,
          "num_ctx_demandé": num_ctx},
     )
+
+
+# ── l'échelle de contextes ───────────────────────────────────────────────
+
+#: Paliers standards. 64k est le plancher opérationnel de ce déploiement
+#: (en dessous, les schémas d'outils sont tronqués — voir CLAUDE.md) ; 32k
+#: n'est mesuré que pour situer un modèle qui échouerait à 64k.
+DEFAULT_TIERS: tuple[int, ...] = (32768, 65536, 131072, 262144)
+
+#: Au-delà, des poids partent sur le CPU. Un modèle qui déborde répond
+#: quand même, sans erreur, plusieurs fois plus lentement et de façon
+#: erratique — mesuré sur Muse-Glimmer Q3_K_XL : 21 % de débordement à 32k
+#: donnait 13 tok/s, 25 % à 64k en donnait 17,8. Plus de débordement pour
+#: plus de vitesse : c'est l'erratisme, pas une pénalité proportionnelle.
+MAX_OFFLOAD_RATIO = 0.02
+
+#: Profil « lourd » : un gros modèle réservé au code complexe, appelé
+#: rarement, peut déborder un peu si la vitesse reste utilisable. Trois
+#: conditions cumulatives, parce que le débordement seul ne prédit rien —
+#: mesuré le 13/08 : qwen3-coder:30b à 31 % tenait 39,6 tok/s tandis que
+#: deepseek-r1:32b à 48 % tombait à 5,7. C'est le débit qui décide, le taux
+#: n'est qu'un indice.
+HEAVY_MAX_OFFLOAD_RATIO = 0.20
+HEAVY_MIN_CONTEXT = 65536
+HEAVY_MIN_TOKENS_PER_S = 25.0
+
+
+def _fits(entry: dict[str, Any], profile: str) -> bool:
+    ratio = entry.get("cpu_offload_ratio")
+    if ratio is None or entry.get("error"):
+        return False
+    if profile == "heavy":
+        served = entry.get("context_length") or entry["num_ctx"]
+        return (ratio <= HEAVY_MAX_OFFLOAD_RATIO
+                and served >= HEAVY_MIN_CONTEXT
+                and (entry.get("output_tokens_per_s") or 0) >= HEAVY_MIN_TOKENS_PER_S)
+    return ratio <= MAX_OFFLOAD_RATIO
+
+
+def choose_tier(measurements: list[dict[str, Any]], *,
+                profile: str = "strict") -> Optional[int]:
+    """Le plus grand contexte qui tient entièrement en VRAM.
+
+    Pas de marge de sécurité ajoutée, et c'est délibéré : llama.cpp
+    préalloue le cache KV au chargement. Mesuré en remplissant un contexte
+    de 128k de 4 600 à 15 400 tokens, l'occupation n'a pas bougé d'un
+    octet. Une mesure prise juste après le chargement décrit donc déjà le
+    pire cas, et une marge inventée ne ferait qu'écarter des paliers
+    utilisables.
+
+    Renvoie le contexte **servi**, jamais celui demandé. Ollama rabote
+    silencieusement au maximum du modèle : LFM2.5-2.6B interrogé à 256k en
+    sert 125k, gpt-oss:20b en sert 131072, Hermes-4-14B 40960. Retenir la
+    valeur demandée inscrirait au catalogue des contextes qu'aucun de ces
+    modèles n'a jamais accordés — et le routage enverrait des tâches dans
+    un contexte deux fois trop grand pour elles.
+
+    ``profile="heavy"`` relâche la contrainte pour un gros modèle réservé
+    aux tâches de code complexe : appelé rarement, il peut déborder jusqu'à
+    20 % **à condition** de servir au moins 64k et de tenir 25 tok/s. Le
+    rôle qu'on donne à un modèle est une décision d'exploitation, pas une
+    propriété du fichier — d'où un paramètre plutôt qu'un seuil global.
+
+    Renvoie None quand aucun palier ne tient — un fait à rapporter tel
+    quel, pas à rattraper avec le moins mauvais.
+    """
+    fitting = [m for m in measurements if _fits(m, profile)]
+    # context_length manque sur les runtimes qui ne le rapportent pas ; la
+    # valeur demandée est alors la seule disponible, et on le dit ainsi
+    # plutôt que d'écarter la mesure.
+    return max((m.get("context_length") or m["num_ctx"] for m in fitting), default=None)
+
+
+def context_ladder(model: str, tiers: Sequence[int] = DEFAULT_TIERS, *,
+                   on_tier: Optional[Callable[[dict], None]] = None,
+                   ) -> dict[str, Any]:
+    """Monter les paliers de contexte et garder le plus haut qui tient.
+
+    Un palier à la fois, avec déchargement entre chaque : deux tailles du
+    même modèle résidentes en même temps mesureraient la contention, pas la
+    capacité.
+
+    Un palier qui refuse de charger n'est pas une panne de la campagne — un
+    modèle dont le contexte d'entraînement s'arrête à 128k rejettera 256k,
+    et c'est une réponse. L'erreur est consignée et l'échelle continue.
+    """
+    results: list[dict[str, Any]] = []
+    for num_ctx in tiers:
+        unload(model)
+        started = time.perf_counter()
+        entry: dict[str, Any] = {"num_ctx": num_ctx}
+        try:
+            response = generate(model, "Réponds par un mot : prêt.", num_ctx=num_ctx)
+            entry["load_and_answer_s"] = round(time.perf_counter() - started, 1)
+            entry.update(runtime_footprint(model))
+            entry["gpu_dedicated_bytes"] = gpu_dedicated_bytes()
+            entry.update(throughput_of(response))
+        except Exception as exc:
+            entry["error"] = f"{type(exc).__name__}: {exc}"
+            entry["cpu_offload_ratio"] = None
+        results.append(entry)
+        if on_tier is not None:
+            try:
+                on_tier(entry)
+            except Exception:
+                logger.debug("on_tier callback failed", exc_info=True)
+    unload(model)
+    return {"model": model, "tiers": results, "retained_num_ctx": choose_tier(results)}
+
+
+def unload(model: str) -> None:
+    """Libérer la carte avant la mesure suivante."""
+    try:
+        requests.post(f"{OLLAMA}/api/generate",
+                      json={"model": model, "prompt": "", "keep_alive": 0}, timeout=120)
+    except Exception:
+        pass
+    time.sleep(4)
 
 
 def run_battery(model: str, num_ctx: int, *,
