@@ -47,6 +47,17 @@ OLLAMA = "http://localhost:11434"
 #: short enough that one battery does not take an afternoon.
 _NEEDLE_DEPTHS = (0.05, 0.5, 0.95)
 
+#: Pinned, not inherited. Ollama 0.32.10 changed its own default from 1.1 to
+#: 1.0, which would have moved every measurement in this file without a line
+#: of it changing — the campaign would have compared models against each
+#: other across a silent runtime change.
+#:
+#: 1.0 (no penalty) is the right value for a bench. A repetition penalty
+#: taxes tokens that recur, and code is made of recurring tokens:
+#: indentation, delimiters, the same identifier on five lines. Penalising
+#: them measures the sampler, not the model.
+REPEAT_PENALTY = 1.0
+
 
 @dataclass
 class CheckResult:
@@ -85,7 +96,8 @@ def generate(model: str, prompt: str, *, num_ctx: int,
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
-        "options": {"num_ctx": num_ctx, "temperature": 0.0, **options},
+        "options": {"num_ctx": num_ctx, "temperature": 0.0,
+                    "repeat_penalty": REPEAT_PENALTY, **options},
     }
     http = requests.post(f"{OLLAMA}/api/chat", json=body, timeout=timeout_s)
     http.raise_for_status()
@@ -324,9 +336,17 @@ def build_haystack(needle: str, depth: float, approx_tokens: int) -> str:
     objects = ["les relevés mensuels", "les incidents mineurs", "les seuils de tolérance",
                "les cycles de maintenance", "les écarts observés"]
     lines: list[str] = []
-    # ~12 tokens per sentence is a deliberate under-estimate: overshooting
-    # the requested context would silently truncate the needle.
-    while len(lines) * 12 < approx_tokens:
+    # Mesuré, pas estimé : une phrase de ce gabarit (français, un nombre à
+    # trois chiffres, ponctuation) pèse ~19 tokens, pas 12. L'ancienne
+    # valeur produisait 33 411 tokens pour 26 000 demandés — 28 % de trop —
+    # et le prompt était rejeté par Ollama avec un 400 sur tout modèle dont
+    # le Modelfile ne relevait pas le contexte au-dessus de la demande.
+    # Deux modèles ont ainsi été notés 0/6 sans jamais avoir été interrogés.
+    #
+    # 22 plutôt que 19 : dépasser la fenêtre fait échouer la requête, la
+    # sous-remplir ne coûte qu'un test un peu moins tendu. L'erreur doit
+    # pencher du côté qui laisse le modèle répondre.
+    while len(lines) * 22 < approx_tokens:
         lines.append(f"{rng.choice(subjects)} n°{rng.randint(100, 999)} "
                      f"{rng.choice(verbs)} {rng.choice(objects)}.")
     position = max(0, min(len(lines) - 1, int(len(lines) * depth)))

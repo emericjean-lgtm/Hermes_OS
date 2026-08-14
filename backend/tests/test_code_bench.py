@@ -40,6 +40,44 @@ def test_le_plus_long_bloc_gagne():
     assert "def compter_mots" in extract_code(raw)
 
 
+def test_le_plus_long_bloc_qui_ne_compile_pas_est_ecarte():
+    """L'incident qui a produit ce test.
+
+    Muse-Glimmer a échoué `cache_o1` sur ses deux essais avec le même
+    `SyntaxError: invalid syntax`. Deux échecs identiques sur un modèle qui
+    venait de construire un interpréteur complet : le motif accusait
+    l'instrument, pas le modèle.
+
+    Un bloc de prose encadré, ou une sortie de spécification, peut être
+    plus long que le code lui-même. Retenir le plus long sans vérifier
+    qu'il s'analyse fait échouer un modèle sur du texte qu'il n'a jamais
+    présenté comme du code — la même erreur que l'extraction JSON gloutonne
+    qui notait 0/5 des objets parfaits.
+    """
+    prose = "Spécification détaillée :\n" + "\n".join(
+        f"  - la contrainte {i} impose un accès en temps constant" for i in range(40))
+    raw = f"```\n{prose}\n```\n\nImplémentation :\n```python\n{BON}\n```"
+
+    assert "def compter_mots" in extract_code(raw)
+
+
+def test_une_cloture_manquante_ne_perd_pas_le_code():
+    """Une réponse qui s'arrête en chemin laisse son ``` ouvert. Le corps
+    reste exploitable ; le rendre tel quel y collerait toute la prose qui
+    précède et produirait un SyntaxError d'instrument."""
+    raw = f"Bien sûr, voici la fonction demandée :\n```python\n{BON}"
+
+    assert extract_code(raw).startswith("def compter_mots")
+
+
+def test_un_code_qui_ne_compile_nulle_part_est_rendu_quand_meme():
+    """Sinon le message d'erreur parlerait d'un fragment choisi par défaut
+    plutôt que de ce que le modèle a réellement écrit."""
+    casse = "def f(:\n    return 1"
+
+    assert extract_code(f"```python\n{casse}\n```") == casse
+
+
 # ── exécution ────────────────────────────────────────────────────────────
 
 def test_du_code_correct_passe():

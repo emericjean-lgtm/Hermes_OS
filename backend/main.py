@@ -113,6 +113,48 @@ def _warn_if_context_degraded() -> None:
         report(check, publish=hub.publish)
 
 
+def _warn_if_roles_point_nowhere() -> None:
+    """Check every configured role against what Ollama actually has.
+
+    Unlike the context check above, this one does not need a resident model
+    — it compares configuration to inventory, so it can speak before the
+    first request rather than after a user has watched an empty answer
+    scroll by (HOS-108).
+    """
+    import httpx
+
+    from backend.core.config import get_settings, load_models_config
+    from backend.core.event_hub import get_event_hub
+    from backend.runtime.model_guard import (
+        OLLAMA_MAX_LOADED_ENV, check_residency, check_roles,
+        report as report_missing, report_residency,
+    )
+
+    roles = load_models_config().get("roles") or {}
+    hub = get_event_hub()
+
+    base = get_settings().ollama_api_url.rstrip("/")
+    with httpx.Client(timeout=5.0) as client:
+        installed = [m.get("name", "") for m in
+                     (client.get(f"{base}/api/tags").json().get("models") or [])]
+    if installed:
+        report_missing(check_roles(roles, installed), publish=hub.publish)
+    else:
+        # No inventory means no comparison, not "everything is missing".
+        logger.debug("role check: Ollama listed no models")
+
+    # A second contradiction, invisible in the same way: roles asking to
+    # stay resident on a runtime that keeps only one model loaded.
+    brut = os.environ.get(OLLAMA_MAX_LOADED_ENV)
+    try:
+        max_loaded = int(brut) if brut else None
+    except ValueError:
+        max_loaded = None
+    if max_loaded:
+        report_residency(check_residency(roles, max_loaded), max_loaded,
+                         publish=hub.publish)
+
+
 def create_app() -> FastAPI:
     """Builds a fresh app, a fresh bootstrap, and a fresh MCP server.
 
@@ -203,6 +245,15 @@ def create_app() -> FastAPI:
             _warn_if_context_degraded()
         except Exception:  # never let a diagnostic stop startup
             logger.debug("served-context check failed", exc_info=True)
+
+        # A role pointing at an uninstalled tag breaks every request routed
+        # to it, and a streaming response hides the 404 behind an empty
+        # answer. Checked here, before the first request, rather than
+        # discovered by a user watching nothing arrive.
+        try:
+            _warn_if_roles_point_nowhere()
+        except Exception:  # never let a diagnostic stop startup
+            logger.debug("role/model check failed", exc_info=True)
 
         # --- Subsystem health verification (STEP 9 / STEP 10) ---
         health = bootstrap.health()

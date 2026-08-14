@@ -586,3 +586,61 @@ async def get_cloud_status() -> dict[str, Any]:
 @router.get("/optimize")
 async def get_optimize(model_id: str = Query(...)) -> dict[str, Any]:
     return handle_get_optimize(model_id)
+
+
+# ── Catalogue mesuré (HOS-107/108) ───────────────────────────────────────
+#
+# Distinct des routes ci-dessus, qui exposent les heuristiques et les
+# prédictions du ModelProfiler. Celles-ci ne rendent que des mesures
+# réelles : chaque note vient d'une campagne qui a fait tourner le modèle,
+# et le détail brut de l'échec est conservé à côté du chiffre. Un score
+# sans son justificatif redevient une opinion.
+
+
+def handle_get_catalogue() -> dict[str, Any]:
+    """GET /models/catalogue — un objet par modèle, notes par axe.
+
+    ``notes`` porte None pour un axe non mesuré, jamais 0 : un modèle
+    jamais testé passerait sinon pour mauvais dans l'onglet Modèles.
+    """
+    from backend.model_intelligence.bench_score import noter_modele
+    from backend.model_intelligence.bench_store import AXES, BenchStore
+
+    entrees = []
+    for entree in BenchStore().catalogue():
+        entrees.append({
+            "model": entree["model"],
+            "measured_at": entree["measured_at"],
+            "axes": entree["axes"],
+            "notes": noter_modele(entree["axes"]),
+        })
+    return {"success": True, "axes": list(AXES), "models": entrees,
+            "total": len(entrees)}
+
+
+def handle_get_candidats(axe: str, note_minimale: int = 1) -> dict[str, Any]:
+    """GET /models/catalogue/candidats — qui peut faire une tâche de cet axe.
+
+    Rend la liste classée, pas la décision : deux modèles à note identique
+    en code peuvent différer d'un facteur 7 en temps (mesuré), et c'est au
+    routage d'arbitrer avec le coût.
+    """
+    from backend.model_intelligence.bench_score import meilleur_pour
+    from backend.model_intelligence.bench_store import BenchStore
+
+    classes = meilleur_pour(BenchStore().catalogue(), axe, note_minimale)
+    return {"success": True, "axe": axe, "note_minimale": note_minimale,
+            "candidats": [{"model": m, "note": n} for m, n in classes]}
+
+
+@router.get("/catalogue")
+async def get_catalogue() -> dict[str, Any]:
+    return handle_get_catalogue()
+
+
+@router.get("/catalogue/candidats")
+async def get_candidats(
+    axe: str = Query(...),
+    note_minimale: int = Query(1, ge=0, le=100),
+) -> dict[str, Any]:
+    return handle_get_candidats(axe, note_minimale)

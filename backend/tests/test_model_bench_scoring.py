@@ -300,6 +300,29 @@ def test_a_runtime_that_reports_no_served_context_falls_back():
     assert choose_tier([_tier(65536)]) == 65536
 
 
+def test_the_haystack_stays_under_the_requested_budget():
+    """L'incident qui a produit ce test.
+
+    L'estimation était de 12 tokens par phrase ; la mesure donne ~19. Un
+    foin demandé à 26 000 tokens en pesait 33 411 — 28 % de trop — et
+    Ollama rejetait la requête avec un 400 sur tout modèle dont le
+    Modelfile ne relevait pas le contexte au-dessus de la demande.
+    qwen3.6-35b et ornith-9b ont été notés 0/6 en long contexte sans avoir
+    jamais été interrogés.
+
+    Approximation à 4 caractères par token — grossière, mais elle borde
+    largement l'erreur de 28 % qui a causé l'incident.
+    """
+    demande = 26000
+    texte = build_haystack("ABCD1234", 0.5, approx_tokens=demande)
+
+    tokens_estimes = len(texte) / 4
+    assert tokens_estimes <= demande, (
+        f"le foin pèse ~{tokens_estimes:.0f} tokens pour {demande} demandés — "
+        "il débordera la fenêtre et la requête sera rejetée"
+    )
+
+
 def test_the_filler_is_varied_rather_than_one_repeated_line():
     """A haystack of identical sentences can be solved by spotting the line
     that differs, which measures novelty detection, not retrieval."""

@@ -23,7 +23,13 @@ async def test_prime_agent_streams_full_response(fake_ollama_client, models_conf
 async def test_prime_agent_reuses_loaded_model(models_config):
     from backend.tests.conftest import FakeOllamaClient
 
-    client = FakeOllamaClient(running_models=["deepseek-r1:14b"])
+    # Lu dans la configuration, jamais écrit en dur : ce test vérifie qu'un
+    # modèle déjà résident est réutilisé, pas quel modèle tient le rôle
+    # aujourd'hui. La version précédente attendait « deepseek-r1:14b » et
+    # est tombée quand HOS-108 a réaffecté les rôles — un faux rouge, sur du
+    # code inchangé.
+    attendu = models_config["roles"]["reasoning"]["model"]
+    client = FakeOllamaClient(running_models=[attendu])
     router = ModelRouter(models_config)
     agent = HermesPrimeAgent(client, router, models_config)
 
@@ -32,5 +38,5 @@ async def test_prime_agent_reuses_loaded_model(models_config):
         task_type="reasoning",
     )
 
-    assert decision.model == "deepseek-r1:14b"
+    assert decision.model == attendu
     assert "already loaded" in decision.reason

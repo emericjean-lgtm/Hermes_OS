@@ -37,7 +37,8 @@ logger = logging.getLogger("hermes_os.model_intelligence.bench_store")
 #: Les axes du catalogue. Un modèle non mesuré sur un axe n'a pas de ligne
 #: — « non mesuré » et « zéro » doivent rester distincts, comme partout
 #: ailleurs dans ce projet.
-AXES = ("capacite", "code", "vision", "agentique", "extraction", "long_contexte")
+AXES = ("capacite", "code", "vision", "agentique", "extraction",
+        "long_contexte", "raisonnement")
 
 
 class BenchResultRow(Base):

@@ -439,10 +439,16 @@ describe("Feature Centers", () => {
     expect(typeof EventsCenter).toBe("function");
   });
 
+  // 20 s, pas les 5 s par défaut. Cet import tire transitivement les 23
+  // Centers, et l'assertion ne porte que sur la forme de l'export — le
+  // délai mesurait donc la vitesse du bundler, pas ce que le test vérifie.
+  // 638 ms sur une machine au repos, plus de 5 s dès qu'une campagne de
+  // modèles tourne : un test rouge par intermittence apprend à ignorer le
+  // rouge, ce qui coûte plus cher que ce qu'il protège.
   it("CockpitShell has all 9 views mapped", async () => {
     const { default: CockpitShell } = await import("@/components/cockpit-shell");
     expect(typeof CockpitShell).toBe("function");
-  });
+  }, 20_000);
 });
 
 // ── Navigation ────────────────────────────────────────

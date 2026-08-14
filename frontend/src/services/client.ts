@@ -870,6 +870,33 @@ export interface ModelRankingEntryDTO {
   tags: string[];
 }
 
+/** Une mesure réelle sur un axe : le verdict, sa note, et de quoi la
+ *  justifier. `score` vaut null quand l'axe ne se juge pas en pourcentage
+ *  (le code rend un palier atteint, pas un taux). */
+export interface BenchAxisDTO {
+  score: number | null;
+  verdict: string;
+  detail: Record<string, unknown>;
+  measured_at: number;
+  runtime_version: string;
+}
+
+export interface BenchCatalogueEntryDTO {
+  model: string;
+  measured_at: number;
+  axes: Record<string, BenchAxisDTO>;
+  /** Note sur 100 par axe. `null` = axe non mesuré — à ne jamais afficher
+   *  comme un zéro, sinon un modèle jamais testé passe pour mauvais. */
+  notes: Record<string, number | null>;
+}
+
+export interface BenchCatalogueDTO {
+  success: boolean;
+  axes: string[];
+  models: BenchCatalogueEntryDTO[];
+  total: number;
+}
+
 export interface ModelDecisionDTO {
   model_id: string;
   model_name: string;
@@ -970,6 +997,9 @@ export const modelIntelligenceClient = {
   optimize: (modelId: string) =>
     fetchJSON<OptimizeResultDTO>(`/models/optimize?model_id=${encodeURIComponent(modelId)}`),
   cloudStatus: () => fetchJSON<CloudStatusDTO>("/models/cloud/status"),
+  // Le catalogue mesuré (HOS-108) — distinct de `ranking`, qui rend les
+  // heuristiques du ModelProfiler. Ici, uniquement ce qui a été observé.
+  catalogue: () => fetchJSON<BenchCatalogueDTO>("/models/catalogue"),
 };
 
 // ── Conversation (HOS-062) ────────────────────────────────

@@ -25,6 +25,17 @@ class RuntimeEventType(str, Enum):
     #: schemas, and the agent then reports having no tools (HOS-090).
     RUNTIME_CONTEXT_DEGRADED = "runtime.context_degraded"
 
+    #: A role in config/models.yaml points at a tag Ollama does not have.
+    #: Unlike the one above this *is* a failure — but an invisible one: the
+    #: 404 arrives after a streaming response has already committed its 200,
+    #: so the client sees an empty answer instead of an error (HOS-108).
+    RUNTIME_MODEL_MISSING = "runtime.model_missing"
+
+    #: More roles ask to stay resident than OLLAMA_MAX_LOADED_MODELS allows.
+    #: Not a failure either — but the configuration then describes warm
+    #: models that are in fact evicted on every switch (HOS-108).
+    RUNTIME_RESIDENCY_UNSATISFIABLE = "runtime.residency_unsatisfiable"
+
     # ── Model lifecycle ─────────────────────────────────────
     MODEL_LOADED = "model.loaded"
     MODEL_UNLOADED = "model.unloaded"

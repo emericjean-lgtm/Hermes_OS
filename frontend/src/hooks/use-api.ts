@@ -646,6 +646,15 @@ export function useModelRanking() {
   });
 }
 
+/** Le catalogue mesuré (HOS-108). Aucun refetchInterval : une campagne dure
+ *  une à deux heures de GPU, ces lignes ne bougent pas toutes les 30 s. */
+export function useModelCatalogue() {
+  return useQuery({
+    queryKey: ["models", "catalogue"],
+    queryFn: () => modelIntelligenceClient.catalogue(),
+  });
+}
+
 /** Real routing recommendation. The Center used to sleep a random
  *  600–1000 ms and return a hard-coded decision (R-002 P3/P5). */
 export function useRecommendModel() {

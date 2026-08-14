@@ -40,6 +40,44 @@ En pratique :
   ligne de commande du processus (`Get-CimInstance Win32_Process`), pas
   seulement le compteur de tâches.
 
+## Ni un échec sur parole
+
+Le symétrique de la règle précédente, et il a coûté plus cher. Sur huit
+défauts de mesure trouvés pendant la construction du catalogue, **cinq
+produisaient de faux échecs** : un extracteur JSON glouton notait 0/5 des
+objets parfaits, `/api/generate` fusionnait raisonnement et réponse et
+comptait 316 mots là où le modèle en avait écrit 7, un foin 28 % trop gros
+faisait rejeter la requête avant que deux modèles ne soient interrogés, un
+niveau de test affirmait une contrainte fausse, un extracteur de code
+prenait le bloc encadré le plus long sans vérifier qu'il compile.
+
+Aucun n'a été trouvé en relisant du code. Tous l'ont été sur un chiffre
+invraisemblable. Deux signaux valent qu'on s'arrête :
+
+- **Deux modèles sans rien de commun qui échouent identiquement.** C'est
+  ce qui a démasqué le contexte à 4096, la fusion raisonnement/réponse et
+  l'extraction de code. Un vrai plafond de compétence ne produit pas deux
+  fois la même erreur.
+- **Une durée absurde.** `0 s` par tentative, c'était un HTTP 400 jamais
+  regardé. 439 s pour 5460 caractères, c'était une réponse tronquée.
+
+Avant de conclure qu'un modèle ne sait pas faire quelque chose, conserver
+sa réponse brute. Rejouer une campagne pour savoir qui du modèle ou de
+l'instrument avait tort coûte le prix de la campagne.
+
+## Un contexte fixe mesure le réglage, pas les modèles
+
+`num_ctx` doit venir de ce que **chaque** modèle sert, pas d'une constante.
+Fixé à 32768 pour tous, le départage de code a coupé la réponse de
+qwen3.6-35b en plein milieu — son raisonnement avait rempli la fenêtre
+avant que son code n'y tienne — alors que la campagne principale, qui l'a
+classé `mythique`, tournait à 65536. L'épreuve de départage était donc plus
+sévère que l'échelle qu'elle devait départager.
+
+Ollama le dit : `done_reason == "length"` signifie que la fenêtre s'est
+fermée sur le modèle. Une réponse tronquée n'est pas une erreur de
+raisonnement et ne doit pas se noter comme telle.
+
 ## Modèles : mesurer, jamais supposer
 
 Détail complet dans `docs/model-selection.md`. L'essentiel :
@@ -50,6 +88,14 @@ Détail complet dans `docs/model-selection.md`. L'essentiel :
 - Les benchmarks publiés servent à faire une liste courte, pas à décider.
 - Le seul juge est `backend/model_intelligence/agentic_probe.py`, trois
   essais minimum, **un modèle à la fois** (il prend un verrou exclusif).
+
+**Sur 16 Go, c'est l'architecture qui décide, pas le nombre de
+paramètres.** Qwen3.8-27B, dense, déborde à tous les paliers dans ses deux
+quantifications utiles — 12 % à 32k en Q3, 32 % en Q4 — et plafonne à
+13,3 tok/s. Qwen3.6-35B-A3B a **sept milliards de paramètres de plus** et
+tient 128k à 0 % de débordement, 89,3 tok/s, parce que seuls 3 Md sont
+actifs par token. Un MoE plus gros passe là où un dense plus petit étouffe,
+et aucune fiche technique ne le dit à votre place.
 
 Matériel : AMD RX 6800, ~16 Go de VRAM. Un modèle qui déborde sur CPU
 répond quand même, sans erreur, dix fois plus lentement et de façon

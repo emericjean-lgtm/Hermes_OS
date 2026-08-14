@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import {
   useCloudStatus,
   useModelBenchmarks,
+  useModelCatalogue,
   useModelHistory,
   useModelIntelligence,
   useModelOptimize,
@@ -14,6 +15,7 @@ import {
 } from "@/hooks/use-api";
 import { CenterHeader } from "@/components/center-scaffold";
 import { Badge, Card } from "@/components/ui/card";
+import type { BenchAxisDTO } from "@/services/client";
 import type { ResourceStatus } from "@/types/hermes";
 import { formatGio, formatGioPair } from "@/lib/format";
 
@@ -41,9 +43,10 @@ const TASK_TYPES = [
   "chat", "documentation", "optimization", "reasoning", "general",
 ] as const;
 
-const TABS = ["ranking", "recommend", "benchmark", "optimizer", "history"] as const;
+const TABS = ["catalogue", "ranking", "recommend", "benchmark", "optimizer", "history"] as const;
 
 const TAB_LABELS: Record<(typeof TABS)[number], string> = {
+  catalogue: "Catalogue mesuré",
   ranking: "Classement",
   recommend: "Recommander",
   benchmark: "Benchmark",
@@ -51,8 +54,186 @@ const TAB_LABELS: Record<(typeof TABS)[number], string> = {
   history: "Historique",
 };
 
+const AXIS_LABELS: Record<string, string> = {
+  capacite: "Capacité",
+  code: "Code",
+  raisonnement: "Raisonnement",
+  agentique: "Agentique",
+  extraction: "Extraction",
+  vision: "Vision",
+  long_contexte: "Long contexte",
+};
+
+/** Une note sur 100 devient une couleur — mais `null` n'en reçoit aucune.
+ *  « Non mesuré » et « zéro » doivent rester distincts partout : un modèle
+ *  jamais soumis à un axe passerait sinon pour mauvais sur cet axe. */
+export function noteColor(note: number | null | undefined): string {
+  if (note == null) return "text-hermes-muted";
+  if (note >= 80) return "text-hermes-green";
+  if (note >= 50) return "text-hermes-cyan";
+  if (note >= 25) return "text-hermes-amber";
+  return "text-hermes-red";
+}
+
+function formatMeasuredAt(epoch: number): string {
+  if (!epoch) return "—";
+  return new Date(epoch * 1000).toLocaleDateString("fr-FR", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+  });
+}
+
+type Ligne = { cle: string; ok?: boolean; nom: string; note?: string; duree?: number };
+
+/** Ramener une entrée de détail à une ligne affichable.
+ *
+ *  Chaque campagne a nommé ses clés à sa façon — `level`/`passed` pour le
+ *  code, `niveau`/`reussi` pour l'extraction, `trouve` pour le long
+ *  contexte, `success` pour l'agentique. Normaliser ici plutôt que
+ *  réécrire les mesures : elles ont coûté des heures de GPU et se relisent
+ *  très bien telles quelles.
+ *
+ *  `ok` reste **undefined** quand aucune clé connue ne porte le verdict.
+ *  C'est la règle du projet appliquée à l'affichage : une information
+ *  absente ne doit pas s'afficher comme un échec. La première version
+ *  lisait `passed` seul et montrait cinq croix rouges sur l'extraction de
+ *  gpt-oss — un modèle qui avait tout réussi. */
+export function ligneDeDetail(brut: Record<string, unknown>, index: number): Ligne {
+  const bool = (...cles: string[]): boolean | undefined => {
+    for (const c of cles) if (typeof brut[c] === "boolean") return brut[c] as boolean;
+    return undefined;
+  };
+  const texte = (...cles: string[]): string | undefined => {
+    for (const c of cles) if (typeof brut[c] === "string" && brut[c]) return brut[c] as string;
+    return undefined;
+  };
+  const nombre = (...cles: string[]): number | undefined => {
+    for (const c of cles) if (typeof brut[c] === "number") return brut[c] as number;
+    return undefined;
+  };
+
+  const contexte = nombre("contexte");
+  const profondeur = nombre("profondeur");
+  const nom =
+    texte("level", "niveau", "epreuve", "task") ??
+    (contexte != null
+      ? `${(contexte / 1024).toFixed(0)}k · profondeur ${((profondeur ?? 0) * 100).toFixed(0)} %`
+      : `essai ${index + 1}`);
+
+  const appels = nombre("tool_calls");
+  const attendu = texte("attendu");
+  const recu = texte("recu");
+  const ok = bool("passed", "reussi", "trouve", "success");
+  const note =
+    texte("detail") ??
+    (attendu != null
+      ? `attendu ${attendu}${ok === false && recu ? ` — reçu « ${recu.slice(-50)} »` : ""}`
+      : appels != null
+        ? `${appels} appel${appels > 1 ? "s" : ""} d'outil${
+            brut.artifact_verified === true ? ", artefact vérifié sur disque" : ""
+          }`
+        : undefined);
+
+  return {
+    cle: `${nom}-${index}`,
+    ok,
+    nom,
+    note,
+    duree: nombre("secondes", "duration_s", "seconds"),
+  };
+}
+
+/** Le détail brut d'un axe, tel que la campagne l'a produit.
+ *
+ *  Un chiffre sans son justificatif redevient une opinion : l'onglet doit
+ *  pouvoir montrer *quel* niveau a cassé et avec quel message, pas
+ *  seulement que le modèle plafonne. */
+function AxisDetail({ axis, entry }: { axis: string; entry: BenchAxisDTO }) {
+  const detail = (entry.detail ?? {}) as Record<string, unknown>;
+
+  const tiers = detail.tiers as
+    | { num_ctx: number; context_length?: number; cpu_offload_ratio?: number | null }[]
+    | undefined;
+
+  // Les noms sous lesquels les campagnes rangent leurs essais. Un axe peut
+  // en porter plusieurs : le code a son échelle à neuf niveaux *et* ses
+  // deux séries de départage, et n'en montrer qu'une cacherait précisément
+  // ce qui sépare les trois modèles de tête.
+  const series = ([
+    ["niveaux", ""], ["essais", ""], ["mesures", ""], ["epreuves", ""],
+    ["resultats", ""], ["extremes", "départage extrême"],
+    ["abyssales", "départage abyssal"],
+  ] as const)
+    .filter(([cle]) => Array.isArray(detail[cle]))
+    .map(([cle, titre]) => ({
+      cle,
+      titre,
+      lignes: (detail[cle] as Record<string, unknown>[]).map(ligneDeDetail),
+    }));
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-hermes-muted text-[10px] uppercase tracking-wide">
+        {AXIS_LABELS[axis] ?? axis} — {entry.verdict || "sans verdict"}
+      </div>
+
+      {tiers?.map((t) => (
+        <div key={t.num_ctx} className="flex items-baseline gap-2 text-[11px] font-mono">
+          <span className="text-hermes-text w-28">
+            {(t.num_ctx / 1024).toFixed(0)}k demandés
+          </span>
+          <span className="text-hermes-muted w-24">
+            {t.context_length ? `${(t.context_length / 1024).toFixed(0)}k servis` : "non servi"}
+          </span>
+          {t.cpu_offload_ratio != null && (
+            <span className={t.cpu_offload_ratio > 0.02 ? "text-hermes-red" : "text-hermes-green"}>
+              {(t.cpu_offload_ratio * 100).toFixed(0)} % CPU
+            </span>
+          )}
+        </div>
+      ))}
+
+      {series.map((serie) => (
+        <div key={serie.cle} className="space-y-1.5">
+          {serie.titre && (
+            <div className="text-hermes-muted text-[10px] uppercase tracking-wide pt-1">
+              {serie.titre}
+            </div>
+          )}
+          {serie.lignes.map((l) => (
+            <div key={l.cle} className="flex items-baseline gap-2 text-[11px] font-mono">
+              <span
+                className={
+                  l.ok == null
+                    ? "text-hermes-muted"
+                    : l.ok
+                      ? "text-hermes-green"
+                      : "text-hermes-red"
+                }
+              >
+                {l.ok == null ? "·" : l.ok ? "✓" : "✗"}
+              </span>
+              <span className="text-hermes-text w-32 shrink-0 truncate">{l.nom}</span>
+              {l.note && <span className="text-hermes-muted truncate">{l.note}</span>}
+              {l.duree != null && (
+                <span className="text-hermes-muted ml-auto shrink-0">{l.duree.toFixed(0)}s</span>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {!tiers && series.length === 0 && Object.keys(detail).length > 0 && (
+        <pre className="text-[10px] text-hermes-muted font-mono overflow-x-auto">
+          {JSON.stringify(detail, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 export default function ModelIntelligenceCenter() {
-  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>("ranking");
+  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>("catalogue");
+  const [expandedModel, setExpandedModel] = useState<string | null>(null);
   const [taskInput, setTaskInput] = useState("");
   const [recommendTaskType, setRecommendTaskType] = useState<string>("code_generation");
   const [benchmarkModelId, setBenchmarkModelId] = useState<string>("");
@@ -67,6 +248,7 @@ export default function ModelIntelligenceCenter() {
   const benchmarks = useModelBenchmarks(benchmarkModelId || undefined);
   const runBenchmark = useRunBenchmark();
   const history = useModelHistory(30);
+  const catalogue = useModelCatalogue();
 
   const models = ranking.data?.models ?? [];
   const decision = recommend.data?.decision;
@@ -225,6 +407,114 @@ export default function ModelIntelligenceCenter() {
           </button>
         ))}
       </div>
+
+      {/* Catalogue mesuré (HOS-108) — GET /models/catalogue.
+          Distinct du Classement voisin : celui-ci n'affiche que ce qui a
+          été observé sur cette machine, jamais une heuristique. Chaque
+          note vient d'une campagne réelle dont le détail est dépliable. */}
+      {activeTab === "catalogue" && (
+        <div className="bg-hermes-elevated/60 border border-hermes-border rounded-lg p-5">
+          <div className="flex items-baseline justify-between mb-1">
+            <h2 className="text-lg font-semibold text-hermes-text-bright">Catalogue mesuré</h2>
+            <span className="text-hermes-muted text-[11px]">
+              {catalogue.data?.total ?? 0} modèles · cliquez une ligne pour le détail
+            </span>
+          </div>
+          <p className="text-hermes-muted text-xs mb-4">
+            Une note par axe, jamais de moyenne : un modèle excellent en vision et
+            faible en long contexte n&apos;est pas « moyen », il a deux usages
+            différents. Une case vide signifie <em>non mesuré</em> — ce n&apos;est
+            pas un zéro.
+          </p>
+
+          {catalogue.isLoading && (
+            <div className="text-hermes-muted text-sm py-2">Chargement du catalogue…</div>
+          )}
+          {catalogue.isError && (
+            <div className="text-hermes-red text-sm py-2">
+              /models/catalogue injoignable —{" "}
+              {catalogue.error instanceof Error ? catalogue.error.message : "erreur inconnue"}
+            </div>
+          )}
+          {catalogue.data && catalogue.data.models.length === 0 && (
+            <div className="text-hermes-muted text-sm py-2">
+              Aucune campagne n&apos;a encore été enregistrée.
+            </div>
+          )}
+
+          {catalogue.data && catalogue.data.models.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-hermes-border">
+                    <th className="text-left py-2 px-3 text-hermes-muted font-medium">Modèle</th>
+                    {catalogue.data.axes.map((axe) => (
+                      <th key={axe} className="text-right py-2 px-3 text-hermes-muted font-medium whitespace-nowrap">
+                        {AXIS_LABELS[axe] ?? axe}
+                      </th>
+                    ))}
+                    <th className="text-right py-2 px-3 text-hermes-muted font-medium">Mesuré le</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {catalogue.data.models.map((entree) => {
+                    const ouvert = expandedModel === entree.model;
+                    return (
+                      <React.Fragment key={entree.model}>
+                        <tr
+                          onClick={() => setExpandedModel(ouvert ? null : entree.model)}
+                          className="border-b border-hermes-border/50 hover:bg-hermes-elevated/20 cursor-pointer"
+                        >
+                          <td className="py-2 px-3 text-hermes-text-bright font-mono whitespace-nowrap">
+                            <span className="text-hermes-muted mr-1.5">{ouvert ? "▾" : "▸"}</span>
+                            {entree.model}
+                          </td>
+                          {catalogue.data!.axes.map((axe) => {
+                            const note = entree.notes[axe];
+                            const mesure = entree.axes[axe];
+                            return (
+                              <td key={axe} className="py-2 px-3 text-right whitespace-nowrap">
+                                {note == null && !mesure ? (
+                                  <span className="text-hermes-muted/50">—</span>
+                                ) : (
+                                  <>
+                                    <span className={`font-mono ${noteColor(note)}`}>
+                                      {note == null ? "n.n." : note}
+                                    </span>
+                                    {mesure?.verdict && (
+                                      <div className="text-hermes-muted text-[10px] font-mono">
+                                        {mesure.verdict}
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="py-2 px-3 text-right text-hermes-muted font-mono text-[11px]">
+                            {formatMeasuredAt(entree.measured_at)}
+                          </td>
+                        </tr>
+                        {ouvert && (
+                          <tr className="border-b border-hermes-border/50 bg-hermes-bg-deep/40">
+                            <td colSpan={catalogue.data!.axes.length + 2} className="py-3 px-6">
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
+                                {Object.entries(entree.axes).map(([axe, mesure]) => (
+                                  <AxisDetail key={axe} axis={axe} entry={mesure} />
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Model Ranking Tab */}
       {activeTab === "ranking" && (

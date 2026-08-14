@@ -1,3 +1,77 @@
+## HOS-108 — Le catalogue mesuré, noté et affiché (2026-08-14)
+
+Les campagnes produisaient des verdicts hétérogènes — un palier de code, un taux d'outillage, un contexte servi — et le routage a besoin de comparer. `bench_score.py` ramène chaque axe à une note sur 100.
+
+**Une note par axe, jamais de note globale.** Une moyenne dirait que gemma4 — excellent en vision, inutilisable au-delà de 32k — vaut autant qu'un modèle moyen partout. Le catalogue existe pour distinguer des compétences, pas pour les fondre : c'est précisément parce que LFM2.5 fait une extraction simple sept fois plus vite que Muse Glimmer qu'il vaut la peine d'en tenir un catalogue.
+
+**La progression des paliers est accélérée, pas linéaire.** Neuf niveaux à 11,1 points diraient que passer de `simple` à `moyen` vaut autant que de `titan` à `mythique`. Mesuré : dix modèles sur dix passent `simple`, trois atteignent `mythique`.
+
+**Et l'échelle à neuf niveaux ne mène plus à 100, mais à 64.** Trois modèles l'épuisaient, donc elle affichait trois fois la même note et le routage n'avait aucune raison de préférer l'un à l'autre — un score dont le sommet est atteint par plusieurs candidats ne les classe plus. Les 36 points restants viennent de six épreuves de départage, à six points chacune : trois qui demandent de **construire** (un interpréteur, un cache O(1) strict, une file bornée sûre entre threads) et trois qui demandent d'**optimiser**, où une solution juste mais naïve existe et échoue — un diff glouton rend 6 opérations là où 2 suffisent, une boucle par intervalle expire, une structure « persistante » qui recopie à chaque version met 13,5 s là où le partage de structure en met 0,3.
+
+Chacune est prouvée **solvable et discriminante** avant tout usage : une référence correcte qui doit passer, une à deux références naïves qui doivent échouer. Le garde-fou a servi au premier essai — deux budgets sur trois laissaient passer les raccourcis, parce que le coût de `dict(autre)` avait été estimé à partir du nombre d'entrées alors que c'est une copie en C, cent fois plus rapide.
+
+### Deux zéros qui n'appartenaient pas aux modèles
+
+`build_haystack` estimait douze tokens par phrase ; la mesure en donne dix-neuf. Un foin demandé à 26 000 tokens en pesait 33 411 — 28 % de trop — et Ollama rejetait la requête par un HTTP 400 sur tout modèle dont le Modelfile ne relevait pas le contexte au-dessus de la demande. **qwen3.6-35b et ornith-9b ont été notés 0/6 en long contexte sans avoir jamais été interrogés.** Le seul indice était `0s` par tentative.
+
+Après correction, sur exactement la même campagne :
+
+| Modèle | Avant | Après |
+|---|---|---|
+| qwen3.6-35b-128k | 0/6 | **6/6** |
+| ornith-9b-256k | 0/6 | **5/6** |
+| muse-glimmer-64k | non mesuré | **6/6** |
+
+C'est le septième défaut d'instrument de la série, et aucun n'a été trouvé en relisant du code : tous l'ont été parce qu'un chiffre était invraisemblable.
+
+### Et deux autres, trouvés sur un motif
+
+Muse-Glimmer a échoué une épreuve de départage sur ses deux essais avec le même `SyntaxError: invalid syntax`. Puis qwen3.6 a échoué une autre épreuve sur exactement la même erreur. Deux modèles sans rien de commun n'échouent pas identiquement — le même raisonnement avait déjà démasqué le contexte à 4096 et la fusion raisonnement/réponse.
+
+`extract_code` retenait le bloc encadré **le plus long, qu'il compile ou non**. Un modèle qui encadre une spécification en prose avant son implémentation, ou qui laisse sa clôture ``` en chemin, se faisait noter sur du texte qu'il n'a jamais présenté comme du code — la même faute que l'extracteur JSON glouton de HOS-104, dans le même fichier de mesure. Il retient désormais le plus long candidat **qui s'analyse réellement**. Le changement est monotone : il ne peut transformer un échec en réussite, jamais l'inverse.
+
+Les réponses brutes, conservées à partir de là, ont tranché les deux cas dans des sens opposés. Muse-Glimmer avait écrit du Python réellement invalide — un `elif` placé après un `else`. qwen3.6, lui, avait été **coupé en plein code** : le script de départage appelait à `num_ctx=32768` alors que la campagne principale, celle qui l'avait classé `mythique`, tournait à 65536. Son raisonnement remplissait la fenêtre avant que sa réponse n'y tienne. **Un contexte fixe pour tous mesure le réglage, pas les modèles** : chaque appel lit maintenant le contexte que le modèle sert d'après sa propre mesure de capacité, et `done_reason == "length"` marque une réponse tronquée comme telle plutôt que comme une erreur de raisonnement. Au bon contexte, l'échec de qwen3.6 est resté — mais en `IndexError` sur un interpréteur complet, ce qui est un tout autre verdict.
+
+### Un axe de raisonnement, et deux vérités-terrain fausses
+
+Artificial Analysis place Qwen3.6-27B à 38 d'indice d'intelligence contre 15 pour gpt-oss-20b, alors que les deux atteignent `mythique` en code. Aucun axe ne touchait cette dimension : le code mesure la construction, pas la déduction.
+
+Les quatre épreuves ont une réponse unique et mécaniquement vérifiable. **Deux des quatre réponses de référence, posées de tête, étaient fausses** — le graphiste de l'énigme est Amel et non Bruno, l'atelier rend 479 pièces et non 475. Vérifiées par force brute avant la première interrogation ; lancée telle quelle, la campagne aurait noté en échec tous les modèles qui répondaient juste, et conclu que le raisonnement est le point faible du catalogue.
+
+Le juge s'auto-teste désormais sur quatorze cas avant chaque campagne, et ce test a immédiatement rejeté sa propre première version : la règle « le nombre attendu apparaît dans la ligne de réponse » validait `100 pièces / 5 = 20 minutes` à l'épreuve dont la bonne réponse est 5.
+
+### L'onglet Modèles
+
+Le Centre affichait le classement du `ModelProfiler` — des heuristiques. Le nouvel onglet, mis en premier et par défaut, n'affiche que ce qui a été observé sur cette machine : une note par axe, le verdict brut à côté, la date de mesure, et le détail complet de la campagne en dépliant la ligne. Une case vide y signifie **non mesuré**, jamais zéro.
+
+Il portait le même genre de défaut que les instruments qu'il affiche. Les campagnes n'ont pas nommé leurs clés pareil — `level`/`passed` pour le code, `niveau`/`reussi` pour l'extraction, `trouve` pour le long contexte, `success` pour l'agentique — et le rendu n'en lisait qu'une : **l'extraction de gpt-oss s'affichait avec cinq croix rouges alors que le modèle y est noté 100/100.** Corrigé par normalisation, avec la règle du projet appliquée à l'affichage : quand aucune clé connue ne porte le verdict, la ligne montre un point neutre et non un échec.
+
+### Le chemin de chat était cassé, et rien ne le disait
+
+Trouvé en dernier, et de loin le plus grave. Le tri des modèles avait ramené 21 tags à 11 en inscrivant le contexte mesuré dans chaque nom ; `config/models.yaml` n'a pas suivi. **Onze rôles sur douze pointaient vers un tag qui n'existait plus** — `standard`, `swift` et `orchestrator` compris, c'est-à-dire les trois candidats de `conversation`.
+
+La panne n'avait d'erreur nulle part où quelqu'un regardait. Ollama répondait 404 sur `/api/chat`. La route de chat faisait exactement ce qu'il fallait : enregistrer `result="failed"` avec le message, puis relever l'exception. Mais une réponse en flux envoie son statut HTTP **avant** le premier fragment, donc le client recevait 200 et un corps vide — l'onglet Assistant affichait le silence. Vérifié sur le backend en marche, pas seulement dans un test.
+
+Huit tests de `test_chat_audit` le signalaient depuis des heures. Ils ont été mis sur le compte de la contention machine, parce qu'une campagne de modèles saturait le GPU et que neuf tests d'inférence échouaient ensemble. Sur une machine libre, un seul des neuf était vraiment de la contention. **Un test rouge attribué au bruit sans vérification est un test qu'on a cessé de lire.**
+
+Chaque rôle est maintenant rattaché à un modèle installé **et** au chiffre mesuré qui le justifie : `code` et `orchestrator` sur gpt-oss-20b (100/100 en code, agentique 3/3, le plus rapide des gros), `reasoning` sur qwen3.6-35b (4/4 en 114 s, 128k à 0 % de débordement), `vision` sur gemma4-12b, `swift` sur lfm2.5-2.6b (2,05 Gio à 16k, 187,6 tok/s). Les commentaires de mesure du fichier, datés de HOS-065C et portant sur des modèles disparus, ont été remplacés plutôt que laissés à mentir.
+
+En faisant l'arithmétique VRAM des rôles résidents, une seconde contradiction est apparue : **`always_loaded: true` demande plus que le runtime n'accorde.** Le drapeau envoie `keep_alive: -1`, qui empêche l'expiration par inactivité mais pas l'éviction par un autre modèle — et `OLLAMA_MAX_LOADED_MODELS` vaut 1, donc un seul modèle est résident et chaque changement de rôle évince le précédent. La configuration se lisait comme si `swift` et l'embedding étaient chauds en permanence.
+
+Le drapeau est **conservé**. §22 est une exigence réelle, `test_always_loaded_models.py` la garde, et le réglage est à une variable d'environnement. Ce qui était faux n'était pas l'intention mais la croyance qu'elle était satisfaite. Le retirer aurait été annuler une exigence en la faisant passer pour un détail de configuration.
+
+`backend/runtime/model_guard.py` fait donc au démarrage les deux vérifications qui auraient coupé court : comparer la configuration à l'inventaire réel d'Ollama en nommant le rôle **et** le tag fautifs, et signaler quand plus de rôles demandent la résidence que le runtime n'en accorde. Les deux se taisent quand ils n'ont rien mesuré — une limite inconnue ne déclenche pas d'alerte, parce qu'un garde-fou qui devine apprend à être ignoré. Il suit le motif de `context_guard`, écrit pour une panne de la même famille : silencieuse, coûteuse, invisible depuis les rapports de succès.
+
+Une conséquence reste ouverte et est consignée dans le fichier plutôt que corrigée en silence : la première règle du routeur est « un modèle déjà en VRAM l'emporte sur l'ordre de priorité ». Avec un seul modèle résident, une `extraction` servie par `swift` laisse `swift` chargé, et la `conversation` suivante est répondue par le modèle de 2,6 Md plutôt que par `standard` — avec pour seule trace un motif « already loaded ». C'est un vrai arbitrage (un rechargement coûte 11 à 27 s, mesuré), mais implicite et affectant la qualité. Il appartient à la passe de routage, avec les notes mesurées pour trancher.
+
+### Verified
+
+31 tests sur la notation, 11 sur les routes, 19 sur le magasin, 19 sur l'exécution de code, 10 sur le rendu, 10 sur le garde-fou des rôles. Celui qui porte le reste s'appelle `test_un_axe_absent_ne_donne_pas_de_note` et son symétrique `test_un_zero_mesure_est_conserve` : `None` et `0` doivent rester distincts de bout en bout, sans quoi un modèle jamais testé passe pour mauvais et un modèle réellement mauvais pour non testé.
+
+Trois nomment un incident précis. `test_the_haystack_stays_under_the_requested_budget` garde les deux faux zéros du long contexte. `test_le_plus_long_bloc_qui_ne_compile_pas_est_ecarte` garde l'extraction de code. `test_un_modele_au_sommet_de_l_echelle_sans_departage_n_a_pas_cent` garde la raison d'être de l'échelle refaite : trois modèles affichaient 100/100 en code, et le routage n'avait donc aucune raison de préférer l'un à l'autre.
+
+Cinq tests sont tombés en corrigeant la configuration, sur du code inchangé : ils codaient en dur les anciens tags, ou s'appuyaient sur l'écart de VRAM entre deux rôles désormais servis par le même modèle. Ils lisent maintenant le tag dans la configuration, et les deux tests de politique VRAM du routeur ont leur propre configuration synthétique. **Un test de politique qui dépend du catalogue du jour se casse à chaque mesure, et finit par être corrigé au lieu d'être lu** — c'est précisément ce qui venait d'arriver aux huit autres.
+
 ## HOS-105 — Une tâche voit enfin ce que les précédentes ont produit (2026-08-13)
 
 Prérequis au routage par modèle, et découvert en cherchant tout autre chose. Une tâche recevait l'objectif de la mission et son propre titre — rien d'autre. `mark_completed` posait un statut et une date ; `result_summary`, écrit sur **chaque** nœud par `node_execution`, n'était relu par personne. Une mission décomposée se comportait donc comme une série de prompts isolés sans rapport entre eux.

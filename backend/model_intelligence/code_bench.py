@@ -291,6 +291,14 @@ LEVEL_ORDER: tuple[str, ...] = (
 )
 
 
+def _parses(source: str) -> bool:
+    try:
+        compile(source, "<essai>", "exec")
+    except (SyntaxError, ValueError):
+        return False
+    return True
+
+
 def extract_code(raw: str) -> str:
     """Le code, débarrassé de ce qui l'entoure.
 
@@ -298,11 +306,29 @@ def extract_code(raw: str) -> str:
     et après. Refuser ces réponses mesurerait des habitudes de mise en
     forme plutôt que la compétence — le même écueil que l'extraction JSON,
     qui notait 0/5 des objets parfaits.
+
+    Parmi les candidats, on retient **le plus long qui s'analyse
+    réellement**, exactement comme l'extraction JSON retient l'objet qui se
+    parse plutôt que le plus grand intervalle d'accolades. Prendre le plus
+    long sans vérifier fait échouer sur `SyntaxError` un modèle qui a écrit
+    du code juste mais l'a fait précéder d'un bloc de prose encadré, ou qui
+    a laissé sa clôture ``` en chemin — un verdict d'instrument, pas de
+    modèle.
+
+    Quand aucun candidat ne s'analyse, on rend quand même le plus long :
+    le message d'erreur doit alors parler du code du modèle, pas d'un
+    fragment choisi par défaut.
     """
-    fenced = re.findall(r"```(?:python|py)?\s*(.*?)```", raw, re.DOTALL)
-    if fenced:
-        return max(fenced, key=len).strip()
-    return raw.strip()
+    candidats = re.findall(r"```(?:python|py)?\s*(.*?)```", raw, re.DOTALL)
+    # Une ouverture jamais refermée — fréquent quand la réponse s'arrête en
+    # chemin. Le corps reste exploitable.
+    ouverture = re.search(r"```(?:python|py)?\s*(.*)$", raw, re.DOTALL)
+    if ouverture and raw.count("```") % 2 == 1:
+        candidats.append(ouverture.group(1))
+    candidats = [c.strip() for c in candidats if c.strip()] or [raw.strip()]
+
+    analysables = [c for c in candidats if _parses(c)]
+    return max(analysables or candidats, key=len)
 
 
 @dataclass
