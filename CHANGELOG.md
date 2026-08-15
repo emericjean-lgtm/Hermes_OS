@@ -1,3 +1,46 @@
+## HOS-114 — Le prix d'une bascule de modèle (2026-08-15)
+
+Le routeur changeait de modèle dès qu'un « meilleur » existait, sans savoir ce que ça coûtait, et rien dans le journal d'audit ne le disait après coup. Un arbitrage qu'on ne peut pas chiffrer ne peut pas se corriger.
+
+### Ce que la mesure a écarté avant tout le reste
+
+Le levier évident — garder deux modèles résidents — **ne tient pas sur cette carte**. Empreintes réelles, lues au compteur GPU du processus d'inférence et non sur `/api/ps` : `lfm2.5-2.6b-125k` à 128k occupe 4,38 Gio, `gpt-oss-20b-64k` à 64k en occupe 12,53. Ensemble : 16,91 Gio pour 16 disponibles.
+
+`always_loaded` sur `swift` n'est donc pas seulement inopérant, comme le signale `model_guard` depuis HOS-112 — il est **irréalisable**. Monter `OLLAMA_MAX_LOADED_MODELS` à 2 ferait déborder sur le CPU, c'est-à-dire un modèle qui répond dix fois plus lentement et de façon erratique, et qu'on prendrait pour un modèle peu fiable.
+
+### La grille, et le témoin qui la rend croyable
+
+Six couples `(modèle, contexte réellement servi)` — ceux parmi lesquels le routeur choisit, pris de `config/models.yaml` et non choisis pour la mesure :
+
+| modèle | ctx | chargement |
+|---|---|---|
+| lfm2.5-2.6b-125k | 16k | 4,5 s |
+| gemma4-12b-256k | 256k | 14,6 s |
+| ornith-9b-256k | 256k | 15,3 s |
+| qwen3.6-35b-128k | 128k | 20,2 s |
+| gpt-oss-20b-64k | 64k | 20,9 s |
+| muse-glimmer-64k | 64k | 24,1 s |
+
+`load_duration` est un chiffre **rapporté** par Ollama, pas constaté par nous. Il n'est utilisé qu'après vérification : chaque mesure est doublée d'un témoin à chaud — 0,27 à 0,65 s — soit au moins un ordre de grandeur d'écart, et la somme colle à l'horloge murale du même appel. `CoutBascule.credible` porte ce contrôle, et un test le fait échouer sur un chiffre identique à froid et à chaud : un `load_duration` qui rapporterait la même chose chargé ou non n'aurait rien mesuré, et le routeur arbitrerait sur du bruit en croyant arbitrer sur une mesure.
+
+Décharger le modèle en place ajoute ~1,8 s : une bascule vaut donc à peu près le chargement de la cible, qui domine. Muse Glimmer coûte deux fois — le plus lent à charger *et* le plus lent à générer (27,9 tok/s).
+
+L'instrument entre au dépôt avec ses tests, pas dans un dossier temporaire — la leçon de HOS-110.
+
+### Ce que le routeur en fait, et ce qu'il n'en fait pas
+
+`RoutingDecision` porte `switch_cost_s`, sur **les quatre chemins de sortie**. En renseigner trois aurait livré un champ juste seulement parfois — la forme exacte du défaut `first_token_ms` que ce module a déjà connu, et la raison pour laquelle `_decide` est un point de construction unique. `loaded` y est un paramètre obligatoire : le coût d'une décision n'a pas de sens sans savoir ce qui était résident, et un défaut aurait silencieusement rapporté toute bascule comme gratuite.
+
+Le chiffre atterrit dans le journal d'audit à côté de `first_token_ms`. Sans lui, cette latence mélange l'attente due à une bascule et la lenteur du modèle — deux causes qui appellent des corrections opposées, la même distinction qui avait motivé `first_thinking_ms`.
+
+Un modèle absent de la grille vaut **0,0 et non une estimation** : un zéro se repère dans le journal, une estimation s'y confondrait avec une mesure.
+
+**Le routage par difficulté n'est pas implémenté, et c'est délibéré.** Servir une tâche simple avec un modèle moins cher suppose de savoir qu'elle est simple : le classificateur existe mais n'a aucun appelant (`docs/frontend-backlog.md`). Une règle qui prétendrait juger la difficulté jugerait en réalité le `task_type`, ce que la table `routing` fait déjà. C'est écrit dans `config/models.yaml` pour que le vide se lise comme un choix.
+
+### Verified
+
+20 tests. Un d'entre eux vérifie que **les six modèles routables ont un prix** — un modèle routable sans mesure rendrait le champ muet précisément là où il sert. Suite : 3 861 passés, 3 ignorés, code de sortie 0.
+
 ## HOS-113 — Deux des trois « défauts de production » n'en étaient pas (2026-08-15)
 
 **Amendement à HOS-112.** Son entrée annonçait trois défauts de production révélés par le chantier des tests. En allant les corriger, la lecture du code en a réfuté deux. Ils sont amendés ici plutôt que corrigés en silence, parce que l'erreur est instructive : je les avais diagnostiqués depuis un vidage de pile, sans jamais vérifier ce qu'ils valaient en production.

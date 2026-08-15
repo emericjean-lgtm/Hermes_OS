@@ -236,6 +236,47 @@ routing:
 # cost. lfm2.5 answers an extraction in 4.4 s where muse-glimmer takes
 # 13.3 — same verdict, a third of the time.
 
+# ── Le prix d'une bascule, mesuré (HOS-114, 2026-08-15) ────────────────────
+#
+# Sur 16 Go avec OLLAMA_MAX_LOADED_MODELS=1, un seul modèle est résident :
+# servir une tâche avec un autre veut dire décharger celui qui est là puis
+# charger le nouveau. Le routeur arbitrait sans connaître ce prix — il
+# changeait de modèle dès qu'un « meilleur » existait, que la tâche en ait
+# besoin ou non, et rien dans le journal ne disait ce que ça avait coûté.
+#
+# Chiffres : `load_duration` rapporté par Ollama, au contexte que chaque
+# rôle sert réellement (`num_ctx` ci-dessus), modèle déchargé avant la
+# mesure. Chacun est accompagné de son témoin à chaud — 0,27 à 0,65 s —
+# soit au moins un ordre de grandeur d'écart. Sans ce témoin, un
+# `load_duration` qui rapporterait la même chose chargé ou non n'aurait
+# rien mesuré du tout. Instrument : backend/model_intelligence/switch_bench.py.
+#
+# Décharger le modèle en place ajoute ~1,8 s : une bascule vaut donc à peu
+# près le chargement de la cible, qui domine largement.
+#
+# Muse Glimmer coûte deux fois — le plus lent à charger (24,1 s) *et* le
+# plus lent à générer (27,9 tok/s). C'est un rôle d'escalade, pas un défaut.
+bascule_s:
+  lfm2.5-2.6b-125k: 4.5
+  gemma4-12b-256k: 14.6
+  ornith-9b-256k: 15.3
+  qwen3.6-35b-128k: 20.2
+  gpt-oss-20b-64k: 20.9
+  muse-glimmer-64k: 24.1
+
+# ── Ce que cette grille ne décide pas encore ───────────────────────────────
+#
+# Router *par difficulté* — servir une tâche simple avec un modèle moins
+# cher quand le catalogue montre qu'il suffit — demande de savoir qu'une
+# tâche est simple. Ce classificateur existe mais n'a aucun appelant (voir
+# docs/frontend-backlog.md, « Sélection automatique du modèle »). Tant
+# qu'il n'est pas branché, une règle qui prétendrait juger la difficulté
+# jugerait en fait le `task_type`, ce que la table `routing` fait déjà.
+#
+# Cette grille rend donc d'abord le coût *visible* : `RoutingDecision`
+# porte le prix de la décision et le journal d'audit le garde. Un arbitrage
+# qu'on ne peut pas chiffrer après coup ne peut pas se corriger.
+
 # Generation parameters by context sensitivity (see cahier des charges §22.2).
 generation_defaults:
   critical:

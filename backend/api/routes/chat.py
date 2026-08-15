@@ -145,6 +145,13 @@ async def _audited(stream, request: ChatRequest, decision) -> AsyncIterator[str]
                         "tier": decision.tier,
                         "reason": decision.reason,
                         "thinking": decision.thinking,
+                        # HOS-114 : ce que ce choix a coûté en chargement.
+                        # Sans lui, `first_token_ms` mélange l'attente due
+                        # à une bascule et la lenteur du modèle — deux
+                        # causes qui appellent des corrections opposées,
+                        # exactement la distinction qui a motivé
+                        # `first_thinking_ms` juste au-dessus.
+                        "switch_cost_s": decision.switch_cost_s,
                     },
                     duration_ms=timer.duration_ms,
                     first_token_ms=timer.first_token_ms,

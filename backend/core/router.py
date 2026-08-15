@@ -41,6 +41,16 @@ class RoutingDecision:
     # rather than the single global default every chat_events() call used
     # to fall back to regardless of which model it was talking to.
     num_ctx: int = 8192
+    # Ce que cette décision coûte en chargement, en secondes (HOS-114).
+    # 0.0 quand le modèle choisi est déjà résident. Mesuré par
+    # switch_bench.py, déclaré dans config/models.yaml → `bascule_s`.
+    #
+    # Porté sur la décision plutôt que calculé par l'appelant : le routeur
+    # est le seul à savoir ce qui était résident au moment du choix, et
+    # c'est cette information-là que le journal d'audit doit garder. Un
+    # arbitrage qu'on ne peut pas chiffrer après coup ne peut pas se
+    # corriger — le même raisonnement que pour `thinking` et `num_ctx`.
+    switch_cost_s: float = 0.0
 
 
 class UnknownTaskTypeError(ValueError):
@@ -55,6 +65,11 @@ class ModelRouter:
         thinking = config.get("thinking") or {}
         self._thinking_default: bool = bool(thinking.get("default", False))
         self._thinking_by_task: dict[str, bool] = dict(thinking.get("by_task_type") or {})
+        #: Coût de chargement mesuré, par tag de modèle. Absent = 0.0 : un
+        #: modèle non mesuré ne doit pas se voir attribuer un prix inventé,
+        #: et un zéro se repère dans le journal là où une estimation se
+        #: confondrait avec une mesure.
+        self._bascule_s: dict[str, float] = dict(config.get("bascule_s") or {})
 
     def select_model(
         self,
@@ -101,6 +116,7 @@ class ModelRouter:
                 return self._decide(
                     task_type, role_name, role,
                     "model already loaded in VRAM, reused to avoid reload",
+                    loaded=loaded,
                 )
 
         # 2. Otherwise, first candidate (priority order) that fits available VRAM.
@@ -109,6 +125,7 @@ class ModelRouter:
                 return self._decide(
                     task_type, preferred, self._roles[preferred],
                     f"fits available VRAM ({available_vram_gb} GB)",
+                    loaded=loaded,
                 )
 
             # 3. Nothing fits: downgrade to the smallest candidate and flag it.
@@ -118,6 +135,7 @@ class ModelRouter:
                 task_type, smallest_role_name, role,
                 f"no candidate fits available VRAM ({available_vram_gb} GB); "
                 "downgraded to smallest candidate, expect CPU offload",
+                loaded=loaded,
             )
 
         # No VRAM info available (e.g. GPU monitor not wired up yet): default priority order.
@@ -126,6 +144,7 @@ class ModelRouter:
         return self._decide(
             task_type, default_role_name, role,
             "no VRAM constraint provided, using default priority order",
+            loaded=loaded,
         )
 
     def _preferred(self, candidates: list[str], available_vram_gb: float | None) -> str | None:
@@ -149,22 +168,30 @@ class ModelRouter:
         """
         return _TIERS.get(self._roles[role_name].get("tier", ""), -1)
 
-    def _decide(self, task_type: str, role_name: str, role: dict, reason: str) -> RoutingDecision:
+    def _decide(self, task_type: str, role_name: str, role: dict, reason: str,
+                *, loaded: set[str]) -> RoutingDecision:
         """Single construction point for a decision.
 
         select_model has four exit paths, and each used to build the
         dataclass by hand. Adding `thinking` to three of the four would
         have shipped a field that is correct only sometimes — the same
         shape of bug as the audit log's silently-null first_token_ms.
+        `switch_cost_s` (HOS-114) goes through here for that reason.
+
+        `loaded` is required rather than optional: the cost of a decision
+        is meaningless without knowing what was resident when it was made,
+        and a default would have quietly reported every switch as free.
         """
+        model = role["model"]
         return RoutingDecision(
             task_type=task_type,
             role=role_name,
-            model=role["model"],
+            model=model,
             tier=role["tier"],
             reason=reason,
             thinking=self.thinking_for(task_type),
             num_ctx=int(role.get("num_ctx", 8192)),
+            switch_cost_s=0.0 if model in loaded else float(self._bascule_s.get(model, 0.0)),
         )
 
     def thinking_for(self, task_type: str) -> bool:
