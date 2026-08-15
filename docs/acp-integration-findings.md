@@ -99,11 +99,55 @@ délai — ni côté agent, ni côté client. Le motif est identique pour un
 outil `edit` (après approbation) et pour un outil `execute` (sans aucune
 approbation demandée).
 
-À explorer ensuite : élever la verbosité côté `hermes-acp` pour voir ce
-qu'il fait de l'approbation ; vérifier si le client doit accuser réception
-par un `ToolCallProgress`/`ToolCallEnd` que le spike n'envoie pas ; et
-comparer la négociation de capacités `fs` avec ce que l'agent attend
-réellement avant d'appeler `write_text_file`.
+### Localisé : la création de l'environnement d'exécution
+
+La dernière ligne que l'agent journalise avant de se figer, **à chaque
+fois** :
+
+```
+tools.file_tools: Creating new local environment for task default...
+```
+
+Quatre exécutions, quatre arrêts sur cette ligne, et jamais le
+`"%s environment ready for task %s"` qui devrait suivre. Le blocage est
+donc dans `_create_environment(env_type="local", …)`
+(`hermes-agent/tools/terminal_tool.py:1755`), appelé depuis
+`file_tools.py:1543`.
+
+Trois conséquences qui recoupent tout ce qui précède :
+
+- **les deux familles d'outils** en ont besoin — d'où le même arrêt pour
+  un `edit` et pour un `terminal` ;
+- **le témoin sans outil** n'en a pas besoin — d'où sa réussite ;
+- **la capacité `fs` du client n'y change rien** : vérifié en déclarant un
+  client sans capacité fichier, le blocage est identique. L'agent n'en est
+  pas encore à décider *qui* écrit.
+
+Le bloc entier est sous `with _env_lock` : une création qui ne rend pas la
+main garde le verrou, donc rien d'autre ne pourra créer d'environnement
+ensuite. Un blocage qui se propage.
+
+**Ce n'est pas `docker` ni `singularity`** — le type est `local`, donc
+aucun démon absent à incriminer. C'est la création d'un environnement de
+shell local, sous Windows, atteinte par le chemin ACP.
+
+### Où reprendre
+
+La suite est dans le dépôt de l'agent, pas ici. Deux pistes, la première
+d'abord :
+
+1. **Une réentrance.** L'adaptateur ACP est asynchrone ; `_create_environment`
+   est synchrone et pose un verrou. Si elle attend, directement ou non,
+   quelque chose qui a besoin de la boucle d'événements qui l'appelle,
+   c'est un interblocage — et il n'apparaîtrait pas par le CLI, qui n'a
+   pas de boucle.
+2. **Une configuration d'environnement inapplicable sur cette machine**,
+   qui attendrait au lieu d'échouer.
+
+Le CLI, lui, exécute des outils tous les jours (HOS-084, HOS-085, vérifié
+sur disque). C'est le meilleur point de comparaison : faire passer le même
+appel par les deux chemins et regarder lequel atteint
+`environment ready`.
 
 ## Une affirmation de ce document est devenue fausse
 

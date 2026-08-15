@@ -222,15 +222,24 @@ async def main() -> int:
     async with acp.spawn_agent_process(
         client, ACP_EXE, env=env, cwd=str(workspace),
     ) as (conn, process):
+        # ACP_SPIKE_SANS_FS=1 declare un client sans capacite fichier.
+        #
+        # L'agent ne peut alors plus deleguer l'ecriture : il doit ecrire
+        # lui-meme, ce qu'il fait tous les jours par le CLI. Si le blocage
+        # disparait, la panne est dans la negociation `fs` ; s'il persiste,
+        # elle est dans l'execution d'outil elle-meme. Les deux menent a des
+        # recherches opposees, et rien d'autre ne les separe.
+        sans_fs = os.environ.get("ACP_SPIKE_SANS_FS") == "1"
+        fs = FileSystemCapabilities(
+            read_text_file=not sans_fs, write_text_file=not sans_fs,
+        )
         init = await conn.initialize(
             protocol_version=acp.PROTOCOL_VERSION,
-            client_capabilities=ClientCapabilities(
-                fs=FileSystemCapabilities(read_text_file=True, write_text_file=True),
-                terminal=True,
-            ),
+            client_capabilities=ClientCapabilities(fs=fs, terminal=True),
             client_info=Implementation(name="hermes-os", version="1.0.0"),
         )
-        print(f"1. handshake OK — capabilities={bool(getattr(init, 'agent_capabilities', None))}")
+        print(f"1. handshake OK — capabilities={bool(getattr(init, 'agent_capabilities', None))}"
+              f"{'  [client SANS capacite fichier]' if sans_fs else ''}")
 
         session = await conn.new_session(cwd=str(workspace), mcp_servers=[])
         sid = session.session_id
