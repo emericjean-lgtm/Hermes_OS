@@ -162,22 +162,42 @@ class AutonomousReport:
 
     @property
     def qualite(self) -> str:
-        """Les trois états, sous un nom, pour que l'UI n'ait pas à les
-        redériver : `non_mesuree` / `verifiee` / `contredite`.
+        """`non_mesuree` / `partielle` / `verifiee` / `contredite`.
 
-        Un `success: True` posé sur `non_mesuree` n'est pas un succès
-        vérifié, et c'est exactement ce que ce champ empêche de taire.
+        Un `success: True` posé sur un verdict non mesuré est ce que ce
+        champ empêche de taire (HOS-121).
+
+        **`partielle` est né d'un défaut de ce champ lui-même** (HOS-122).
+        Il ne connaissait que trois états, et rendait `verifiee` dès que le
+        disque avait changé et que le manifeste tenait — même quand les
+        tests du livrable n'avaient **pas** tourné. Mesuré sur le quatrième
+        lancement de l'essai Skills360 : `qualite: "verifiee"` au-dessus de
+        `tests: {"ran": false, "reason": "verification_run needs autonomy
+        level 'high'..."}`. On avait remplacé un `success` trompeur par un
+        `verifiee` qui l'était autant.
+
+        `verifiee` exige désormais que les tests aient réellement tourné et
+        réellement passé. Tout ce qui a été constaté sans eux est
+        `partielle` : c'est vrai, c'est utile, et ça ne se fait pas passer
+        pour davantage.
         """
         if not self.verification:
             return "non_mesuree"
         tests = self.verification.get("tests") or {}
         if tests.get("ran") and tests.get("passed") is False:
             return "contredite"
+        # HOS-122 : un livrable annoncé et absent contredit aussi. Une
+        # mission qui a écrit six fichiers dont aucun n'est celui qu'elle
+        # avait promis n'a pas fait le travail.
+        if (self.verification.get("manifeste") or {}).get("manquants"):
+            return "contredite"
         if self.verification.get("contradicted"):
             return "contredite"
-        if self.verification.get("verified"):
+        if not self.verification.get("verified"):
+            return "non_mesuree"
+        if tests.get("ran") and tests.get("passed"):
             return "verifiee"
-        return "non_mesuree"
+        return "partielle"
 
     def to_dict(self) -> dict:
         return {

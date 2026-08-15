@@ -820,7 +820,7 @@ export interface AutonomousReportDTO {
    */
   verification?: Record<string, unknown> | null;
   /** `non_mesuree` | `verifiee` | `contredite`. */
-  qualite?: "non_mesuree" | "verifiee" | "contredite";
+  qualite?: "non_mesuree" | "partielle" | "verifiee" | "contredite";
 }
 
 export interface AutonomousTimelineDTO {

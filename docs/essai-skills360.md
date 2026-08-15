@@ -219,6 +219,60 @@ comptage inline de `essai_skills360.py` inclut les fichiers d'amorce ;
 seul celui de `mesurer_s360.py` les exclut. Les 28 et les 5 sont
 comparables entre eux, le 24 ne l'est avec rien.
 
+### Run 4 — avec le manifeste des livrables
+
+| | run 1 | run 3 | run 4 |
+|---|---|---|---|
+| Tâches | 7/7 | 7/7 | **5/5** |
+| Durée | 2 186 s | 1 084 s | **566 s** |
+| Fichiers produits | 12 | 5 | **3** |
+| Modules d'identité | 4 | 1 | 1 |
+| Documents | 4 | 2 | **1** |
+| Fichiers de tests | 4 | 2 | **1** |
+| Tests du livrable | ne compilent pas | code 2 (collision) | **code 0, 6 passent** |
+
+Trois fichiers, exactement les trois demandés : `identity_model.py`,
+`tests/test_identity_model.py`, `docs/identity_design.md`. Et `pytest` sort
+en 0.
+
+**L'amélioration est attribuable au manifeste, pas au hasard** — le rapport
+le prouve :
+
+```json
+"manifeste": {"declares": 3, "manquants": [], "nombre_manquants": 0, "tenu": true}
+```
+
+Trois livrables déclarés par les tâches elles-mêmes, trois présents. Le
+champ `expected_outputs`, câblé de bout en bout sur du vide depuis toujours,
+porte enfin quelque chose.
+
+Effet de bord non anticipé : la décomposition est passée de 7 à 5 tâches.
+Demander « quels fichiers vas-tu écrire ? » semble rendre le planificateur
+plus économe — une tâche qui ne peut nommer aucun livrable propre a moins de
+raisons d'exister. Une observation sur un run, pas une loi.
+
+### Le défaut que ce run a révélé dans mon propre correctif
+
+Le rapport annonçait `qualite: "verifiee"` au-dessus de :
+
+```json
+"tests": {"ran": false, "reason": "verification_run needs autonomy level
+                                   'high' to auto-allow; current level is 'medium'."}
+```
+
+Le disque avait changé, le manifeste tenait — les tests du livrable
+n'avaient **pas** tourné. On avait remplacé un `success: True` trompeur par
+un `verifiee` qui l'était tout autant.
+
+Un quatrième état a été ajouté : **`partielle`**. `verifiee` exige désormais
+que les tests aient réellement tourné et réellement passé ; tout ce qui a
+été constaté sans eux est `partielle` — c'est vrai, c'est utile, et ça ne se
+fait pas passer pour davantage.
+
+Le rabattre sur `non_mesuree` aurait jeté une information vraie : le
+manifeste tenu et le disque changé sont de vraies mesures. Elles ne valent
+simplement pas les tests.
+
 ## Ce que cet essai établit
 
 - L'orchestrateur **exécute** un vrai cahier des charges, lit sa

@@ -268,6 +268,7 @@ class RealTaskExecutor:
         hermes_toolsets: tuple[str, ...] = _HERMES_AGENT_TOOLSETS,
         mission_brief_for: Optional[Callable[[Any], Optional[str]]] = None,
         upstream_results_for: Optional[Callable[[Any], Optional[str]]] = None,
+        livrables_pour: Optional[Callable[[Any], Optional[str]]] = None,
         agentic_capable_for: Optional[Callable[[str], Optional[bool]]] = None,
         agentic_fallback_model: str = _HERMES_AGENT_FALLBACK_MODEL,
         agentic_timeout_s: float = _HERMES_AGENT_TIMEOUT_S,
@@ -276,6 +277,7 @@ class RealTaskExecutor:
         self._hermes_toolsets = hermes_toolsets
         self._mission_brief_for = mission_brief_for
         self._upstream_results_for = upstream_results_for
+        self._livrables_pour = livrables_pour
         self._agentic_capable_for = agentic_capable_for
         self._fallback_model = agentic_fallback_model
         self._chat = chat
@@ -1088,6 +1090,21 @@ class RealTaskExecutor:
                 + "\n\nBuild on that work — do not redo it. Anything it left "
                   "on disk is there; check before assuming."
             )
+
+        # HOS-122 : le manifeste. `upstream` ne remonte que les dépendances
+        # **directes** ; deux tâches sœurs restent aveugles l'une à
+        # l'autre. C'est ainsi que l'essai Skills360 a produit deux
+        # fichiers de tests de même nom de base, dont l'un écrit contre une
+        # API imaginée. Le manifeste est la photo complète : qui écrit
+        # quoi, dans toute la mission.
+        livrables = ""
+        if self._livrables_pour is not None:
+            try:
+                livrables = (self._livrables_pour(task) or "").strip()
+            except Exception:  # pragma: no cover - un manifeste ne fait jamais échouer
+                logger.debug("manifeste des livrables indisponible", exc_info=True)
+        if livrables:
+            user += "\n\n" + livrables
 
         return [
             {"role": "system", "content": system},

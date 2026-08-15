@@ -26,7 +26,7 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger("hermes_os.mission.verification")
 
@@ -165,6 +165,29 @@ class MissionVerification:
     #: `calculator`. Le rapport annonçait 6/6 réussi. Un artefact qui ne
     #: tient pas debout contre lui-même n'est pas un livrable.
     tests: Optional[dict] = None
+    #: Ce que la mission avait **annoncé** écrire, confronté au disque
+    #: (HOS-122). `None` = aucune tâche n'a déclaré de livrable — jamais
+    #: « tout est là ».
+    #:
+    #: `changes` répond à « le workspace a-t-il changé ? », `tests` à « ce
+    #: qui est là tient-il debout ? ». Celui-ci répond à la troisième
+    #: question, que ni l'un ni l'autre ne pose : « est-ce que c'est ce
+    #: qu'on avait dit ? ». Mesuré sur Skills360 : sept tâches, 7/7, et
+    #: deux fichiers de tests au même nom de base dont l'un testait une API
+    #: qui n'existait pas.
+    manifeste: Optional[dict] = None
+
+    @property
+    def manifeste_manque(self) -> bool:
+        """Un livrable a été annoncé et n'est pas sur le disque.
+
+        Comme `tests_echouent`, trois états qui ne se confondent pas :
+        aucun manifeste, manifeste tenu, manifeste troué. Seul le dernier
+        contredit un succès annoncé.
+        """
+        from backend.mission import manifeste as _manifeste
+
+        return _manifeste.contredit(self.manifeste)
 
     @property
     def tests_echouent(self) -> bool:
@@ -190,7 +213,8 @@ class MissionVerification:
         des fichiers est nécessaire, ça n'a jamais suffi.
         """
         return (self.measured and self.reported_success
-                and self.changes.touched_anything and not self.tests_echouent)
+                and self.changes.touched_anything and not self.tests_echouent
+                and not self.manifeste_manque)
 
     @property
     def contradicted(self) -> bool:
@@ -202,10 +226,15 @@ class MissionVerification:
         échouent : le rapport affirme alors une réussite que le projet
         lui-même dément. C'est la même famille de mensonge, constatée par
         un autre instrument — et elle déclenche donc la même reprise.
+
+        Et quand un livrable annoncé manque (HOS-122) : une mission qui a
+        écrit six fichiers dont aucun n'est celui qu'elle avait promis n'a
+        pas fait le travail, quoi qu'en dise le compteur de tâches.
         """
         if not (self.measured and self.reported_success):
             return False
-        return not self.changes.touched_anything or self.tests_echouent
+        return (not self.changes.touched_anything or self.tests_echouent
+                or self.manifeste_manque)
 
     def as_dict(self) -> dict:
         return {
@@ -220,6 +249,7 @@ class MissionVerification:
             "deleted": list(self.changes.deleted),
             "summary": self.changes.summary(),
             "tests": self.tests,
+            "manifeste": self.manifeste,
             "tests_echouent": self.tests_echouent,
         }
 
@@ -273,6 +303,7 @@ def verify(
     workspace: Optional[str],
     before: Optional[WorkspaceSnapshot],
     after: Optional[WorkspaceSnapshot],
+    mission: Any = None,
 ) -> MissionVerification:
     """Confront a mission's own verdict with the filesystem's.
 
@@ -285,10 +316,14 @@ def verify(
             mission_id=mission_id, reported_success=reported_success,
             workspace=workspace, changes=WorkspaceDiff(), measured=False,
         )
+    from backend.mission import manifeste as _manifeste
+
     result = MissionVerification(
         mission_id=mission_id, reported_success=reported_success,
         workspace=workspace, changes=diff(before, after),
         tests=_verdict_des_tests(workspace, reported_success),
+        manifeste=_manifeste.verdict(mission, workspace) if mission is not None
+                  else None,
     )
     if result.contradicted:
         logger.warning(

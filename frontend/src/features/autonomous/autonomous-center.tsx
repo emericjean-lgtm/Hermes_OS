@@ -372,6 +372,15 @@ export function AutonomousCenter() {
                     <Badge variant="success" className="text-[9px]">vérifiée</Badge>
                   ) : rep.qualite === "contredite" ? (
                     <Badge variant="danger" className="text-[9px]">contredite</Badge>
+                  ) : rep.qualite === "partielle" ? (
+                    /* HOS-122 : le disque a changé et les fichiers promis
+                       sont là, mais les tests du livrable n'ont pas
+                       tourné. Vrai, utile, et moins que « vérifiée » —
+                       les confondre était le défaut de la première
+                       version de cette pastille. */
+                    <span title="Fichiers promis présents ; les tests du livrable n'ont pas été lancés.">
+                      <Badge variant="default" className="text-[9px]">partielle</Badge>
+                    </span>
                   ) : (
                     <span
                       title={

@@ -1,3 +1,44 @@
+## HOS-122 — Chaque tâche déclare ses fichiers, et l'essai converge (2026-08-16)
+
+Le run 3 avait réglé la duplication du code — un module d'identité au lieu de quatre — mais pas celle des tests : deux fichiers au même nom de base, dont l'un appelait `User("user_001", "auth_uid_123")` face à un `User.__init__` qui exige un `email`. Écrit **sans jamais lire le module qu'il teste**.
+
+`_upstream_results_for` ne remonte que les dépendances **directes**. Deux tâches sœurs restent aveugles l'une à l'autre — et rien dans la mission ne disait quel fichier appartenait à quelle tâche.
+
+### Le champ était câblé sur du vide
+
+J'avais annoncé que « le planificateur remplit déjà `expected_outputs` ». **C'était faux.** Le champ existe sur `TaskBreakdown`, est recopié sur `MissionNode`, est sérialisé — et n'est rempli nulle part. Mesuré avant de coder, ce qui a évité de construire sur une lecture d'un champ toujours vide.
+
+Trois pièces, donc : le schéma de décomposition demande une clé `outputs` ; `_livrables_pour` donne à chaque tâche la photo complète — ses fichiers **et ceux des autres, avec le nom de leur propriétaire** ; `backend/mission/manifeste.py` confronte l'annoncé au disque. Sans cette dernière moitié le manifeste serait une intention : le modèle lirait « ton fichier est X », en écrirait un autre, et personne ne le saurait.
+
+Deux refus délibérés. **On informe, on ne bloque pas** : une tâche qui a besoin d'un fichier non déclaré doit pouvoir l'écrire, refuser produirait des faux échecs. Et **un fichier non déclaré n'est pas une faute** — un `conftest.py` dont personne n'avait parlé, c'est probablement du bon travail.
+
+### Mesuré
+
+| | run 1 | run 3 | run 4 |
+|---|---|---|---|
+| Tâches | 7/7 | 7/7 | **5/5** |
+| Durée | 2 186 s | 1 084 s | **566 s** |
+| Fichiers produits | 12 | 5 | **3** |
+| Tests du livrable | ne compilent pas | code 2 | **code 0, 6 passent** |
+
+Trois fichiers, exactement les trois demandés. Et l'amélioration est **attribuable au manifeste** : le rapport porte `"manifeste": {"declares": 3, "manquants": [], "tenu": true}`.
+
+Effet non anticipé : la décomposition est passée de 7 à 5 tâches. Demander « quels fichiers vas-tu écrire ? » semble rendre le planificateur plus économe. Une observation sur un run, pas une loi.
+
+### Un quatrième état, né d'un défaut de HOS-121
+
+Le run 4 annonçait `qualite: "verifiee"` au-dessus de `tests: {"ran": false}`. Le disque avait changé, le manifeste tenait, les tests n'avaient pas tourné — **on avait remplacé un `success` trompeur par un `verifiee` qui l'était autant**.
+
+`partielle` s'ajoute. `verifiee` exige désormais des tests réellement lancés et réellement passés ; ce qui est constaté sans eux est `partielle`. Le rabattre sur `non_mesuree` aurait jeté une information vraie : un manifeste tenu est une vraie mesure, elle ne vaut simplement pas les tests.
+
+### Un bug attrapé par son propre test
+
+Le nettoyage des chemins faisait `lstrip("./")` — qui retire un *ensemble de caractères*, pas un préfixe. `/etc/passwd` devenait `etc/passwd`, un chemin absolu **blanchi par sa propre normalisation**, et franchissait le contrôle censé l'écarter. Les contrôles portent désormais sur le chemin brut. Ce n'est pas la frontière de sécurité — Aegis et `file_tools` la tiennent indépendamment — mais rien ne gagne à laisser un chemin système voyager dans un prompt comme s'il était légitime.
+
+### Verified
+
+23 tests ajoutés. Suite : **4 036 passés, 3 ignorés, code de sortie 0** (4 013 avant). `npx tsc --noEmit` vert.
+
 ## HOS-121 — Un vrai cahier des charges, et les trois défauts qu'il a révélés (2026-08-15)
 
 Le cahier de HOS-119 était écrit par moi, court, et nommait les fichiers à produire. Celui-ci est le vrai — Skills360 Industry, 23 Ko, 40 sections, écrit par l'utilisateur, et qui **refuse de nommer une stack** (§5). Une seule étape lancée : le modèle d'identité des §6/§7. Workspace = copie du dossier réel.

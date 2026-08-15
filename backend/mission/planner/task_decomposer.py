@@ -57,7 +57,20 @@ _DECOMPOSITION_SYSTEM_PROMPT = (
     '  "description": one or two sentences describing the task\n'
     f'  "category": one of {list(_LLM_CATEGORIES)}\n'
     '  "depends_on": array of 0-based indices of earlier elements in this '
-    "same array that must finish first (empty array if none)\n\n"
+    "same array that must finish first (empty array if none)\n"
+    # HOS-122 — le manifeste. Mesuré sur l'essai Skills360 : sept tâches
+    # ont produit deux fichiers de tests portant le même nom de base, dont
+    # l'un appelait `User("user_001", "auth_uid_123")` face à un
+    # `User.__init__` qui exige un `email` — écrit sans jamais lire le
+    # module qu'il teste. Rien dans la mission ne disait quel fichier
+    # appartenait à quelle tâche, donc rien n'empêchait deux tâches de
+    # revendiquer le même livrable sous deux noms.
+    '  "outputs": array of the file paths this task must create or modify, '
+    "relative to the project root (empty array if the task produces no "
+    "file). Name the real files, e.g. [\"identity_model.py\", "
+    "\"tests/test_identity_model.py\"]. Two different tasks must never "
+    "name the same file, and must never name two files that serve the "
+    "same purpose.\n\n"
     "Produce between 3 and 8 tasks, ordered so earlier ones can run first. "
     'Only reference earlier indices in "depends_on". Do not include a '
     "final review/validation task — one is appended automatically after "
@@ -65,6 +78,50 @@ _DECOMPOSITION_SYSTEM_PROMPT = (
 )
 
 _JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
+
+#: Au-delà, ce n'est plus un livrable déclaré mais une liste de courses :
+#: la faire tenir dans le prompt de chaque tâche coûterait plus que ce
+#: qu'elle apporte.
+_MAX_LIVRABLES = 8
+
+
+def _livrables(brut: Any) -> list[str]:
+    """Les chemins déclarés par une tâche, nettoyés (HOS-122).
+
+    Rend une liste vide plutôt que d'inventer : une tâche sans livrable
+    déclaré est un cas normal — beaucoup n'écrivent rien — et un manifeste
+    fabriqué serait pire que pas de manifeste, puisque les tâches suivantes
+    le prendraient pour une décision.
+
+    Les chemins absolus et les remontées `..` sont écartés : ce champ sert
+    à se répartir des fichiers dans un workspace, il n'est pas une porte
+    vers le disque. Ce n'est pas la frontière de sécurité — `file_tools`
+    et Aegis la tiennent, indépendamment — mais rien ne gagne à laisser un
+    `C:\\Windows\\...` voyager dans un prompt comme s'il était légitime.
+    """
+    if not isinstance(brut, list):
+        return []
+    propres: list[str] = []
+    for element in brut:
+        if not isinstance(element, str):
+            continue
+        chemin = element.strip().replace("\\", "/")
+        # Les contrôles portent sur le chemin **avant** nettoyage : un
+        # `lstrip("./")` retire un ensemble de caractères et non un
+        # préfixe, si bien qu'il transformait `/etc/passwd` en
+        # `etc/passwd` — un chemin absolu blanchi par sa propre
+        # normalisation.
+        if not chemin or len(chemin) > 200:
+            continue
+        if chemin.startswith("/") or ".." in chemin.split("/") or ":" in chemin:
+            continue
+        while chemin.startswith("./"):
+            chemin = chemin[2:]
+        if not chemin:
+            continue
+        if chemin not in propres:
+            propres.append(chemin)
+    return propres[:_MAX_LIVRABLES]
 
 
 def _build_user_prompt(request: PlanningRequest) -> str:
@@ -430,6 +487,7 @@ class TaskDecomposer:
                 category=category,
                 order=len(breakdowns),
                 depends_on=[breakdowns[d].task_id for d in dep_indices],
+                expected_outputs=_livrables(item.get("outputs")),
             ))
 
         return breakdowns or None

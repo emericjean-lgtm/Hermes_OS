@@ -429,6 +429,7 @@ def _make_task_executor(c: Any) -> Any:
         workspace_project_for=_workspace_project_for,
         mission_brief_for=_mission_brief_for,
         upstream_results_for=_upstream_results_for,
+        livrables_pour=_livrables_pour,
         agentic_capable_for=_agentic_capable_for,
     )
 
@@ -580,6 +581,79 @@ def _upstream_results_for(task: Any) -> Optional[str]:
         lines.append(f"- {title} : {summary[:_UPSTREAM_SUMMARY_CHARS]}")
 
     return "\n".join(lines) if lines else None
+
+
+def _livrables_pour(task: Any) -> Optional[str]:
+    """Qui écrit quoi, dans cette mission (HOS-122).
+
+    Mesuré sur l'essai Skills360 : deux tâches ont produit
+    `test_identity_model.py` et `tests/test_identity_model.py`. Même nom de
+    base — `pytest` échoue à la collecte — et le second appelait
+    `User("user_001", "auth_uid_123")` face à un `User.__init__` qui exige
+    un `email`. Il avait été écrit **sans jamais lire le module qu'il
+    teste**, parce que rien dans la mission ne disait que ce module
+    existait ni qui l'avait écrit.
+
+    Corriger le contexte amont (HOS-121) a fait converger le *code* — un
+    seul module d'identité au lieu de quatre. Mais l'amont ne remonte que
+    les dépendances **directes** : deux tâches sœurs, sans lien entre
+    elles, restent aveugles l'une à l'autre. Le manifeste, lui, est la
+    photo complète.
+
+    Ce que ce texte ne fait pas : interdire. Une tâche qui a besoin d'un
+    fichier non déclaré doit pouvoir l'écrire — refuser produirait de faux
+    échecs, et ce dépôt a payé cinq fois pour apprendre qu'un faux échec
+    coûte autant qu'un faux succès. On informe, précisément ; on ne bloque
+    pas.
+    """
+    mission_id = getattr(task, "mission_id", "") or ""
+    node_id = getattr(task, "node_id", "") or getattr(task, "task_id", "") or ""
+    if not mission_id or not node_id:
+        return None
+    try:
+        from backend.mission.routes import get_mission_by_id
+        mission = get_mission_by_id(mission_id)
+    except Exception:
+        return None
+    if mission is None:
+        return None
+
+    miens: list[str] = []
+    autres: list[str] = []
+    for noeud in mission.nodes:
+        declares = list(getattr(noeud, "expected_outputs", None) or [])
+        if not declares:
+            continue
+        if noeud.node_id == node_id:
+            miens.extend(declares)
+        else:
+            titre = (getattr(noeud, "title", "") or noeud.node_id).strip()
+            autres.extend(f"{chemin} (tâche « {titre} »)" for chemin in declares)
+
+    if not miens and not autres:
+        # Aucune tâche n'a déclaré de livrable : le planificateur n'en a
+        # pas produit. Une section vide dans le prompt dirait « il n'y a
+        # rien à écrire », ce qui est faux.
+        return None
+
+    lignes: list[str] = []
+    if miens:
+        lignes.append("Les fichiers de cette tâche :\n"
+                      + "\n".join(f"- {c}" for c in miens))
+    if autres:
+        lignes.append(
+            "Fichiers qui appartiennent à d'autres tâches de cette mission. "
+            "Ne les crée pas, ne les réécris pas, et n'en crée pas de "
+            "variante sous un autre nom. S'ils existent déjà, lis-les "
+            "plutôt que de deviner ce qu'ils contiennent :\n"
+            + "\n".join(f"- {c}" for c in autres[:_LIVRABLES_MAX_AUTRES]))
+    return "\n\n".join(lignes)
+
+
+#: Au-delà, la liste chasse les instructions de la tâche hors du prompt —
+#: le mur des 64k documenté dans CLAUDE.md, où les schémas d'outils sont
+#: tronqués et l'agent répond qu'il n'a pas d'outils.
+_LIVRABLES_MAX_AUTRES = 20
 
 
 @lru_cache(maxsize=64)

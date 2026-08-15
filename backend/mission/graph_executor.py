@@ -360,7 +360,11 @@ class GraphExecutor:
             root = self._workspace_root(mission)
             before = self._snapshots.pop(mission.mission_id, None)
             after = snapshot(root) if root else None
-            result = verify(mission.mission_id, reported_success, root, before, after)
+            # `mission` en plus : c'est elle qui porte le manifeste
+            # (`node.expected_outputs`) que la vérification confronte au
+            # disque (HOS-122).
+            result = verify(mission.mission_id, reported_success, root, before,
+                            after, mission=mission)
             return result.as_dict()
         except Exception:  # pragma: no cover
             logger.debug("workspace verification failed", exc_info=True)
