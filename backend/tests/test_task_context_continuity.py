@@ -21,10 +21,32 @@ from backend.core.bootstrap.service_registry import _upstream_results_for
 from backend.mission.mission_models import Mission, MissionNode
 
 
-class _Task:
-    def __init__(self, mission_id: str, task_id: str) -> None:
-        self.mission_id = mission_id
-        self.task_id = task_id
+def _Task(mission_id: str, node_id: str):
+    """La tâche telle que la production la construit, pas une imitation.
+
+    C'est ici que HOS-105 s'est perdu (corrigé en HOS-121). L'ancien double
+    posait `self.task_id = node_id` — un identifiant que
+    `node_execution.py` ne produit **jamais** : il écrit
+    `task_id=f"{node.node_id}-task"`. `_upstream_results_for` lisait
+    `task_id` en premier, cherchait `"n2-task"` parmi les `node_id`, ne
+    trouvait rien et rendait `None`. Tous les tests de ce module passaient
+    au vert pendant que la fonction ne servait à rien en production.
+
+    On passe donc par le vrai `TaskExecution`, construit exactement comme
+    `make_node_executor` le fait. Un double qui diverge de la production
+    ne teste que lui-même.
+    """
+    from backend.execution.execution_models import (
+        TaskExecution, TaskExecutionStatus,
+    )
+
+    return TaskExecution(
+        task_id=f"{node_id}-task",
+        node_id=node_id,
+        mission_id=mission_id,
+        title=node_id,
+        status=TaskExecutionStatus.PENDING,
+    )
 
 
 @pytest.fixture
@@ -131,6 +153,55 @@ def test_an_unknown_mission_carries_nothing_rather_than_raising():
 
 def test_a_task_without_a_mission_carries_nothing():
     assert _upstream_results_for(_Task("", "n1")) is None
+
+
+# ── l'incident lui-même (HOS-121) ────────────────────────────────────────
+
+def test_la_tache_du_test_est_celle_que_la_production_construit():
+    """Le garde-fou contre la répétition de l'incident.
+
+    Tout ce module passait au vert pendant que la fonction rendait `None`
+    en production, parce que le double posait `task_id = node_id`. Si
+    `make_node_executor` change la forme de l'identifiant, c'est ici que ça
+    doit casser — pas trente minutes plus loin dans une mission réelle.
+    """
+    from backend.mission.mission_models import MissionNode
+
+    node = MissionNode(node_id="n7", title="Un noeud")
+    node.mission_id = "m7"
+
+    reelle = None
+
+    class _Controleur:
+        def start(self, meta, tasks):
+            nonlocal reelle
+            reelle = tasks[0]
+            raise RuntimeError("on ne veut que la tâche, pas l'exécution")
+
+    from backend.mission.node_execution import make_node_executor
+
+    make_node_executor(_Controleur())(node)
+
+    assert reelle is not None, "la production n'a construit aucune tâche"
+    fabriquee = _Task("m7", "n7")
+    assert reelle.task_id == fabriquee.task_id
+    assert reelle.node_id == fabriquee.node_id
+
+
+def test_le_contexte_amont_atteint_une_tache_de_production(mission):
+    """L'incident : `_upstream_results_for` lisait `task_id` en premier, et
+    `task_id` vaut `"<node_id>-task"`. La recherche ne trouvait aucun nœud
+    et rendait `None` — HOS-105 était inerte sur le seul chemin qui compte.
+    """
+    tache = _Task(mission.mission_id, "n2")
+
+    assert tache.task_id == "n2-task", "le préfixe est justement le piège"
+    carried = _upstream_results_for(tache)
+
+    assert carried is not None, (
+        "une tâche construite comme en production ne reçoit rien — "
+        "c'est exactement le défaut de HOS-105")
+    assert "wrote data.csv, 412 rows" in carried
 
 
 # ── the prompt the model actually receives ───────────────────────────────

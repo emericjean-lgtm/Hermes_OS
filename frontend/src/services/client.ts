@@ -812,6 +812,15 @@ export interface AutonomousReportDTO {
   runtimes_used: string[];
   tools_used: string[];
   success: boolean;
+  /**
+   * Ce que le disque et les tests du livrable disent, à côté de ce que la
+   * mission prétend (HOS-121). `success` seul a déjà menti : sur l'essai
+   * Skills360 il valait `true` au-dessus d'un livrable dont les tests ne
+   * compilaient pas. Les deux champs se lisent ensemble ou pas du tout.
+   */
+  verification?: Record<string, unknown> | null;
+  /** `non_mesuree` | `verifiee` | `contredite`. */
+  qualite?: "non_mesuree" | "verifiee" | "contredite";
 }
 
 export interface AutonomousTimelineDTO {

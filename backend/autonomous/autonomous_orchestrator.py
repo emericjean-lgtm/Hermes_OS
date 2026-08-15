@@ -328,6 +328,7 @@ class AutonomousOrchestrator:
 
         # 6. Generate report
         report = AutonomousReport(
+            verification=self._verification_de(dag_mission),
             goal_id=goal.goal_id,
             user_request=goal.user_request,
             interpreted_goal=goal.interpreted_goal,
@@ -468,6 +469,25 @@ class AutonomousOrchestrator:
         with self._lock:
             session_id = self._session_by_goal.get(goal_id)
             return self._sessions.get(session_id) if session_id else None
+
+    @staticmethod
+    def _verification_de(mission: Any) -> dict[str, Any] | None:
+        """Le verdict de `GraphExecutor` sur cette mission, s'il y en a un.
+
+        `None` couvre trois situations qu'on ne cherche pas à distinguer
+        ici — pas de mission DAG, pas de workspace lié, vérification non
+        tentée — parce qu'elles disent toutes la même chose au lecteur du
+        rapport : **rien n'a été mesuré**. Ce que le rapport ne doit plus
+        faire, c'est laisser croire le contraire en n'affichant que
+        `success`.
+        """
+        if mission is None:
+            return None
+        metadonnees = getattr(mission, "metadata", None)
+        if not isinstance(metadonnees, dict):
+            return None
+        verdict = metadonnees.get("verification")
+        return verdict if isinstance(verdict, dict) else None
 
     def get_report(self, goal_id: str) -> AutonomousReport | None:
         for r in self._reports:

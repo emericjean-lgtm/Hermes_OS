@@ -147,7 +147,37 @@ class AutonomousReport:
     runtimes_used: list[str] = field(default_factory=list)
     tools_used: list[str] = field(default_factory=list)
     success: bool = False
+    #: Ce que le disque et les tests du livrable disent, à côté de ce que la
+    #: mission prétend (HOS-121). `None` veut dire qu'aucune vérification
+    #: n'a été tentée — un état de plus, à ne pas confondre avec « rien à
+    #: signaler ».
+    #:
+    #: Mesuré sur l'essai Skills360 : la mission a rapporté `success: True`
+    #: sur un livrable dont les tests ne compilaient pas, parce que
+    #: `verification_run` exige le niveau d'autonomie `high` et que la
+    #: configuration livrée est `medium`. L'instrument avait bien répondu
+    #: « je n'ai pas mesuré » — c'est le rapport qui ne le répétait pas.
+    verification: dict[str, Any] | None = None
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def qualite(self) -> str:
+        """Les trois états, sous un nom, pour que l'UI n'ait pas à les
+        redériver : `non_mesuree` / `verifiee` / `contredite`.
+
+        Un `success: True` posé sur `non_mesuree` n'est pas un succès
+        vérifié, et c'est exactement ce que ce champ empêche de taire.
+        """
+        if not self.verification:
+            return "non_mesuree"
+        tests = self.verification.get("tests") or {}
+        if tests.get("ran") and tests.get("passed") is False:
+            return "contredite"
+        if self.verification.get("contradicted"):
+            return "contredite"
+        if self.verification.get("verified"):
+            return "verifiee"
+        return "non_mesuree"
 
     def to_dict(self) -> dict:
         return {
@@ -164,6 +194,11 @@ class AutonomousReport:
             "runtimes_used": self.runtimes_used,
             "tools_used": self.tools_used,
             "success": self.success,
+            # Les deux ensemble, jamais l'un sans l'autre : c'est la paire
+            # qui porte l'information. `success` seul a menti une fois, et
+            # ça a coûté trente minutes à découvrir.
+            "verification": self.verification,
+            "qualite": self.qualite,
         }
 
 

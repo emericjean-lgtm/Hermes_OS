@@ -1,3 +1,61 @@
+## HOS-121 — Un vrai cahier des charges, et les trois défauts qu'il a révélés (2026-08-15)
+
+Le cahier de HOS-119 était écrit par moi, court, et nommait les fichiers à produire. Celui-ci est le vrai — Skills360 Industry, 23 Ko, 40 sections, écrit par l'utilisateur, et qui **refuse de nommer une stack** (§5). Une seule étape lancée : le modèle d'identité des §6/§7. Workspace = copie du dossier réel.
+
+**Résultat brut : 7/7 tâches, `success: True`, 2 186 s, 12 fichiers.** Et trois défauts, aucun trouvé en relisant du code.
+
+### Ce qui a bien marché, et qu'on n'attendait pas
+
+Le §4 interdit d'inventer une règle métier ; le §37 déclare les cardinalités, la suppression et la désactivation de l'identité `À DÉCIDER`. **28 marqueurs `À DÉCIDER` ont été écrits**, et les notions ouvertes sont dans les documents, pas dans le code. Un fichier écrit même « la spec ne précise pas la contrainte sur `auth_uid` ». La partie qu'on croyait hors de portée d'un modèle local est la mieux tenue.
+
+Une réserve : `tests/test_auth_models.py:105` étiquette `assert employee.auth_uid is None` par « cardinalité optionnelle ». L'assertion porte sur une valeur par défaut de dataclass, mais le libellé transforme un `À DÉCIDER` en règle nommée — la frontière exacte du §32. Non corrigé, consigné.
+
+### HOS-105 n'avait jamais fonctionné
+
+Sept tâches ont produit **quatre fois le même livrable** : quatre modules définissant chacun `Auth`/`User`/`Employee`, quatre documents de décision, quatre fichiers de tests.
+
+La cause n'est pas le préfixe de chemin corrigé en HOS-119. C'est une inversion de deux mots :
+
+```python
+# service_registry.py — lisait task_id EN PREMIER
+node_id = getattr(task, "task_id", "") or getattr(task, "node_id", "") or ""
+# node_execution.py — la production préfixe
+task_id=f"{node.node_id}-task",
+```
+
+`"n2-task"` ne correspond à aucun `node_id` du graphe. La recherche rendait `None`, et la section « ce que tes dépendances ont produit » n'a **jamais** été ajoutée à un prompt sur le chemin réel. Chaque tâche repartait de zéro — exactement le défaut que HOS-105 croyait avoir corrigé.
+
+**Le test le cachait.** Son double posait `task_id = node_id`, un identifiant que la production ne produit jamais. Quatorze tests au vert au-dessus d'une fonction inerte. Le double a donc été supprimé au profit du vrai `TaskExecution`, construit comme `make_node_executor` le construit, et un test compare désormais les deux formes d'identifiant : si `make_node_executor` change, ça casse ici et pas trente minutes plus loin dans une mission.
+
+Mesuré avant/après sur une tâche construite comme en production : `None` → `- Definir Auth : ecrit identity_models.py avec Auth`.
+
+### Un fichier écrit qui ne compile pas ne se tait plus
+
+La mission a écrit une docstring ouverte par `"""` et fermée par `"`. `pytest` s'est arrêté à la collecte, code 2. **Vérifié sur les octets bruts** : UTF-8 valide, le défaut vient du modèle et non de l'encodage — la règle « ni un échec sur parole » appliquée avant de conclure.
+
+`backend/tools/syntaxe.py` analyse chaque `.py` et `.json` écrit, et rend l'erreur du compilateur au tour d'outil suivant. Trois raisons de le mettre là plutôt que dans `verification_run` : c'est gratuit, ça n'exécute rien donc ça échappe à la politique de sécurité, et c'est **immédiat** au lieu d'être en fin de mission.
+
+Il ne dit jamais qu'un fichier est *correct*, seulement qu'il *parse*. Une extension inconnue rend `None`, jamais « valide ».
+
+### Un `success: True` ne masque plus un verdict non mesuré
+
+Le filet de HOS-119 avait bien répondu :
+
+```json
+{"ran": false, "reason": "verification_run needs autonomy level 'high'
+                          to auto-allow; current level is 'medium'."}
+```
+
+`config/security.yaml` livre `autonomy_level: medium` et `verification_run` exige `high` : **le filet est inerte au niveau par défaut**. L'instrument était honnête — il disait « je n'ai pas mesuré », pas « ça passe ». C'est le rapport d'objectif autonome qui ne le répétait pas : il ne portait que `success`.
+
+Le seuil de sécurité **n'a pas été baissé** — exécuter le code d'un projet tiers sans surveillance au niveau par défaut est une vraie décision, et elle appartient à l'opérateur. Ce qui change, c'est que `AutonomousReport` porte `verification` et une propriété `qualite` à trois états — `non_mesuree` / `verifiee` / `contredite` — et que l'onglet Autonomous affiche « Qualité constatée » à côté de « Résultat », avec la raison en infobulle. Les deux se lisent ensemble ou pas du tout.
+
+### Verified
+
+36 tests ajoutés. Suite : **4 007 passés, 3 ignorés, code de sortie 0** (3 983 avant). `npx tsc --noEmit` vert.
+
+Mesure complète de l'essai dans `docs/essai-skills360.md`.
+
 ## HOS-120 — Le passé se résume, et le troisième état global partagé se ferme (2026-08-15)
 
 ### §12 — résumer plutôt que couper

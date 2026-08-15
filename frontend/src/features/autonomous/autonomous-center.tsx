@@ -356,6 +356,37 @@ export function AutonomousCenter() {
                   <span className="text-[10px] text-hermes-muted font-mono">Résultat</span>
                   {statusBadge(rep.success ? "completed" : "failed")}
                 </div>
+                {/* HOS-121 : « Résultat » ci-dessus est ce que la mission
+                    prétend. Sur l'essai Skills360 il valait « completed »
+                    au-dessus d'un livrable dont les tests ne compilaient
+                    pas — parce que `verification_run` exige le niveau
+                    d'autonomie `high` et que la configuration livrée est
+                    `medium`. Cette ligne-ci dit ce qui a été *constaté*,
+                    et « non mesurée » est un état à part entière : ce
+                    n'est ni un succès ni un échec. */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-hermes-muted font-mono">
+                    Qualité constatée
+                  </span>
+                  {rep.qualite === "verifiee" ? (
+                    <Badge variant="success" className="text-[9px]">vérifiée</Badge>
+                  ) : rep.qualite === "contredite" ? (
+                    <Badge variant="danger" className="text-[9px]">contredite</Badge>
+                  ) : (
+                    <span
+                      title={
+                        String(
+                          (rep.verification as { tests?: { reason?: string } } | null)
+                            ?.tests?.reason ?? "",
+                        ) || "aucune vérification n'a été tentée"
+                      }
+                    >
+                      <Badge variant="warning" className="text-[9px]">
+                        non mesurée
+                      </Badge>
+                    </span>
+                  )}
+                </div>
                 {/* `tools_used` était rempli par le moteur et affiché nulle
                     part. Étiqueté « retenus au plan » et non « appelés » :
                     il vient des décisions de planification

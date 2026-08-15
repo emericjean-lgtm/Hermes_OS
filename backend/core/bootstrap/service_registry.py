@@ -537,7 +537,18 @@ def _upstream_results_for(task: Any) -> Optional[str]:
     has no tools.
     """
     mission_id = getattr(task, "mission_id", "") or ""
-    node_id = getattr(task, "task_id", "") or getattr(task, "node_id", "") or ""
+    # `node_id` d'abord, et c'est tout l'enjeu (HOS-121). Ce code lisait
+    # `task_id` en premier ; `node_execution.py` le construit comme
+    # `f"{node.node_id}-task"`, si bien que la recherche portait sur
+    # `"n2-task"`, ne correspondait à aucun nœud, et rendait `None`. La
+    # section « ce que tes dépendances ont produit » n'a donc jamais été
+    # ajoutée à un prompt sur le chemin réel : chaque tâche repartait de
+    # zéro, exactement le défaut que HOS-105 croyait avoir corrigé.
+    #
+    # `task_id` reste en secours pour les appelants qui ne portent que lui,
+    # mais il ne passe plus devant l'identifiant qui désigne vraiment le
+    # nœud.
+    node_id = getattr(task, "node_id", "") or getattr(task, "task_id", "") or ""
     if not mission_id or not node_id:
         return None
     try:

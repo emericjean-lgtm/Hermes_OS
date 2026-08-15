@@ -35,6 +35,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from backend.tools import syntaxe
+
 if TYPE_CHECKING:  # pragma: no cover - annotation seulement
     from backend.tools.file_tools import FileOpResult
 
@@ -284,7 +286,13 @@ async def execute_workspace_tool(
                     "relecture du fichier — ne considère pas cette opération comme "
                     "réussie."
                 )
-            return f"Fichier écrit et vérifié : {resolved}"
+            # HOS-121 : « écrit et vérifié » ne dit que « les octets sont
+            # sur le disque ». Sur l'essai Skills360, un fichier écrit et
+            # vérifié ne compilait pas, et personne ne l'a su pendant
+            # trente minutes. L'analyse est gratuite, ne s'arme pas sur un
+            # niveau d'autonomie, et rend l'erreur au tour suivant.
+            return (f"Fichier écrit et vérifié : {resolved}"
+                    + syntaxe.message(resolved, content))
 
         if name == "workspace_search":
             motif = str(arguments.get("pattern", "")).strip()
@@ -303,9 +311,21 @@ async def execute_workspace_tool(
 
         if name == "workspace_append":
             contenu = str(arguments.get("content", ""))
-            return _rendre(file_tools.append(
-                aegis, resolved, contenu, project_id=project_id),
-                f"Ajouté à la fin de {resolved}")
+            resultat = file_tools.append(
+                aegis, resolved, contenu, project_id=project_id)
+            rendu = _rendre(resultat, f"Ajouté à la fin de {resolved}")
+            if resultat.success and resultat.verified:
+                # C'est le fichier **entier** qu'il faut analyser : un
+                # fragment ajouté peut être valide isolément et casser le
+                # fichier qui le reçoit (une parenthèse, une indentation).
+                try:
+                    entier = file_tools.read_file(
+                        aegis, resolved, project_id=project_id)
+                except Exception:  # noqa: BLE001 - une analyse ratée ne casse rien
+                    entier = ""
+                if entier:
+                    rendu += syntaxe.message(resolved, entier)
+            return rendu
 
         if name in ("workspace_copy", "workspace_move"):
             source_arg = str(arguments.get("source", "")).strip()
