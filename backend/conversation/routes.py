@@ -130,9 +130,19 @@ def _active_validated_project_root(project_id: str) -> str | None:
 
 
 #: Offered to every conversation turn — the model decides whether a given
-#: question actually needs it (config/models.yaml's `orchestrator` role,
-#: hermes_prime's default model, was upgraded specifically for reliable
-#: tool-calling; see that file's own comment). A model that never calls it
+#: question actually needs it.
+#:
+#: Ce commentaire nommait l'`orchestrator` comme « modèle par défaut de
+#: hermes_prime ». **C'est faux** : `hermes_prime.default_task_type` vaut
+#: `conversation`, dont la table `routing` place `standard` en tête —
+#: ornith-9b-256k, pas gpt-oss. La justification portait donc sur un modèle
+#: qui ne sert jamais ce chemin (HOS-114).
+#:
+#: La conclusion tient quand même, mais pour une autre raison, et mesurée :
+#: ornith obtient 3/3 sur l'axe agentique du catalogue. C'est ce qui rend
+#: l'offre d'outils sûre ici, pas une montée en gamme de l'orchestrateur.
+#:
+#: A model that never calls it
 #: costs nothing extra beyond the tool schema in the prompt. Workspace
 #: tools are additionally gated on project_root being non-None — no
 #: active, validated workspace means no filesystem tools offered at all
