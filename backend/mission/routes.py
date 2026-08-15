@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+from collections import OrderedDict
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body
@@ -41,7 +43,125 @@ _planner: Optional[Any] = None
 _memory_manager: Optional[Any] = None
 _evolution_engine: Optional[Any] = None
 _aegis_engine: Optional[Any] = None
-_missions: dict[str, Mission] = {}
+#: Les missions que ce routeur expose (M-8, HOS-120).
+#:
+#: C'était un `dict` nu, sans verrou et sans borne. Deux défauts réels :
+#:
+#: * **sans verrou** — `register_mission` est appelé depuis l'orchestrateur
+#:   autonome, qui exécute ses nœuds dans un pool de fils, pendant que les
+#:   routes HTTP lisent le même dict. Un `dict` Python ne corrompt pas sa
+#:   structure sous le GIL, mais « lire pendant qu'on écrit » n'en reste
+#:   pas moins une lecture sur un état que personne ne coordonne ;
+#: * **sans borne** — chaque mission y restait pour la durée du processus.
+#:   Un serveur qui tourne des semaines les garde toutes, avec leurs nœuds
+#:   et leurs `result_summary`.
+#:
+#: La persistance, elle, **reste à faire** : au redémarrage la liste est
+#: vide, et c'est écrit ici plutôt que sous-entendu.
+#:
+#: 200 n'est pas une mesure. C'est un ordre de grandeur : bien au-delà de ce
+#: qu'une session d'usage produit, bien en deçà de ce qui pèse.
+MAX_MISSIONS_EN_MEMOIRE = 200
+
+#: Statuts depuis lesquels plus rien ne bougera. Ce sont les seules missions
+#: qu'on s'autorise à évincer : évincer une mission `running` la rendrait
+#: introuvable *pendant* qu'elle s'exécute, et l'exécuteur continuerait de
+#: la faire avancer dans le vide. Une borne qui casse ce qui tourne est
+#: pire que l'absence de borne.
+STATUTS_TERMINAUX = frozenset({
+    MissionStatus.COMPLETED,
+    MissionStatus.FAILED,
+    MissionStatus.CANCELLED,
+})
+
+
+class _RegistreMissions:
+    """Un dict verrouillé et borné, avec la forme d'un dict.
+
+    L'API imite celle du `dict` qu'il remplace, pour que les appelants — y
+    compris les tests qui font `monkeypatch.setitem` ou `.clear()` — n'aient
+    pas à connaître son existence.
+    """
+
+    def __init__(self, maximum: int = MAX_MISSIONS_EN_MEMOIRE) -> None:
+        self._verrou = threading.RLock()
+        self._maximum = maximum
+        #: Ordonné par insertion : c'est ce qui fait de l'éviction un FIFO
+        #: sans avoir à porter d'horodatage.
+        self._missions: "OrderedDict[str, Mission]" = OrderedDict()
+
+    def __setitem__(self, mission_id: str, mission: Mission) -> None:
+        with self._verrou:
+            self._missions[mission_id] = mission
+            self._missions.move_to_end(mission_id)
+            self._evincer()
+
+    def _evincer(self) -> None:
+        """Sous verrou uniquement.
+
+        Ne retire que des missions terminées, de la plus ancienne à la plus
+        récente. Si toutes celles qui restent sont encore actives, la borne
+        est dépassée et on la laisse l'être : le journal le dit, ce qui vaut
+        mieux qu'une mission en cours qui disparaît.
+        """
+        if len(self._missions) <= self._maximum:
+            return
+        for mission_id, mission in list(self._missions.items()):
+            if len(self._missions) <= self._maximum:
+                return
+            if mission.status in STATUTS_TERMINAUX:
+                del self._missions[mission_id]
+        if len(self._missions) > self._maximum:
+            logger.warning(
+                "registre des missions à %d entrées pour une borne de %d — "
+                "aucune mission terminée à évincer, elles sont toutes encore "
+                "actives", len(self._missions), self._maximum)
+
+    def __getitem__(self, mission_id: str) -> Mission:
+        with self._verrou:
+            return self._missions[mission_id]
+
+    def __delitem__(self, mission_id: str) -> None:
+        with self._verrou:
+            del self._missions[mission_id]
+
+    def __contains__(self, mission_id: object) -> bool:
+        with self._verrou:
+            return mission_id in self._missions
+
+    def __len__(self) -> int:
+        with self._verrou:
+            return len(self._missions)
+
+    def get(self, mission_id: str, defaut: Any = None) -> Any:
+        with self._verrou:
+            return self._missions.get(mission_id, defaut)
+
+    def pop(self, mission_id: str, *defaut: Any) -> Any:
+        with self._verrou:
+            return self._missions.pop(mission_id, *defaut)
+
+    def clear(self) -> None:
+        with self._verrou:
+            self._missions.clear()
+
+    def values(self) -> list[Mission]:
+        """Une *copie*, pas une vue.
+
+        Les routes de liste itèrent dessus pendant que l'orchestrateur
+        autonome enregistre ses missions depuis son pool de fils ; une vue
+        lèverait `RuntimeError: dictionary changed size during iteration`
+        au premier chevauchement, et de façon intermittente.
+        """
+        with self._verrou:
+            return list(self._missions.values())
+
+    def items(self) -> list[tuple[str, Mission]]:
+        with self._verrou:
+            return list(self._missions.items())
+
+
+_missions = _RegistreMissions()
 
 #: Safety valve on the DAG walk. execute_step() runs every currently-ready node,
 #: so a well-formed graph needs at most one pass per dependency level; this bounds

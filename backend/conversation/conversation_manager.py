@@ -222,6 +222,42 @@ class ConversationManager:
 
         return session_id, model_messages, intent
 
+    async def rafraichir_resume(self, session_id: str, *, chat, model: str) -> bool:
+        """Produire le résumé des tours anciens, s'il en manque un (§12).
+
+        Asynchrone et séparée de `begin_stream` : c'est un appel modèle, et
+        le faire sous le verrou du gestionnaire bloquerait toutes les
+        sessions pendant sa durée — le défaut que `begin_stream` a
+        justement été découpé pour éviter.
+
+        Rend `True` quand un résumé a été produit. `False` couvre deux cas
+        que l'appelant n'a pas à distinguer : il n'y avait rien à résumer,
+        ou le modèle n'a pas répondu. Dans le second,
+        `build_model_messages` annonce le trou au lieu de le taire.
+        """
+        from backend.conversation.context_summary import decouper, resumer
+
+        session = self.get_session(session_id)
+        if session is None:
+            return False
+        anciens, _ = decouper(session.messages,
+                              tours_gardes=self.MAX_HISTORY_MESSAGES)
+        if not anciens:
+            return False
+        # Déjà couvert : recalculer à chaque message coûterait un appel
+        # modèle par tour pour un résumé quasi identique.
+        if session.context.history_summary_upto >= len(anciens):
+            return False
+
+        resume = await resumer(anciens, chat=chat, model=model)
+        if not resume:
+            return False
+        with self._lock:
+            session.context.history_summary = resume
+            session.context.history_summary_upto = len(anciens)
+            self._persist(session)
+        return True
+
     def build_model_messages(self, session: ConversationSession) -> list[dict[str, str]]:
         """The conversation as the model should see it.
 
@@ -232,8 +268,29 @@ class ConversationManager:
         Roles are mapped to what an OpenAI/Ollama-shaped API expects:
         Hermes's own ``hermes``/``agent`` roles are both ``assistant``.
         """
-        history = session.messages[-self.MAX_HISTORY_MESSAGES:]
+        # §12 : résumer les tours anciens plutôt que les couper (HOS-120).
+        #
+        # Cette ligne était `session.messages[-MAX_HISTORY_MESSAGES:]`. Au
+        # vingt-et-unième message, le premier — souvent celui qui pose le
+        # sujet, la contrainte ou le fichier concerné — cessait d'exister
+        # pour le modèle, sans que rien ne le signale.
+        #
+        # Le résumé lui-même est calculé ailleurs, en asynchrone, et déposé
+        # sur la session : cette méthode reste synchrone et sans effet de
+        # bord. Quand il manque, on annonce le trou au lieu de le taire.
+        from backend.conversation.context_summary import (
+            bloc_systeme, bloc_troncature, decouper,
+        )
+
+        anciens, history = decouper(session.messages,
+                                    tours_gardes=self.MAX_HISTORY_MESSAGES)
         messages = [{"role": "system", "content": self._system_prompt(session)}]
+        if anciens:
+            resume = getattr(session.context, "history_summary", "") or ""
+            messages.append(
+                bloc_systeme(resume, len(anciens)) if resume
+                else bloc_troncature(len(anciens))
+            )
         for message in history:
             if message.role == MessageRole.USER:
                 role = "user"

@@ -273,8 +273,8 @@ capacité déclarée sans mesure (`docs/model-selection.md`).
 | M-9 | `pytest.ini` sur les deux répertoires | ✅ **HOS-111** |
 | M-1 | Modèles Pydantic sur les 19 corps `dict = Body(...)` (500 → 422) | 🟠 |
 | M-7 | Consolider les 6 duplications (`agent`/`agents`, `evolution`/`self_evolution`, 2 registries…) | 🟠 |
-| M-13 | Borner `mcp<2` dans `requirements.txt` | 🟠 |
-| M-8 | Persister et borner `mission/routes.py::_missions` (dict module-level sans verrou) | 🟠 |
+| M-13 | Borner `mcp<2` dans `requirements.txt` | ✅ **déjà satisfait** — `mcp==1.28.1`, plus strict que la borne demandée ; la ligne était périmée |
+| M-8 | Verrouiller et borner `mission/routes.py::_missions` | ✅ **HOS-120** — reste à faire : la **persistance** (au redémarrage le registre est vide) |
 | J-3 | Boucles d'outils par agent spécialisé — **prérequis de la décomposition multi-tâches**, et dépendant d'ACP | 🟠 |
 | J-2 | Adaptateurs vLLM et llama.cpp (aujourd'hui `RuntimeUnavailableError`) | 🟠 |
 | M-6 | Câbler les 4 adaptateurs HOS-065B et `approval_explainer` (testés, jamais utilisés) | 🟡 |

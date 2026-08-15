@@ -1,3 +1,47 @@
+## HOS-120 — Le passé se résume, et le troisième état global partagé se ferme (2026-08-15)
+
+### §12 — résumer plutôt que couper
+
+`build_model_messages` faisait exactement l'inverse de ce que demande le §12 :
+
+```python
+history = session.messages[-MAX_HISTORY_MESSAGES:]
+```
+
+Au vingt-et-unième message, le premier — souvent celui qui pose le sujet, la contrainte ou le fichier concerné — cessait d'exister pour le modèle, **sans que rien ne le signale**. C'était le seul critère d'acceptation du §28 jamais construit.
+
+Les douze tours récents restent mot pour mot ; au-delà, les anciens partent au résumé. Trois décisions valent d'être écrites :
+
+- **Rien n'est résumé sous le seuil.** Résumer quatre messages produit un texte plus long qu'eux, et coûte un appel modèle.
+- **Un résumé n'est jamais fabriqué.** `resumer()` fait un vrai appel et rend `None` s'il échoue — jamais une reconstitution heuristique. Un contexte inventé est pire qu'un contexte tronqué : le second se voit, le premier se lit comme un souvenir. Un résumé vide compte comme une absence, pas comme « rien d'important n'a été dit ».
+- **Quand le résumé manque, le trou est annoncé** au modèle, qui peut redemander. Le silence était le comportement précédent.
+
+Le résumé est étiqueté explicitement comme un résumé : un modèle qui le prendrait pour une transcription pourrait citer l'utilisateur sur des mots qu'il n'a pas dits.
+
+Résumer n'est pas raisonner — c'est `swift` (lfm2.5-2.6b-125k, 187,6 tok/s, 4,5 s de chargement) qui s'en charge, sur la mesure qui a déjà mis `extraction` en tête de ce modèle dans `config/models.yaml`.
+
+### M-8 — le troisième état global partagé de la journée
+
+`mission/routes.py::_missions` était un `dict` module-level sans verrou ni borne, après `autonomous/routes.py::_engine` (HOS-117). Deux défauts réels, et un piège dans la correction.
+
+**Sans verrou** : `register_mission` est appelé depuis l'orchestrateur autonome, qui marche son graphe dans un pool de fils, pendant que `GET /missions` itère le même dict. `dict.values()` rend une *vue* — l'itérer pendant qu'un autre fil insère lève `RuntimeError: dictionary changed size during iteration`, de façon intermittente, donc invisible en test et reproductible seulement en charge. Vérifié plutôt que supposé : le scénario du test, rejoué contre un `dict` nu, lève bien cette exception.
+
+**Sans borne** : chaque mission y restait pour la vie du processus, avec ses nœuds et ses `result_summary`.
+
+**Le piège** : une borne écrite comme un LRU ordinaire évincerait la plus ancienne quelle qu'elle soit, y compris une mission `running`. Elle deviendrait introuvable *pendant* son exécution et l'exécuteur continuerait de la faire avancer dans le vide — une borne qui casse ce qui tourne est pire que l'absence de borne. Seules les missions terminées sont évinçables ; si toutes les restantes sont actives, la borne cède **et le journal le dit**.
+
+La persistance, elle, **reste à faire** : au redémarrage le registre est vide. C'est écrit dans le code et dans la ROADMAP plutôt que sous-entendu.
+
+### M-13 était déjà satisfait
+
+La ligne demandait `mcp<2` dans `requirements.txt`. Il porte `mcp==1.28.1` depuis un moment — une épingle exacte, plus stricte que la borne demandée. Rien à corriger : c'est la ligne de ROADMAP qui était périmée, et elle est reclassée comme telle plutôt que cochée comme un travail fait.
+
+### Verified
+
+40 tests ajoutés (25 pour le §12, 14 pour M-8, 1 sur le bloc de troncature). Suite complète : **3 983 passés, 3 ignorés, code de sortie 0** (3 957 avant).
+
+Un test existant a dû être corrigé plutôt que le code : `test_history_is_bounded` bornait le prompt à `MAX_HISTORY_MESSAGES + 1`, et le §12 y ajoute un message — le bloc qui annonce ce qui a été retiré. C'est précisément ce message qui manquait ; la borne passe à `+ 2` et un second test vérifie que le trou est bien annoncé.
+
 ## HOS-119 — Un cahier des charges produit enfin ses livrables (2026-08-15)
 
 Trois défauts trouvés par une seule mesure, chacun invisible au précédent. Aucun n'aurait été trouvé en relisant du code.

@@ -79,6 +79,17 @@ class ConversationContext:
     workspace_status: str = ""
     security_level: str = "normal"
     environment_vars: dict[str, str] = field(default_factory=dict)
+    # §12 — résumé des tours trop anciens pour être transmis mot pour mot
+    # (HOS-120). Vide tant que la conversation tient entière dans la
+    # fenêtre, ou quand la production du résumé a échoué : dans ce second
+    # cas `build_model_messages` annonce le trou au modèle plutôt que de le
+    # taire. Une chaîne vide n'a jamais le sens de « rien d'important
+    # n'a été dit ».
+    history_summary: str = ""
+    # Combien de messages ce résumé couvre, pour savoir s'il est encore à
+    # jour quand la conversation s'allonge. Recalculer à chaque tour
+    # coûterait un appel modèle par message.
+    history_summary_upto: int = 0
 
 
 @dataclass

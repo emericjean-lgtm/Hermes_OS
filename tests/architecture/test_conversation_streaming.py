@@ -63,7 +63,13 @@ class TestConversationMemory:
         assert [m["role"] for m in messages[1:]] == ["user", "assistant", "assistant"]
 
     def test_history_is_bounded(self):
-        """A long session must not grow the prompt without limit."""
+        """A long session must not grow the prompt without limit.
+
+        Since §12 (HOS-120) the prompt is one message longer: the system
+        prompt, *the block announcing what was dropped*, then the bounded
+        history. The extra message is the point — the old behaviour let the
+        oldest turns vanish in silence.
+        """
         mgr = ConversationManager()
         session = mgr.create_session()
         for i in range(60):
@@ -71,9 +77,24 @@ class TestConversationMemory:
 
         messages = mgr.build_model_messages(session)
 
-        # system prompt + at most MAX_HISTORY_MESSAGES turns
-        assert len(messages) <= mgr.MAX_HISTORY_MESSAGES + 1
+        # system prompt + context block + at most MAX_HISTORY_MESSAGES turns
+        assert len(messages) <= mgr.MAX_HISTORY_MESSAGES + 2
         assert messages[-1]["content"] == "m59"  # the most recent, not the oldest
+
+    def test_dropped_turns_are_announced_rather_than_silently_lost(self):
+        """§12 (HOS-120). Before this, `messages[-MAX:]` made the opening
+        turns — the ones that state the subject, the constraint, the file —
+        cease to exist for the model with nothing to say so."""
+        mgr = ConversationManager()
+        session = mgr.create_session()
+        for i in range(60):
+            session.messages.append(Message(role=MessageRole.USER, content=f"m{i}"))
+
+        messages = mgr.build_model_messages(session)
+
+        assert messages[1]["role"] == "system"
+        assert "40" in messages[1]["content"]  # 60 - MAX_HISTORY_MESSAGES
+        assert "m0" not in [m["content"] for m in messages]
 
     def test_empty_messages_are_not_sent(self):
         mgr = ConversationManager()

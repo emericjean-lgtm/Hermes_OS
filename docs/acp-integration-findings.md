@@ -131,6 +131,21 @@ ensuite. Un blocage qui se propage.
 aucun démon absent à incriminer. C'est la création d'un environnement de
 shell local, sous Windows, atteinte par le chemin ACP.
 
+### Trois hypothèses éliminées dans le code de l'agent (2026-08-15)
+
+Lecture de `tools/environments/local.py` et `base.py`. Aucune ne tient :
+
+| Hypothèse | Réfutée par |
+|---|---|
+| `init_session()` attend sans borne | `_snapshot_timeout = 30`, et l'appel est enveloppé d'un `try/except` |
+| Auto-interblocage sur `_env_lock` | Les blocs `with _env_lock` sont **séquentiels**, jamais tenus pendant `_create_environment` |
+| `communicate()` après `kill()`, le piège Windows | `_wait_for_process` attend **par sondage**, avec vérification d'interruption et `kill` garanti en `finally` |
+
+**Il faut arrêter de lire.** Trois hypothèses élégantes et fausses d'affilée,
+sur le même défaut, après trois autres le matin même. C'est la signature
+d'une méthode inadaptée, pas d'un code obscur : la lecture produit des
+explications plausibles plus vite qu'elle ne produit des faits.
+
 ### Où reprendre
 
 La suite est dans le dépôt de l'agent, pas ici. Deux pistes, la première
