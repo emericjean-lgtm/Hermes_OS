@@ -81,13 +81,17 @@ catalogue déjà payé ne sert à rien tant que le routage ne le lit pas.
 
 ---
 
-## A. À committer, et le défaut découvert en le faisant
+## A. Livré le 2026-08-15 ✅
 
-| Réf. | Contenu | État |
-|---|---|---|
-| HOS-110 | Bancs vision et raisonnement entrés au dépôt, avec leurs tests (35 + 14) | ⬜ non commité |
-| HOS-111 | `pytest.ini` sur les deux répertoires, 33 tests réparés, `tests/integration` marqué `lent` | ⬜ non commité |
-| HOS-112 | Délai de garde, deux fixtures rendues hermétiques, cinq tests d'ordre stabilisés | ⬜ non commité, `backend/tests` verte |
+| Réf. | Contenu |
+|---|---|
+| HOS-110 | Bancs vision et raisonnement entrés au dépôt, avec leurs tests (35 + 14) |
+| HOS-111 | `pytest.ini` sur les deux répertoires, 33 tests réparés, `tests/integration` marqué `lent` |
+| HOS-112 | Délai de garde, fixtures rendues hermétiques, garde réseau de session, cinq tests d'ordre stabilisés |
+| HOS-113 | Étape de mission bornée ; deux « défauts » de HOS-112 réfutés et amendés ; vrai blocage ACP localisé |
+
+**Boucle courte : 3 841 passés, 3 ignorés, code de sortie 0.**
+Commits `794f7df`, `a684c02`, `dee1e28`, `de93d24`, `f67c031`.
 
 ### HOS-112 — une suite qui pend ne dit rien ✅ partiellement
 
