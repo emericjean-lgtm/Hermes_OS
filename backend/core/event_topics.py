@@ -181,6 +181,11 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     "mission.created",
     "mission.node_completed",
     "mission.node_failed",
+    # HOS-112 : une étape dont un nœud n'a jamais rendu la main. Distinct de
+    # `node_failed`, qui dit qu'un nœud a échoué — ici on ne sait même pas
+    # ce qu'il est devenu, et c'est cette différence qui oriente le
+    # diagnostic.
+    "mission.step_timeout",
     "mission.node_ready",
     "mission.started",
     # HOS-092: emitted when a mission reports success over a workspace that

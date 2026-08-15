@@ -24,6 +24,30 @@ def create_autonomous_routes(engine: AutonomousEngine) -> APIRouter:
     return router
 
 
+def reset_engine() -> None:
+    """Oublier le moteur lié, pour que le prochain appel en construise un neuf.
+
+    Ce module garde son moteur dans un global, et `create_autonomous_routes`
+    y installe celui du conteneur — pleinement câblé : vrai planificateur,
+    vrai exécuteur de graphe, vrais exécuteurs de tâches. Le global n'a
+    donc pas seulement une valeur, il a un *propriétaire*, et rien ne le
+    disait.
+
+    Un appelant qui croyait obtenir un moteur neuf héritait de ce câblage :
+    quatre tests d'API planifiaient un vrai DAG sans le savoir, rapides
+    seuls et bloqués dès qu'un test antérieur avait construit
+    l'application (HOS-112).
+
+    Une couture explicite vaut mieux qu'un `monkeypatch` sur `_engine` : le
+    besoin de repartir d'un moteur neuf est légitime, et le satisfaire en
+    atteignant un privé cache le couplage au lieu de le nommer. La forme
+    de fond — un état de module mutable partagé — reste à traiter avec M-8
+    (`mission/routes.py::_missions`), qui a exactement le même défaut.
+    """
+    global _engine
+    _engine = None
+
+
 def handle_start_goal(data: dict) -> dict:
     engine = get_engine()
     return engine.start_goal(

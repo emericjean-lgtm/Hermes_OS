@@ -136,16 +136,18 @@ fait de vraies requêtes HTTP avec retries), `test_autonomous_real_wiring.py`
 (« *Fully hermetic… no real Ollama* »), et le fixture de `test_chat_audit.py`
 qui masquait l'hermétique de `conftest.py` en portant le même nom.
 
-### T-1 — ce que le chantier a révélé sans le corriger 🟠
+### T-1 — traité, et deux tiers réfutés ✅ (HOS-113)
 
-Trois défauts de **production**, contournés côté test, à traiter pour
-eux-mêmes.
+Cette ligne annonçait **trois** défauts de production. La lecture du code
+en a réfuté deux ; l'erreur venait d'un diagnostic tiré d'un vidage de
+pile, sans vérification de ce qu'il valait en production. Le détail est
+amendé au CHANGELOG plutôt que réécrit.
 
-| Réf. | Défaut |
+| Réf. | Verdict |
 |---|---|
-| T-1a | `backend/autonomous/routes.py` garde son moteur dans un **global de module**, que `create_autonomous_routes()` écrase avec celui du conteneur. Un appelant croit obtenir un moteur neuf et hérite du câblage complet — c'est ce qui faisait exécuter un vrai DAG à quatre tests d'API. Même forme que M-8 (`mission/routes.py::_missions`) |
-| T-1b | `graph_executor.execute_step` attend sur `as_completed(future_to_node)` **sans `timeout=`**. Un nœud qui ne rend jamais la main bloque la mission entière, indéfiniment et sans trace. C'est du code de production, pas de test |
-| T-1c | **Des fils ne sont jamais joints.** Le vidage de pile au moment du blocage comptait **55 `hermes-task-executor`** et 7 `hermes-task-decomposer` encore vivants. Un exécuteur qui laisse ses fils derrière lui fuit à chaque mission, pas seulement en test |
+| T-1a | ⚠️ **Défaut de couplage, pas d'exécution.** En production une seule application existe et le composition root installe le moteur voulu. `reset_engine()` donne une couture explicite ; la forme de fond rejoint **M-8**, même défaut |
+| T-1b | ✅ **Réel, corrigé.** `as_completed` sans délai — et une seconde attente non vue : sortir d'un `with ThreadPoolExecutor` joint tous les fils. Les deux traitées. `STEP_TIMEOUT_S = 1200` s, au-dessus des 900 s d'un agent, avec un test qui tient la relation |
+| T-1c | ❌ **Pas un défaut.** Un fil démon par *instance* d'exécuteur, arrêté par `close()`, que le `shutdown()` du bootstrap appelle bien. Les 55 fils étaient 55 exécuteurs construits par des tests qui n'arrêtaient jamais leur application |
 
 ### T-2 — l'ordre chronologique, correctif de fond 🟡
 

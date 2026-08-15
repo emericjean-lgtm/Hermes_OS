@@ -27,7 +27,49 @@ from acp.schema import (
 
 HERMES_HOME = r"C:\Users\emeri\AppData\Local\hermes"
 ACP_EXE = r"C:\Users\emeri\AppData\Local\hermes\hermes-agent\venv\Scripts\hermes-acp.exe"
-MODEL = "lfm2.5-2.6b-128k"
+#: Le plus petit modele du catalogue qui tient une boucle d'outils
+#: (agentique 100/100, HOS-108). Renomme en `-125k` pendant la refonte du
+#: catalogue : l'ancien `-128k` reste offert par l'agent mais n'existe plus
+#: cote Ollama, et c'est ce fantome qui repondait `HTTP 404`.
+MODEL = "lfm2.5-2.6b-125k"
+
+#: Le blocage connu ne rend jamais la main — teste jusqu'a 900 s le
+#: 2026-08-13. Une borne courte ne perd donc aucune information et rend le
+#: spike rejouable en boucle courte.
+PROMPT_TIMEOUT_S = 180.0
+
+
+def _tag_de(model_id: str) -> str:
+    """Le tag Ollama derriere un identifiant de modele de l'agent.
+
+    Deux formes coexistent dans la liste que la session renvoie :
+        custom:lfm2.5-2.6b-128k
+        custom:local-(127.0.0.1:11434):lfm2.5-2.6b-125k:latest
+
+    Decouper naivement sur « : » donne « local-(127.0.0.1 » — l'hote et le
+    port en contiennent. On coupe donc apres le dernier « ): », et on
+    retire le seul suffixe « :latest » : un tag peut legitimement porter un
+    deux-points (`qwen3-embedding:0.6b`).
+    """
+    reste = model_id.split("):", 1)[-1] if "):" in model_id else model_id.split("custom:", 1)[-1]
+    return reste.removesuffix(":latest")
+
+
+def _tags_ollama() -> set[str]:
+    """Les tags qu'Ollama sert reellement, sans le suffixe `:latest`.
+
+    Le spike nommait son modele en dur. Le catalogue a ete refait depuis
+    (HOS-104 a HOS-109) et `lfm2.5-2.6b-128k` est devenu
+    `lfm2.5-2.6b-125k` : l'agent repondait `HTTP 404 model not found`
+    apres trois tentatives, ce que l'ancien handler `session_update`
+    jetait sans le lire.
+    """
+    import json
+    import urllib.request
+
+    with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=10) as r:
+        donnees = json.load(r)
+    return {m["name"].removesuffix(":latest") for m in donnees.get("models", [])}
 
 
 def _loud(name):
@@ -42,14 +84,23 @@ def _loud(name):
 
         @functools.wraps(fn)
         async def wrapper(*a, **kw):
+            import time as _t
+            depart = _t.monotonic()
             print(f'-> {name}', flush=True)
             try:
-                return await fn(*a, **kw)
+                resultat = await fn(*a, **kw)
             except Exception as exc:
                 import traceback
                 print(f"!! handler {name} a leve: {type(exc).__name__}: {exc}", flush=True)
                 traceback.print_exc()
                 raise
+            # Journaliser la *sortie* autant que l'entree : sans elle on ne
+            # distingue pas « le handler n'a jamais rendu la main » de « il a
+            # rendu et l'agent n'en a rien fait ». Les deux ressemblent a un
+            # silence, et appellent des recherches opposees.
+            print(f'<- {name} en {(_t.monotonic() - depart) * 1000:.0f} ms '
+                  f'-> {type(resultat).__name__}: {resultat!r}'[:400], flush=True)
+            return resultat
         return wrapper
     return deco
 
@@ -63,14 +114,44 @@ class SpikeClient(acp.Client):
 
     @_loud('session_update')
     async def session_update(self, session_id: str, update=None, **kwargs) -> None:
+        """Journaliser le *contenu*, pas seulement le nom de type.
+
+        La version precedente ne gardait que `type(update).__name__`. C'est
+        l'angle mort qui a fait durer le blocage : apres la permission
+        accordee, l'agent continue peut-etre d'emettre — un message
+        d'erreur, une relance, un abandon — et on jetait precisement ce
+        qu'il fallait lire.
+        """
         kind = type(update).__name__ if update is not None else "?"
         self.updates.append(kind)
+
+        detail = ""
+        if update is not None:
+            dump = getattr(update, "model_dump", None)
+            try:
+                brut = dump(exclude_none=True) if callable(dump) else vars(update)
+            except Exception:  # pragma: no cover - diagnostic, jamais bloquant
+                brut = {"<illisible>": repr(update)[:200]}
+            detail = repr(brut)
+            if len(detail) > 600:
+                detail = detail[:600] + f"… (+{len(detail) - 600} car.)"
+        print(f"   [{len(self.updates):3d}] {kind}: {detail}", flush=True)
 
     @_loud('request_permission')
     async def request_permission(self, options, session_id: str, tool_call=None, **kwargs):
         self.permission_requests += 1
         options = options or []
         print(f'   options recues: {[(getattr(o,"option_id",None), getattr(o,"kind",None), getattr(o,"name",None)) for o in options]}', flush=True)
+        # ACP_SPIKE_DENY=1 refuse au lieu d'autoriser. Ce n'est pas une
+        # option de confort : autoriser laisse l'agent fige sans rien
+        # emettre, et on ne peut pas distinguer « notre reponse ne lui
+        # parvient pas » de « seul le chemin autorise se bloque ». Refuser
+        # emprunte le meme aller-retour et repond a la question.
+        if os.environ.get("ACP_SPIKE_DENY") == "1":
+            from acp.schema import DeniedOutcome, RequestPermissionResponse
+            print("   (refus force par ACP_SPIKE_DENY)", flush=True)
+            return RequestPermissionResponse(outcome=DeniedOutcome(outcome='cancelled'))
+
         # Pick the first allow-shaped option so the spike is non-interactive.
         for opt in options:
             kind = str(getattr(opt, "kind", "")).lower()
@@ -157,26 +238,61 @@ async def main() -> int:
         models = getattr(session, "models", None)
         available = getattr(models, "available_models", None) or []
         current = getattr(models, "current_model_id", None)
+        ids = [str(getattr(m, "model_id", m)) for m in available]
         print(f"2b. modele courant: {current}")
-        print(f"2c. disponibles: {[getattr(m, 'model_id', m) for m in available][:8]}")
 
-        local = next((m for m in available
-                      if MODEL.split(':')[0] in str(getattr(m, 'model_id', m))), None)
-        if local is not None:
-            await conn.set_session_model(
-                session_id=sid, model_id=getattr(local, "model_id", str(local)))
-            print(f"2d. modele force: {getattr(local, 'model_id', local)}")
+        # La liste entiere, et non ses huit premiers. Tronquee, elle ne
+        # montrait que des modeles distants et laissait croire qu'aucun
+        # modele local n'etait offert — alors que le probleme etait tout
+        # autre : les entrees `custom:` de l'agent nomment des tags que
+        # Ollama ne sert plus (HOS-113).
+        locaux = [i for i in ids if i.startswith("custom:")]
+        print(f"2c. {len(ids)} modeles offerts, dont {len(locaux)} locaux")
+        for i in locaux:
+            print(f"      {i}")
+
+        # Choisir un modele que le serveur sert vraiment, plutot qu'un nom
+        # ecrit en dur : c'est la derive entre les deux qui a coute la
+        # session precedente.
+        # La preference ne court-circuite jamais le controle de presence.
+        # La premiere version le faisait, et retenait donc le fantome
+        # `-128k` puisque `MODEL` etait lui aussi perime : exactement
+        # l'erreur que ce spike sert a debusquer, reproduite dans son
+        # propre code.
+        servis = _tags_ollama()
+        candidats = [i for i in locaux if _tag_de(i) in servis]
+        utilisable = next((i for i in candidats if _tag_de(i) == MODEL), None) \
+            or next(iter(candidats), None)
+        if utilisable is not None:
+            await conn.set_session_model(session_id=sid, model_id=utilisable)
+            print(f"2d. modele choisi (present cote Ollama): {utilisable}")
         else:
-            print("2d. AUCUN modele local trouve dans la session")
+            print("2d. AUCUN modele `custom:` de l'agent ne correspond a un tag servi")
+            print(f"    Ollama sert: {sorted(servis)}")
+            return 2
 
-        result = await conn.prompt(
-            session_id=sid,
-            prompt=[TextContentBlock(
-                type="text",
-                text="Create a file named ACP_SPIKE.md containing exactly one "
-                     "line: 'acp ok'.",
-            )],
-        )
+        # Borne explicite : le blocage connu ne rend jamais la main, et un
+        # spike qui pend n'apprend rien de plus a 900 s qu'a 180 s. La
+        # difference est qu'on peut lire ce qui a ete emis avant l'arret.
+        try:
+            result = await asyncio.wait_for(
+                conn.prompt(
+                    session_id=sid,
+                    prompt=[TextContentBlock(
+                        type="text",
+                        text="Create a file named ACP_SPIKE.md containing exactly one "
+                             "line: 'acp ok'.",
+                    )],
+                ),
+                timeout=PROMPT_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            print(f"3. prompt#1 BLOQUE apres {PROMPT_TIMEOUT_S:.0f}s — "
+                  f"updates={len(client.updates)} permissions={client.permission_requests}")
+            print(f"   derniers updates: {client.updates[-12:]}")
+            artifact = workspace / "ACP_SPIKE.md"
+            print(f"   artefact sur disque: {'OUI' if artifact.is_file() else 'NON'}")
+            return 1
         print(f"3. prompt#1 stop_reason={getattr(result, 'stop_reason', '?')} "
               f"updates={len(client.updates)} permissions={client.permission_requests}")
 

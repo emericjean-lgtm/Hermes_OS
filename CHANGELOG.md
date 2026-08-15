@@ -1,4 +1,32 @@
+## HOS-113 — Deux des trois « défauts de production » n'en étaient pas (2026-08-15)
+
+**Amendement à HOS-112.** Son entrée annonçait trois défauts de production révélés par le chantier des tests. En allant les corriger, la lecture du code en a réfuté deux. Ils sont amendés ici plutôt que corrigés en silence, parce que l'erreur est instructive : je les avais diagnostiqués depuis un vidage de pile, sans jamais vérifier ce qu'ils valaient en production.
+
+### T-1c — pas un défaut
+
+HOS-112 affirmait qu'« un exécuteur qui laisse ses fils derrière lui fuit à chaque mission, pas seulement en test ». **C'est faux.** `RealTaskExecutor._ensure_loop` crée **un** fil démon par *instance*, réutilisé pour toutes ses tâches, et `close()` l'arrête. Le `shutdown()` du bootstrap sonde `("shutdown", "stop", "close", …)` sur chaque sous-système en ordre inverse de construction : il est donc bien appelé en production.
+
+Les 55 fils du vidage étaient 55 *exécuteurs* construits par autant de tests qui n'arrêtaient jamais leur application. Un artefact du harnais, pas une fuite.
+
+### T-1a — un défaut de couplage, pas d'exécution
+
+Le moteur autonome dans un global de module reste un vrai problème, mais de testabilité et de couplage caché, pas de comportement : en production il n'existe qu'une application, et le composition root y installe le moteur voulu. `reset_engine()` donne désormais une couture explicite — le besoin de repartir d'un moteur neuf est légitime, et le satisfaire en atteignant `_engine` cachait le couplage au lieu de le nommer. La forme de fond rejoint **M-8** (`mission/routes.py::_missions`), qui a exactement le même défaut et attendait déjà au ROADMAP.
+
+### T-1b — celui-là était réel, et pire que décrit
+
+`execute_step` attendait ses nœuds sur un `as_completed` sans délai. En pratique chaque nœud est borné par `RealTaskExecutor` (900 s pour une boucle d'agent) — donc pas « indéfiniment », comme HOS-112 le disait. Mais cette borne appartient à l'exécuteur **injecté** : le graphe ne la connaît pas, et un `execute_node` fourni par un appelant qui n'en aurait aucune bloquerait ici pour toujours. Une garantie qui repose sur la politesse de son appelant n'en est pas une.
+
+**Et il y avait une seconde attente que je n'avais pas vue** : sortir d'un `with ThreadPoolExecutor(...)` appelle `shutdown(wait=True)` et joint tous les fils. Poser un délai sur `as_completed` sans traiter ce point aurait déplacé l'attente de trois lignes sans rien borner. Les deux sont traitées : délai sur la récolte, puis `shutdown(wait=False, cancel_futures=True)`.
+
+`STEP_TIMEOUT_S` vaut 1 200 s, très au-dessus des 900 s d'un agent — c'est un dernier recours, pas une politique d'exécution, et un test le vérifie contre `_HERMES_AGENT_TIMEOUT_S` pour que la relation ne se perde pas. Un nœud dépassé est compté en échec et publié en `mission.step_timeout`, distinct de `node_failed` : « a échoué » et « on ne sait pas ce qu'il est devenu » n'orientent pas le même diagnostic. Le topic est enregistré dans `event_topics.py` — HOS-111 venait de trouver trois types d'événements rattachés à aucune catégorie, donc invisibles pour tout ce qui regroupe.
+
+### Verified
+
+5 tests. Le fil bloqué du banc est libéré au démontage : les fils d'un `ThreadPoolExecutor` ne sont pas des démons et sont joints à la fin du processus, si bien qu'un test qui laisserait le sien immobilisé ferait pendre la suite entière à la sortie — le défaut même qu'il vérifie.
+
 ## HOS-112 — Une suite qui pend ne dit rien (2026-08-15)
+
+> **Amendé par HOS-113 (2026-08-15) :** la section « Verified » ci-dessous annonce trois défauts de production. Deux n'en étaient pas — voir HOS-113.
 
 En voulant confirmer que HOS-111 était vert, deux exécutions de `pytest` se sont figées : 92 minutes pour l'une, 15 pour l'autre. Ni l'une ni l'autre ne travaillait — 58 et 12 secondes de CPU consommées, respectivement. Elles n'échouaient pas, elles attendaient.
 

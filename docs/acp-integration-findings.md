@@ -35,23 +35,54 @@ ajouter.
 
 ## Bloqué
 
+> **Révisé le 2026-08-15 (HOS-113).** Le diagnostic ci-dessous plaçait la
+> faute dans le protocole d'approbation. **La mesure le réfute** : la
+> permission fonctionne, et le blocage est ailleurs. Conservé pour montrer
+> comment l'erreur s'est produite ; la section suivante fait foi.
+
 Après avoir accordé la permission (`AllowedOutcome(outcome='selected',
 option_id='allow_once')`), **l'agent ne poursuit pas**. Aucun appel
 `write_text_file` ne suit, aucune erreur n'est levée, le `prompt` ne rend
 jamais la main — testé jusqu'à 900 s.
 
-Hypothèses déjà écartées par la mesure :
+## Ce que la mesure du 2026-08-15 établit
 
-- modèle distant qui attendrait des identifiants → non, la session utilise
-  `custom:lfm2.5-2.6b-128k`, un modèle local ;
-- capacité terminal manquante → non, `terminal=True` ne change rien ;
-- signatures de handlers effacées par un décorateur → corrigé avec
-  `functools.wraps`, sans effet.
+**Un défaut de configuration masquait tout le reste.** Le modèle par
+défaut de l'agent (`~/.hermes/config.yaml` → `model.default`) valait
+`lfm2.5-2.6b-128k`, renommé `-125k` pendant la refonte du catalogue
+(HOS-104 à HOS-109). L'agent répondait
+`API call failed after 3 retries: HTTP 404: model not found` **à chaque
+tour** — et le handler `session_update` du spike ne gardait que le *nom de
+type* de chaque message, jetant précisément le texte qui le disait. Les
+dix-huit modèles de la section `custom_providers` étaient morts eux aussi.
+Config réalignée sur les onze tags réellement servis.
 
-Reste à explorer : la forme exacte attendue de la réponse sur le fil (le
-schéma Pydantic est accepté, mais peut-être pas la sérialisation), un
-éventuel second aller-retour attendu par l'agent, ou une réentrance dans le
-dispatcher du client.
+**La permission n'est pas le blocage.** Une fois le modèle corrigé, le
+handler répond `RequestPermissionResponse` **en 0 ms**, bien formée. Et
+l'agent *reçoit* cette réponse : en la refusant
+(`ACP_SPIKE_DENY=1` → `DeniedOutcome`), les mises à jour passent de 53 à
+**183**, l'agent raisonne à nouveau et tente un autre outil. L'aller-retour
+fonctionne dans les deux sens.
+
+**Le blocage est l'exécution d'outil, pas l'approbation.** Le second outil
+tenté après le refus — `terminal: ls -la ACP_SPIKE.md` — s'est figé lui
+aussi, **sans qu'aucune permission ne soit demandée** (`permissions=1` au
+total sur toute la session). Le motif commun est donc : l'agent émet
+`ToolCallStart`, puis n'exécute jamais l'outil et n'appelle jamais le
+client. La permission n'était que la dernière chose visible avant l'arrêt
+— une coïncidence de position, prise pour une cause.
+
+Piste suivante, dans cet ordre : un prompt sans aucun outil doit-il
+aboutir (isole l'exécution d'outil du reste) ; l'agent attend-il un
+`ToolCallProgress`/`ToolCallEnd` du client ; les toolsets de la session
+sont-ils vides comme ils l'étaient pour le CLI en HOS-089.
+
+## Une affirmation de ce document est devenue fausse
+
+Le paquet `acp` **n'est plus** dans le venv de Hermes OS : HOS-103 a
+séparé les deux environnements, et il ne reste que côté agent. L'adopter
+demandera donc bien de le déclarer dans `requirements.txt` — contrairement
+à ce qu'annonce la section « Pourquoi ACP plutôt que le CLI ».
 
 ## Piège de débogage à connaître
 

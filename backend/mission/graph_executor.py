@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
@@ -26,6 +27,14 @@ from backend.mission.mission_models import (
 
 logger = logging.getLogger("hermes_os.mission.graph_executor")
 
+#: Dernier recours, pas une politique (HOS-112). Le budget d'un nœud
+#: appartient à l'exécuteur injecté — 900 s pour une boucle d'agent Hermes
+#: (`_HERMES_AGENT_TIMEOUT_S`). Ce plafond est choisi bien au-dessus pour
+#: ne jamais couper un agent qui travaille réellement ; il n'existe que
+#: pour qu'une étape finisse par rendre un verdict même quand le nœud
+#: qu'on lui a confié n'en a aucun.
+STEP_TIMEOUT_S = 1200.0
+
 
 class GraphExecutor:
     """Executes missions by traversing the DAG.
@@ -38,7 +47,9 @@ class GraphExecutor:
         on_event: Optional[Callable] = None,
         execute_node: Optional[Callable[[MissionNode], bool]] = None,
         max_parallel_tasks: Optional[int] = None,
+        step_timeout_s: float = STEP_TIMEOUT_S,
     ) -> None:
+        self._step_timeout_s = step_timeout_s
         self._lock = threading.Lock()
         self._graph = MissionGraph()
         self._resolver = DependencyResolver()
@@ -56,6 +67,68 @@ class GraphExecutor:
             if max_parallel_tasks is not None
             else get_settings().mission_max_parallel_tasks
         )
+
+    def _recolter_en_parallele(
+        self, mission: Mission, ready: list[MissionNode], max_workers: int
+    ) -> dict[str, bool]:
+        """Exécuter les nœuds prêts, sans jamais attendre sans fin (HOS-112).
+
+        Deux attentes non bornées se cachaient ici, et la seconde annulait
+        la premiere :
+
+        1. `as_completed(...)` sans `timeout` — un nœud qui ne rend jamais
+           la main bloquait l'étape, donc la mission, sans trace ni
+           événement. En pratique chaque nœud est borné par le délai de
+           `RealTaskExecutor` (900 s pour une boucle d'agent), mais cette
+           borne appartient a l'exécuteur injecté : le graphe ne la connaît
+           pas et ne peut pas s'y fier. Un `execute_node` fourni par un
+           appelant qui n'en aurait aucune bloquerait ici pour toujours.
+        2. La sortie d'un `with ThreadPoolExecutor(...)` appelle
+           `shutdown(wait=True)` et **joint tous les fils**. Poser un délai
+           sur `as_completed` sans traiter ce point aurait deplace l'attente
+           de trois lignes, sans rien borner du tout.
+
+        Le délai est volontairement très au-dessus du budget d'un nœud : ce
+        n'est pas une politique d'exécution, c'est un dernier recours. Il ne
+        doit jamais couper un agent qui travaille vraiment.
+
+        Un nœud qui dépasse est laissé absent de `results` : l'appelant le
+        traite en échec comme n'importe quel autre, avec sa raison publiée.
+        """
+        results: dict[str, bool] = {}
+        pool = ThreadPoolExecutor(max_workers=max_workers)
+        try:
+            future_to_node = {
+                pool.submit(self._execute_node, node): node for node in ready
+            }
+            try:
+                for future in as_completed(future_to_node, timeout=self._step_timeout_s):
+                    node = future_to_node[future]
+                    try:
+                        results[node.node_id] = future.result()
+                    except Exception:
+                        results[node.node_id] = False
+            except FuturesTimeoutError:
+                muets = [
+                    n.title for f, n in future_to_node.items()
+                    if n.node_id not in results
+                ]
+                logger.error(
+                    "mission %s: %d nœud(s) n'ont pas rendu la main en %.0f s — %s",
+                    mission.mission_id, len(muets), self._step_timeout_s, ", ".join(muets),
+                )
+                if self._on_event:
+                    self._on_event("mission.step_timeout", {
+                        "mission_id": mission.mission_id,
+                        "timeout_s": self._step_timeout_s,
+                        "nodes": muets,
+                    }, severity="error")
+        finally:
+            # `cancel_futures` retire ceux qui n'ont pas démarré ; un nœud
+            # déjà en cours ne peut pas être interrompu, mais on cesse au
+            # moins de l'attendre.
+            pool.shutdown(wait=False, cancel_futures=True)
+        return results
 
     # ── Mission Lifecycle ───────────────────────────────────
 
@@ -143,16 +216,7 @@ class GraphExecutor:
             for node in ready:
                 results[node.node_id] = self._execute_node(node)
         else:
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                future_to_node = {
-                    pool.submit(self._execute_node, node): node for node in ready
-                }
-                for future in as_completed(future_to_node):
-                    node = future_to_node[future]
-                    try:
-                        results[node.node_id] = future.result()
-                    except Exception:
-                        results[node.node_id] = False
+            results.update(self._recolter_en_parallele(mission, ready, max_workers))
 
         for node in ready:
             success = results.get(node.node_id, False)

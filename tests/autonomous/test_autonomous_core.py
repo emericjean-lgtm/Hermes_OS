@@ -536,10 +536,12 @@ class TestAPIRoutes:
     """
 
     @pytest.fixture(autouse=True)
-    def _moteur_neuf(self, monkeypatch):
-        from backend.autonomous import routes as autonomous_routes
+    def _moteur_neuf(self):
+        from backend.autonomous.routes import reset_engine
 
-        monkeypatch.setattr(autonomous_routes, "_engine", None)
+        reset_engine()
+        yield
+        reset_engine()
 
     def test_handle_start_goal(self):
         result = handle_start_goal({"user_request": "API test goal"})
