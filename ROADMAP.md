@@ -122,32 +122,39 @@ d'un affichage à l'autre.
 **État : `backend/tests` est verte — 1 239 passés, 2 ignorés, 2 min 34,
 plus aucun blocage.**
 
-### T-0 — `tests/` n'est pas encore hermétique 🔴
+### T-0 — la boucle courte est verte ✅
 
-Les 2 869 tests rendus visibles par HOS-111 ne sont pas tous conçus pour
-la boucle courte. Premier bloqué identifié :
-`tests/architecture/test_alexandrie_integration.py::test_concurrent_hybrid_search`,
-où `hybrid_search` fait de **vraies requêtes HTTP** vers Alexandrie, avec
-retries et backoff — le client chiffre lui-même le coût à ~22 s par appel
-quand le service est éteint.
+**3 836 passés, 3 ignorés, 4 min 28** sur les deux répertoires. Une garde
+de session (`conftest.py`) refuse désormais toute connexion vers un
+service réel pendant la boucle courte, et les tests `lent` en sont
+exemptés. `VISION.md` promettait des tests sans réseau depuis le début ;
+c'est maintenant vérifié à chaque exécution plutôt qu'affirmé.
 
-L'en-tête du fichier affirme pourtant : « *Alexandrie is not running
-during tests (CI-safe)* ». **C'est faux**, et c'est le motif que ce
-projet traque : un commentaire qui certifie une propriété que le code n'a
-pas.
+**Trois fichiers certifiaient une herméticité qu'ils n'avaient pas** :
+`test_alexandrie_integration.py` (« *CI-safe* » alors que `hybrid_search`
+fait de vraies requêtes HTTP avec retries), `test_autonomous_real_wiring.py`
+(« *Fully hermetic… no real Ollama* »), et le fixture de `test_chat_audit.py`
+qui masquait l'hermétique de `conftest.py` en portant le même nom.
 
-Reste à faire :
+### T-1 — ce que le chantier a révélé sans le corriger 🟠
 
-1. Recenser les tests de `tests/` qui appellent un service externe, et
-   les doubler ou les marquer `lent`. Le mode `thread` de
-   `pytest-timeout` — le seul disponible sous Windows — tue la session au
-   premier dépassement, donc l'itération est d'un coupable par exécution.
-   Un blocage de sockets à la collecte donnerait la liste en une passe.
-2. **Le vrai correctif de l'ordre chronologique** : persister une
-   séquence explicite plutôt que se fier à l'horloge, comme
-   `test_turn_order_survives_a_shared_timestamp` le fait déjà pour les
-   conversations. Les pauses de 20 ms posées aujourd'hui rendent les
-   tests déterministes ; elles ne suppriment pas l'ambiguïté sous-jacente.
+Trois défauts de **production**, contournés côté test, à traiter pour
+eux-mêmes.
+
+| Réf. | Défaut |
+|---|---|
+| T-1a | `backend/autonomous/routes.py` garde son moteur dans un **global de module**, que `create_autonomous_routes()` écrase avec celui du conteneur. Un appelant croit obtenir un moteur neuf et hérite du câblage complet — c'est ce qui faisait exécuter un vrai DAG à quatre tests d'API. Même forme que M-8 (`mission/routes.py::_missions`) |
+| T-1b | `graph_executor.execute_step` attend sur `as_completed(future_to_node)` **sans `timeout=`**. Un nœud qui ne rend jamais la main bloque la mission entière, indéfiniment et sans trace. C'est du code de production, pas de test |
+| T-1c | **Des fils ne sont jamais joints.** Le vidage de pile au moment du blocage comptait **55 `hermes-task-executor`** et 7 `hermes-task-decomposer` encore vivants. Un exécuteur qui laisse ses fils derrière lui fuit à chaque mission, pas seulement en test |
+
+### T-2 — l'ordre chronologique, correctif de fond 🟡
+
+Les pauses de 20 ms posées en HOS-112 rendent les tests déterministes ;
+elles ne suppriment pas l'ambiguïté. La vraie réponse est de persister une
+**séquence explicite** plutôt que de se fier à l'horloge, comme
+`test_turn_order_survives_a_shared_timestamp` le fait déjà pour les
+conversations. Changement de schéma par module concerné (episodic,
+snapshots, tâches, projets, objectifs).
 
 ---
 

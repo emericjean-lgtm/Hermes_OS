@@ -154,15 +154,28 @@ class TestDuplicateTagFix:
 
 
 class TestRankingLimitFix:
-    def test_route_default_limit_covers_every_known_role_model(self):
-        """HOS-073: config/models.yaml alone defines 12 roles — the route's
-        own default must not silently truncate below that."""
+    def test_route_default_limit_does_not_truncate_what_it_knows(self):
+        """HOS-073 : la limite par défaut valait 5, si bien que le tableau
+        de classement du Cockpit n'affichait que les cinq premiers de tout
+        ce qui était enregistré, quel qu'en soit le nombre.
+
+        L'assertion portait sur « au moins 12 modèles ». C'était mesurer le
+        parc installé et non le code : `handle_get_ranking` se synchronise
+        d'abord sur Ollama, donc avec le serveur injoignable la même route
+        rend 7 modèles et le test échouait sans qu'une ligne ait changé
+        (HOS-112). Un test qui dépend d'un service extérieur rapporte
+        l'état de la machine, pas celui du dépôt.
+
+        Ce qui doit être garanti est qu'aucun modèle connu n'est coupé —
+        vrai avec sept comme avec douze.
+        """
         import backend.model_intelligence.routes as mi_routes
 
         result = mi_routes.handle_get_ranking()
-        # 12 role-based models is the real, current floor — this must not
-        # regress back to a default that hides most of them.
-        assert len(result["models"]) >= 12
+        connus = mi_routes._get_profiler().list_profiles()  # noqa: SLF001
+
+        assert connus, "le profileur ne connaît aucun modèle, le test ne prouve rien"
+        assert len(result["models"]) == len(connus)
 
     def test_handle_get_ranking_default_is_not_five(self):
         import inspect

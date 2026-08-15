@@ -38,11 +38,27 @@ Cinq tests corrigés par des dates réellement distinctes ; deux faux positifs �
 
 Ces pauses rendent les tests déterministes, elles ne suppriment pas l'ambiguïté de fond. Le dépôt connaît déjà la vraie réponse — `test_turn_order_survives_a_shared_timestamp` persiste une séquence explicite plutôt que de se fier à l'horloge. La généraliser est un changement de schéma par module, inscrit au ROADMAP et non bricolé ici.
 
+### La garde devient une propriété du dépôt, pas un diagnostic
+
+`conftest.py` refuse toute connexion vers Ollama ou Alexandrie pendant la boucle courte, et exempte les tests `lent`. `VISION.md` promet des tests sans réseau depuis le premier jour — « *every module is testable with in-memory stubs* » — sans que rien ne le vérifie. Un principe que rien ne fait respecter finit par décrire le passé.
+
+Elle a immédiatement rendu deux services. `tests/` est passé de « bloqué indéfiniment » à **2 596 passés en 2 min 29**, parce qu'une connexion refusée d'emblée fait jouer le disjoncteur d'Alexandrie au lieu de le laisser payer ~22 s de retries par appel. Et elle a démasqué un test qui mesurait la machine plutôt que le code : `test_route_default_limit_covers_every_known_role_model` exigeait « au moins 12 modèles » alors que la route se synchronise d'abord sur Ollama — sans réseau la même route en rend 7, et le test échouait sans qu'une ligne ait changé. Reformulé sur ce qu'il doit vraiment garantir — aucun modèle connu n'est tronqué — il passe avec sept comme avec douze.
+
+**Un piège de portée, tombé en la rendant permanente.** La première version utilisait `monkeypatch` dans une fixture, donc rétabli à chaque démontage. Un fil fuité survit à ce rétablissement : libéré de la garde, il atteint Ollama et bloque un test tout autre, des centaines de tests plus loin. La garde est désormais posée une fois pour la session et jamais retirée ; seule son application est suspendue pendant un test `lent`.
+
+### Un global de module faisait exécuter un vrai DAG à quatre tests d'API
+
+`backend/autonomous/routes.py` garde son moteur dans un global, et `create_autonomous_routes()` — appelé par le composition root — l'y installe pleinement câblé. N'importe quel test antérieur qui construit l'application le laisse en place ; les quatre tests de `TestAPIRoutes` appelaient ensuite `handle_start_goal` en croyant obtenir un moteur neuf, planifiaient un vrai DAG et pendaient sur un `as_completed` sans délai. Seuls : 0,53 s. Après la construction de l'application : blocage.
+
+**La localisation a demandé de corriger la méthode avant la cause.** Le mode `thread` vide la pile de *tous* les fils : les premières étaient celles des fils fuités, et j'ai d'abord désigné `test_search_by_importance`, une recherche en mémoire qui n'y était pour rien. C'est la pile du **fil principal**, en fin de vidage, qui nommait le vrai test. Un comptage des caractères de progression avait donné le même faux coupable, sa condition rejetant la ligne où les points se mêlent à l'en-tête du dépassement.
+
+Ce vidage comptait **55 fils `hermes-task-executor`** et 7 `hermes-task-decomposer` encore vivants.
+
 ### Verified
 
-`backend/tests` : **1 239 passés, 2 ignorés, 2 min 34, plus aucun blocage.** La famille chronologique a été rejouée **trois fois de suite** — pour de l'instabilité, une seule exécution verte ne prouve rien.
+**3 836 passés, 3 ignorés, 273 lents déselectionnés, 4 min 28, code de sortie 0** — les deux répertoires ensemble. `backend/tests` seul : 1 239 passés en 2 min 34. La famille chronologique a été rejouée **trois fois de suite** ; pour de l'instabilité, une seule exécution verte ne prouve rien.
 
-`tests/` n'est pas encore hermétique et reste un chantier déclaré (ROADMAP T-0). Le premier bloqué est identifié : `test_alexandrie_integration.py`, dont l'en-tête certifie « *Alexandrie is not running during tests (CI-safe)* » alors que `hybrid_search` fait de vraies requêtes HTTP avec retries — le client chiffre lui-même le coût à ~22 s par appel service éteint. Un commentaire qui affirme une propriété que le code n'a pas : le motif que ce dépôt traque.
+Trois défauts de production sont **contournés côté test, pas corrigés**, et inscrits au ROADMAP sous T-1 : le moteur autonome dans un global de module (même forme que M-8), `as_completed` sans `timeout=` dans `graph_executor` — un nœud qui ne rend jamais la main bloque la mission entière sans trace — et des fils d'exécution jamais joints. Ce n'est pas au garde-fou des tests de rattraper ça.
 
 ## HOS-111 — 71 % du dépôt n'était exécuté par personne (2026-08-15)
 

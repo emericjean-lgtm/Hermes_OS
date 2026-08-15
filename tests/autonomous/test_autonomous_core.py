@@ -8,6 +8,8 @@ and full mission simulation (100+ tests).
 import random
 import threading
 
+import pytest
+
 
 from backend.autonomous.autonomous_models import (
     AUTONOMOUS_EVENTS,
@@ -515,6 +517,29 @@ class TestAutonomousEngine:
 # ======================================================================
 
 class TestAPIRoutes:
+    """Ces routes doivent partir d'un moteur neuf, pas de celui du conteneur.
+
+    `backend/autonomous/routes.py` garde son moteur dans un global de
+    module, et `create_autonomous_routes()` — appelé par le composition
+    root — l'y installe pleinement câblé : vrai planificateur, vrai
+    exécuteur de graphe, vrais exécuteurs de tâches. N'importe quel test
+    antérieur qui construit l'application le laisse donc en place.
+
+    Seuls, ces quatre tests passaient en moins d'une seconde. Dans la suite
+    complète, `handle_start_goal` héritait du moteur câblé, exécutait un
+    vrai DAG et **pendait** sur un `as_completed` sans délai — après avoir
+    laissé derrière lui des dizaines de fils `hermes-task-executor`. Le
+    vidage de pile en comptait 55 au moment du blocage (HOS-112).
+
+    Un test qui change de comportement selon ce qui a tourné avant ne
+    mesure pas ce qu'il prétend mesurer.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _moteur_neuf(self, monkeypatch):
+        from backend.autonomous import routes as autonomous_routes
+
+        monkeypatch.setattr(autonomous_routes, "_engine", None)
 
     def test_handle_start_goal(self):
         result = handle_start_goal({"user_request": "API test goal"})
