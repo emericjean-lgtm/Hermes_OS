@@ -10,6 +10,7 @@ import {
   Toolbar,
 } from "@/components/center-scaffold";
 import { Badge, Button, Card } from "@/components/ui/card";
+import { AutonomyPanel } from "./autonomy-panel";
 
 // Deux sources réelles pour l'inventaire, une troisième pour le déclenchement.
 //
@@ -19,9 +20,14 @@ import { Badge, Button, Card } from "@/components/ui/card";
 // Le déclenchement passe par POST /verification/run — dont la charge utile
 // *est* documentée (VerificationRunRequest, backend/api/routes/verification.py,
 // visible sur /openapi.json) malgré ce que ce fichier affirmait auparavant.
-// À l'autonomy_level "low" livré, Aegis refusera la plupart des appels
+//
+// Selon le niveau d'autonomie, Aegis refusera tout ou partie des appels
 // (verdict != "allow", ran=false) : c'est la vraie réponse honnête du
-// système, pas une raison de cacher le déclencheur.
+// système, pas une raison de cacher le déclencheur. Ce commentaire
+// annonçait « le niveau "low" livré » alors que config/security.yaml est à
+// "medium" — et le niveau se règle désormais depuis cette page même
+// (AutonomyPanel), donc l'écrire en dur ici recommencerait à décrire un
+// état que personne ne garantit (HOS-115).
 
 export function ValidationCenter() {
   const runners = useVerificationRunners();
@@ -60,6 +66,8 @@ export function ValidationCenter() {
           { label: "Critères définis", value: String(validator.criteria_defined ?? 0) },
         ]}
       />
+
+      <AutonomyPanel />
 
       <Toolbar
         search={search}

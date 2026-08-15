@@ -7,16 +7,36 @@ turn/task is scoped to and hand this module (project_id, project_root);
 none of them re-implement path resolution, tool schemas, or the
 file_tools dispatch themselves.
 
-Deliberately a small, progressive-discovery tool set (list/exists/read/
-write) rather than every file_tools operation — copy/move/delete stay
-MCP-only for now (mcp_server/server.py), matching "offer the tools that
-match how a model actually explores a workspace" rather than the full
-surface at once.
+## Pourquoi l'ensemble s'est élargi (HOS-115)
+
+La version précédente s'en tenait à quatre opérations — list / exists /
+read / write — au motif d'offrir « les outils qui correspondent à la façon
+dont un modèle explore vraiment un workspace ». L'intention était juste,
+la conséquence l'était moins : le serveur MCP exposait **douze**
+opérations fichier à l'agent, toutes filtrées par Aegis et testées, et
+l'Assistant n'en voyait que quatre. Renommer un fichier depuis le chat
+était impossible alors que `file_tools.move` existait, marchait, et était
+déjà soumis à validation humaine.
+
+Les huit autres ne sont donc pas une nouvelle surface : c'est la même,
+rendue joignable depuis le second appelant. La barrière reste où elle a
+toujours été — `_check()` et le verdict d'Aegis, que ce module ne fait que
+relayer honnêtement.
+
+Ce qui *n'entre pas* ici : l'exécution de commandes. `verification_run`
+lui répond avec des runners épinglés (config/verification.yaml), et
+`system_command` reste l'échappatoire à validation obligatoire. Un shell
+libre offert au chat contredirait les deux règles que ce dépôt s'est
+données — pas d'argument fourni par l'appelant, pas d'interpréteur sur du
+texte fourni par l'appelant.
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - annotation seulement
+    from backend.tools.file_tools import FileOpResult
 
 
 def resolve_in_project(project_root: str, raw_path: str) -> str:
@@ -41,6 +61,32 @@ def resolve_in_project(project_root: str, raw_path: str) -> str:
         # whitelist check rejects it explicitly (see module docstring).
         return str(resolved) if resolved.is_relative_to(root) else raw_path
     return str((root / candidate).resolve())
+
+
+def _outil(nom: str, description: str, parametres: dict[str, str]) -> dict[str, Any]:
+    """Une déclaration d'outil, forme Ollama/OpenAI.
+
+    Les quatre premières sont écrites à la main plus bas, chacune avec sa
+    propre justification ; les huit suivantes partagent exactement la même
+    forme et la répéter douze fois ferait diverger un schéma sur douze sans
+    que personne le remarque. Tous les paramètres sont requis : un
+    `workspace_move` sans destination n'a pas de sens à moitié.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": nom,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    nom_param: {"type": "string", "description": desc}
+                    for nom_param, desc in parametres.items()
+                },
+                "required": list(parametres),
+            },
+        },
+    }
 
 
 def workspace_tool_schemas() -> list[dict[str, Any]]:
@@ -117,6 +163,55 @@ def workspace_tool_schemas() -> list[dict[str, Any]]:
                 },
             },
         },
+        _outil(
+            "workspace_search",
+            "Find files matching a glob pattern under a directory of the active "
+            "workspace. Use this when you know roughly what a file is called but "
+            "not where it is. Read-only.",
+            {"path": "Directory to search under, relative to the workspace root.",
+             "pattern": "Glob pattern, e.g. \"*.md\" or \"**/test_*.py\"."},
+        ),
+        _outil(
+            "workspace_stat",
+            "Size, type and modification time of a file or directory. Read-only — "
+            "use it instead of reading a file whole when you only need to know how "
+            "big it is or when it changed.",
+            {"path": "Path relative to the workspace root."},
+        ),
+        _outil(
+            "workspace_mkdir",
+            "Create a directory (and any missing parents) in the active workspace.",
+            {"path": "Directory path relative to the workspace root."},
+        ),
+        _outil(
+            "workspace_append",
+            "Append text to the end of an existing file without rewriting it. "
+            "Prefer this over read-then-write when you are adding to a log, a "
+            "changelog or a list — it cannot lose what is already there.",
+            {"path": "Path relative to the workspace root.",
+             "content": "Text to append. Include your own leading newline if you need one."},
+        ),
+        _outil(
+            "workspace_copy",
+            "Copy a file to another path inside the active workspace.",
+            {"source": "Existing path, relative to the workspace root.",
+             "destination": "New path, relative to the workspace root."},
+        ),
+        _outil(
+            "workspace_move",
+            "Move or rename a file inside the active workspace. This is how you "
+            "rename something — there is no separate rename tool. Requires human "
+            "validation before it takes effect.",
+            {"source": "Existing path, relative to the workspace root.",
+             "destination": "New path, relative to the workspace root."},
+        ),
+        _outil(
+            "workspace_delete",
+            "Delete a file from the active workspace. Requires human validation "
+            "before it takes effect, and it is not undone by anything you can "
+            "call — say what you are about to delete before calling this.",
+            {"path": "Path relative to the workspace root."},
+        ),
     ]
 
 
@@ -160,8 +255,75 @@ async def execute_workspace_tool(
                     "réussie."
                 )
             return f"Fichier écrit et vérifié : {resolved}"
+
+        if name == "workspace_search":
+            motif = str(arguments.get("pattern", "")).strip()
+            if not motif:
+                return "Aucun motif fourni — rien de cherché."
+            trouves = file_tools.search(aegis, resolved, motif, project_id=project_id)
+            return "\n".join(trouves) if trouves else "(aucune correspondance)"
+
+        if name == "workspace_stat":
+            infos = file_tools.stat(aegis, resolved, project_id=project_id)
+            return "\n".join(f"{cle} : {valeur}" for cle, valeur in infos.items())
+
+        if name == "workspace_mkdir":
+            return _rendre(file_tools.create_directory(
+                aegis, resolved, project_id=project_id), f"Dossier créé : {resolved}")
+
+        if name == "workspace_append":
+            contenu = str(arguments.get("content", ""))
+            return _rendre(file_tools.append(
+                aegis, resolved, contenu, project_id=project_id),
+                f"Ajouté à la fin de {resolved}")
+
+        if name in ("workspace_copy", "workspace_move"):
+            source_arg = str(arguments.get("source", "")).strip()
+            dest_arg = str(arguments.get("destination", "")).strip()
+            if not source_arg or not dest_arg:
+                return "Il faut une source *et* une destination — rien n'a été fait."
+            source = resolve_in_project(project_root, source_arg)
+            destination = resolve_in_project(project_root, dest_arg)
+            operation = file_tools.copy if name == "workspace_copy" else file_tools.move
+            verbe = "Copié" if name == "workspace_copy" else "Déplacé"
+            return _rendre(operation(aegis, source, destination, project_id=project_id),
+                           f"{verbe} : {source} -> {destination}")
+
+        if name == "workspace_delete":
+            return _rendre(file_tools.delete(
+                aegis, resolved, project_id=project_id), f"Supprimé : {resolved}")
+
         return f"Unknown tool {name!r} — nothing executed."
     except PermissionError as exc:
         return f"Refusé par Aegis : {exc}"
     except FileNotFoundError as exc:
         return f"Introuvable : {exc}"
+
+
+def _rendre(result: "FileOpResult", succes: str) -> str:
+    """Traduire un `FileOpResult` pour le modèle, sans jamais l'embellir.
+
+    Trois issues, et elles ne se confondent pas :
+
+    * **refusée** — Aegis a dit non, et sa raison est rendue telle quelle.
+      Une mise en attente de validation humaine passe par ici : l'opération
+      n'a pas eu lieu, et le modèle doit le dire au lieu d'annoncer un
+      succès qui viendra peut-être.
+    * **exécutée mais non vérifiée** — le contraire d'un succès. C'est la
+      règle centrale de ce dépôt : `success` est ce que le code croit avoir
+      fait, `verified` est ce qu'une relecture a constaté.
+    * **exécutée et vérifiée** — la seule qui s'annonce comme réussie.
+
+    Les champs sont lus directement, sans `getattr` de repli. La première
+    version en utilisait un, sur `applied` — le champ de `propose_write`,
+    pas celui de `FileOpResult`, qui s'appelle `success`. Chaque création
+    de dossier, chaque copie, chaque suppression aurait été rapportée
+    « refusée » sans que rien ne signale l'erreur. Un nom de champ faux
+    doit lever, pas se déguiser en verdict de sécurité.
+    """
+    if not result.success:
+        return f"Refusé ({result.verdict}) : {result.reason}"
+    if not result.verified:
+        return ("L'opération a été tentée mais n'a PAS pu être vérifiée — "
+                "ne la considère pas comme réussie.")
+    return succes

@@ -430,6 +430,34 @@ export function useSecurityEvents(limit = 100) {
   });
 }
 
+/** Le niveau d'autonomie en vigueur (§17.5).
+ *
+ * Pas de `refetchInterval` : contrairement aux menaces ou aux événements,
+ * ce réglage ne change que si quelqu'un le change. L'interroger en boucle
+ * ferait clignoter un réglage de sécurité sans jamais rien apprendre. */
+export function useAutonomy() {
+  return useQuery({
+    queryKey: ["security", "autonomy"],
+    queryFn: () => securityClient.autonomy(),
+  });
+}
+
+/** Changer le niveau, ou revenir à celui de `config/security.yaml`.
+ *
+ * Le cache est invalidé sur la réponse du serveur plutôt que mis à jour
+ * de façon optimiste : afficher un niveau que le moteur n'aurait pas
+ * accepté ferait croire à une permission qui n'existe pas. */
+export function useSetAutonomy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (level: string | null) =>
+      level === null ? securityClient.resetAutonomy() : securityClient.setAutonomy(level),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["security"] });
+    },
+  });
+}
+
 export function useSubsystemHealth() {
   return useQuery({
     queryKey: ["system", "subsystem-health"],

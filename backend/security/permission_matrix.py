@@ -25,7 +25,14 @@ class CategoryPolicy:
 
 class PermissionMatrix:
     def __init__(self, config: dict[str, Any]) -> None:
-        self.autonomy_level: str = config.get("autonomy_level", "low")
+        # La dérogation d'exécution l'emporte sur le fichier, quand il y en
+        # a une (HOS-115). `AegisEngine` relit `autonomy_level` à chaque
+        # évaluation, donc changer cet attribut prend effet immédiatement —
+        # c'est ce qui permet un curseur dans l'interface plutôt qu'une
+        # édition de fichier suivie d'un redémarrage.
+        from backend.security.autonomy import lire_derogation
+
+        self.autonomy_level: str = lire_derogation() or config.get("autonomy_level", "low")
         self._categories: dict[str, CategoryPolicy] = {
             name: CategoryPolicy(
                 name=name,

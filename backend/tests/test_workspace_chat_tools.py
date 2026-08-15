@@ -59,9 +59,28 @@ def test_resolve_relative_escape_collapses_within_join(tmp_path):
 # ── workspace_tool_schemas ───────────────────────────────────────
 
 
-def test_workspace_tool_schemas_covers_progressive_discovery_set():
+def test_workspace_tool_schemas_covers_every_file_operation():
+    """Les douze opérations de `file_tools`, plus seulement quatre (HOS-115).
+
+    Ce test épinglait l'ensemble « découverte progressive » — list /
+    exists / read / write — et il avait raison de le faire : c'était une
+    décision, écrite dans le docstring du module. Elle a changé sur
+    demande, pour une raison mesurable : le serveur MCP exposait déjà les
+    douze opérations à l'agent, si bien que renommer un fichier depuis le
+    chat était impossible alors que `file_tools.move` existait, marchait,
+    et passait déjà par une validation humaine.
+
+    L'assertion reste une **égalité** et non une inclusion : ce qui compte
+    n'est pas qu'il y ait « au moins » ces outils, mais que la liste offerte
+    au modèle soit exactement celle qu'on a décidé de lui donner. Un outil
+    qui s'y ajouterait sans passer par ici ne serait vu de personne.
+    """
     names = {t["function"]["name"] for t in wct.workspace_tool_schemas()}
-    assert names == {"workspace_list", "workspace_exists", "workspace_read", "workspace_write"}
+    assert names == {
+        "workspace_list", "workspace_exists", "workspace_read", "workspace_write",
+        "workspace_search", "workspace_stat", "workspace_mkdir", "workspace_append",
+        "workspace_copy", "workspace_move", "workspace_delete",
+    }
 
 
 # ── execute_workspace_tool: thin adapter, no duplicated logic ───

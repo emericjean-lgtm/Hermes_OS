@@ -1,3 +1,43 @@
+## HOS-115 — L'Assistant voit ce que Hermes OS sait déjà faire, et le curseur d'autonomie existe (2026-08-15)
+
+Deux manques signalés à l'usage, tous deux du même genre : une capacité présente dans le code, absente de l'endroit d'où on s'en servirait.
+
+### Cinq outils sur seize
+
+Le serveur MCP exposait douze opérations fichier à Hermes Agent, toutes filtrées par Aegis et testées. Le chat en offrait quatre. Renommer un fichier depuis l'Assistant était impossible alors que `file_tools.move` existait, marchait, et passait déjà par une validation humaine.
+
+Les huit autres ne sont donc pas une nouvelle surface : c'est la même, rendue joignable depuis le second appelant. La barrière reste `_check()` et le verdict d'Aegis, que l'adaptateur ne fait que relayer. **Sans projet actif et validé lié à la conversation, l'Assistant ne voit toujours qu'un seul outil** — la garantie de ce chemin, tenue par un test.
+
+`verification_runners` et `verification_run` entrent aussi : le besoin réel — « lance les tests quand tu as fini » — ressemblait à une demande de shell, n'en était pas une, et **sept runners épinglés existaient déjà** (`pytest`, `ruff`, `ruff_format_check`, `mypy`, `npm_test`, `npm_build`, `tsc`).
+
+**Un shell libre a été écarté, sur la doctrine du dépôt lui-même.** L'en-tête de `config/verification.yaml` interdit toute entrée prenant un argument fourni par l'appelant, et toute invocation d'interpréteur sur du texte fourni par l'appelant. Une fois ces deux règles appliquées, une « liste blanche de commandes en lecture » *est* une liste de runners. `system_command` reste l'échappatoire pour l'arbitraire, avec sa validation obligatoire.
+
+**Un défaut attrapé avant de partir.** Le compte rendu des opérations lisait `getattr(result, "applied", False)` — le champ de `propose_write`, pas celui de `FileOpResult`, qui s'appelle `success`. Chaque `mkdir`, `copy`, `move` et `delete` aurait été rapporté « refusé par Aegis » au modèle, en silence, le repli défensif empêchant toute erreur de le signaler. Le `getattr` est retiré : un nom de champ faux doit lever, pas se déguiser en verdict de sécurité.
+
+Ce que le modèle lit ne peut pas mentir, et les trois issues ne se confondent pas : **refusée** rend le verdict Aegis et son motif — une mise en attente de validation passe par là et doit se dire telle quelle ; **exécutée mais non vérifiée** est explicitement *pas* un succès ; **exécutée et vérifiée** est la seule qui s'annonce réussie. Même discipline sur les runners : `ran=false, verdict=require_human_validation` se rapporte comme « personne ne l'a autorisé », jamais comme un échec de tests.
+
+### Quatre niveaux appliqués, aucun réglable
+
+Les niveaux d'autonomie du §17.5 existaient depuis le début et Aegis les appliquait, mais rien ne les exposait : savoir lequel s'appliquait demandait de lire `config/security.yaml`, en changer demandait de l'éditer puis de redémarrer. Un garde-fou qu'on ne peut pas régler pendant qu'on travaille finit réglé une fois pour toutes, au niveau le plus permissif dont on a eu besoin un jour.
+
+Trois routes, et un changement qui prend effet **immédiatement** — `AegisEngine` relit `autonomy_level` à chaque évaluation, il suffit donc de modifier l'objet en service. Lire le fichier rapporterait ce qui est écrit ; l'accesseur va chercher la matrice réellement utilisée.
+
+**La dérogation ne touche pas `config/security.yaml`.** Ce fichier porte des dizaines de lignes expliquant *pourquoi* chaque catégorie est ce qu'elle est — le genre de texte qu'un sérialiseur YAML détruit sans le dire. Le réglage vit dans un JSON d'une ligne, lisible et modifiable sans la base de données : si quelque chose va assez mal pour vouloir resserrer l'autonomie, on ne veut pas dépendre du reste du système pour y arriver. Un fichier illisible ramène au réglage écrit par un humain plutôt que d'empêcher le démarrage — un garde-fou dont la panne bloque le système finit par être retiré.
+
+**Le panneau affiche en permanence les neuf catégories qu'aucun niveau ne débloque** (§17.3). Sans elles, un curseur au maximum laisserait croire que plus rien ne demandera de validation, ce qui est faux ; le promettre serait pire que de ne rien afficher. Un test paramétré le vérifie sur les quatre niveaux. Ce que chaque cran change est écrit à côté de son bouton, et ce texte vient du backend : la conséquence d'un réglage de sécurité appartient au module qui l'applique, pas à celui qui le dessine.
+
+### Deux commentaires qui décrivaient autre chose
+
+`conversation/routes.py` justifiait l'offre d'outils à chaque tour par la montée en gamme de l'`orchestrator`, « modèle par défaut de hermes_prime ». Faux : `hermes_prime.default_task_type` vaut `conversation`, dont la table place `standard` en tête — ornith-9b-256k, pas gpt-oss. La conclusion tient, mais sur une mesure : ornith obtient 3/3 sur l'axe agentique.
+
+`validation-center.tsx` annonçait « le niveau *low* livré » alors que la configuration est à *medium* — et le niveau se règle désormais depuis cette page même.
+
+### Verified
+
+44 tests ajoutés. Suite : **3 899 passés, 3 ignorés, code de sortie 0**. Frontend : 92 tests, `tsc --noEmit` propre.
+
+Le test qui épinglait l'ensemble « découverte progressive » à quatre outils a été mis à jour, pas assoupli : il gardait une décision écrite, cette décision a changé, et l'assertion reste une **égalité** — un outil ajouté sans passer par là ne serait vu de personne.
+
 ## HOS-114 — Le prix d'une bascule de modèle (2026-08-15)
 
 Le routeur changeait de modèle dès qu'un « meilleur » existait, sans savoir ce que ça coûtait, et rien dans le journal d'audit ne le disait après coup. Un arbitrage qu'on ne peut pas chiffrer ne peut pas se corriger.

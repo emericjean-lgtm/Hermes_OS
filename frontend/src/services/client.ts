@@ -702,8 +702,30 @@ export interface SecurityStatusDTO {
   isolation?: Record<string, unknown>;
 }
 
+/** Le curseur d'autonomie (§17.5) et ce que chaque cran change réellement.
+ *
+ * `always_validated` liste les catégories qu'aucun niveau ne débloque
+ * (§17.3). Elle vient du backend et non d'une constante ici : la
+ * conséquence d'un réglage de sécurité appartient au module qui l'applique,
+ * pas à celui qui le dessine — sans quoi l'interface finirait par promettre
+ * une permissivité que le moteur refuse. */
+export interface AutonomyDTO {
+  level: string;
+  levels: { name: string; effect: string }[];
+  overridden: boolean;
+  always_validated: string[];
+}
+
 export const securityClient = {
   status: () => fetchJSON<SecurityStatusDTO>("/security/status"),
+  autonomy: () => fetchJSON<AutonomyDTO>("/security/autonomy"),
+  setAutonomy: (level: string) =>
+    fetchJSON<AutonomyDTO>("/security/autonomy", {
+      method: "PUT",
+      body: JSON.stringify({ level }),
+    }),
+  resetAutonomy: () =>
+    fetchJSON<AutonomyDTO>("/security/autonomy", { method: "DELETE" }),
   policies: () => fetchJSON<Record<string, unknown>[]>("/security/policies"),
   threats: (limit = 50) => fetchJSON<Record<string, unknown>[]>(`/security/threats?limit=${limit}`),
   events: (limit = 100) => fetchJSON<Record<string, unknown>[]>(`/security/events?limit=${limit}`),

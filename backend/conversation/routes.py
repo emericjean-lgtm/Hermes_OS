@@ -75,6 +75,11 @@ async def _execute_conversation_tool(
         return await execute_workspace_tool(
             name, arguments, project_id=project_id, project_root=project_root
         )
+    if name.startswith("verification_"):
+        from backend.tools.verification_chat_tools import execute_verification_tool
+        return await execute_verification_tool(
+            name, arguments, project_id=project_id, project_root=project_root
+        )
     return f"Unknown tool {name!r} — nothing executed."
 
 
@@ -149,11 +154,19 @@ def _active_validated_project_root(project_id: str) -> str | None:
 #: (Workspace/Filesystem tool layer, Phase 9).
 def _conversation_tools(project_root: str | None) -> list[dict[str, Any]]:
     from backend.tools.connectors.web_search import web_search_tool_schema
+    from backend.tools.verification_chat_tools import verification_tool_schemas
     from backend.tools.workspace_chat_tools import workspace_tool_schemas
 
     tools = [web_search_tool_schema()]
     if project_root is not None:
         tools.extend(workspace_tool_schemas())
+        # Les runners sont soumis à la même condition que les outils de
+        # fichiers, et pour la même raison : ils s'exécutent *dans* le
+        # workspace lié. Sans projet actif et validé, il n'y a pas de
+        # répertoire où lancer quoi que ce soit, et l'offrir quand même
+        # ferait proposer au modèle un outil qui échouerait toujours
+        # (HOS-115).
+        tools.extend(verification_tool_schemas())
     return tools
 
 
