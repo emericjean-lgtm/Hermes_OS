@@ -260,6 +260,25 @@ class AutonomousOrchestrator:
                     "goal_id": goal.goal_id, "reason": "planning produced no executable tasks",
                 })
                 return goal
+
+            # Le dossier demandé n'a pas pu devenir un workspace autorisé
+            # (HOS-119). Exécuter quand même donnerait des tâches sans
+            # aucun outil de fichier, qui rapporteraient leur réussite
+            # au-dessus d'un dossier intact — c'est exactement ce qui a été
+            # mesuré avant ce correctif.
+            if self._workspace_refuse(goal, dag_mission.context.project_id):
+                goal.status = GoalStatus.FAILED
+                raison = (
+                    f"le dossier {goal.local_path!r} n'a pas pu être validé comme "
+                    "workspace (inexistant, inaccessible ou en lecture seule) — "
+                    "cet objectif demande d'écrire des fichiers et n'aurait eu "
+                    "aucun outil pour le faire"
+                )
+                logger.warning("objectif %s refusé : %s", goal.goal_id, raison)
+                self._publish(AUTONOMOUS_EVENTS["goal_failed"], {
+                    "goal_id": goal.goal_id, "reason": raison,
+                })
+                return goal
         else:
             plan_decisions = self._create_plan(goal, ctx)
             session.active_agents = [d.selected_option for d in plan_decisions
@@ -398,6 +417,38 @@ class AutonomousOrchestrator:
             # newest are at the end.
             return list(reversed(list(self._goals.values())))[:limit]
 
+    def _project_pour(self, goal: AutonomousGoal) -> str:
+        """L'id du Project validé couvrant `goal.local_path`, ou "".
+
+        Rend "" quand l'objectif n'a pas de dossier — beaucoup n'en ont pas
+        besoin, et leur en imposer un serait refuser du travail légitime.
+        Rend "" aussi quand le dossier existe mais ne se valide pas ; c'est
+        `_workspace_refuse` qui décide alors d'arrêter, pas cette fonction.
+        """
+        if not goal.local_path:
+            return ""
+        try:
+            from backend.projects.store import get_project_store
+
+            projet = get_project_store().ensure_for_path(
+                goal.local_path, name=f"autonome-{goal.goal_id[-8:]}")
+        except Exception:
+            logger.warning("workspace non résolu pour %s", goal.goal_id, exc_info=True)
+            return ""
+        return projet.id if projet else ""
+
+    @staticmethod
+    def _workspace_refuse(goal: AutonomousGoal, project_id: str) -> bool:
+        """Un objectif qui réclame un dossier sans pouvoir l'obtenir.
+
+        Il doit s'arrêter là. Le laisser courir, c'est ce qui vient de
+        produire six tâches « réussies » en 41 secondes au-dessus d'un
+        dossier vide, avec un rapport affirmatif — un mensonge confiant,
+        indiscernable d'un vrai succès. Un refus immédiat et lisible coûte
+        moins cher et dit la vérité.
+        """
+        return bool(goal.local_path) and not project_id
+
     def _marcher_le_graphe(self, mission, terminal) -> int:
         """Faire avancer le DAG jusqu'au bout, ou jusqu'au plafond de passes.
 
@@ -517,6 +568,16 @@ class AutonomousOrchestrator:
         mission.context.local_path = goal.local_path
         mission.context.repository = goal.repository
         mission.context.branch = goal.branch
+        # Le chemin devient un Project validé, sans quoi la mission n'aura
+        # aucun outil de fichier (HOS-119).
+        #
+        # `_workspace_project_for` résout `task.mission_id -> mission.
+        # context.project_id -> Project actif et validé`. Un `local_path`
+        # brut ne franchit pas cette chaîne : elle rendait `None`, la tâche
+        # partait en complétion simple, et le modèle sommé d'écrire un
+        # fichier sans pouvoir le faire produisait un appel d'outil **en
+        # texte**. Mesuré : 6 tâches sur 6 « réussies », 41 s, zéro fichier.
+        mission.context.project_id = self._project_pour(goal)
         session.mission_id = mission.mission_id
 
         # HOS-068: make this mission visible through /missions too — before

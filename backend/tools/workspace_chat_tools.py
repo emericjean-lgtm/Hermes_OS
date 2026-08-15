@@ -60,7 +60,37 @@ def resolve_in_project(project_root: str, raw_path: str) -> str:
         # unchanged rather than reinterpreting as relative — Aegis's real
         # whitelist check rejects it explicitly (see module docstring).
         return str(resolved) if resolved.is_relative_to(root) else raw_path
-    return str((root / candidate).resolve())
+    return str((root / _sans_prefixe_redondant(candidate, root)).resolve())
+
+
+def _sans_prefixe_redondant(candidate: Path, root: Path) -> Path:
+    """Retirer le nom du workspace quand le modèle l'a préfixé lui-même.
+
+    Mesuré le 2026-08-15 : un cahier des charges de trois livrables a
+    produit **six fichiers**. Chacun existait deux fois — à la racine, et
+    dans un sous-dossier répétant le nom du workspace :
+
+        ./calculatrice.py        ./cahier_zkfzqhqu/calculatrice.py
+
+    Le modèle connaît le chemin de son workspace et le préfixe parfois, ce
+    qui est un réflexe raisonnable ; le join le rejoignait alors à la racine
+    et créait un dossier fantôme. Résultat : on ne sait plus lequel des deux
+    fichiers fait foi, et une relecture de vérification peut tomber sur le
+    mauvais.
+
+    Le retrait ne s'applique qu'au **premier** segment et seulement s'il
+    égale exactement le nom du dossier racine. Un projet contenant
+    légitimement un sous-dossier de même nom (`src/src/…` reste possible)
+    n'est pas affecté, puisqu'il ne serait pas en tête.
+
+    Ce n'est pas une frontière de sécurité — `file_tools` repasse par Aegis
+    quoi qu'il arrive. C'est une correction d'ergonomie, du même ordre que
+    le join lui-même.
+    """
+    parties = candidate.parts
+    if len(parties) >= 2 and parties[0] == root.name:
+        return Path(*parties[1:])
+    return candidate
 
 
 def _outil(nom: str, description: str, parametres: dict[str, str]) -> dict[str, Any]:

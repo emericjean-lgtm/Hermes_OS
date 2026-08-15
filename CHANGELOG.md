@@ -1,3 +1,47 @@
+## HOS-119 — Un cahier des charges produit enfin ses livrables (2026-08-15)
+
+Trois défauts trouvés par une seule mesure, chacun invisible au précédent. Aucun n'aurait été trouvé en relisant du code.
+
+### Le banc
+
+Un cahier des charges réduit — un module Python, ses tests pytest, un LISEZMOI — lancé sur l'orchestrateur réel, avec vérification **sur le disque** et non d'après le rapport.
+
+| | départ | après le workspace | après les deux correctifs |
+|---|---|---|---|
+| Fichiers écrits | **0** | 6 (3 en double) | **3** |
+| Tests du livrable | — | `ModuleNotFoundError` | **4 passed** |
+| Durée | 41 s | 549 s | 457 s |
+
+### Un `local_path` n'est pas un `project_id`
+
+Premier verdict : **6 tâches sur 6 « réussies » en 41 secondes, zéro fichier**. Le rapport était affirmatif.
+
+`_workspace_project_for` résout `task.mission_id → mission.context.project_id → Project actif et validé`. Un objectif autonome porte un `local_path` brut, qui ne franchit pas cette chaîne : elle rendait `None`, la tâche n'avait **aucun outil de fichier**, et le modèle sommé d'écrire a produit un appel d'outil **en texte** vers un chemin Linux inventé — texte rangé comme résultat, compté comme réussite.
+
+`ProjectStore.ensure_for_path` enregistre le dossier comme Project et le valide. Enregistrer plutôt qu'assouplir la résolution : toute la chaîne de sécurité déjà testée s'applique — sonde réelle du disque, `validation_status`, whitelist dynamique d'Aegis. Accepter un chemin brut aurait créé une seconde porte vers le disque, et l'une des deux aurait fini par diverger. Le dossier est **revalidé à chaque fois** : un dossier autorisé hier peut avoir disparu.
+
+**Et un objectif qui réclame un dossier sans pouvoir l'obtenir refuse de démarrer**, en disant pourquoi. Le laisser courir est ce qui a produit le faux succès ci-dessus. Un objectif *sans* dossier continue de tourner : beaucoup n'ont rien à écrire, et leur imposer un workspace refuserait du travail légitime.
+
+### Chaque livrable écrit deux fois
+
+Deuxième verdict : trois livrables, **six fichiers**. Chacun à la racine *et* dans un sous-dossier répétant le nom du workspace. Le modèle préfixe parfois le chemin qu'on lui a donné — réflexe raisonnable — et le join le rejoignait à la racine.
+
+Le préfixe redondant est retiré, **uniquement en tête** : un projet contenant légitimement `src/cahier_abc/` garde son arborescence, et un fichier portant ce nom n'est pas effacé. La frontière de sécurité ne bouge pas : un chemin absolu hors racine reste transmis tel quel, pour qu'Aegis le refuse explicitement plutôt qu'on lui présente une version réinterprétée.
+
+### Écrire des fichiers n'a jamais suffi
+
+Troisième verdict : les fichiers existaient, le module était correct — et **ses tests ne passaient pas**. La mission avait nommé le fichier `calculatrice.py` en important `calculator`. Rapport : 6/6 réussi.
+
+`MissionVerification` répondait à « le workspace a-t-il changé ? ». Oui, six fois. Elle ne répondait pas à « ce qui a été produit tient-il debout ? » — alors que `verification_run` était branché depuis HOS-116.
+
+Elle lance désormais les propres tests du projet, avec **trois états qui ne se confondent pas** : aucun runner applicable, runner non exécuté (Aegis, dépendance absente), tests exécutés et en échec. Seul le troisième contredit un succès annoncé — et il emprunte le chemin de reprise déjà construit, puisque c'est la même famille de mensonge constatée par un autre instrument.
+
+**Le piège évité : proposer `pytest` par défaut.** Le lancer sur un projet JavaScript produirait un faux échec, et ce dépôt a payé pour apprendre qu'un faux échec coûte autant qu'un faux succès — cinq de ses huit défauts de mesure étaient des échecs imaginaires. Le runner n'est proposé que si le dossier porte la marque de l'écosystème.
+
+### Verified
+
+44 tests ajoutés. Suite : **3 957 passés, 3 ignorés, code de sortie 0**. Le banc rejoué produit trois fichiers et `4 passed` — vérifié en lançant pytest sur le workspace produit, pas en lisant le rapport de la mission.
+
 ## HOS-118 — La boucle se ferme des deux côtés, et une tâche a le temps de finir (2026-08-15)
 
 Question posée à l'usage : l'onglet Autonomous peut-il recevoir un cahier des charges complet et le réaliser ? La réponse était non, et le code disait précisément pourquoi.

@@ -10,6 +10,7 @@ singleton instead.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from backend.core.config import get_settings
 from backend.memory.db import init_db, make_engine, make_session_factory
@@ -85,6 +86,62 @@ class ProjectStore:
         (and therefore Aegis's dynamic whitelist) trusts."""
         with self._session_factory() as session:
             return project_manager.validate_project(session, project_id)
+
+    def ensure_for_path(self, root_path: str, *, name: str = "") -> Project | None:
+        """Le Project actif et validé qui couvre ce dossier, créé au besoin.
+
+        Mesuré le 2026-08-15 : un objectif autonome lancé avec un
+        `local_path` rapportait **6 tâches sur 6 réussies en 41 secondes et
+        zéro fichier écrit**. La cause tenait en une phrase — un chemin brut
+        n'est pas un `project_id`, et `_workspace_project_for` exige un
+        Project *enregistré et validé*. La résolution rendait `None`, la
+        tâche n'avait aucun outil, et le modèle, sommé d'écrire un fichier
+        sans pouvoir le faire, a produit un appel d'outil **en texte** vers
+        un chemin Linux inventé. Ce texte a été rangé comme résultat et
+        compté comme réussite.
+
+        Enregistrer plutôt qu'assouplir la résolution : toute la chaîne de
+        sécurité déjà écrite et testée s'applique sans exception — sonde
+        réelle du disque, `validation_status`, whitelist dynamique d'Aegis.
+        Accepter un chemin brut aurait créé une seconde porte vers le
+        disque à côté de celle-ci, et l'une des deux aurait fini par
+        diverger.
+
+        Rend `None` si le dossier ne passe pas la validation. L'appelant
+        doit alors **refuser**, pas continuer sans outils.
+        """
+        cible = Path(root_path).expanduser()
+        try:
+            cible = cible.resolve()
+        except OSError:
+            return None
+
+        for projet in self.list(status=ProjectStatus.ACTIVE):
+            if not projet.root_path:
+                continue
+            try:
+                if Path(projet.root_path).resolve() != cible:
+                    continue
+            except OSError:
+                continue
+            # Revalidé à chaque fois : un dossier autorisé la semaine
+            # dernière peut avoir été supprimé, déplacé ou passé en lecture
+            # seule depuis. Se fier au verdict stocké ferait accorder un
+            # accès sur une mesure périmée.
+            revalide = self.validate(projet.id)
+            return revalide if _est_valide(revalide) else None
+
+        cree = self.create(
+            name=name or cible.name or "workspace",
+            description="Créé automatiquement pour un objectif autonome (HOS-119)",
+            root_path=str(cible),
+        )
+        valide = self.validate(cree.id)
+        return valide if _est_valide(valide) else None
+
+
+def _est_valide(projet: Project | None) -> bool:
+    return bool(projet) and projet.validation_status == ValidationStatus.VALID.value
 
 
 @lru_cache
