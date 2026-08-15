@@ -72,6 +72,17 @@ class AutonomousEngine:
         goal = self._orchestrator.get_goal(goal_id)
         return goal.to_dict() if goal else None
 
+    def get_session(self, goal_id: str):
+        """La session d'exécution d'un objectif, ou None.
+
+        C'est elle qui porte `mission_id` — le lien entre un objectif et la
+        mission DAG qu'il exécute réellement. L'orchestrateur l'indexait
+        déjà (`_session_by_goal`) mais rien ne l'exposait au-dessus, ce qui
+        rendait l'objectif impossible à relier à sa décomposition
+        (HOS-117).
+        """
+        return self._orchestrator.get_session(goal_id)
+
     def list_goals(self, limit: int = 50) -> list[dict]:
         return [g.to_dict() for g in self._orchestrator.list_goals(limit)]
 

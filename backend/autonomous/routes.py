@@ -57,8 +57,26 @@ def handle_start_goal(data: dict) -> dict:
 
 
 def handle_get_goal(goal_id: str) -> dict | None:
+    """L'objectif, plus la mission qu'il exécute réellement (HOS-117).
+
+    `AutonomousGoal` ne connaît pas sa mission : c'est la *session* qui
+    porte `mission_id`, et aucune route ne l'exposait. L'objectif était
+    donc un cul-de-sac — on voyait des compteurs et des décisions, jamais
+    en quelles tâches il avait été découpé, alors que l'orchestrateur
+    construit un vrai DAG (`_execute_via_dag`) et que la vue existe
+    (`GET /missions/{id}/graph`).
+
+    Enrichi ici plutôt qu'ajouté au dataclass : le lien objectif → mission
+    appartient à la session, et le dupliquer sur le but créerait deux
+    sources pour un même fait, qui finiraient par diverger.
+    """
     engine = get_engine()
-    return engine.get_goal(goal_id)
+    goal = engine.get_goal(goal_id)
+    if goal is None:
+        return None
+    session = engine.get_session(goal_id)
+    goal["mission_id"] = session.mission_id if session else ""
+    return goal
 
 
 def handle_list_goals(limit: int = 50) -> dict:

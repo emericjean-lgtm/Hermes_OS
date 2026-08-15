@@ -775,6 +775,16 @@ export interface AutonomousGoalDTO {
   // empty on a fresh deployment with no mission history yet.
   knowledge_context: string;
   created_at: string;
+  /** La mission DAG que cet objectif exécute réellement (HOS-117).
+   *
+   * Ajouté par `GET /autonomous/{id}` depuis la session, seule à porter ce
+   * lien. Chaîne vide quand la planification n'a pas encore produit de
+   * mission — jamais absent, pour qu'un appelant n'ait pas à distinguer
+   * « pas de mission » de « ancienne version du backend ».
+   *
+   * Présent uniquement sur `GET /autonomous/{id}` : la liste
+   * `/autonomous/goals` ne l'enrichit pas. */
+  mission_id?: string;
 }
 
 export interface AutonomousDecisionDTO {

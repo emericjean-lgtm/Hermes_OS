@@ -607,7 +607,7 @@ export function useAutonomousGoal(goalId: string | undefined) {
 // (useAutonomousAction), so stopping here doesn't lose any real update.
 const AUTONOMOUS_SETTLED_STATUSES = new Set(["completed", "failed", "cancelled", "paused"]);
 
-export function useAutonomousReport(goalId: string | undefined) {
+export function useAutonomousReport(goalId: string | undefined, goalStatus?: string) {
   return useQuery({
     queryKey: ["autonomous", "report", goalId],
     queryFn: () => autonomousClient.report(goalId as string),
@@ -616,6 +616,19 @@ export function useAutonomousReport(goalId: string | undefined) {
     // validation) will never produce a report — retrying a 404 that can
     // only ever be a 404 just adds noise.
     retry: false,
+    // Sans rafraîchissement, ce rapport se figeait à sa première valeur
+    // (HOS-117). Le statut, l'objectif et la chronologie se rafraîchissaient
+    // toutes les 3 à 5 s ; « Exécution », « Décisions » et « Apprentissage »
+    // restaient sur leur premier état pendant toute la durée de l'objectif —
+    // un panneau immobile pendant que le travail avance ressemble à un
+    // panneau en panne.
+    //
+    // On s'arrête dès que l'objectif est réglé, même règle que la
+    // chronologie : interroger indéfiniment une valeur qui ne changera plus
+    // est du bruit (HOS-067 follow-up).
+    refetchInterval: goalStatus && AUTONOMOUS_SETTLED_STATUSES.has(goalStatus)
+      ? false
+      : 3_000,
   });
 }
 

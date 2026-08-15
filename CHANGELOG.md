@@ -1,3 +1,37 @@
+## HOS-117 — Autonomous : l'objectif n'est plus un cul-de-sac (2026-08-15)
+
+L'onglet n'avait jamais été retesté depuis la refonte. Il s'est révélé en bien meilleur état que le backlog ne le laissait croire — données réelles, reprise d'objectif (HOS-102), contrôles câblés. Les défauts étaient ailleurs, et aucun n'était visible sans regarder le code.
+
+### Le rapport se figeait pendant l'exécution
+
+Statut, objectif et chronologie se rafraîchissaient toutes les 3 à 5 secondes, avec arrêt intelligent une fois l'objectif réglé. `useAutonomousReport` n'avait **aucun `refetchInterval`** : « Exécution », « Décisions » et « Apprentissage » restaient sur leur première valeur pendant toute la durée de l'objectif.
+
+Un panneau immobile pendant que le travail avance ressemble à un panneau en panne — et il fallait changer d'objectif ou recharger la page pour voir bouger quoi que ce soit. Le rapport suit désormais la même règle que la chronologie : 3 s tant que l'objectif tourne, plus rien dès qu'il est réglé, parce qu'interroger indéfiniment une valeur qui ne changera plus est du bruit (HOS-067).
+
+### `tools_used` était rempli et affiché nulle part
+
+Le moteur le calculait, le rapport le transportait, l'écran l'ignorait. C'est le point « outils réellement appelés » du backlog du 13 août.
+
+Il est affiché — **étiqueté « retenus au plan »**, et pas « appelés ». Il vient de `plan_decisions` dans l'orchestrateur, c'est-à-dire des décisions de *sélection* d'outils, pas d'un compteur d'invocations. Écrire « appelés » aurait annoncé un travail qui n'a peut-être pas eu lieu ; c'est exactement le genre d'affirmation que ce dépôt traque.
+
+### L'objectif ne menait nulle part
+
+L'orchestrateur construit une vraie mission DAG (`_execute_via_dag`) et la session en garde l'identifiant. **Rien au-dessus ne l'exposait** : `AutonomousEngine` n'avait pas de `get_session`, et aucune route ne rendait ce lien. On voyait donc des compteurs et des décisions, jamais en quelles tâches l'objectif avait été découpé — alors que `GET /missions/{id}/graph` le rend en entier depuis toujours.
+
+Le lien est enrichi **à la route** plutôt qu'ajouté au dataclass : il appartient à la session, et le recopier sur l'objectif créerait deux sources pour un même fait, qui finiraient par diverger. Un test épingle cette décision.
+
+Autonomous réutilise le **même** panneau de décomposition que le Mission Center. Deux vues du même DAG auraient divergé au premier changement.
+
+**Un `getattr` de repli retiré avant qu'il ne nuise.** La première version écrivait `getattr(engine, "get_session", lambda _g: None)` — le moteur n'ayant pas cette méthode, le lien aurait été une chaîne vide **en silence**, et rien n'aurait signalé qu'il était mort. La méthode est ajoutée au moteur, le repli supprimé. C'est le second de la journée, après celui de `FileOpResult.applied` (HOS-115).
+
+### Le message de pause décrivait le produit d'avant
+
+« Augmentez `autonomy_level` » envoyait éditer un fichier et redémarrer, alors que le curseur existe depuis HOS-115. Il pointe désormais vers la file d'approbation et le Validation Center.
+
+### Verified
+
+5 tests ajoutés. Suite : **3 913 passés, 3 ignorés, code de sortie 0**. Frontend : 92 tests, `tsc --noEmit` propre.
+
 ## HOS-116 — Une mission peut vérifier son travail, et le dire (2026-08-15)
 
 Deux manques qui se répondent : une mission savait écrire sans savoir vérifier, et ce que le système vérifiait déjà n'atteignait aucun écran.

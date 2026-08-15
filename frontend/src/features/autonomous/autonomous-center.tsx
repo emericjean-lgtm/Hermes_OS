@@ -22,6 +22,7 @@ import {
   History,
 } from "lucide-react";
 import { CenterHeader } from "@/components/center-scaffold";
+import { DecompositionPanel } from "@/features/missions/decomposition-panel";
 
 // This Center used to render four module-level constants — MOCK_GOAL,
 // MOCK_SESSION, MOCK_DECISIONS and MOCK_TIMELINE — describing a fabricated
@@ -61,10 +62,13 @@ export function AutonomousCenter() {
   // status badge below used to show "analyzing" forever — and it vanished
   // with the mutation on unmount.
   const goalQuery = useAutonomousGoal(goalId);
-  const report = useAutonomousReport(goalId);
+  const goal = goalQuery.data;
+  // Le statut est passé au rapport pour qu'il cesse d'interroger une fois
+  // l'objectif réglé — sans lui, le rapport se figeait à sa première
+  // valeur pendant toute l'exécution (HOS-117).
+  const report = useAutonomousReport(goalId, goal?.status);
   const timeline = useAutonomousTimeline(goalId);
 
-  const goal = goalQuery.data;
   const rep = report.data;
   const busy = start.isPending;
   const knownGoals = goals.data?.goals ?? [];
@@ -273,9 +277,15 @@ export function AutonomousCenter() {
           {goal.status === "paused" && (
             <div className="mt-3 pt-3 border-t border-hermes-border/30 text-[10px] font-mono text-hermes-amber flex items-center gap-2">
               <AlertCircle className="w-3 h-3" />
+              {/* Ce message envoyait éditer `autonomy_level` dans un fichier
+                  et redémarrer. Le curseur existe maintenant dans le
+                  Validation Center (HOS-115) — envoyer quelqu'un modifier
+                  une configuration à la main pour un réglage qui a son
+                  bouton, c'est décrire le produit d'avant. */}
               Cet objectif touche un projet réel et nécessite une validation
-              humaine (Aegis) avant de pouvoir démarrer — augmentez
-              autonomy_level, ou reprenez-le une fois approuvé.
+              humaine (Aegis) avant de démarrer. Approuvez-le dans la file
+              d&apos;attente, ou relevez le niveau d&apos;autonomie depuis le
+              Validation Center, puis reprenez-le.
             </div>
           )}
           {goal.knowledge_context && (
@@ -346,6 +356,26 @@ export function AutonomousCenter() {
                   <span className="text-[10px] text-hermes-muted font-mono">Résultat</span>
                   {statusBadge(rep.success ? "completed" : "failed")}
                 </div>
+                {/* `tools_used` était rempli par le moteur et affiché nulle
+                    part. Étiqueté « retenus au plan » et non « appelés » :
+                    il vient des décisions de planification
+                    (AutonomousOrchestrator, `plan_decisions`), pas d'un
+                    compteur d'invocations. Les confondre annoncerait un
+                    travail qui n'a peut-être pas eu lieu (HOS-117). */}
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-[10px] text-hermes-muted font-mono shrink-0">
+                    Outils retenus au plan
+                  </span>
+                  <div className="flex gap-1 flex-wrap justify-end">
+                    {rep.tools_used && rep.tools_used.length > 0 ? (
+                      rep.tools_used.map((t) => (
+                        <Badge key={t} variant="default" className="text-[9px]">{t}</Badge>
+                      ))
+                    ) : (
+                      <span className="text-[10px] text-hermes-muted font-mono">aucun</span>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </Card>
@@ -379,6 +409,28 @@ export function AutonomousCenter() {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* La décomposition réelle de l'objectif (HOS-117).
+          L'orchestrateur construit une vraie mission DAG ; le Center
+          n'en montrait que des compteurs et des décisions, jamais les
+          tâches. Le lien objectif → mission passe par la session, que
+          rien n'exposait — d'où l'impression d'un cul-de-sac. Même
+          panneau que le Mission Center : une seule vue du DAG, pas deux
+          qui divergeraient. */}
+      {goalId && goal?.mission_id && (
+        <div className="mb-6">
+          <DecompositionPanel missionId={goal.mission_id} />
+        </div>
+      )}
+
+      {goalId && goal && !goal.mission_id && goal.status !== "paused" && (
+        <Card title="Décomposition" className="mb-6">
+          <p className="text-[10px] text-hermes-muted font-mono">
+            Cet objectif n&apos;a pas encore de mission — la planification
+            n&apos;a pas produit de DAG, ou elle est encore en cours.
+          </p>
+        </Card>
       )}
 
       {/* Timeline + lessons, both real */}
