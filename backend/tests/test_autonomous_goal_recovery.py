@@ -66,7 +66,11 @@ def test_a_started_goal_can_be_found_without_holding_its_id(engine):
 def test_goals_are_listed_newest_first(engine):
     """A user coming back to the tab is looking for what they just launched,
     not for what they ran an hour ago."""
+    # La pause sépare les deux horodatages : l'horloge Windows avance par
+    # pas de ~15,6 ms, et deux lancements consécutifs seraient ex aequo, ce
+    # qui ferait tirer ce verdict au sort (HOS-112).
     first = engine.start_goal("premier objectif")
+    time.sleep(0.02)
     second = engine.start_goal("deuxième objectif")
 
     listed = engine.list_goals()

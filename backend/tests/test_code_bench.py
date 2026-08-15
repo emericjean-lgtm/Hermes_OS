@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from backend.model_intelligence import code_bench
 from backend.model_intelligence.code_bench import (
     TASKS, extract_code, run_code_task,
 )
@@ -112,9 +113,18 @@ def test_du_code_invalide_echoue_sans_faire_tomber_le_banc():
     assert result.detail
 
 
-def test_une_boucle_infinie_expire_au_lieu_de_bloquer():
+def test_une_boucle_infinie_expire_au_lieu_de_bloquer(monkeypatch):
     """Un modèle qui écrit une boucle sans fin doit coûter un essai, pas la
-    campagne. C'est la raison d'être du sous-processus."""
+    campagne. C'est la raison d'être du sous-processus.
+
+    Le délai est ramené à 2 s pour ce test. À la valeur de production
+    (60 s) il prouvait exactement la même chose en trente fois plus de
+    temps — et c'est *lui* que le premier garde-fou `--timeout=45` a
+    attrapé, faisant passer un test lent mais sain pour le test bloqué
+    qu'on cherchait. Un test long ne se distingue d'un test pendu que par
+    la patience de celui qui regarde.
+    """
+    monkeypatch.setattr(code_bench, "EXEC_TIMEOUT_S", 2.0)
     result = run_code_task(SIMPLE, "def compter_mots(texte):\n    while True:\n        pass")
 
     assert not result.passed

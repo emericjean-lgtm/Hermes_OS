@@ -16,12 +16,26 @@ from backend.model_intelligence.model_autonomous_adapter import (
 )
 from backend.model_intelligence.model_evolution_adapter import ModelEvolutionAdapter
 from backend.model_intelligence.model_intelligence_models import (
+    PREDEFINED_MODELS,
     ModelPerformanceRecord,
     TaskType,
 )
 from backend.model_intelligence.model_memory_adapter import ModelMemoryAdapter
 from backend.model_intelligence.model_profiler import ModelProfiler
 from backend.model_intelligence.model_runtime_adapter import ModelRuntimeAdapter
+
+
+#: Un modele reel du catalogue, choisi a l'execution plutot qu'ecrit en dur.
+#:
+#: Ces tests utilisaient « qwen3.6:27b » comme identifiant opaque de modele
+#: de code. Le tri des modeles a renomme 21 tags en 11 en inscrivant le
+#: contexte mesure dans chaque nom ; PREDEFINED_MODELS a suivi, ces tests
+#: non — et rien ne l'a signale, parce que pytest.ini ne declarait que
+#: backend/tests. Dix-huit tests etaient rouges sans que personne ne les
+#: lance. Lire le catalogue evite que le prochain renommage recommence.
+MODELE_REEL = next(m for m, spec in PREDEFINED_MODELS.items()
+                   if spec.get('chat_capable'))
+
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -60,7 +74,7 @@ class TestModelAutonomousAdapter:
         adapter = ModelAutonomousAdapter()
         feedback = ModelExecutionFeedback(
             goal_id="goal-1",
-            model_id="qwen3.6:27b",
+            model_id=MODELE_REEL,
             task_type="code_generation",
             duration_ms=1500.0,
             tokens_used=500,
@@ -161,10 +175,10 @@ class TestModelAutonomousAdapter:
 class TestModelRuntimeAdapter:
     def test_simulate_execution(self):
         adapter = ModelRuntimeAdapter()
-        profile = adapter._profiler.get_profile("qwen3.6:27b")
+        profile = adapter._profiler.get_profile(MODELE_REEL)
         assert profile is not None
         plan = adapter.simulate_execution(profile, None)
-        assert plan.model_id == "qwen3.6:27b"
+        assert plan.model_id == MODELE_REEL
         assert plan.estimated_vram_mb > 0
         # >= 0, not > 0: the profiler is now seeded from config/models.yaml
         # with an honest tokens_per_second of 0.0 (never benchmarked in this
@@ -176,7 +190,7 @@ class TestModelRuntimeAdapter:
 
     def test_compare_runtimes(self):
         adapter = ModelRuntimeAdapter()
-        profile = adapter._profiler.get_profile("qwen3.5:9b")
+        profile = adapter._profiler.get_profile(MODELE_REEL)
         assert profile is not None
         results = adapter.compare_runtimes(profile)
         assert len(results) >= 2
@@ -187,10 +201,10 @@ class TestModelRuntimeAdapter:
 
     def test_get_best_configuration(self):
         adapter = ModelRuntimeAdapter()
-        profile = adapter._profiler.get_profile("devstral")
+        profile = adapter._profiler.get_profile(MODELE_REEL)
         assert profile is not None
         config = adapter.get_best_configuration(profile, None)
-        assert config["model_id"] == "devstral"
+        assert config["model_id"] == MODELE_REEL
         assert "runtime" in config
         assert "estimated_vram_mb" in config
 
@@ -218,10 +232,10 @@ class TestModelEvolutionAdapter:
         adapter = ModelEvolutionAdapter()
         # Add some performance data
         adapter.record_execution(ModelPerformanceRecord(
-            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
+            model_id=MODELE_REEL, task_type=TaskType.CODE_GENERATION,
             duration_ms=500, tokens_used=100, success=True,
         ))
-        result = adapter.analyze_model_performance("qwen3.6:27b")
+        result = adapter.analyze_model_performance(MODELE_REEL)
         assert result["found"] is True
         assert result["total_runs"] >= 1
 
@@ -261,9 +275,9 @@ class TestModelEvolutionAdapter:
 
     def test_suggest_model_replacement(self):
         adapter = ModelEvolutionAdapter()
-        suggestion = adapter.suggest_model_replacement("qwen3.6:27b")
+        suggestion = adapter.suggest_model_replacement(MODELE_REEL)
         assert suggestion is not None
-        assert suggestion["current_model"]["model_id"] == "qwen3.6:27b"
+        assert suggestion["current_model"]["model_id"] == MODELE_REEL
 
     def test_suggest_model_replacement_nonexistent(self):
         adapter = ModelEvolutionAdapter()
@@ -301,14 +315,14 @@ class TestModelMemoryAdapter:
             ModelDecision, RuntimeBackend, Quantization,
         )
         decision = ModelDecision(
-            model_id="qwen3.6:27b", model_name="Qwen3-Coder",
+            model_id=MODELE_REEL, model_name="Qwen3-Coder",
             runtime=RuntimeBackend.OLLAMA, quantization=Quantization.Q4_K_M,
             confidence=0.9, reason="Best for code",
         )
         adapter.store_decision_episode(decision, "Refactor code")
         results = adapter.query_episodic_memory()
         assert len(results) >= 1
-        assert results[-1]["model_id"] == "qwen3.6:27b"
+        assert results[-1]["model_id"] == MODELE_REEL
 
     def test_learn_and_reinforce_rule(self):
         adapter = ModelMemoryAdapter()
@@ -330,7 +344,7 @@ class TestModelMemoryAdapter:
     def test_query_procedural_memory_fuzzy(self):
         adapter = ModelMemoryAdapter()
         adapter.learn_effective_rule("javascript optimization", {
-            "model_id": "qwen3.6:27b", "confidence": 0.9,
+            "model_id": MODELE_REEL, "confidence": 0.9,
         })
         # Fuzzy match on "optimization"
         results = adapter.query_procedural_memory("code optimization")
@@ -338,9 +352,9 @@ class TestModelMemoryAdapter:
 
     def test_knowledge_graph_relations(self):
         adapter = ModelMemoryAdapter()
-        adapter.record_model_for_task("qwen3.6:27b", "code_generation", True)
+        adapter.record_model_for_task(MODELE_REEL, "code_generation", True)
         adapter.record_model_for_task("deepseek-r1:14b", "debug", True)
-        adapter.record_outperformance("qwen3.6:27b", "devstral", "code review")
+        adapter.record_outperformance(MODELE_REEL, "devstral", "code review")
 
         relations = adapter.query_knowledge_graph()
         assert len(relations) >= 3

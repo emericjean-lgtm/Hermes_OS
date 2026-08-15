@@ -1,281 +1,366 @@
 # Roadmap — Hermes OS
 
-> **État d'avancement réel du projet après HOS-065B.**
-> Chaque HOS est incrémental et préserve la compatibilité avec les précédents.
+> **État réel du dépôt au 2026-08-15, après HOS-111.**
+>
+> La version précédente de ce fichier était figée à HOS-065B (2026-07-30) :
+> quarante-cinq jalons livrés depuis n'y figuraient pas, ses métriques
+> annonçaient 3 358 tests là où le dépôt en contient 4 112, et le backlog
+> frontend relevé le 2026-08-13 n'y était pas reporté. Un document de
+> référence en retard sur le code fait manquer du travail — c'est ce qui
+> est arrivé.
 
 ---
 
-## P-002 — Namespace d'API unifié ✅ (2026-07-30)
+## L'objectif
 
-Le Cockpit n'utilise plus qu'une seule racine `/api/v1`. Les 74 endpoints
-hérités y sont republiés ; aucune capacité n'est joignable uniquement hors du
-namespace. Actions destructives protégées par confirmation.
+Hermes Agent (NousResearch) est le cerveau des missions. Hermes OS est son
+système d'exploitation : runtime, workspace, modèles, sécurité,
+persistance, observabilité et interface. Voir `VISION.md` pour la vision
+longue, `CLAUDE.md` pour les règles qui priment.
 
-**Reste à trancher**
-- Retrait des 62 chemins racine conservés pour compatibilité (cycle de dépréciation).
-- Schéma OpenAPI de `POST /verification/run` — débloquerait le bouton du Validation Center.
-- Homonymie `/skills` historique vs HOS : renommage ou maintien de `/api/v1/legacy`.
+Le projet est **conforme** au sens du cahier des charges §28.1 quand
+Hermes sait :
 
-## Statut Release Candidate
+| Critère §28.1 | État |
+|---|---|
+| Répondre à une demande simple en < 5 s | ✅ mesuré (594-615 ms au premier token) |
+| Choisir automatiquement un modèle adapté | ⚠️ le catalogue est mesuré, le routage par difficulté n'est pas câblé |
+| Utiliser la mémoire pertinente sans tout réinjecter | ✅ HOS-097/098 |
+| Analyser un document local et en extraire une synthèse | ✅ |
+| **Résumer un contexte long de manière cohérente** | ❌ **aucun module — §12 jamais construit** |
+| Proposer un plan d'action explicite et validable | ✅ |
+| Modifier un fichier autorisé, diff avant application | ✅ `propose_write` |
+| Exécuter lint/tests et rapporter le résultat | ✅ |
+| Signaler une erreur avec son contexte d'échec | ✅ |
+| Demander validation avant action sensible | ✅ Aegis |
+| Reprendre une mission après interruption | ✅ `snapshot_manager`, T8 vérifié |
+| Garder des traces lisibles de chaque session | ✅ `audit_log` |
+| Fonctionner sur des projets variés sans reconfiguration lourde | ✅ |
+| Exploiter la RX 6800 sans configuration manuelle | ⚠️ vrai en usage, **non vérifié à l'installation** (§25) |
 
-> ### 🔴 Audit RC2 du 2026-07-30 → NO GO pour v1.0 (score 71/100)
->
-> Rapport : [`docs/release/HERMES_OS_RC2_AUDIT.md`](docs/release/HERMES_OS_RC2_AUDIT.md)
->
-> **La plateforme est solide ; la capacité centrale n'est pas implémentée.**
-> Aucun chemin d'exécution n'effectue de travail réel :
-> `AutonomousOrchestrator` étape 4 est `random.random() > 0.15`, les nœuds de
-> mission ne progressent jamais (`_execute_via_hermes` est un placeholder
-> documenté), l'adaptateur KTransformers est simulé (`is_real_kt: false`) et le
-> client MCP sortant renvoie un succès fabriqué sans aucune I/O. Six requêtes
-> identiques ont produit des succès alternés et six durées aléatoires ; Ollama
-> tournait avec 16 modèles et n'a jamais été invoqué.
->
-> **Aucune fonctionnalité ne doit être annoncée comme autonome tant que R-1
-> n'est pas résolu.** 12 défauts ont été corrigés pendant l'audit (évasion de
-> sandbox, 22 endpoints en 500, 8 topics perdus, santé 864 ms → 0,8 ms).
-> 3 341 tests passent, 0 échec.
+Deux critères ne sont pas tenus, un troisième n'est pas vérifiable tant
+que l'installation n'a pas été rejouée sur une machine nue.
 
-> ### ✅ R-001 du 2026-07-30 — R-1 levé pour les objectifs mono-tâche
->
-> Inventaire et justifications :
-> [`docs/release/R-001_SIMULATION_INVENTORY.md`](docs/release/R-001_SIMULATION_INVENTORY.md)
->
-> L'exécution est réelle : `random.random() > 0.15` et
-> `"Simulated result for: …"` remplacés par `RealTaskExecutor`, qui appelle un
-> vrai runtime, mesure la durée au `perf_counter`, compte les jetons et **lève
-> `RuntimeUnavailableError` plutôt que de fabriquer un succès**. MCP effectue un
-> vrai JSON-RPC HTTP (`connected` signifie connecté). Vérifié : durée rapportée
-> à 0,1 % de l'horloge murale, `runtimes_used=["ollama"]` mesuré, `qwen3:4b`
-> effectivement chargé côté Ollama, 3 requêtes identiques déterministes.
->
-> **Reste 9 points justifiés** (§6 de l'inventaire) : vLLM et llama.cpp sans
-> adaptateur, `kt_kernel` non installable, boucles d'outils par agent, artefacts
-> de workspace, profondeur de validation, diffusion mémoire. La décomposition
-> multi-tâches attend J-3 : le `DecisionEngine` produit des décisions de
-> *sélection*, pas un découpage en sous-tâches.
+---
 
-**Audit RC1 du 2026-07-29 → 🔴 NO GO** (score 65/100) —
-[`docs/release/HERMES_OS_RC1_AUDIT.md`](docs/release/HERMES_OS_RC1_AUDIT.md).
+## Où en est le projet
 
-**HOS-066B du 2026-07-30 — assemblage : les 5 anomalies critiques sont levées.**
-Architecture : [`docs/architecture/COMPOSITION_ROOT_ARCHITECTURE.md`](docs/architecture/COMPOSITION_ROOT_ARCHITECTURE.md) ·
-Graphe : [`docs/architecture/DEPENDENCY_REPORT.md`](docs/architecture/DEPENDENCY_REPORT.md)
-
-Le diagnostic de l'audit était que les sous-systèmes étaient complets mais que
-**rien ne les assemblait** : les points d'injection prévus par le code
-(`create_*_routes(service)`, `configure(...)`, `IntegrationManager`) n'étaient
-jamais appelés en production. Le composition root les appelle désormais.
-
-| Réf. | Anomalie critique | Statut |
+| Métrique | Valeur | Mesuré le |
 |---|---|---|
-| C-1 | Aucun composition root → 16 endpoints en `503` | ✅ **32/32 sous-systèmes instanciés, 0 × 5xx** |
-| C-2 | 9 sous-systèmes sans surface HTTP | ✅ **`APIRouter` délégant aux handlers existants** |
-| C-3 | Deux namespaces API divergents | ⚠️ **partiellement** — préfixe unifié, mais 39 chemins appelés par `lib/*` restent en 404 (voir RC2 R-2) |
-| C-4 | 8 Centers du Cockpit inatteignables | ⚠️ **17/17 ids de sidebar résolvent**, mais l'Installer Center n'existe pas (RC2 R-5) |
-| C-5 | `/mcp` en `421` derrière Docker/nginx | ✅ **hôtes de déploiement autorisés, rebinding conservé** |
-| M-2 | `EventHub` rejetait 26/28 topics ; dispatch WS cassé | ✅ **179 topics, publication permissive, `run_coroutine_threadsafe`** |
+| Jalons HOS livrés | HOS-000 → HOS-111 | 2026-08-15 |
+| Tests collectés | **4 112** | 2026-08-15 |
+| — boucle courte (`pytest`) | 3 839 | |
+| — intégration réelle (`pytest -m lent`) | 273 | |
+| Modules Python | 669 (~112 300 lignes) | 2026-08-15 |
+| Frontend `src/` | 64 fichiers (~15 400 lignes), 22 features | 2026-08-15 |
+| Modèles au catalogue, tous axes mesurés | 10 | 2026-08-14 |
 
-### Phase 9 — Reste à traiter avant v1.0 (📅)
+**Correction par rapport à l'édition précédente :** elle annonçait 796
+tests backend et 2 497 dans `tests/`, pour un total de 3 358. Le chiffre
+réel est 4 112 — et jusqu'à HOS-111, `pytest.ini` n'en exécutait que
+1 190, soit 29 %. Les 2 869 autres n'étaient lancés par personne ; ils
+cachaient 33 échecs, dont un vrai défaut fonctionnel.
+
+---
+
+## Ce qui reste — ordre recommandé
+
+L'ordre n'est pas une préférence : **ACP commande le frontend**, et le
+catalogue déjà payé ne sert à rien tant que le routage ne le lit pas.
+
+| # | Chantier | Pourquoi à ce rang |
+|---|---|---|
+| 0 | Committer HOS-110 et HOS-111 | en cours, rien ne doit rester non commité |
+| 1 | **Débloquer ACP** — ou décider de l'abandonner | verrou de tout le chantier C et de J-3 |
+| 2 | Routage par difficulté + coût de bascule | indépendant, peu coûteux, exploite un catalogue déjà payé |
+| 3 | Frontend — Mission Center, Autonomous Center | dépend de 1 |
+| 4 | Installation et distribution (`.exe`) | indépendant, gros, jamais commencé |
+| 5 | Dette v1.0 (Phase 9) | 13 lignes, aucune bloquante isolément |
+| 6 | §12 — résumé de contexte | critère d'acceptation non tenu, le plus coûteux |
+| 7 | Telegram, voix | confort, une fois le reste stable |
+
+---
+
+## A. À committer, et le défaut découvert en le faisant
+
+| Réf. | Contenu | État |
+|---|---|---|
+| HOS-110 | Bancs vision et raisonnement entrés au dépôt, avec leurs tests (35 + 14) | ⬜ non commité |
+| HOS-111 | `pytest.ini` sur les deux répertoires, 33 tests réparés, `tests/integration` marqué `lent` | ⬜ non commité |
+| HOS-112 | Délai de garde, deux fixtures rendues hermétiques, cinq tests d'ordre stabilisés | ⬜ non commité, `backend/tests` verte |
+
+### HOS-112 — une suite qui pend ne dit rien ✅ partiellement
+
+Découvert le 2026-08-15 en tentant de confirmer HOS-111. Deux exécutions
+de `pytest` se sont figées : 92 minutes pour l'une, 15 pour l'autre, en
+consommant respectivement 58 et 12 secondes de CPU. Elles n'échouaient
+pas — elles attendaient.
+
+**Le garde-fou d'abord.** `pytest.ini` déclare `timeout = 60`. C'est le
+point le plus important : sans lui ce défaut restait invisible, parce
+qu'une suite bloquée ne produit aucun message. C'est le pendant exact de
+la règle du projet — on ne croit pas un succès sur parole, et on ne lit
+pas un silence comme du travail en cours.
+
+**Cause : un fixture qui en masque un autre.** `backend/tests/conftest.py`
+fournit un `client` hermétique qui injecte `FakeOllamaClient`.
+`test_chat_audit.py` définissait **son propre fixture du même nom**, sans
+doublure : chaque `POST /chat` partait vers un vrai Ollama. Même schéma
+pour `test_documents_endpoint.py`, dont un test atteignait la vraie
+`OllamaEmbeddingFunction` — laquelle ouvre son propre `httpx.Client`,
+hors de portée du client injecté.
+
+**Et une famille de tests instables.** À chaque exécution, deux tests
+d'ordre chronologique rendaient un verdict tiré au sort, jamais les
+mêmes. Cause unique : **l'horloge Windows avance par pas de ~15,6 ms**,
+donc deux créations consécutives partagent leur horodatage et le tri
+devient une égalité. Cinq tests corrigés par des dates distinctes ; deux
+faux positifs écartés sur lecture. Un défaut de production au passage :
+`list_projects` triait sans départage, la liste pouvait se réordonner
+d'un affichage à l'autre.
+
+**État : `backend/tests` est verte — 1 239 passés, 2 ignorés, 2 min 34,
+plus aucun blocage.**
+
+### T-0 — `tests/` n'est pas encore hermétique 🔴
+
+Les 2 869 tests rendus visibles par HOS-111 ne sont pas tous conçus pour
+la boucle courte. Premier bloqué identifié :
+`tests/architecture/test_alexandrie_integration.py::test_concurrent_hybrid_search`,
+où `hybrid_search` fait de **vraies requêtes HTTP** vers Alexandrie, avec
+retries et backoff — le client chiffre lui-même le coût à ~22 s par appel
+quand le service est éteint.
+
+L'en-tête du fichier affirme pourtant : « *Alexandrie is not running
+during tests (CI-safe)* ». **C'est faux**, et c'est le motif que ce
+projet traque : un commentaire qui certifie une propriété que le code n'a
+pas.
+
+Reste à faire :
+
+1. Recenser les tests de `tests/` qui appellent un service externe, et
+   les doubler ou les marquer `lent`. Le mode `thread` de
+   `pytest-timeout` — le seul disponible sous Windows — tue la session au
+   premier dépassement, donc l'itération est d'un coupable par exécution.
+   Un blocage de sockets à la collecte donnerait la liste en une passe.
+2. **Le vrai correctif de l'ordre chronologique** : persister une
+   séquence explicite plutôt que se fier à l'horloge, comme
+   `test_turn_order_survives_a_shared_timestamp` le fait déjà pour les
+   conversations. Les pauses de 20 ms posées aujourd'hui rendent les
+   tests déterministes ; elles ne suppriment pas l'ambiguïté sous-jacente.
+
+---
+
+## B. Cahier des charges — ce qui n'est pas tenu
+
+| § | Exigence | État |
+|---|---|---|
+| **12** | Résumer automatiquement un contexte trop long, tronquer sans perte critique | ❌ **aucun module.** Critère d'acceptation §28.1 explicite |
+| 17.1 | `secret_scanner` — les secrets ne doivent jamais apparaître en clair | ⚠️ `audit_log.redact()` couvre les logs ; **rien ne scanne les fichiers** (T12) |
+| 22.1 | Recherche < 500 ms (T5) | ⏳ jamais mesuré |
+| **25** | Installation et déploiement | ❌ **jamais exécuté**, et écrit pour Linux/ROCm alors que la machine cible est Windows 11 |
+| 15 | `config/triggers.yaml` — planification de workflows | ⬜ absent |
+| 24.1 | `GET /agents`, `GET /logs`, `GET /system/gpu` | ⬜ absents |
+
+`AUDIT_CONFORMITE.md` date du 2026-07-26 — 45 jalons avant aujourd'hui.
+**Il doit être rejoué**, pas relu : plusieurs de ses verdicts portent sur
+du code qui a changé depuis.
+
+---
+
+## C. Frontend — retours utilisateur après la refonte SODIUM
+
+Relevés le 2026-08-13 (`docs/frontend-backlog.md`), statut revérifié le
+2026-08-15. **Calendrier : après ACP** — ACP change ce qu'il y a à
+afficher (pensées en streaming, demandes d'approbation, sessions
+reprises), refaire l'UI avant reviendrait à la refaire deux fois.
+
+### Résolus depuis
+
+| Point | Résolu par |
+|---|---|
+| Une tâche lancée disparaît en changeant d'onglet | ✅ HOS-102 |
+| Persistance des conversations | ✅ HOS-101 |
+| Retrouver une conversation passée, titrée | ✅ HOS-101 (`/resume`) |
+| Contexte par modèle selon l'usage réel | ✅ Modelfiles par modèle |
+
+### Ouverts
+
+| Center | Point | Détail |
+|---|---|---|
+| Assistant | Sélection automatique du modèle | Le catalogue mesuré existe (HOS-108), le routage par palier aussi (HOS-109), mais **l'Assistant n'a pas de mode auto** : le classifieur n'a aucun appelant. Câbler ou retirer |
+| Mission | **Voir la décomposition réelle** | L'UI affiche `Nœuds : 0/7` — jamais *quelles* tâches. Le DAG est construit côté backend, il n'est pas exposé |
+| Mission | Résultats plus poussés | Artefacts vérifiés, outils réellement appelés, verdict de `MissionVerification`. La distinction « rapporté réussi » / « vérifié sur disque » est ce qui différencie ce produit — elle n'est pas à l'écran |
+| Autonomous | **Audit complet requis** | Jamais retesté depuis la refonte |
+| Autonomous | Fil conversationnel | Que l'agent explique où il en est, au lieu d'un compteur muet. ACP fournit la matière (`AgentThoughtChunk`) |
+
+---
+
+## D. ACP — le verrou
+
+`docs/acp-integration-findings.md`, spike du 2026-08-13.
+
+**Prouvé :** handshake, session liée à un workspace, énumération et
+sélection des modèles Ollama, streaming de dizaines de `session_update`,
+et `request_permission` réellement appelé avant édition — le
+human-in-the-loop du §17 n'est pas à construire, seulement à brancher.
+
+**Bloqué :** permission accordée, **l'agent ne poursuit pas**. Aucun
+`write_text_file`, aucune erreur, le `prompt` ne rend jamais la main —
+testé jusqu'à 900 s. Trois hypothèses déjà écartées par la mesure.
+
+Ce que débloque ACP, en un seul chantier : la délégation (HOS-094,
+aujourd'hui structurellement impossible en one-shot CLI), la reprise de
+mission, l'approbation humaine, et le fil conversationnel d'Autonomous.
+
+**Piège à retenir :** ACP écrase l'exception d'un handler client en
+`RequestError: Internal error`, sans trace ni nom de méthode. Tout
+handler doit journaliser sa propre exception avant de la laisser
+remonter, faute de quoi la moindre erreur d'intégration est indébogable.
+
+---
+
+## E. Installation et distribution
+
+Presque rien n'existe. C'est le chantier le plus neuf du projet.
+
+| Réf. | Action |
+|---|---|
+| I-1 | **Installateur `.exe`** — packaging du backend Python, du frontend, du venv et de la configuration |
+| I-2 | Sort d'Ollama : prérequis vérifié à l'installation, ou embarqué |
+| I-3 | Les Modelfiles custom (`num_ctx` par modèle) doivent être créés à l'installation — sans eux l'agent tourne à 4096 et répond qu'il n'a pas d'outils |
+| I-4 | §25 à réécrire pour Windows 11 + AMD (le texte actuel décrit Ubuntu/ROCm) |
+| M-3 | **Installer Center** — annoncé au périmètre du Cockpit, n'existe pas. Implémenter ou retirer |
+| I-5 | Rejouer l'installation sur une machine nue — c'est le seul moyen de valider §25 et le dernier critère §28.1 |
+
+**Décisions à prendre avant de coder** (voir « Décisions en attente »).
+
+---
+
+## F. Modèles et performance
+
+Le catalogue est complet : dix modèles, tous axes mesurés, aucune
+capacité déclarée sans mesure (`docs/model-selection.md`).
+
+| Réf. | Action | État |
+|---|---|---|
+| P-1 | **Coût de bascule modèle → modèle** | ⬜ jamais mesuré. Le chargement à froid est connu (~6,5 s) ; le prix d'un échange sous `OLLAMA_MAX_LOADED_MODELS=1` ne l'est pas |
+| P-2 | **Accélérer chargement/déchargement** | ⬜ dépend de P-1. Leviers : `keep_alive`, résidence choisie, préchargement du rôle suivant, ordre d'éviction |
+| P-3 | Routage par difficulté à partir des notes /100 | ⬜ le catalogue existe, le routeur ne le lit pas |
+| P-4 | Consolider `ModelRouter` et `AdaptiveRouter` | ⬜ deux routeurs, un seul devrait décider |
+| P-5 | Synthèse vocale (Piper) | ⬜ `gemma4` couvre l'entrée audio ; aucun modèle n'écrit de la parole |
+| — | DFlash | ✅ clos : mesuré à +11 %, non adopté, drafter supprimé |
+
+---
+
+## G. Dette v1.0 — Phase 9
 
 | Réf. | Action | Priorité |
 |---|---|---|
-| M-9 | `pytest.ini` : `testpaths = backend/tests tests` (la CI n'exécute que 24 % des tests) | 🟠 Majeure |
-| M-1 | Modèles Pydantic sur les 19 corps `dict = Body(...)` (500 → 422) | 🟠 Majeure |
-| M-7 | Consolider les 6 duplications (`agent`/`agents`, `evolution`/`self_evolution`, 2 registries…) | 🟠 Majeure |
-| M-13 | Borner `mcp<2` dans `requirements.txt` (la 1.26 a introduit la protection DNS-rebinding) | 🟠 Majeure |
-| M-8 | Persister et borner `mission/routes.py::_missions` (dict module-level sans verrou) | 🟠 Majeure |
-| M-3 | Installer Center : implémenter ou retirer du périmètre annoncé | 🟡 Mineure |
-| M-6 | Câbler les 4 adaptateurs HOS-065B et `approval_explainer` (testés, jamais utilisés) | 🟡 Mineure |
-| cos-1 | Supprimer les 321 imports inutilisés et les 15 composants frontend morts | ⚪ Cosmétique |
-| J-3 | Boucles d'outils par agent spécialisé (KlaatCode indexation, OhMyPi LSP) — prérequis de la décomposition multi-tâches | 🟠 Majeure |
-| J-2 | Adaptateurs vLLM et llama.cpp (aujourd'hui `RuntimeUnavailableError`) | 🟠 Majeure |
-| J-4 | Câbler le `WorkspaceManager` dans l'exécuteur pour des artefacts sur disque | 🟡 Mineure |
-| J-5 | Validation réelle de syntaxe/politique/sécurité des sorties générées | 🟡 Mineure |
-| J-6 | Diffuser les résultats vers les 5 couches de mémoire | 🟡 Mineure |
-| M-14 | `backend/runtime/code_intelligence/ci_scorer.py` (`CIRuntimeScorer`) reste orphelin — audité en R-006 Phase 10. Son docstring annonce une intégration au Runtime Orchestrator (HOS-038) qui n'a jamais existé ; zéro appelant en dehors de son propre package. Décision : ne pas le câbler — `CodeIntelligenceRouter._score_klaatcode/_score_ohmypi` fait déjà le même calcul (mêmes 5 facteurs pondérés) pour le vrai routage, et le Runtime Orchestrator réel arbitre des runtimes Ollama/GPU, pas des outils CLI externes — l'y brancher confondrait deux domaines de décision distincts. À supprimer ou à réutiliser explicitement si un vrai besoin apparaît ; ne pas laisser trainer indéfiniment. | ⚪ Cosmétique |
+| M-9 | `pytest.ini` sur les deux répertoires | ✅ **HOS-111** |
+| M-1 | Modèles Pydantic sur les 19 corps `dict = Body(...)` (500 → 422) | 🟠 |
+| M-7 | Consolider les 6 duplications (`agent`/`agents`, `evolution`/`self_evolution`, 2 registries…) | 🟠 |
+| M-13 | Borner `mcp<2` dans `requirements.txt` | 🟠 |
+| M-8 | Persister et borner `mission/routes.py::_missions` (dict module-level sans verrou) | 🟠 |
+| J-3 | Boucles d'outils par agent spécialisé — **prérequis de la décomposition multi-tâches**, et dépendant d'ACP | 🟠 |
+| J-2 | Adaptateurs vLLM et llama.cpp (aujourd'hui `RuntimeUnavailableError`) | 🟠 |
+| M-6 | Câbler les 4 adaptateurs HOS-065B et `approval_explainer` (testés, jamais utilisés) | 🟡 |
+| J-4 | Câbler le `WorkspaceManager` dans l'exécuteur pour des artefacts sur disque | 🟡 |
+| J-5 | Validation réelle de syntaxe/politique/sécurité des sorties générées | 🟡 |
+| J-6 | Diffuser les résultats vers les 5 couches de mémoire | 🟡 |
+| cos-1 | Supprimer les 321 imports inutilisés et les 15 composants frontend morts | ⚪ |
+| M-14 | `ci_scorer.py` orphelin — décision prise : **supprimer**, `CodeIntelligenceRouter` fait déjà le même calcul | ⚪ |
+
+**Reste de P-002 (namespace d'API)** : retrait des 62 chemins racine
+conservés pour compatibilité ; schéma OpenAPI de `POST /verification/run`
+(débloquerait le bouton du Validation Center) ; homonymie `/skills`
+historique vs HOS.
+
+---
+
+## H. Telegram
+
+La passerelle existe (écart assumé §4.1 — Hermes Agent plutôt que
+`python-telegram-bot`).
+
+| Réf. | Action |
+|---|---|
+| T-1 | Rapports d'échec de mission **avec preuve disque**, pas le compteur de tâches |
+| T-2 | Boucle de reprise bornée |
+| T-3 | Répondre avec une piste plutôt qu'un constat |
+
+---
+
+## Décisions en attente
+
+Aucune ne bloque aujourd'hui ; toutes bloqueront le moment venu.
+
+**Frontend / ACP**
+1. Persistance des conversations : infinie, ou purgée après N jours / N conversations ?
+2. Le fil Autonomous montre-t-il *toutes* les pensées de l'agent, ou seulement décisions et appels d'outils ? (Le premier est volumineux et coûte du contexte à l'affichage.)
+3. Approbations humaines ACP : bloquantes dans l'UI, ou file d'attente consultable ?
+4. La décomposition d'une mission est-elle modifiable avant lancement, ou seulement consultable ?
+
+**Installation**
+5. Backend empaqueté (PyInstaller/Nuitka) ou venv déployé par l'installeur ?
+6. Interface : Electron/Tauri, ou serveur local ouvert dans le navigateur ?
+7. Ollama embarqué dans l'installeur, ou prérequis vérifié puis installé séparément ?
+
+---
+
+## Historique — jalons livrés
+
+### Phases 1 à 6 — fondation, RAL, agents, services, frontend, observabilité ✅
+
+| Phase | HOS | Contenu |
+|---|---|---|
+| 1 | 000-003 | SDS : EventBus, RuntimeHolder, wiring FastAPI |
+| 2 | 004-016 | Runtime Abstraction Layer : registre, routeur, santé, recovery, politiques |
+| 3 | 017-024 | Agent Layer : DAG, planificateur, cycle de vie, mémoire unifiée, moteur d'exécution |
+| 4 | 025-028 | Services : bus système, Freebuff, Mission Control + API |
+| 5 | 029-033 | Frontend Next.js, Centers Mission / Execution / Agent / Runtime |
+| 6 | 034-038 | Observabilité : event bus, resource manager, recovery, intelligence, orchestrateur |
+
+### Phase 7 — Cockpit, intégrations, sécurité, noyau autonome ✅
+
+HOS-051 à HOS-065B, puis HOS-066B (composition root : 32/32 sous-systèmes
+instanciés, 0 × 5xx) et P-002 (namespace `/api/v1` unifié).
+
+**Audits release** : RC1 2026-07-29 (65/100, NO GO) · RC2 2026-07-30
+(71/100, NO GO — « la plateforme est solide ; la capacité centrale n'est
+pas implémentée ») · **R-001 2026-07-30 : R-1 levé** — l'exécution est
+réelle, `random.random() > 0.15` remplacé par `RealTaskExecutor` qui lève
+plutôt que de fabriquer un succès.
+
+### Phase 8 — exécution réelle, vérification, modèles ✅ (HOS-066 → HOS-111)
+
+| HOS | Ce qui a été livré |
+|---|---|
+| 066C | Escalade cloud OpenRouter, local d'abord, repli automatique |
+| 067-072 | Centers reconnectés au moteur réel : Autonomous, Missions, Execution, Agent, Model Intelligence, Runtime |
+| 073-077 | Assistant : streaming réel, mémoire de conversation, choix du modèle, contexte, pièces jointes |
+| 078-079 | Recherche web réelle dans l'Assistant ; restauration du parc de modèles |
+| **080-082** | **Refonte visuelle complète — direction SODIUM** |
+| 083-084 | Couche Workspace/Filesystem : Aegis dynamique, outils fichiers réels, câblage chat *et* missions |
+| **085** | **Hermes Agent redevient le cerveau des missions** — le garde-fou `HERMES_AGENT_BYPASS_DETECTED` |
+| 086-088 | `memory_search` retrouve ce que `memory_remember` a écrit ; ids projet canoniques ; routage par capacité |
+| 089-093 | Les cinq faux succès : contexte servi, timeout de boucle, contexte dégradé détectable, vérification contre le disque |
+| 094 | Délégation mesurée : mécaniquement fonctionnelle, **structurellement incompatible** avec le CLI one-shot → motive ACP |
+| 095-096 | Aucune heuristique ne prédit la capacité agentique — seule la mesure le fait. Sondes sous verrou exclusif |
+| 097-098 | RAG sait dire « rien de pertinent » ; `UnifiedMemory` a un socle durable |
+| 099-100 | La boucle se ferme : une vérification en échec produit une seconde tentative, qui s'exécute réellement |
+| 101-102 | Conversations persistées, listables, titrées ; la tâche ne disparaît plus au changement d'onglet |
+| 103 | Hermes OS a son propre environnement Python |
+| 104-108 | Catalogue de modèles mesuré sur sept axes ; dix instruments de mesure corrigés |
+| 109 | Réutiliser un modèle résident ne doit pas répondre avec un plus faible |
+| 110-111 | Bancs vision/raisonnement au dépôt ; `pytest.ini` couvre enfin les deux répertoires |
 
 ---
 
 ## Légende
 
 - ✅ **Terminé** — code + tests + documentation
-- 🔄 **En cours** — implémentation active
-- 📅 **Planifié** — spécifié, pas encore commencé
-- 🔮 **Futur** — identifié, non spécifié
-
----
-
-## Phase 1 — Fondation (HOS-000 à HOS-003) ✅
-
-| HOS | Description | Statut |
-|---|---|---|
-| HOS-000 | Foundation (SDS) : EventBusImpl, RuntimeHolder singleton, FastAPI wiring | ✅ |
-| HOS-001 | RAL Interfaces : RuntimeInterface Protocol, ChatCapability, CapabilitySet | ✅ |
-| HOS-002 | EventBusImpl : bus SQLite publish/subscribe | ✅ |
-| HOS-003 | SDS Wiring : routes `/api/hermes-os/*`, legacy EventHub forward | ✅ |
-
-Tests : 48/48
-
----
-
-## Phase 2 — Runtime Abstraction Layer (HOS-004 à HOS-016) ✅
-
-| HOS | Description | Statut |
-|---|---|---|
-| HOS-004 | StubRuntime : premier runtime de démonstration | ✅ |
-| HOS-005 | HermesOllamaRuntime : runtime agentique Ollama | ✅ |
-| HOS-006 | OllamaClient : Protocol + client HTTP + fake client | ✅ |
-| HOS-007 | RuntimeRegistry & RuntimeFactory | ✅ |
-| HOS-008 | SDS Runtime wiring : init_runtime_registry_in_holder | ✅ |
-| HOS-009 | ActiveRuntimeContext & RuntimeSelector | ✅ |
-| HOS-010 | RuntimeRouter : exécution avec fallback | ✅ |
-| HOS-011 | RuntimeHealthMonitor : AVAILABLE/DEGRADED/UNAVAILABLE | ✅ |
-| HOS-012 | RuntimeRecoveryManager & CircuitBreaker | ✅ |
-| HOS-013 | RuntimeEventBus & RuntimeObservability | ✅ |
-| HOS-014 | RuntimePerformanceAnalyzer : scores et classement | ✅ |
-| HOS-015 | RuntimeDecisionEngine : score composite 0-1000 | ✅ |
-| HOS-016 | RuntimePolicyEngine : règles et priorités | ✅ |
-
-Tests RAL : ~200
-
----
-
-## Phase 3 — Agent Layer (HOS-017 à HOS-024) ✅
-
-| HOS | Description | Statut |
-|---|---|---|
-| HOS-017 | ExecutionGraph : DAG thread-safe avec tri topologique | ✅ |
-| HOS-018 | TaskPlanner : 4 stratégies, validation, explication | ✅ |
-| HOS-019 | AgentLifecycleManager : machine à états 10 états | ✅ |
-| HOS-020 | MultiAgentSupervisor : orchestration missions + agents | ✅ |
-| HOS-021 | UnifiedMemory : 7 scopes, MemoryBackend abstrait | ✅ |
-| HOS-022 | AdaptiveSkillOrchestrator : 4 stratégies de sélection | ✅ |
-| HOS-023 | HermesAgentAdapter : pont Hermes OS → Hermes Agent | ✅ |
-| HOS-024 | ExecutionEngine : moteur d'exécution complet | ✅ |
-
-Tests Agent : ~250
-
----
-
-## Phase 4 — Services & Intégrations (HOS-025 à HOS-028) ✅
-
-| HOS | Description | Statut |
-|---|---|---|
-| HOS-025 | SystemEventBus : bus central pub/sub unifié | ✅ |
-| HOS-026 | FreebuffAdapter : intégration Freebuff | ✅ |
-| HOS-027 | MissionControlService : façade centrale unifiée | ✅ |
-| HOS-028 | Mission Control API : routes REST + WebSocket | ✅ |
-
-Tests totaux : ~693
-
----
-
-## Phase 5 — Frontend (HOS-029) ✅
-
-| HOS | Description | Statut |
-|---|---|---|
-| HOS-029 | Frontend Next.js — Dashboard Mission Control | ✅ |
-
----
-
-## Phase 6 — Observabilité & Événements (HOS-034 — HOS-037) ✅
-
-| HOS | Description | Statut |
-|---|---|---|
-| HOS-034 | Runtime Event Bus & Observability — 24 tests, WebSocket temps réel | ✅ |
-| HOS-035 | Runtime Resource Manager — 21 tests, allocation VRAM/RAM, thresholds | ✅ |
-| HOS-036 | Runtime Recovery Engine — 25 tests, policies, actions, cooldown | ✅ |
-| HOS-037 | Runtime Intelligence Layer — 26 tests, scoring, recommendations | ✅ |
-
----
-
-## Phase 7 — À venir (📅 Planifié)
-
-| HOS | Description | Priorité |
-|---|---|---|
-| HOS-036 | Connexion Alexandrie (Memory Backend distribué) | Moyenne |
-| HOS-037 | Persistance SQLite pour Event Bus & UnifiedMemory | Haute |
-| HOS-038 | MCP Server enrichi — exposition de tous les services | Moyenne |
-
----
-
-## Phase 8 — Futur (🔮)
-
-| HOS | Description |
-|---|---|
-| HOS-038 | Support OpenAI / Anthropic comme runtimes additionnels |
-| HOS-039 | Support vLLM comme runtime |
-| HOS-040 | Authentification & permissions multi-utilisateur |
-| HOS-041 | Rate limiting & quotas |
-| HOS-042 | Scheduler distribué |
-| HOS-043 | Homelable intégration |
-| HOS-044 | KTransformers support |
-| HOS-045 | GraphQL API |
-| HOS-046 | SDK Python public |
-
----
-
-## Résumé des jalons
-
-```mermaid
-gantt
-    title Hermes OS — Roadmap
-    dateFormat  YYYY-MM-DD
-    axisFormat  %Y-%m
-
-    section Foundation
-    HOS-000 à HOS-003 (SDS)    :done, 2026-07-01, 7d
-
-    section RAL
-    HOS-004 à HOS-016          :done, 2026-07-08, 14d
-
-    section Agent Layer
-    HOS-017 à HOS-024          :done, 2026-07-15, 14d
-
-    section Services
-    HOS-025 à HOS-028          :done, 2026-07-22, 7d
-
-    section Frontend
-    HOS-029 Dashboard          :done, 2026-07-29, 1d
-    HOS-030 Mission Center      :done, 2026-07-29, 1d
-    HOS-031 Execution Center     :done, 2026-07-29, 1d
-    HOS-032 Agent Center         :done, 2026-07-29, 1d
-    HOS-033 Runtime Center        :done, 2026-07-29, 1d
-
-    section Observabilité
-    HOS-034 Event Bus          :done, 2026-07-29, 1d
-    HOS-035 Resource Mgr       :done, 2026-07-29, 1d
-    HOS-036 Recovery Engine    :done, 2026-07-29, 1d
-    HOS-037 Intelligence        :done, 2026-07-29, 1d
-    HOS-038 Orchestrator        :done, 2026-07-29, 1d
-
-    section Infrastructure
-    HOS-039 Alexandrie         :2026-08-01, 7d
-    HOS-040 Persistance        :2026-08-01, 5d
-    HOS-041 MCP Server         :2026-08-05, 5d
-```
-
----
-
-## Métriques projet
-
-> Mesuré sur le dépôt le 2026-07-29 (audit RC1). Les valeurs précédentes de ce
-> tableau étaient très en retard sur le code réel (elles annonçaient ~18 000 lignes
-> pour ~118 000, et ~693 tests pour 3 133) et deux lignes étaient malformées.
-
-| Métrique | Valeur |
-|---|---|
-| HOS complétés | 65 (HOS-000 à HOS-065B ; HOS-059/060/061 non attribués) |
-| Tests `tests/` (architecture, API, intégrations, sécurité, production) | 2 497 |
-| Tests `backend/tests/` (legacy Hermes) | 796 |
-| Tests frontend (vitest) | 65 |
-| **Total tests** | **3358** (tous passants) |
-| Fichiers source Python | 480 modules (~104 400 lignes) |
-| Fichiers source TypeScript | 102 fichiers (~13 750 lignes) |
-| **Lignes de code** | **~118 000** |
-| Sous-systèmes backend | 35 (voir la matrice de dépendances du rapport RC1) |
-| Routes HTTP servies | **255 chemins distincts** (189 sous `/api/v1`, 60 legacy, `/mcp`) |
-| Sous-systèmes assemblés au démarrage | **32 / 32** (100 %), 30 routeurs liés |
-| Topics d'événements acceptés | 143 |
-| Pages frontend | 11 routes Next.js ; **17 Centers atteignables sur 17** |
+- ⚠️ **Partiel** — fonctionne, mais pas au niveau spécifié
+- ⬜ **À faire** — identifié, spécifié
+- ❌ **Manquant** — exigé par le cahier des charges, jamais construit
+- ⏳ **Non vérifié** — peut-être vrai, jamais mesuré

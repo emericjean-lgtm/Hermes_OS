@@ -21,21 +21,32 @@ def router() -> ModelRouter:
 
 
 class TestNumCtx:
+    # Ces tests lisent la valeur attendue dans la configuration au lieu de
+    # l'ecrire en dur. HOS-108 a rattache chaque role a un modele mesure et
+    # a donc change tous les num_ctx ; les trois assertions litterales qui
+    # se trouvaient ici sont tombees sur du code inchange, et personne ne
+    # l'a vu parce que pytest.ini n'executait pas ce repertoire. Ce qui est
+    # verifie est le comportement — la decision porte le num_ctx du role —
+    # pas le catalogue du jour.
+
     def test_select_model_reports_the_role_specific_num_ctx(self, router):
         decision = router.select_model("planning")  # -> orchestrator role
         assert decision.role == "orchestrator"
-        assert decision.num_ctx == 16384
+        assert decision.num_ctx == router._roles["orchestrator"]["num_ctx"]  # noqa: SLF001
+        # Et surtout : pas le defaut global que toute decision rapportait.
+        assert decision.num_ctx != RoutingDecision.__dataclass_fields__["num_ctx"].default
 
     def test_different_roles_report_different_num_ctx(self, router):
-        """Every role used to report the same 8192 regardless of which
-        model was chosen — confirm two roles with genuinely different
-        configured values actually differ."""
-        swift_decision = router.select_model("classification")  # -> swift, no VRAM constraint
-        standard_decision = router.select_model("conversation")  # -> standard, first candidate
+        """Chaque role rapportait 8192 quel que soit le modele choisi —
+        deux roles configures differemment doivent reellement differer."""
+        swift_decision = router.select_model("classification")
+        standard_decision = router.select_model("conversation")
+
         assert swift_decision.role == "swift"
         assert standard_decision.role == "standard"
-        assert swift_decision.num_ctx == 16384
-        assert standard_decision.num_ctx == 32768
+        assert swift_decision.num_ctx == router._roles["swift"]["num_ctx"]  # noqa: SLF001
+        assert standard_decision.num_ctx == router._roles["standard"]["num_ctx"]  # noqa: SLF001
+        assert swift_decision.num_ctx != standard_decision.num_ctx
 
     def test_embedding_role_stays_within_its_real_model_limit(self, router):
         """nomic-embed-text's real max context is 2048 (`ollama show
@@ -45,14 +56,30 @@ class TestNumCtx:
         assert decision.role == "embedding"
         assert decision.num_ctx == 2048
 
-    def test_reasoning_escalation_was_not_raised_like_the_other_roles(self, router):
-        """deepseek-r1:32b measured 95.8s latency / 6.6 tok/s / 9.5GB RAM
-        offload at just 16384 in the real HOS-065C benchmark — the one role
-        this pass deliberately left at the pre-HOS-065C default rather than
-        increasing it, because raising it would make an already-marginal
-        situation worse, not better."""
+    def test_reasoning_escalation_tient_sans_debordement(self, router):
+        """La prémisse de ce test a changé, et c'est le résultat d'une mesure.
+
+        Il affirmait que `reasoning_escalation` devait rester à 8192 : son
+        modèle d'alors, deepseek-r1:32b, mesurait 95,8 s de latence, 6,6
+        tok/s et 9,5 Go de débordement RAM à seulement 16384, donc augmenter
+        son contexte aggravait une situation déjà marginale.
+
+        HOS-108 a rattaché ce rôle à muse-glimmer-64k, mesuré à **0 % de
+        débordement** sur ses 64k servis. La contrainte ne s'applique plus —
+        elle décrivait un modèle qui n'est plus là. Ce qui reste vrai, et ce
+        que ce test garde désormais, c'est la règle qui la motivait : le
+        contexte d'un rôle ne doit jamais dépasser ce que son modèle sert
+        sans partir sur le CPU.
+        """
         role = router._roles["reasoning_escalation"]  # noqa: SLF001
-        assert role.get("num_ctx", 8192) == 8192
+        # Le contexte servi est inscrit dans le nom du tag (HOS-107).
+        tag = role["model"]
+        servi_ko = int(tag.rsplit("-", 1)[-1].rstrip("k"))
+
+        assert role["num_ctx"] <= servi_ko * 1024, (
+            f"{tag} sert {servi_ko}k mais le rôle en demande "
+            f"{role['num_ctx'] // 1024}k — le surplus part sur le CPU"
+        )
 
 
 class TestForcedRole:
@@ -63,7 +90,7 @@ class TestForcedRole:
         decision = router.decision_for_role("orchestrator", "conversation")
         assert decision.role == "orchestrator"
         assert decision.model == router.model_for_role("orchestrator")
-        assert decision.num_ctx == 16384
+        assert decision.num_ctx == router._roles["orchestrator"]["num_ctx"]  # noqa: SLF001
 
     def test_thinking_none_keeps_the_task_types_own_policy(self, router):
         auto = router.select_model("planning")

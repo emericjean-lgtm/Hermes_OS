@@ -40,6 +40,19 @@ from backend.model_intelligence.routes import (
 )
 
 
+#: Un modele reel du catalogue, choisi a l'execution plutot qu'ecrit en dur.
+#:
+#: Ces tests utilisaient « qwen3.6:27b » comme identifiant opaque de modele
+#: de code. Le tri des modeles a renomme 21 tags en 11 en inscrivant le
+#: contexte mesure dans chaque nom ; PREDEFINED_MODELS a suivi, ces tests
+#: non — et rien ne l'a signale, parce que pytest.ini ne declarait que
+#: backend/tests. Dix-huit tests etaient rouges sans que personne ne les
+#: lance. Lire le catalogue evite que le prochain renommage recommence.
+MODELE_REEL = next(m for m, spec in PREDEFINED_MODELS.items()
+                   if spec.get('chat_capable'))
+
+
+
 async def _fake_benchmark_chat(*, messages, model, num_ctx):
     """Real-shaped fake for BenchmarkScheduler's non-streaming /api/chat
     call — no network I/O, but the same fields run_benchmark() actually
@@ -100,7 +113,7 @@ class TestModelIntelligenceModels:
 
     def test_predefined_models_count(self):
         assert len(PREDEFINED_MODELS) >= 5
-        assert "qwen3.6:27b" in PREDEFINED_MODELS
+        assert MODELE_REEL in PREDEFINED_MODELS
 
     def test_predefined_models_come_from_the_real_role_catalogue(self):
         """PREDEFINED_MODELS used to be six fixed entries — llama3.2-3b,
@@ -163,12 +176,14 @@ class TestModelProfiler:
 
     def test_get_profile(self):
         profiler = ModelProfiler()
-        profile = profiler.get_profile("qwen3.6:27b")
+        profile = profiler.get_profile(MODELE_REEL)
         assert profile is not None
         # `name` is the real Ollama tag itself (lowercase) now that the
         # profiler is seeded from config/models.yaml, not a hand-written
         # display string like the old fictional "Qwen3-Coder 30B" was.
-        assert "qwen3" in profile.name.lower()
+        # On compare donc au tag demande, et non a une famille de modeles :
+        # « qwen3 » etait vrai du catalogue d'alors, pas de la propriete.
+        assert profile.name.lower() == MODELE_REEL.lower()
 
     def test_get_profile_not_found(self):
         profiler = ModelProfiler()
@@ -206,10 +221,10 @@ class TestModelProfiler:
     def test_update_performance(self):
         profiler = ModelProfiler()
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
+            model_id=MODELE_REEL, task_type=TaskType.CODE_GENERATION,
             duration_ms=1000, tokens_used=200, success=True,
         ))
-        profile = profiler.get_profile("qwen3.6:27b")
+        profile = profiler.get_profile(MODELE_REEL)
         assert profile is not None
         assert profile.total_runs >= 1
 
@@ -218,35 +233,35 @@ class TestModelProfiler:
         reflect a real completion, not the random.uniform() BenchmarkScheduler
         fabricates and never persists (see its module docstring)."""
         profiler = ModelProfiler()
-        assert profiler.get_profile("qwen3.6:27b").tokens_per_second == 0.0
+        assert profiler.get_profile(MODELE_REEL).tokens_per_second == 0.0
 
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
+            model_id=MODELE_REEL, task_type=TaskType.CODE_GENERATION,
             duration_ms=2000, tokens_used=100, success=True,
         ))
-        assert profiler.get_profile("qwen3.6:27b").tokens_per_second == pytest.approx(50.0)
+        assert profiler.get_profile(MODELE_REEL).tokens_per_second == pytest.approx(50.0)
 
     def test_update_performance_smooths_repeated_measurements(self):
         profiler = ModelProfiler()
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
+            model_id=MODELE_REEL, task_type=TaskType.CODE_GENERATION,
             duration_ms=1000, tokens_used=100, success=True,  # 100 tok/s
         ))
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
+            model_id=MODELE_REEL, task_type=TaskType.CODE_GENERATION,
             duration_ms=1000, tokens_used=200, success=True,  # 200 tok/s
         ))
         # A blend (0.7*100 + 0.3*200), not just the latest measurement —
         # one slow/fast outlier shouldn't whiplash the estimate.
-        assert profiler.get_profile("qwen3.6:27b").tokens_per_second == pytest.approx(130.0)
+        assert profiler.get_profile(MODELE_REEL).tokens_per_second == pytest.approx(130.0)
 
     def test_update_performance_ignores_failed_runs_for_tps(self):
         profiler = ModelProfiler()
         profiler.update_performance(ModelPerformanceRecord(
-            model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
+            model_id=MODELE_REEL, task_type=TaskType.CODE_GENERATION,
             duration_ms=1000, tokens_used=0, success=False,
         ))
-        assert profiler.get_profile("qwen3.6:27b").tokens_per_second == 0.0
+        assert profiler.get_profile(MODELE_REEL).tokens_per_second == 0.0
 
     def test_get_performance_history(self):
         profiler = ModelProfiler()
@@ -520,7 +535,7 @@ class TestBenchmarkScheduler:
     def test_run_benchmark(self):
         scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
         try:
-            result = scheduler.run_benchmark("qwen3.6:27b", TaskType.CODE_GENERATION)
+            result = scheduler.run_benchmark(MODELE_REEL, TaskType.CODE_GENERATION)
             assert result.quality_score > 0
             assert result.tokens_per_second == pytest.approx(84.0, rel=0.01)
         finally:
@@ -544,7 +559,7 @@ class TestBenchmarkScheduler:
         scheduler = BenchmarkScheduler(chat=refused)
         try:
             with pytest.raises(RuntimeError, match="could not reach Ollama"):
-                scheduler.run_benchmark("qwen3.6:27b", TaskType.CODE_GENERATION)
+                scheduler.run_benchmark(MODELE_REEL, TaskType.CODE_GENERATION)
         finally:
             scheduler.close()
 
@@ -569,10 +584,10 @@ class TestBenchmarkScheduler:
     def test_get_latest_benchmarks_reflects_a_real_run(self):
         scheduler = BenchmarkScheduler(chat=_fake_benchmark_chat)
         try:
-            scheduler.run_benchmark("qwen3.6:27b", TaskType.CODE_GENERATION)
+            scheduler.run_benchmark(MODELE_REEL, TaskType.CODE_GENERATION)
             benchmarks = scheduler.get_latest_benchmarks()
             assert len(benchmarks) == 1
-            assert benchmarks[0]["model_id"] == "qwen3.6:27b"
+            assert benchmarks[0]["model_id"] == MODELE_REEL
         finally:
             scheduler.close()
 
@@ -708,7 +723,7 @@ class TestAPIRoutes:
             profiler=mi_routes._get_profiler(), analyzer=mi_routes._get_analyzer(),
             chat=_fake_benchmark_chat,
         ))
-        result = handle_run_benchmark("qwen3.6:27b", "code_generation")
+        result = handle_run_benchmark(MODELE_REEL, "code_generation")
         assert result["success"] is True
         assert "benchmark" in result
 
@@ -727,7 +742,7 @@ class TestAPIRoutes:
         assert result["success"] is True
 
     def test_get_performance_specific(self):
-        result = handle_get_performance("qwen3.6:27b")
+        result = handle_get_performance(MODELE_REEL)
         assert result["success"] is True
         assert "score" in result
 
@@ -752,10 +767,10 @@ class TestAPIRoutes:
         from backend.model_intelligence.routes import _get_memory
 
         task_type = "__test_isolation_probe_43b__"
-        _get_memory().record_model_for_task("qwen3.6:27b", task_type, True)
+        _get_memory().record_model_for_task(MODELE_REEL, task_type, True)
         result = handle_get_knowledge(task_type=task_type)
         assert result["success"] is True
-        assert any(r["source"] == "qwen3.6:27b" for r in result["relations"])
+        assert any(r["source"] == MODELE_REEL for r in result["relations"])
 
     def test_get_evolution_no_underperformers_yet(self):
         result = handle_get_evolution()
@@ -821,7 +836,7 @@ class TestThreadSafety:
         def access(n):
             try:
                 profiler.list_profiles()
-                profiler.get_profile("qwen3.6:27b")
+                profiler.get_profile(MODELE_REEL)
                 profiler.get_stats()
             except Exception as e:
                 errors.append(e)
@@ -851,7 +866,7 @@ class TestThreadSafety:
         errors = []
         def benchmark(n):
             try:
-                scheduler.run_benchmark("qwen3.5:2b", TaskType.CHAT)
+                scheduler.run_benchmark(MODELE_REEL, TaskType.CHAT)
             except Exception as e:
                 errors.append(e)
         threads = [threading.Thread(target=benchmark, args=(i,)) for i in range(10)]
@@ -866,7 +881,7 @@ class TestThreadSafety:
         def update(n):
             try:
                 profiler.update_performance(ModelPerformanceRecord(
-                    model_id="qwen3.6:27b", task_type=TaskType.CODE_GENERATION,
+                    model_id=MODELE_REEL, task_type=TaskType.CODE_GENERATION,
                     duration_ms=100, tokens_used=50, success=n % 2 == 0,
                 ))
             except Exception as e:

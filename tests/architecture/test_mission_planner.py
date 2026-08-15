@@ -411,9 +411,18 @@ class TestRuntimeRecommender:
         task = TaskBreakdown(title="Critical task", category=TaskCategory.IMPLEMENTATION)
         est = ComplexityEstimate(complexity_level="critical", complexity_score=9.0)
         rec = runtime_recommender.recommend(task, est)
-        # Should suggest a large model
-        name = rec.model_name.lower()
-        assert any(size in name for size in ("30b", "32b", "27b", "14b"))
+        # Une tache critique doit recevoir un role de haut de gamme. On
+        # verifie le tier, pas la taille lue dans le nom du tag : la liste
+        # ("30b", "32b", "27b", "14b") decrivait le catalogue de juillet et
+        # est devenue fausse au renommage — 35b et 20b n'y figuraient pas.
+        # Le tier est la propriete, le nom n'en est qu'un reflet.
+        from backend.core.config import load_models_config
+
+        roles = load_models_config()["roles"]
+        role = next(r for r, spec in roles.items()
+                    if spec["model"] == rec.model_name)
+
+        assert roles[role]["tier"] in ("quality", "powerful")
 
     def test_low_complexity_model_tier(self, runtime_recommender):
         from backend.mission.planner.planner_models import ComplexityEstimate

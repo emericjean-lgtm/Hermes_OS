@@ -23,6 +23,20 @@ def test_formats_endpoint_lists_support_and_excludes_images(client):
 
 
 def test_index_a_real_text_file(client, tmp_path, monkeypatch):
+    """Le fichier est réel, l'extraction aussi ; seul le vecteur est doublé.
+
+    Ce test était le seul du fichier à atteindre le vrai `_echo`, donc la
+    vraie `OllamaEmbeddingFunction`, qui ouvre son propre `httpx.Client`
+    vers `/api/embeddings` — hors de portée du client factice que le
+    fixture injecte. Il ne ralentissait pas : il pendait, et la suite
+    entière avec lui (HOS-112).
+
+    Ce qu'il vérifie est intact — la route extrait le texte, reconnaît le
+    format, compte les caractères et rapporte des morceaux. Le stockage du
+    vecteur lui-même relève de `test_semantic.py`, qui le couvre avec une
+    fonction d'embedding factice ; le docstring de `conftest.py` désigne
+    déjà cette répartition.
+    """
     source = tmp_path / "notes.md"
     source.write_text("# Titre\n\nDu contenu indexable.", encoding="utf-8")
 
@@ -30,6 +44,13 @@ def test_index_a_real_text_file(client, tmp_path, monkeypatch):
         "backend.api.routes.documents.file_tools.read_bytes",
         lambda aegis, path, project_id=None: source.read_bytes(),
     )
+
+    class EchoSansVecteur:
+        def index_document(self, doc_id, text, metadata, project_id=None):
+            assert text.strip(), "la route doit livrer le texte extrait"
+            return 1
+
+    monkeypatch.setattr("backend.api.routes.documents._echo", lambda: EchoSansVecteur())
 
     response = client.post("/documents/index", json={"path": str(source)})
 

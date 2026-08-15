@@ -100,6 +100,22 @@ class TestRealSearchPath:
 
 class TestToolsSchema:
     def test_conversation_tools_offers_exactly_web_search(self):
-        tools = conv_routes._conversation_tools()
-        assert len(tools) == 1
-        assert tools[0]["function"]["name"] == "web_search"
+        """Sans projet lié, la recherche web est le seul outil offert.
+
+        `_conversation_tools` a gagné un paramètre `project_root` avec les
+        outils de fichiers : sans projet, aucun outil de fichier n'est
+        proposé au modèle — c'est la garantie de sécurité de ce chemin, et
+        elle n'était plus testée puisque l'appel échouait sur un TypeError.
+        """
+        tools = conv_routes._conversation_tools(None)
+
+        assert [t["function"]["name"] for t in tools] == ["web_search"]
+
+    def test_un_projet_lie_ajoute_les_outils_de_fichiers(self):
+        """Le pendant : c'est l'existence d'un projet autorisé qui ouvre
+        l'accès au disque, rien d'autre."""
+        tools = conv_routes._conversation_tools("C:/quelque/part")
+        noms = [t["function"]["name"] for t in tools]
+
+        assert "web_search" in noms
+        assert len(noms) > 1, "aucun outil de fichier offert malgré un projet lié"

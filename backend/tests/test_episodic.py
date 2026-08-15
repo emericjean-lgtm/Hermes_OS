@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 from sqlalchemy import create_engine
 
@@ -43,7 +45,17 @@ def test_list_memories_filters_by_type(session):
 
 
 def test_list_memories_orders_most_recent_first(session):
+    """La pause sépare les deux horodatages (HOS-112).
+
+    Sous Windows l'horloge système avance par pas d'environ 15,6 ms : deux
+    écritures consécutives portent la même date, le tri devient une égalité
+    et le verdict est tiré au sort à chaque exécution. Le dépôt connaît
+    déjà ce piège — voir `test_turn_order_survives_a_shared_timestamp`, où
+    la conversation le règle pour de bon en persistant une séquence
+    explicite plutôt qu'en se fiant à l'horloge.
+    """
     episodic.add_memory(session, type_="preference", content="first")
+    time.sleep(0.02)
     episodic.add_memory(session, type_="preference", content="second")
     contents = [e.content for e in episodic.list_memories(session)]
     assert contents == ["second", "first"]

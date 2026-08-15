@@ -6,26 +6,88 @@ that a row appeared.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.connectors.ollama_client import OllamaClient, StreamChunk
 from backend.core import audit_log
+from backend.core.agent_registry import get_agent_registry
 from backend.core.config import get_settings
 from backend.main import create_app
 from backend.core.router import RoutingDecision
 from backend.memory.db import make_engine, make_session_factory
 
+_REPONSE = ("Hello", ", ", "world", "!")
+
+#: Sur Windows, `time.monotonic()` avance par pas d'environ 15,6 ms.
+#: Une doublure instantanée livre ses quatre morceaux dans le même pas :
+#: `Timer.tokens_per_second` mesure alors un `elapsed` nul et rend `None`
+#: — à juste titre, il refuse de diviser par zéro. Le test qui vérifie que
+#: la mesure est réelle échouait donc sur la doublure, pas sur le code.
+#: 20 ms tient au-dessus de la granularité avec de la marge ; plus court
+#: rendrait ce test intermittent, ce qui serait pire que faux.
+_PAS_MS = 0.020
+
+
+async def _chat_events_inerte(self, model, messages, **kwargs):
+    for text in _REPONSE:
+        yield StreamChunk("content", text)
+        await asyncio.sleep(_PAS_MS)
+
+
+async def _chat_stream_inerte(self, model, messages, **kwargs):
+    async for chunk in _chat_events_inerte(self, model, messages, **kwargs):
+        if chunk.kind == "content":
+            yield chunk.text
+
+
+async def _aucun_modele_resident(self):
+    """Le routeur demande qui est déjà chargé avant de choisir (§10.3).
+
+    Neutraliser le seul `chat_*` ne suffisait pas : cet appel-là ouvrait
+    encore une vraie connexion, mise en pool sur la boucle d'événements du
+    premier test, et le test suivant mourait dessus en
+    « Event loop is closed » — pas au moment de la faute, mais un test
+    plus loin.
+    """
+    return []
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    """Aucun appel réseau — la doublure est posée sur la *classe*.
+
+    Ce fixture porte le même nom que celui de `conftest.py`, qui injecte
+    `FakeOllamaClient` et documente sur quarante lignes qu'aucun agent ne
+    doit toucher au réseau. Le nom identique le masquait : chaque
+    `POST /chat` de ce fichier partait vers un vrai Ollama. Quand le
+    serveur mettait un modèle à charger, le test ne ralentissait pas — il
+    pendait, sans limite. Deux exécutions de la suite s'y sont figées, 92
+    et 15 minutes, sans jamais rendre de verdict (HOS-112).
+
+    La doublure est posée au niveau de la classe, et non sur le registre
+    de la route, parce que `test_an_answer_with_no_tokens_is_not_recorded_
+    as_success` appelle `get_agent_registry()` directement : un registre
+    injecté dans le seul module de route laisserait ce test-là parler au
+    réseau. Patcher la classe rend inerte tout client, quel que soit le
+    registre qui le détient — c'est le motif que le docstring de
+    `conftest.py` désigne déjà pour ce cas.
+    """
     monkeypatch.setenv("LOGS_DIR", str(tmp_path / "logs"))
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "hermes.db"))
+    monkeypatch.setattr(OllamaClient, "chat_events", _chat_events_inerte)
+    monkeypatch.setattr(OllamaClient, "chat_stream", _chat_stream_inerte)
+    monkeypatch.setattr(OllamaClient, "list_running_models", _aucun_modele_resident)
+    monkeypatch.setattr(OllamaClient, "list_local_models", _aucun_modele_resident)
     get_settings.cache_clear()
+    get_agent_registry.cache_clear()
     with TestClient(create_app()) as c:
         yield c
     get_settings.cache_clear()
+    get_agent_registry.cache_clear()
 
 
 def _records():

@@ -21,6 +21,13 @@ class _FakeTask:
     task_id = "t1"
     title = "do the thing"
     retries = 0
+    #: Le runtime tenté, nommé explicitement. `RealTaskExecutor` le lit sur
+    #: la tâche (task_executor.py : `assignment.runtime_id or
+    #: task.assigned_runtime or "hermes-agent"`), et ce défaut est passé de
+    #: « ollama » à « hermes-agent ». Sans cet attribut, les tests de ce
+    #: fichier mesuraient le défaut du jour au lieu du contrat qu'ils
+    #: décrivent.
+    assigned_runtime = "ollama"
 
 
 def _results(monitor: list[tuple[str, float, bool]]):
@@ -53,6 +60,9 @@ class TestOnRuntimeResultFailure:
         async def chat(*, messages, model, num_ctx=None):
             raise RuntimeUnavailableError("ollama is down")
 
+        # Un échec n'a pas de métadonnée : c'est le runtime *tenté* qui est
+        # rapporté — la moitié « or attempted » du contrat de ce module.
+        # Le runtime vient de `_FakeTask.assigned_runtime`, nommé là-haut.
         executor = RealTaskExecutor(chat=chat, on_runtime_result=_results(calls))
         with pytest.raises(RuntimeUnavailableError):
             executor.execute(_FakeTask())

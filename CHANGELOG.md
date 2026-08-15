@@ -1,3 +1,103 @@
+## HOS-112 — Une suite qui pend ne dit rien (2026-08-15)
+
+En voulant confirmer que HOS-111 était vert, deux exécutions de `pytest` se sont figées : 92 minutes pour l'une, 15 pour l'autre. Ni l'une ni l'autre ne travaillait — 58 et 12 secondes de CPU consommées, respectivement. Elles n'échouaient pas, elles attendaient.
+
+C'est le pendant exact de la règle centrale du projet. On ne croit pas un succès sur parole ; il faut aussi ne pas lire un silence comme du travail en cours. J'ai failli rapporter « la suite tourne » pour une session bloquée depuis un quart d'heure.
+
+### Le garde-fou avant le correctif
+
+`pytest.ini` déclare `timeout = 60`. Sans lui ce défaut restait invisible — une suite bloquée ne produit aucun message d'erreur, et c'est pour ça qu'il a survécu à des semaines. Un test qui pend échoue désormais en se nommant, avec la pile de l'endroit exact où il attend.
+
+Le mode `thread` est le seul disponible sous Windows et tue la session au premier dépassement : on avance d'un coupable par exécution. C'est lent, mais chaque tour produit un nom et une pile plutôt qu'un silence.
+
+### Un fixture qui en masquait un autre
+
+`backend/tests/conftest.py` fournit un `client` hermétique qui injecte `FakeOllamaClient`, et documente sur quarante lignes qu'aucun agent ne doit toucher au réseau. `test_chat_audit.py` définissait **son propre fixture du même nom**, sans doublure : Python résout le plus proche, et chaque `POST /chat` de ce fichier partait vers un vrai Ollama. Quand le serveur mettait un modèle à charger, le test ne ralentissait pas — il pendait, sans limite.
+
+La doublure est posée sur la **classe**, pas sur le registre de la route : un des tests appelle `get_agent_registry()` directement, et un registre injecté dans le seul module de route l'aurait laissé parler au réseau. Neutraliser `chat_*` ne suffisait pas non plus — le routeur demande qui est déjà résident (§10.3), et cette connexion-là restait en pool sur la boucle d'événements du premier test, si bien que le **suivant** mourait dessus en `Event loop is closed`. La faute et le symptôme dans deux tests différents.
+
+Même schéma dans `test_documents_endpoint.py`, où un seul test sur neuf atteignait la vraie `OllamaEmbeddingFunction` — laquelle ouvre son propre `httpx.Client`, hors de portée du client injecté par le fixture. Ses huit voisins doublaient déjà `_echo` ; celui-là est aligné sur eux.
+
+**Mesuré : `test_chat_audit.py` passe d'un blocage infini à 9 tests en 10 secondes.**
+
+### Une fausse piste, et ce qui l'a corrigée
+
+Le premier délai de garde, à 45 s, a désigné `test_code_bench.py` et une pile pointant vers `subprocess.run`. J'en ai tiré une explication cohérente — le trampoline `.venv\Scripts\python.exe` engendre un petit-fils, `kill()` ne tue que le père, le tuyau stdout reste ouvert. **Fausse.** Le test passe en 60,1 s : le mécanisme est sain, et 45 s avait simplement attrapé un test légitimement lent (`EXEC_TIMEOUT_S = 60`) avant d'atteindre le vrai coupable.
+
+Un test long ne se distingue d'un test pendu que par la patience de celui qui regarde. Ce test ramène désormais son délai à 2 s par `monkeypatch` : même garantie, trente fois plus vite, et il ne se fera plus prendre pour un blocage.
+
+Le vrai coupable a été trouvé en comptant les points imprimés avant l'arrêt — 178, donc le test 179 dans l'ordre de collecte.
+
+### L'horloge Windows avance par pas de 15,6 ms
+
+À chaque exécution, deux tests d'ordre chronologique rendaient un verdict tiré au sort — jamais les mêmes, ce qui faisait passer le problème pour deux accidents isolés. Cause unique : `time.monotonic()` et l'horloge système avancent par pas d'environ 15,6 ms sous Windows. Deux créations consécutives partagent leur horodatage, le tri devient une égalité, et l'ordre est laissé au moteur.
+
+Cinq tests corrigés par des dates réellement distinctes ; deux faux positifs écartés sur lecture plutôt que par principe — `test_slash_commands` utilise des dates littérales, `test_skill_library` trie par confiance. La même granularité expliquait un sixième échec, où une doublure instantanée livrait ses quatre morceaux dans le même pas : `tokens_per_second` mesurait un `elapsed` nul et rendait `None`, à raison.
+
+**Un défaut de production au passage.** `list_projects` triait sur `created_at` seul, sans départage : deux projets créés coup sur coup se réordonnaient d'un affichage à l'autre sans que rien n'ait changé. L'ordre entre ex aequo n'a pas de sens intrinsèque ; ce qui compte est qu'il soit le même à chaque requête.
+
+Ces pauses rendent les tests déterministes, elles ne suppriment pas l'ambiguïté de fond. Le dépôt connaît déjà la vraie réponse — `test_turn_order_survives_a_shared_timestamp` persiste une séquence explicite plutôt que de se fier à l'horloge. La généraliser est un changement de schéma par module, inscrit au ROADMAP et non bricolé ici.
+
+### Verified
+
+`backend/tests` : **1 239 passés, 2 ignorés, 2 min 34, plus aucun blocage.** La famille chronologique a été rejouée **trois fois de suite** — pour de l'instabilité, une seule exécution verte ne prouve rien.
+
+`tests/` n'est pas encore hermétique et reste un chantier déclaré (ROADMAP T-0). Le premier bloqué est identifié : `test_alexandrie_integration.py`, dont l'en-tête certifie « *Alexandrie is not running during tests (CI-safe)* » alors que `hybrid_search` fait de vraies requêtes HTTP avec retries — le client chiffre lui-même le coût à ~22 s par appel service éteint. Un commentaire qui affirme une propriété que le code n'a pas : le motif que ce dépôt traque.
+
+## HOS-111 — 71 % du dépôt n'était exécuté par personne (2026-08-15)
+
+`pytest.ini` ne déclarait que `backend/tests`. Le répertoire `tests/` en contient 2 869 de plus — architecture, API, intégrations, sécurité, production — que ni la CI ni personne ne lançait. Le ROADMAP le signalait sous M-9 depuis le 30 juillet.
+
+Ce qui s'y cachait n'était pas du bruit : **33 tests rouges**, dont un vrai défaut fonctionnel — trois types d'événements rattachés à aucune catégorie, donc invisibles pour tout ce qui regroupe, et ce depuis HOS-090 — et une doublure de test dont la signature avait divergé de celle du vrai moteur Aegis, si bien que quatre tests de la porte de sécurité échouaient sur un `TypeError` au lieu de vérifier la sécurité.
+
+Le reste était de la dérive ordinaire rendue visible d'un coup : un renommage de modèles que la moitié invisible du dépôt n'avait pas vu passer, et des doublures qui mesuraient le défaut du jour au lieu du contrat qu'elles décrivent.
+
+### Marqué lent, pas retiré
+
+`tests/integration` lance le pipeline autonome complet avec de l'inférence réelle ; un seul de ces tests peut prendre plusieurs minutes. Les inclure dans la boucle courte la rendrait inutilisable — mais les **retirer de `testpaths`** aurait recréé exactement l'angle mort qu'on venait de fermer. Ils sont donc marqués `lent` et déselectionnés par défaut : marqué et déselectionné se voit dans la configuration, absent des chemins ne se voit nulle part.
+
+Le premier essai de ce marqueur a rendu la boucle courte **entièrement vide** : `pytest_collection_modifyitems` reçoit *tous* les éléments collectés, pas seulement ceux situés sous le conftest qui déclare le hook, et les 4 112 tests du dépôt se sont retrouvés marqués lents. Un angle mort total, posé en voulant en fermer un. Le filtre sur le chemin le corrige — et le fait d'avoir vérifié le résultat plutôt que supposé est ce qui a permis de le voir.
+
+### Verified
+
+La boucle courte passe de **1 190 à 3 839 tests**, les 273 lents restant nommés et exécutables par `pytest -m lent`.
+
+## HOS-110 — Deux axes sortent du dossier temporaire (2026-08-15)
+
+Le raisonnement et la vision étaient mesurés par des scripts vivant dans un répertoire temporaire. Leurs verdicts entraient au catalogue et pesaient sur le routage, mais rien ne les testait et une machine neuve ne les aurait pas eus. `code_bench.py` avait fait ce chemin ; ces deux-là le font.
+
+### La vision ne départageait rien, et maintenant si
+
+Les trois premières épreuves donnaient 3/3 à tout ce qui déclare `vision` — y compris un modèle de 2,3 Md qui obtient 0 en raisonnement et boucle jusqu'à remplir sa fenêtre. Un axe dont tout le monde atteint le sommet ne classe personne, exactement comme le code avant ses six épreuves de départage.
+
+Six nouvelles épreuves demandent de voir **et** d'agir sur ce qu'on voit : retrouver une ligne désignée par son rang parmi dix presque identiques, compter une couleur parmi trois, croiser une ligne et une colonne, comparer des hauteurs, compter malgré des chevauchements, ordonner selon une relation spatiale. Résultat : trois modèles à 6/6, quatre à 5/6, un à 4/6.
+
+**Deux pièges trouvés en regardant les images plutôt qu'en relisant le code qui les dessine.** Un tirage libre pouvait poser deux cercles à dix pixels l'un de l'autre, rendant leur ordre indécidable pour un humain aussi — une image dont la réponse se discute note en échec un modèle qui a raison. Et le juge acceptait une référence apparaissant n'importe où : un modèle qui **transcrit** les dix lignes du document la contient forcément, et aurait obtenu 100 % sans avoir lu la question. Il exige désormais une ligne ne portant qu'une seule référence.
+
+Un troisième était dans le banc de test lui-même, qui comptait « je vois 12 cercles, dont 5 rouges » comme une mauvaise réponse alors qu'elle est juste. C'est le juge qui avait raison contre son auteur.
+
+### Le dixième défaut d'instrument
+
+Trois modèles Qwen échouaient l'épreuve de chevauchement à **exactement 902 secondes**, deux essais chacun. Même signature que les neuf précédents : des échecs identiques sur des modèles sans rien de commun, et une durée absurde.
+
+La campagne vision, contrairement à celle du raisonnement, ne posait **aucun plafond de génération**. Mesuré en le posant : à 16 384 tokens, qwen3.5-4b et qwen3.6-35b produisent 40 000 et 47 000 caractères de raisonnement pour une réponse **vide**. Compter des carrés qui se chevauchent les envoie dans une dérive sans fin. Le score de 5/6 était juste ; sa raison était fausse. Le détail distingue maintenant `tronqué` de `erreur`, parce que « a mal vu » et « n'a jamais répondu » n'appellent pas la même décision de routage.
+
+### Une tentative de plus ne stabilise pas ce qui ne l'est pas
+
+La campagne de raisonnement passe à deux tentatives par épreuve, comme celle du code — Ollama n'est pas déterministe même à température 0, donc un essai unique mesure la chance autant que la compétence. La réserve qui a motivé le changement était fondée : qwen3.5-9b, noté 2/4 sur un seul essai, fait **4/4**.
+
+Mais le résultat d'ensemble est l'inverse de ce qui était attendu. Deux modèles montent, **deux descendent** — or avec deux essais on ne peut que faire mieux ou pareil, à conditions égales. Que gemma4 tombe de 4/4 à 3/4 signifie qu'il a raté les deux tentatives sur une épreuve qu'il réussissait la veille. Et aucune réussite n'est venue d'un second essai : toute la différence vient de la variance des premiers.
+
+**Deux tentatives n'ont pas stabilisé cet axe, elles ont prouvé qu'il ne l'est pas** en dessous des quatre premiers. gpt-oss, Muse Glimmer, qwen3.6 et ornith sont à 4/4 dans les deux campagnes ; le reste bouge d'une mesure à l'autre. C'est une information de routage à part entière, et elle est consignée comme telle plutôt que lissée.
+
+### Verified
+
+35 tests sur la vision, 14 sur le raisonnement. Quatre d'entre eux **redémontrent les vérités-terrain à chaque exécution** — la force brute sur l'énigme de déduction, le calcul de l'atelier, les contraintes de l'ordre temporel — parce que deux des quatre réponses attendues, posées de tête, étaient fausses et auraient noté en échec tous les modèles qui répondaient juste.
+
+`test_une_transcription_n_est_pas_une_reponse` et `test_les_cercles_de_relation_ne_se_chevauchent_jamais` nomment les deux pièges trouvés en regardant les images.
+
+`Pillow` entre dans `requirements.txt`. Il était déjà présent comme dépendance transitive, donc absent de cette liste dérivée tant que rien sous `backend/` ne l'importait — ce qui a changé. Une dépendance réelle non déclarée marche sur cette machine et casse sur une installation neuve, ce que ce fichier existe précisément pour empêcher.
+
 ## HOS-108 — Le catalogue mesuré, noté et affiché (2026-08-14)
 
 Les campagnes produisaient des verdicts hétérogènes — un palier de code, un taux d'outillage, un contexte servi — et le routage a besoin de comparer. `bench_score.py` ramène chaque axe à une note sur 100.

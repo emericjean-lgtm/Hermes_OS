@@ -188,9 +188,17 @@ async def _collect(stream):
 def test_throughput_is_measured_from_the_first_token():
     """Counting from the request would blame model load time on the
     model's speed — §22.1 budgets the *first token* separately for that
-    exact reason."""
+    exact reason.
+
+    Le délai est de 30 ms et non de 10 : sous Windows `time.monotonic()`
+    avance par pas d'environ 15,6 ms, si bien que deux jetons espacés de
+    10 ms tombent souvent dans le même pas. `tokens_per_second` mesure
+    alors un `elapsed` nul et rend `None` — à raison, il refuse de diviser
+    par zéro. Le test échouait donc par intermittence, sur la granularité
+    de l'horloge et non sur le code qu'il vérifie (HOS-112).
+    """
     timer = Timer()
-    asyncio.run(_collect(timer.measure(_stream("a", "b", delay=0.01))))
+    asyncio.run(_collect(timer.measure(_stream("a", "b", delay=0.03))))
 
     assert timer.tokens_per_second is not None
     assert timer.tokens_per_second > 0

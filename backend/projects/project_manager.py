@@ -143,7 +143,14 @@ def get_project(session: Session, project_id: str) -> Project | None:
 def list_projects(
     session: Session, *, status: ProjectStatus | str | None = None, tag: str | None = None
 ) -> list[Project]:
-    stmt = select(Project).order_by(Project.created_at.desc())
+    # `id` départage les dates égales (HOS-112). Sous Windows l'horloge
+    # système avance par pas d'environ 15,6 ms : deux projets créés coup sur
+    # coup portent le même `created_at`, et un tri sur cette seule colonne
+    # laisse alors l'ordre à la discrétion du moteur — la liste pouvait se
+    # réordonner d'un affichage à l'autre sans que rien n'ait changé.
+    # L'ordre entre ex aequo n'a pas de sens intrinsèque ; ce qui compte est
+    # qu'il soit le même à chaque requête.
+    stmt = select(Project).order_by(Project.created_at.desc(), Project.id.desc())
     if status is not None:
         try:
             status_value = ProjectStatus(status).value

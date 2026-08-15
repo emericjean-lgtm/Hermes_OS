@@ -52,6 +52,12 @@ def _executor(resource_manager, vram_gb_for, **kwargs) -> RealTaskExecutor:
 class _Task:
     task_id = "t1"
     title = "do the thing"
+    #: Le controle d'admission VRAM est volontairement saute pour
+    #: `hermes-agent`, qui gere ses propres modeles (task_executor.py :
+    #: `if not use_cloud and runtime_id != "hermes-agent"`). Ce fichier
+    #: teste le chemin Ollama ; il s'appuyait sur un defaut devenu
+    #: `hermes-agent`, et ne mesurait donc plus l'admission du tout.
+    assigned_runtime = "ollama"
 
 
 class TestVramAdmissionNoOp:
@@ -179,7 +185,12 @@ class TestActiveVramUnload:
     def test_execute_raises_runtime_unavailable_when_vram_never_frees(self):
         """End-to-end through execute(): the local chat call must never be
         attempted when admission never succeeds — VRAM exhaustion, not a
-        runtime failure, is the actual reason this task didn't run."""
+        runtime failure, is the actual reason this task didn't run.
+
+        Le runtime tenté vient de `_Task.assigned_runtime`, nommé là-haut :
+        sans lui, ce test mesurait l'identité du runtime par défaut plutôt
+        que l'admission VRAM.
+        """
         rm = _FakeResourceManager([False])
         chat_called = {"n": 0}
 

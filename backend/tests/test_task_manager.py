@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 from sqlalchemy import create_engine
 
@@ -106,7 +108,11 @@ def test_list_tasks_rejects_invalid_status_filter(session):
 
 
 def test_list_tasks_orders_most_recent_first(session):
+    """La pause sépare les deux horodatages — l'horloge Windows avance par
+    pas de ~15,6 ms, et deux créations consécutives seraient ex aequo
+    (HOS-112)."""
     tm.create_task(session, title="first")
+    time.sleep(0.02)
     tm.create_task(session, title="second")
     assert [t.title for t in tm.list_tasks(session)] == ["second", "first"]
 

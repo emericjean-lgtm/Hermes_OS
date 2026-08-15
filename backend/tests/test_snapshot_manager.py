@@ -8,6 +8,7 @@ rather than half-applying it.
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -115,7 +116,11 @@ def test_context_is_free_form_and_preserved(snapshots):
 
 
 def test_snapshots_are_listed_newest_first(snapshots):
+    """La pause sépare les deux horodatages — l'horloge Windows avance par
+    pas de ~15,6 ms, et deux instantanés créés coup sur coup seraient ex
+    aequo (HOS-112)."""
     first = snapshots.create_snapshot(reason="un")
+    time.sleep(0.02)
     second = snapshots.create_snapshot(reason="deux")
 
     listed = [s.id for s in snapshots.list_snapshots()]
@@ -254,8 +259,22 @@ def test_a_corrupt_snapshot_refuses_rather_than_half_applying(snapshots, store):
 
 
 # ── pruning & the step counter ───────────────────────────────────────
+def _cinq_instantanes_dates(snapshots) -> list[str]:
+    """Cinq instantanés d'horodatages distincts.
+
+    Sans la pause, les cinq tombent dans le même pas d'horloge (~15,6 ms
+    sous Windows) : « garder les deux plus récents » n'a alors plus de
+    sens, et le test désignait deux gagnants au hasard (HOS-112).
+    """
+    ids = []
+    for index in range(5):
+        ids.append(snapshots.create_snapshot(reason=str(index)).id)
+        time.sleep(0.02)
+    return ids
+
+
 def test_pruning_keeps_the_most_recent(snapshots):
-    ids = [snapshots.create_snapshot(reason=str(i)).id for i in range(5)]
+    ids = _cinq_instantanes_dates(snapshots)
 
     removed = snapshots.prune_snapshots(keep=2)
 

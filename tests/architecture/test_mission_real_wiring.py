@@ -90,11 +90,49 @@ class _FakeAegisEngine:
         self._verdict = verdict
         self.calls: list[str] = []
 
-    def evaluate(self, request):
+    # La signature suit celle d'AegisEngine.evaluate, mots-cles compris.
+    # Une doublure qui n'accepte pas les arguments du vrai moteur ne
+    # protege plus rien : elle echoue sur un TypeError et non sur ce que le
+    # test verifie. `extra_allowed_paths` est arrive avec la liste blanche
+    # dynamique et n'a jamais ete repercute ici, parce que pytest.ini
+    # n'executait pas ce repertoire.
+    def evaluate(self, request, *, project_root=None, extra_allowed_paths=None):
         self.calls.append(request.action_type)
         if request.action_type == "file_read":
             return _FakeDecision(Verdict.ALLOW)
         return _FakeDecision(self._verdict)
+
+
+def test_la_doublure_aegis_suit_la_signature_du_vrai_moteur():
+    """L'incident que ce test empêche.
+
+    `AegisEngine.evaluate` a gagné `extra_allowed_paths` avec la liste
+    blanche dynamique. Les doublures de ce fichier ne l'ont pas suivi :
+    quatre tests de la porte de sécurité échouaient sur un `TypeError` au
+    lieu de vérifier ce qu'ils affirment vérifier. Personne ne l'a vu,
+    parce que `pytest.ini` ne déclarait que `backend/tests`.
+
+    Une doublure qui n'accepte pas les arguments du vrai moteur ne protège
+    plus rien — et le jour où elle diverge en *comportement* plutôt qu'en
+    signature, elle ne lèvera même plus d'erreur.
+    """
+    import inspect
+
+    from backend.security.aegis_engine import AegisEngine
+
+    def nommes(fn):
+        # Seuls les parametres passes par mot-cle doivent correspondre : le
+        # premier positionnel s'appelle `action` dans le vrai moteur et
+        # `request` dans la doublure, ce qui est sans consequence.
+        return {n for n, p in inspect.signature(fn).parameters.items()
+                if p.kind is inspect.Parameter.KEYWORD_ONLY}
+
+    manquants = nommes(AegisEngine.evaluate) - nommes(_FakeAegisEngine.evaluate)
+
+    assert not manquants, (
+        f"la doublure n'accepte pas {sorted(manquants)} — elle échouera sur "
+        "un TypeError au lieu de tester la porte de sécurité"
+    )
 
 
 class TestMissionSecurityGate:
@@ -147,7 +185,8 @@ class TestMissionSecurityGate:
         calls: list[str] = []
 
         class _Engine:
-            def evaluate(self, request):
+            def evaluate(self, request, *, project_root=None,
+                         extra_allowed_paths=None):
                 calls.append(request.action_type)
                 return _FakeDecision(Verdict.DENY, "path outside whitelist")
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from backend.memory.db import init_db, make_engine, make_session_factory
@@ -55,7 +57,18 @@ def test_get_project_returns_created_project(session):
 
 
 def test_list_projects_orders_most_recent_first(session):
+    """Les deux dates doivent être distinctes pour que ce test porte sur
+    la récence.
+
+    Sous Windows l'horloge système avance par pas d'environ 15,6 ms : deux
+    créations consécutives partagent leur `created_at`, l'ordre devient une
+    égalité, et le test rendait un verdict différent d'une exécution à
+    l'autre — sans rien dire de la règle qu'il décrit. La pause de 20 ms
+    tient au-dessus de la granularité. Le départage des ex aequo, lui, est
+    garanti côté requête (`list_projects`), pas ici (HOS-112).
+    """
     first = project_manager.create_project(session, name="First")
+    time.sleep(0.02)
     second = project_manager.create_project(session, name="Second")
 
     projects = project_manager.list_projects(session)

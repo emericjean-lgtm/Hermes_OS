@@ -50,6 +50,14 @@ mcp==1.28.1
 # ── Système ─────────────────────────────────────────────────────────
 psutil==7.2.2
 
+# Dessine les images de backend/model_intelligence/vision_bench.py. Etait
+# deja presente comme dependance transitive, donc absente de cette liste
+# derivee tant que rien sous backend/ ne l'importait — ce qui a change
+# (HOS-110). Une dependance reelle non declaree marche sur cette machine et
+# casse sur une installation neuve, ce qui est exactement le genre de
+# derive que ce fichier existe pour empecher.
+Pillow==12.3.0
+
 # ── Tests ───────────────────────────────────────────────────────────
 # Gardés ici plutôt que dans un fichier séparé : la suite complète fait
 # partie du flux de travail normal de ce dépôt (voir CLAUDE.md), pas d'un

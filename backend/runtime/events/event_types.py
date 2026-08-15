@@ -62,6 +62,14 @@ RUNTIME_EVENT_CATEGORIES: dict[str, list[str]] = {
         RuntimeEventType.RUNTIME_HEALTH_CHANGED.value,
         RuntimeEventType.RUNTIME_OVERLOADED.value,
         RuntimeEventType.RUNTIME_UNAVAILABLE.value,
+        # Les trois diagnostics silencieux. Ajoutes a l'enum sans etre
+        # rattaches ici — RUNTIME_CONTEXT_DEGRADED depuis HOS-090, les deux
+        # autres depuis HOS-108 — ils etaient invisibles pour tout ce qui
+        # regroupe par categorie. `test_event_type_enum_values` le disait
+        # depuis le debut, dans un repertoire que pytest.ini n'executait pas.
+        RuntimeEventType.RUNTIME_CONTEXT_DEGRADED.value,
+        RuntimeEventType.RUNTIME_MODEL_MISSING.value,
+        RuntimeEventType.RUNTIME_RESIDENCY_UNSATISFIABLE.value,
     ],
     "model": [
         RuntimeEventType.MODEL_LOADED.value,

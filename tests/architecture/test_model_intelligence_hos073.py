@@ -61,13 +61,18 @@ class TestSyncFromOllama:
         assert profile.tags == ["auto-discovered"]
 
     def test_does_not_overwrite_an_already_known_model(self, monkeypatch):
+        # Le tag vient de la configuration : « qwen3.5:2b » etait le role
+        # swift en juillet et n'existe plus depuis le renommage.
+        from backend.core.config import load_models_config
+
+        connu = load_models_config()["roles"]["swift"]["model"]
         profiler = ModelProfiler()
-        existing = profiler.get_profile("qwen3.5:2b")  # HOS-079: swift role
+        existing = profiler.get_profile(connu)
         assert existing is not None  # from config/models.yaml's real roles
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"models": [
-                {"name": "qwen3.5:2b", "size": 1, "details": {}},
+                {"name": connu, "size": 1, "details": {}},
             ]})
 
         monkeypatch.setattr(httpx, "Client", _mock_ollama_client(handler))
@@ -76,7 +81,7 @@ class TestSyncFromOllama:
         assert new_count == 0
         # Still the real, curated profile — not overwritten by the
         # auto-discovered fallback's honest-but-cruder defaults.
-        assert profiler.get_profile("qwen3.5:2b") is existing
+        assert profiler.get_profile(connu) is existing
 
     def test_embedding_model_is_marked_not_chat_capable(self, monkeypatch):
         profiler = ModelProfiler()
@@ -128,9 +133,15 @@ class TestDuplicateTagFix:
     string twice, colliding as a React key in the Cockpit's tags list."""
 
     def test_role_whose_tier_equals_its_own_name_is_not_duplicated(self):
+        # Le tag du role `standard` vient de la configuration : ce test
+        # portait sur « qwen3.5:9b », vrai en juillet et disparu depuis.
+        # Ce qui est verifie est la deduplication, pas l'identite du modele.
+        from backend.core.config import load_models_config
         from backend.model_intelligence.model_profiler import PREDEFINED_MODELS
 
-        standard = PREDEFINED_MODELS.get("qwen3.5:9b")
+        tag = load_models_config()["roles"]["standard"]["model"]
+        standard = PREDEFINED_MODELS.get(tag)
+
         assert standard is not None
         assert standard["tags"] == ["standard"]
 
