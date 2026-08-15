@@ -63,9 +63,30 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger("hermes_os.execution.task")
 
-#: Mirrors agents/base_agent.py's _MAX_TOOL_ROUNDS — a model that keeps
-#: asking for tools without ever answering cannot hang a task forever.
+#: Repli quand la configuration n'est pas lisible. Le vrai plafond vient de
+#: `settings.mission_max_tool_rounds` (HOS-118).
+#:
+#: Ce module reprenait le 3 de `agents/base_agent.py`, en dur. Le garde-fou
+#: est le même — un modèle qui redemande des outils sans jamais répondre ne
+#: doit pas bloquer une tâche — mais l'échelle ne l'est pas : un tour de
+#: conversation tient en trois échanges, une tâche qui écrit du code et le
+#: vérifie n'y tient pas. Confondre les deux plafonnait le travail réel à la
+#: patience d'un chat.
 _MAX_TOOL_ROUNDS = 3
+
+
+def _tours_d_outils_max() -> int:
+    """Le plafond de tours pour un nœud de mission.
+
+    Lu à chaque boucle plutôt que figé à l'import : le réglage doit pouvoir
+    changer sans redémarrer, comme le niveau d'autonomie (HOS-115).
+    """
+    try:
+        from backend.core.config import get_settings
+
+        return max(1, int(get_settings().mission_max_tool_rounds))
+    except Exception:  # pragma: no cover - configuration illisible
+        return _MAX_TOOL_ROUNDS
 
 #: Toolsets Hermes OS makes available to Hermes Agent for mission work.
 #: "coding" is Hermes Agent's own bundle (files, terminal, search, todo,
@@ -735,7 +756,7 @@ class RealTaskExecutor:
         working_messages = list(messages)
         tool_calls_made = 0
         try:
-            for _round in range(_MAX_TOOL_ROUNDS):
+            for _round in range(_tours_d_outils_max()):
                 content_parts: list[str] = []
                 pending_calls: list[dict[str, Any]] = []
                 async for chunk in client.chat_events(model, working_messages, tools=tools):

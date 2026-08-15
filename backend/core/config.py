@@ -98,6 +98,24 @@ class Settings(BaseSettings):
     # only on a card with real headroom to spare.
     mission_max_parallel_tasks: int = 2
 
+    # Tours d'inférence-plus-outils qu'un *nœud de mission* peut consommer
+    # avant qu'on force une réponse finale sans outils (HOS-118).
+    #
+    # Valait 3, en dur, aligné sur `agents/base_agent.py`. Ce chiffre est
+    # juste pour un tour de conversation : il empêche un modèle qui redemande
+    # des outils sans jamais répondre de bloquer le chat.
+    #
+    # Il est faux pour une tâche de mission. Lire quatre fichiers, en écrire
+    # deux, lancer les tests et corriger, c'est déjà six ou sept tours : au
+    # quatrième, l'exécuteur coupait et forçait une réponse sans outils. La
+    # tâche ne pouvait donc pas *finir* — elle rapportait ce qu'elle avait pu.
+    #
+    # 12 n'est pas une mesure, c'est une marge : assez pour un aller-retour
+    # écriture/vérification/correction, assez bas pour qu'une boucle folle
+    # coûte des minutes et non des heures. À corriger dès qu'on aura mesuré
+    # combien de tours une vraie tâche consomme.
+    mission_max_tool_rounds: int = 12
+
     # Hard whitelist Aegis enforces for every file_read/file_write/git_*
     # action (§17.1) — AegisEngine._is_within_whitelist() denies everything
     # when this is empty, which is the *safe* failure mode for an unknown

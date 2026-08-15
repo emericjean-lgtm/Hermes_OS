@@ -80,6 +80,60 @@ def decide(
     )
 
 
+def preparer_reprise(mission, *, executor) -> bool:
+    """Remettre une mission en état de rejouer. Rend True s'il faut marcher.
+
+    Extrait de `mission/routes.py` (HOS-118) parce qu'il y avait **deux**
+    chemins d'exécution et un seul qui reprenait. `_run_retry_if_suggested`
+    n'était appelé que depuis la route ; l'orchestrateur autonome a sa
+    propre boucle (`_execute_via_dag`) et ne l'appelait pas. La
+    vérification tournait, le brief était produit et posé dans
+    `metadata["retry_brief"]`… puis abandonné.
+
+    C'est exactement ce que HOS-100 avait corrigé pour les missions —
+    « HOS-099 a produit la décision et le brief mais s'est arrêté avant
+    d'agir » — resté ouvert du côté autonome.
+
+    **Synchrone et sans marche.** Chaque appelant garde la sienne : la route
+    doit céder la main à la boucle d'événements pour que `/pause` réponde
+    encore, l'orchestrateur n'en a pas besoin. Imposer une marche commune
+    aurait cassé l'une des deux ; dupliquer la préparation aurait garanti
+    qu'elles divergent.
+
+    Le brief atteint l'agent par `mission.objective`, que
+    `_mission_brief_for` transmet déjà — aucune plomberie neuve, et chaque
+    nœud de la reprise voit la preuve, pas seulement le premier.
+    """
+    from backend.mission.mission_models import MissionStatus, NodeStatus
+
+    brief = mission.metadata.pop("retry_brief", None)
+    if not brief:
+        return False
+
+    attempts = int(mission.metadata.get("attempts", 1))
+    mission.metadata["attempts"] = attempts + 1
+    mission.metadata.setdefault("original_objective",
+                                mission.objective or mission.description)
+    mission.objective = brief
+
+    logger.info("mission %s: retrying (attempt %d) — workspace contradicted "
+                "the reported success", mission.mission_id, attempts + 1)
+
+    # Tous les nœuds repartent. Une reprise par nœud serait fausse ici : la
+    # mission n'a rien produit, il n'y a donc pas de travail partiel à
+    # garder, et un nœud « réussi » qui n'a rien écrit est précisément ce
+    # qu'on rejoue.
+    for node in mission.nodes:
+        node.status = NodeStatus.PENDING
+        node.result_summary = ""
+    executor.build_graph(mission, mission.nodes, list(mission.edges or []))
+    mission.status = MissionStatus.READY
+    if not executor.start_mission(mission):
+        logger.warning("mission %s: could not restart for retry", mission.mission_id)
+        return False
+    return True
+
+
 def build_retry_brief(objective: str, verification: dict) -> str:
     """What to tell the agent on the second attempt.
 

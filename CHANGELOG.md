@@ -1,3 +1,35 @@
+## HOS-118 — La boucle se ferme des deux côtés, et une tâche a le temps de finir (2026-08-15)
+
+Question posée à l'usage : l'onglet Autonomous peut-il recevoir un cahier des charges complet et le réaliser ? La réponse était non, et le code disait précisément pourquoi.
+
+### Un seul des deux chemins reprenait
+
+`_run_retry_if_suggested` n'existait que dans `mission/routes.py`. L'orchestrateur autonome a sa propre boucle d'exécution (`_execute_via_dag`) et ne l'appelait pas : la vérification tournait, `retry_policy.decide()` produisait le brief, `GraphExecutor` l'écrivait dans `metadata["retry_brief"]` — et **personne ne le lisait**.
+
+C'est mot pour mot le défaut que HOS-100 avait corrigé pour les missions — « HOS-099 a produit la décision et le brief mais s'est arrêté avant d'agir » — resté ouvert du côté autonome pendant tout ce temps.
+
+**Extrait plutôt que copié.** La version des missions est asynchrone et dépend des globals de sa route ; celle de l'autonome est synchrone avec son propre exécuteur. `preparer_reprise` ne contient donc que le cœur — consommer le brief, remettre les nœuds à zéro, reconstruire, redémarrer — et **chaque appelant garde sa marche** : la route cède la main à la boucle d'événements pour que `/pause` réponde encore, l'orchestrateur n'en a pas besoin. Imposer une marche commune aurait cassé l'une des deux ; dupliquer la préparation aurait garanti qu'elles divergent — ce qui est exactement comment ce défaut est né.
+
+L'orchestrateur réutilise `_marcher_le_graphe` pour ses deux tentatives. Deux boucles auraient dérivé, l'une bornée par `MAX_EXECUTION_PASSES` et l'autre non ; un test compte les deux appels.
+
+### Une tâche plafonnée à la patience d'un chat
+
+`_MAX_TOOL_ROUNDS = 3`, en dur dans `task_executor.py`, aligné sur `agents/base_agent.py`. Le garde-fou est légitime — un modèle qui redemande des outils sans jamais répondre ne doit pas bloquer une tâche — mais l'échelle ne l'est pas.
+
+Un tour de conversation tient en trois échanges. Une tâche qui lit quatre fichiers, en écrit deux, lance les tests et corrige en consomme six ou sept : au quatrième, l'exécuteur coupait et forçait une réponse **sans outils**. La tâche ne pouvait donc pas *finir* — elle rapportait ce qu'elle avait pu, ce qui est précisément la forme de faux succès que ce dépôt traque.
+
+`mission_max_tool_rounds` vaut 12, relu à chaque boucle pour changer sans redémarrage. **12 n'est pas une mesure, c'est une marge**, et c'est écrit tel quel dans la configuration : assez pour un aller-retour écriture/vérification/correction, assez bas pour qu'une boucle folle coûte des minutes et non des heures. À corriger dès qu'on aura mesuré ce qu'une vraie tâche consomme.
+
+Le chat garde ses 3 : relever les deux ferait payer à chaque tour de conversation la latence d'une tâche de fond, et un test échoue si les deux redeviennent égaux — ce serait le signe qu'on a réaligné le mauvais des deux.
+
+Trois garde-fous testés pour eux-mêmes : une valeur à zéro **dégrade sans désarmer** (la boucle garde au moins un tour, sinon le nœud n'appellerait aucun outil et rapporterait quand même), une configuration illisible retombe sur l'ancien plafond au lieu d'empêcher une mission de tourner, et le plafond du chat est épinglé.
+
+### Verified
+
+15 tests ajoutés. Suite : **3 928 passés, 3 ignorés, code de sortie 0**.
+
+Ce qui n'est **pas** encore mesuré : combien de tours une vraie tâche consomme, et où un cahier des charges complet casse réellement. Le banc existe (`docs/release/mesure_cahier.json`) et tourne sur un cahier réduit ; tant qu'il n'a pas rendu ses chiffres, aucune de ces valeurs n'est autre chose qu'une marge raisonnée.
+
 ## HOS-117 — Autonomous : l'objectif n'est plus un cul-de-sac (2026-08-15)
 
 L'onglet n'avait jamais été retesté depuis la refonte. Il s'est révélé en bien meilleur état que le backlog ne le laissait croire — données réelles, reprise d'objectif (HOS-102), contrôles câblés. Les défauts étaient ailleurs, et aucun n'était visible sans regarder le code.

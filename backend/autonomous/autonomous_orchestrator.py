@@ -398,6 +398,21 @@ class AutonomousOrchestrator:
             # newest are at the end.
             return list(reversed(list(self._goals.values())))[:limit]
 
+    def _marcher_le_graphe(self, mission, terminal) -> int:
+        """Faire avancer le DAG jusqu'au bout, ou jusqu'au plafond de passes.
+
+        Extrait pour que la reprise (HOS-118) réutilise exactement la même
+        marche que la première tentative. Réécrire la boucle une seconde
+        fois aurait laissé les deux dériver — l'une bornée, l'autre non.
+        """
+        passes = 0
+        while mission.status not in terminal and passes < self.MAX_EXECUTION_PASSES:
+            stepped = self.graph_executor.execute_step(mission)
+            passes += 1
+            if stepped == 0:
+                break
+        return passes
+
     def get_session(self, goal_id: str) -> AutonomousSession | None:
         with self._lock:
             session_id = self._session_by_goal.get(goal_id)
@@ -592,12 +607,20 @@ class AutonomousOrchestrator:
             )
 
         terminal = (MissionStatus.COMPLETED, MissionStatus.FAILED, MissionStatus.CANCELLED)
-        passes = 0
-        while mission.status not in terminal and passes < self.MAX_EXECUTION_PASSES:
-            stepped = self.graph_executor.execute_step(mission)
-            passes += 1
-            if stepped == 0:
-                break
+        self._marcher_le_graphe(mission, terminal)
+
+        # La reprise, que ce chemin ne faisait pas (HOS-118).
+        #
+        # `GraphExecutor` produit déjà le brief quand le disque contredit un
+        # succès annoncé — il le pose dans `metadata["retry_brief"]`. Mais
+        # seule la route des missions le consommait ; ici il était écrit puis
+        # abandonné. La vérification tournait, la décision était prise, et
+        # rien ne se passait : exactement l'état que HOS-100 avait corrigé
+        # pour les missions et laissé ouvert du côté autonome.
+        from backend.mission.retry_policy import preparer_reprise
+
+        if preparer_reprise(mission, executor=self.graph_executor):
+            self._marcher_le_graphe(mission, terminal)
 
         duration_ms = (time.perf_counter() - started) * 1000.0
         completed = [n for n in mission.nodes if n.status == NodeStatus.COMPLETED]

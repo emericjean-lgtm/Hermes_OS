@@ -523,30 +523,14 @@ async def _run_retry_if_suggested(mission: Mission) -> int:
     Agent — no new plumbing, and it means every node of the retry sees the
     evidence, not just the first.
     """
-    brief = mission.metadata.pop("retry_brief", None)
-    if not brief:
-        return 0
+    # La préparation vit dans retry_policy (HOS-118) : l'orchestrateur
+    # autonome a la même à faire, et deux copies auraient divergé. Ce qui
+    # reste ici est la marche — celle-ci cède la main à la boucle
+    # d'événements pour que `/pause` réponde encore, ce dont l'autre
+    # appelant n'a pas besoin.
+    from backend.mission.retry_policy import preparer_reprise
 
-    attempts = int(mission.metadata.get("attempts", 1))
-    mission.metadata["attempts"] = attempts + 1
-    mission.metadata.setdefault("original_objective",
-                                mission.objective or mission.description)
-    mission.objective = brief
-
-    logger.info("mission %s: retrying (attempt %d) — workspace contradicted "
-                "the reported success", mission.mission_id, attempts + 1)
-
-    # Reset every node so the whole graph runs again. Per-node resumption
-    # would be wrong here: the mission produced nothing, so there is no
-    # partial work worth keeping, and a node that "succeeded" while writing
-    # nothing is exactly what is being re-attempted.
-    for node in mission.nodes:
-        node.status = NodeStatus.PENDING
-        node.result_summary = ""
-    _executor.build_graph(mission, mission.nodes, list(mission.edges or []))
-    mission.status = MissionStatus.READY
-    if not _executor.start_mission(mission):
-        logger.warning("mission %s: could not restart for retry", mission.mission_id)
+    if not preparer_reprise(mission, executor=_executor):
         return 0
     return await _run_mission_steps(mission)
 
