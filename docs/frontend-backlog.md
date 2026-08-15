@@ -45,6 +45,31 @@ redémarrage du backend.
   résident (HOS-109). Mais **l'Assistant n'a pas de mode automatique** : le
   classifieur n'a aucun appelant. À câbler — ou à retirer.
 
+## Assistant — « pas accès aux outils » (remonté le 2026-08-15)
+
+Symptôme rapporté : l'onglet Assistant se comporte comme si Hermes n'était
+pas relié. **Deux causes candidates, à départager avant de coder quoi que
+ce soit** — l'une n'est pas un problème de frontend du tout.
+
+1. **Le backend était mort.** Constaté le 2026-08-15 : rien n'écoutait sur
+   le port 8010, alors que l'agent y attend ses seize outils MCP
+   (`~/.hermes/config.yaml` → `mcp_servers.hermes-ollama`). Ses journaux le
+   disaient : « *Background MCP discovery completed with zero connected
+   servers* ». Relancé depuis. **À revérifier d'abord : le symptôme
+   persiste-t-il backend allumé ?**
+2. **Aucun projet lié à la conversation.** Par construction, les outils de
+   fichiers ne sont offerts que si la session porte un projet *actif et
+   validé* (`_conversation_tools`, gate `project_root`). Sans lui, seule la
+   recherche web est proposée — et c'est voulu, c'est la garantie de
+   sécurité de ce chemin. Deux projets valides existent (`HermesE2E`,
+   `Skill360`) et `project-panel.tsx` sait les lier.
+
+Si c'est la seconde, le défaut n'est pas l'absence d'outils mais le fait
+que **rien ne le dit** : un assistant qui n'a pas ses outils devrait
+l'annoncer et indiquer quoi faire, plutôt que de se comporter comme s'il
+n'avait jamais été relié. C'est le même principe que partout ailleurs ici —
+un état dégradé silencieux est indiscernable d'une panne.
+
 ## Mission Center
 
 - ⬜ **Voir la décomposition réelle.** « 0/7 tâches » ne dit pas *quelles*
