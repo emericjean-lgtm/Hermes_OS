@@ -1,7 +1,9 @@
 """Model router: picks which Ollama model to use for a given task type.
 
 Implements the routing rules from the cahier des charges §10:
-  1. Prefer a model that is already loaded in VRAM (avoid reload cost).
+  1. Prefer a model that is already loaded in VRAM (avoid reload cost) —
+     unless reusing it would answer with a weaker tier than the candidate
+     that would otherwise have been loaded. See select_model for why.
   2. Otherwise prefer the highest-priority candidate that fits the
      currently available VRAM.
   3. If nothing fits, fall back to the smallest candidate and flag it —
@@ -15,6 +17,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.core.config import load_models_config
+
+#: The quality scale behind config/models.yaml's `tier`. The candidate list
+#: in `routing` is ordered by cost preference and mixes a cheaper fallback
+#: with a more expensive alternative, so it cannot answer "is this model
+#: weaker than that one" on its own — only the tier can.
+_TIERS = {"turbo": 0, "standard": 1, "quality": 2, "powerful": 3}
 
 
 @dataclass(frozen=True)
@@ -64,11 +72,32 @@ class ModelRouter:
 
         loaded = set(loaded_models or [])
 
-        # 1. Already-loaded model wins regardless of tier preference order,
-        #    as long as it's one of the valid candidates for this task.
+        # What we would pick if nothing were resident — needed before rule 1,
+        # because reuse is only free when it is not also a downgrade.
+        preferred = self._preferred(candidates, available_vram_gb)
+
+        # 1. A resident candidate wins, unless reusing it would answer with a
+        #    weaker model than the one we would otherwise have loaded.
+        #
+        #    The candidate list is ordered by cost preference, not by quality:
+        #    `conversation: [standard, swift, orchestrator]` puts the cheap
+        #    fallback second and the expensive alternative third. Reusing the
+        #    orchestrator is a free upgrade; reusing swift is a silent
+        #    downgrade. Only the tier separates the two cases.
+        #
+        #    With OLLAMA_MAX_LOADED_MODELS=1 exactly one model is resident, so
+        #    the old "resident always wins" rule made answer quality depend on
+        #    the order tasks happened to arrive in: an extraction served by
+        #    swift left swift loaded, and the next conversation got the 2.6B
+        #    model, recorded only as "already loaded".
+        floor = self._rank(preferred) if preferred else None
         for role_name in candidates:
             role = self._roles[role_name]
-            if role["model"] in loaded:
+            if role["model"] not in loaded:
+                continue
+            # `floor is None` means nothing fits VRAM anyway: a resident model
+            # then beats loading one that is going to spill onto the CPU.
+            if floor is None or self._rank(role_name) >= floor:
                 return self._decide(
                     task_type, role_name, role,
                     "model already loaded in VRAM, reused to avoid reload",
@@ -76,13 +105,11 @@ class ModelRouter:
 
         # 2. Otherwise, first candidate (priority order) that fits available VRAM.
         if available_vram_gb is not None:
-            for role_name in candidates:
-                role = self._roles[role_name]
-                if role.get("vram_gb", 0) <= available_vram_gb:
-                    return self._decide(
-                        task_type, role_name, role,
-                        f"fits available VRAM ({available_vram_gb} GB)",
-                    )
+            if preferred is not None:
+                return self._decide(
+                    task_type, preferred, self._roles[preferred],
+                    f"fits available VRAM ({available_vram_gb} GB)",
+                )
 
             # 3. Nothing fits: downgrade to the smallest candidate and flag it.
             smallest_role_name = min(candidates, key=lambda r: self._roles[r].get("vram_gb", 0))
@@ -100,6 +127,27 @@ class ModelRouter:
             task_type, default_role_name, role,
             "no VRAM constraint provided, using default priority order",
         )
+
+    def _preferred(self, candidates: list[str], available_vram_gb: float | None) -> str | None:
+        """The candidate we would load if VRAM were empty.
+
+        None when a VRAM budget was given and nothing fits — the caller then
+        knows any choice will offload, which changes what reuse is worth.
+        """
+        if available_vram_gb is None:
+            return candidates[0]
+        return next((r for r in candidates
+                     if self._roles[r].get("vram_gb", 0) <= available_vram_gb), None)
+
+    def _rank(self, role_name: str) -> int:
+        """Where a role's tier sits on the quality scale.
+
+        An unrecognised tier ranks lowest on purpose: the rule it feeds only
+        ever *allows* reuse, so an unknown tier declines the shortcut rather
+        than granting it. A router that guesses in the permissive direction
+        would reintroduce exactly the silent downgrade this guards against.
+        """
+        return _TIERS.get(self._roles[role_name].get("tier", ""), -1)
 
     def _decide(self, task_type: str, role_name: str, role: dict, reason: str) -> RoutingDecision:
         """Single construction point for a decision.

@@ -64,6 +64,78 @@ def test_picks_candidate_that_fits():
     assert "fits available VRAM" in decision.reason
 
 
+#: L'incident, en configuration minimale. `conversation` prefere `standard`
+#: mais accepte `swift` comme repli bon marche et `orchestrator` comme
+#: alternative plus chere : la liste est ordonnee par coût, pas par qualite.
+REUTILISATION = {
+    "roles": {
+        "standard": {"model": "std:1b", "tier": "standard", "vram_gb": 6},
+        "swift": {"model": "swift:1b", "tier": "turbo", "vram_gb": 2},
+        "orchestrator": {"model": "orch:1b", "tier": "quality", "vram_gb": 13},
+        "bizarre": {"model": "biz:1b", "tier": "inconnu", "vram_gb": 2},
+    },
+    "routing": {"conversation": ["standard", "swift", "orchestrator"],
+                "etrange": ["standard", "bizarre"]},
+}
+
+
+def test_un_modele_resident_plus_faible_ne_prend_pas_la_conversation():
+    """L'incident que cette regle empeche.
+
+    Avec OLLAMA_MAX_LOADED_MODELS=1, un seul modele est resident. Une
+    extraction servie par `swift` le laissait charge, et la conversation
+    suivante lui revenait — 2,6 Md au lieu du modele standard, sans autre
+    trace qu'un motif « already loaded ». La qualite de la reponse dependait
+    de l'ordre d'arrivee des taches.
+    """
+    decision = ModelRouter(REUTILISATION).select_model(
+        "conversation", loaded_models=["swift:1b"], available_vram_gb=8)
+
+    assert decision.role == "standard"
+    assert "fits available VRAM" in decision.reason
+
+
+def test_un_modele_resident_plus_fort_est_reutilise():
+    """Le symetrique, et c'est pour lui que la regle existe : reutiliser
+    l'orchestrateur est une montee en gamme gratuite, pas une degradation.
+    Le bloquer ferait payer un rechargement pour un moins bon resultat."""
+    decision = ModelRouter(REUTILISATION).select_model(
+        "conversation", loaded_models=["orch:1b"], available_vram_gb=8)
+
+    assert decision.role == "orchestrator"
+    assert "already loaded" in decision.reason
+
+
+def test_un_resident_de_meme_niveau_est_reutilise():
+    decision = ModelRouter(REUTILISATION).select_model(
+        "conversation", loaded_models=["std:1b"], available_vram_gb=8)
+
+    assert decision.role == "standard"
+    assert "already loaded" in decision.reason
+
+
+def test_si_rien_ne_tient_en_vram_le_resident_l_emporte_quand_meme():
+    """Quand tout va deborder, un modele deja en place bat un modele qu'il
+    faudrait charger pour le voir deborder aussi — le rechargement coûte
+    11 a 27 s mesurees, et n'achete rien ici."""
+    decision = ModelRouter(REUTILISATION).select_model(
+        "conversation", loaded_models=["swift:1b"], available_vram_gb=1)
+
+    assert decision.role == "swift"
+    assert "already loaded" in decision.reason
+
+
+def test_un_tier_inconnu_ne_donne_pas_le_raccourci():
+    """La regle ne fait qu'autoriser une reutilisation. Face a un tier
+    qu'elle ne sait pas comparer, elle doit refuser plutot que supposer :
+    deviner dans le sens permissif reintroduirait la degradation silencieuse
+    qu'elle existe pour empecher."""
+    decision = ModelRouter(REUTILISATION).select_model(
+        "etrange", loaded_models=["biz:1b"], available_vram_gb=8)
+
+    assert decision.role == "standard"
+
+
 def test_unknown_task_type_raises(models_config):
     router = ModelRouter(models_config)
     with pytest.raises(UnknownTaskTypeError):

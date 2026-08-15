@@ -53,19 +53,27 @@
 # 12.85 — which is 0.18 GiB less than gpt-oss needs at 64k. Two of the
 # three fit; three do not.
 #
-# ── One consequence to settle in the routing pass ──────────────────────────
+# ── Reuse is free only when it is not also a downgrade ─────────────────────
 #
-# The router's first rule is "a model already in VRAM wins, regardless of
-# tier preference order". On one resident model that rule means the last
-# task's model answers the next one whenever it is a valid candidate — so
-# an `extraction` served by swift leaves swift resident, and the following
-# `conversation` gets the 2.6B model instead of `standard`, recorded only
-# as reason "already loaded".
+# The router used to reuse any resident candidate. With one resident model
+# that made answer quality depend on the order tasks arrived in: an
+# `extraction` served by swift left swift loaded, and the next
+# `conversation` got the 2.6B model instead of `standard`, recorded only as
+# "already loaded".
 #
-# That is a real trade (a reload costs 11-27 s, measured) and not obviously
-# wrong, but it is currently implicit and quality-affecting. It belongs to
-# the routing pass, with the measured scores above to arbitrate it — not to
-# a silent edit here.
+# The candidate lists below are ordered by cost preference, not by quality —
+# `conversation` puts the cheap fallback second and the expensive
+# alternative third — so the order alone cannot tell a downgrade from an
+# upgrade. `tier` can, and the router now compares it: a resident model is
+# reused when its tier is at least that of the candidate that would
+# otherwise be loaded, and skipped when it is below.
+#
+# Reusing the orchestrator for a conversation therefore still happens — it
+# is a free upgrade. Reusing swift no longer does. And when nothing fits
+# VRAM at all, any resident model still wins, because everything is going to
+# offload anyway and a reload costs 11-27 s for nothing.
+#
+# Tier scale: turbo < standard < quality < powerful (backend/core/router.py).
 
 roles:
   swift:
