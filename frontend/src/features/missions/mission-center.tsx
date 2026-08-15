@@ -14,6 +14,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Mission, MissionStatus } from "@/types/hermes";
 import { CenterHeader } from "@/components/center-scaffold";
+import { DecompositionPanel } from "./decomposition-panel";
 import { Play, Pause, XCircle, AlertCircle, ChevronDown, Search } from "lucide-react";
 
 const statusBadge: Record<MissionStatus, keyof typeof statusColors> = {
@@ -271,6 +272,8 @@ export function MissionCenter() {
               <ProgressBar value={selected.progress} />
               <p className="text-xs text-hermes-muted">{selected.description || "Aucune description"}</p>
 
+              <DecompositionPanel missionId={selected.id} />
+
               {(selected.local_path || selected.repository || selected.project_id) && (
                 <div className="pt-2 border-t border-hermes-border/30 flex flex-col gap-1 text-[10px] font-mono">
                   {selected.local_path && (
@@ -404,6 +407,30 @@ export function MissionCenter() {
                       {rep.plan_is_generic && (
                         <div className="text-[9px] text-hermes-amber bg-hermes-amber/10 p-2 rounded border border-hermes-amber/30">
                           ⚠ Plan générique (décomposition réelle échouée)
+                        </div>
+                      )}
+
+                      {/* Ce que le disque dit, à côté de ce que la mission
+                          rapporte. Trois états distincts, jamais confondus :
+                          absente (rien à comparer), confirmée, contredite.
+                          Traiter l'absence comme un succès recréerait le faux
+                          positif que HOS-092 existe pour détecter. */}
+                      {rep.verification == null ? (
+                        <div className="text-[9px] text-hermes-muted bg-hermes-bg p-2 rounded border border-hermes-border/50">
+                          Aucune vérification disque — cette mission n&apos;a pas de
+                          workspace lié, il n&apos;y a donc rien à comparer.
+                        </div>
+                      ) : rep.verification.contradicted ? (
+                        <div className="text-[9px] text-hermes-danger bg-hermes-danger/10 p-2 rounded border border-hermes-danger/30">
+                          ⚠ Le disque contredit ce rapport : {rep.verification.files_changed ?? 0}{" "}
+                          fichier(s) modifié(s). Un succès annoncé au-dessus d&apos;un
+                          workspace intact n&apos;est pas un succès.
+                        </div>
+                      ) : (
+                        <div className="text-[9px] text-hermes-text bg-hermes-bg p-2 rounded border border-hermes-border/50">
+                          ✓ Vérifié sur disque : {rep.verification.files_changed ?? 0}{" "}
+                          fichier(s) modifié(s)
+                          {rep.verification.workspace ? ` dans ${rep.verification.workspace}` : ""}.
                         </div>
                       )}
                     </div>

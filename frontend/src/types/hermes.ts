@@ -127,6 +127,18 @@ export interface MissionReport {
   generated_at: string;
   decomposition_method?: string;
   plan_is_generic?: boolean;
+  /** Ce que le disque dit, par opposition à ce que la mission rapporte.
+   *
+   * `null` signifie « pas de vérification » — une mission sans workspace
+   * lié n'a rien à comparer — et jamais « vérification réussie ». Les
+   * confondre à l'affichage recréerait le faux positif que HOS-092 existe
+   * pour détecter. */
+  verification?: {
+    contradicted?: boolean;
+    files_changed?: number;
+    workspace?: string;
+    [k: string]: unknown;
+  } | null;
 }
 
 // Mirrors backend/mission/mission_models.py's MissionStatus values
@@ -169,9 +181,44 @@ export interface MissionEdge {
   to: string;
 }
 
+/** Ce que `GET /missions/{id}/graph` renvoie **réellement**.
+ *
+ * `MissionGraph` déclarait `MissionNode[]` et `MissionEdge[]`, qui
+ * décrivent une autre forme : le nœud du graphe n'a ni `priority`, ni
+ * `dependencies`, ni `actual_duration_s`, et les arêtes sont
+ * `{source, target}` et non `{from, to}`. Un type qui ment sur sa charge
+ * utile est pire qu'un type absent — il donne à celui qui s'y fie
+ * l'assurance de champs qui n'arriveront jamais, ce qui explique
+ * vraisemblablement pourquoi cette vue n'avait jamais été construite
+ * (HOS-116).
+ *
+ * Vérifié contre `GraphExecutor.get_graph_data`. */
+export interface MissionGraphNode {
+  id: string;
+  title: string;
+  status: string;
+  type: string;
+  /** Mesuré par l'exécuteur, pas estimé — 0 quand le nœud n'a pas tourné. */
+  duration_ms: number;
+  /** Le runtime qui a réellement servi le nœud, écrit après exécution. */
+  runtime?: string;
+  result_summary?: string;
+  depends_on: string[];
+}
+
+export interface MissionGraphEdge {
+  source: string;
+  target: string;
+}
+
 export interface MissionGraph {
-  nodes: MissionNode[];
-  edges: MissionEdge[];
+  mission_id?: string;
+  nodes: MissionGraphNode[];
+  edges: MissionGraphEdge[];
+  topological_order?: string[];
+  /** Les nœuds qui peuvent tourner en parallèle, par vague. */
+  parallel_groups?: string[][];
+  progress?: Record<string, number>;
 }
 
 export interface MissionTimeline {

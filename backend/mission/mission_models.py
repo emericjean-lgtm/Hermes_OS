@@ -176,6 +176,20 @@ class MissionReport:
     # a real result.
     decomposition_method: str = "llm"
     plan_is_generic: bool = False
+    # Ce que le disque dit de cette mission (HOS-092), et non ce qu'elle
+    # rapporte d'elle-même (HOS-116).
+    #
+    # Le verdict n'existait que sous forme d'événement : publié une fois à
+    # la complétion, perdu pour quiconque n'écoutait pas à cet instant. Or
+    # « rapporté réussi » contre « vérifié sur disque » est précisément la
+    # distinction que ce projet existe pour tenir — la laisser éphémère
+    # revenait à ne pouvoir la constater qu'en direct.
+    #
+    # `None` signifie « pas de vérification » et non « vérification
+    # réussie » : une mission sans workspace lié n'a rien à comparer, et
+    # afficher un succès de vérification là où il n'y en a pas eu serait
+    # exactement le faux positif traqué ici.
+    verification: dict[str, Any] | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -195,6 +209,11 @@ class MissionReport:
             "generated_at": self.generated_at.isoformat(),
             "decomposition_method": self.decomposition_method,
             "plan_is_generic": self.plan_is_generic,
+            # Cette liste est écrite à la main, pas dérivée du dataclass :
+            # un champ ajouté au-dessus sans être ajouté ici existe côté
+            # Python et n'atteint jamais la route. C'est ce qui est arrivé
+            # à `verification` (HOS-116), et un test l'a rattrapé.
+            "verification": self.verification,
         }
 
 
@@ -251,4 +270,5 @@ def build_mission_report(mission: "Mission") -> MissionReport:
         errors=[n.result_summary for n in failed if n.result_summary],
         decomposition_method=decomposition_method,
         plan_is_generic=plan_is_generic,
+        verification=mission.metadata.get("verification"),
     )

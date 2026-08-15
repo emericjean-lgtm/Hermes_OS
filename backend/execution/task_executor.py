@@ -707,6 +707,9 @@ class RealTaskExecutor:
         from backend.connectors.ollama_client import OllamaClient, OllamaUnavailableError
         from backend.core.config import get_settings
         from backend.ral.capabilities import ChatResponse
+        from backend.tools.verification_chat_tools import (
+            execute_verification_tool, verification_tool_schemas,
+        )
         from backend.tools.workspace_chat_tools import execute_workspace_tool, workspace_tool_schemas
 
         settings = get_settings()
@@ -717,7 +720,18 @@ class RealTaskExecutor:
             default_num_ctx=num_ctx if num_ctx is not None
                             else getattr(settings, "ollama_num_ctx", 8192),
         )
-        tools = workspace_tool_schemas()
+        # Les fichiers *et* les runners (HOS-116). Une tâche qui sait écrire
+        # mais pas lancer les tests ne peut jamais rapporter mieux que « j'ai
+        # écrit » — jamais « j'ai écrit et ça passe ». C'est précisément la
+        # différence que `MissionVerification` cherche à établir, et que la
+        # boucle de reprise (HOS-099/100) exploite : une vérification qui
+        # échoue déclenche une seconde tentative, encore faut-il pouvoir
+        # échouer sur autre chose que l'absence d'artefact.
+        #
+        # Les runners restent une liste blanche nommée
+        # (config/verification.yaml) : la tâche choisit `npm_test` ou
+        # `pytest`, elle ne compose aucune commande.
+        tools = workspace_tool_schemas() + verification_tool_schemas()
         working_messages = list(messages)
         tool_calls_made = 0
         try:
@@ -744,8 +758,12 @@ class RealTaskExecutor:
                     fn = call.get("function", {})
                     name = fn.get("name", "")
                     arguments = fn.get("arguments") or {}
+                    executeur = (
+                        execute_verification_tool if name.startswith("verification_")
+                        else execute_workspace_tool
+                    )
                     try:
-                        result = await execute_workspace_tool(
+                        result = await executeur(
                             name, arguments, project_id=project_id, project_root=project_root,
                         )
                     except Exception as exc:

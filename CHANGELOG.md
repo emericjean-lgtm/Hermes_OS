@@ -1,3 +1,35 @@
+## HOS-116 — Une mission peut vérifier son travail, et le dire (2026-08-15)
+
+Deux manques qui se répondent : une mission savait écrire sans savoir vérifier, et ce que le système vérifiait déjà n'atteignait aucun écran.
+
+### Les missions lancent les tests
+
+`task_executor` n'offrait que les outils de fichiers. Une tâche pouvait donc écrire du code sans jamais pouvoir rapporter mieux que « j'ai écrit » — jamais « j'ai écrit et ça passe ». C'est précisément la différence que `MissionVerification` cherche à établir, et dont la boucle de reprise (HOS-099/100) dépend : une vérification qui échoue déclenche une seconde tentative, encore faut-il pouvoir échouer sur autre chose que l'absence d'artefact.
+
+Les runners entrent donc dans la boucle d'outils des missions, avec la même garantie qu'au chat : une liste blanche nommée (`config/verification.yaml`), aucune commande composée par le modèle. Un test épingle l'aiguillage par préfixe — sans lui, tout partait vers l'exécuteur de fichiers, qui aurait répondu « Unknown tool » : un outil offert au modèle et impossible à utiliser.
+
+Au passage, les missions avaient déjà hérité **gratuitement** des huit opérations fichier de HOS-115 : `task_executor` partage `workspace_tool_schemas` avec le chat.
+
+### Le verdict du disque ne s'évapore plus
+
+`_verify_workspace` compare le workspace avant et après (HOS-092), et son résultat n'existait **que sous forme d'événement** : publié une fois à la complétion, perdu pour quiconque n'écoutait pas à cet instant. Or « rapporté réussi » contre « vérifié sur disque » est la distinction que ce projet existe pour tenir, et c'est *après coup* qu'on veut la consulter — exactement ce qu'un événement ne permet pas.
+
+Il est désormais posé sur la mission et rendu par le rapport, avec une règle écrite dans les tests : **`None` signifie « pas de vérification », jamais « vérification réussie »**. Une mission sans workspace lié n'a rien à comparer, et afficher un succès là où il n'y en a pas eu serait précisément le faux positif que HOS-092 existe pour détecter.
+
+**Un test l'a rattrapé avant la route.** Le champ existait sur le dataclass mais `to_dict()` — une liste écrite à la main, pas une dérivation — ne le rendait pas. La route aurait renvoyé un rapport sans verdict, silencieusement.
+
+### La décomposition, enfin visible
+
+Le Center annonçait « Nœuds : 0/7 » : combien, jamais *lesquelles*. Le DAG était pourtant exposé en entier par `GET /missions/{id}/graph` — statuts, dépendances, durées mesurées, runtime réellement servant, ordre topologique, vagues parallèles.
+
+**Les types frontend décrivaient une autre charge utile**, et c'est vraisemblablement pourquoi cette vue n'avait jamais été construite. `MissionGraph` déclarait des nœuds avec `priority`, `dependencies`, `actual_duration_s` et des arêtes `{from, to}` ; la route renvoie `duration_ms`, `runtime`, `result_summary`, `depends_on` et `{source, target}`. Aucun champ ne coïncidait. Un type qui ment sur sa charge utile est pire qu'un type absent : il donne à celui qui s'y fie l'assurance de champs qui n'arriveront jamais. Corrigés contre `get_graph_data`.
+
+Deux choix d'affichage qui ne sont pas cosmétiques : un nœud à 0 ms s'affiche **« jamais exécuté »** et non « instantané » — la distinction que le compteur était incapable de faire ; et le verdict disque a **trois états jamais confondus** — absent, confirmé, contredit — avec un message qui ne s'excuse pas : « un succès annoncé au-dessus d'un workspace intact n'est pas un succès ».
+
+### Verified
+
+9 tests ajoutés. Suite : **3 908 passés, 3 ignorés, code de sortie 0**. Frontend : 92 tests, `tsc --noEmit` propre.
+
 ## HOS-115 — L'Assistant voit ce que Hermes OS sait déjà faire, et le curseur d'autonomie existe (2026-08-15)
 
 Deux manques signalés à l'usage, tous deux du même genre : une capacité présente dans le code, absente de l'endroit d'où on s'en servirait.

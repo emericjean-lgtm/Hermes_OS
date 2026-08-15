@@ -250,6 +250,13 @@ class GraphExecutor:
                         mission.completed_at = datetime.now(timezone.utc)
 
                         verification = self._verify_workspace(mission, all_success)
+                        if verification is not None:
+                            # Gardé sur la mission, pas seulement publié
+                            # (HOS-116). L'événement ne parle qu'à qui écoute
+                            # à cet instant ; le rapport, lui, est consulté
+                            # après coup — et c'est justement après coup
+                            # qu'on veut savoir si le disque confirmait.
+                            mission.metadata["verification"] = verification
 
                         # HOS-099/100: computed before and outside the event
                         # block on purpose. Retrying is a behaviour, not
