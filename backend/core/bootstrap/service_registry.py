@@ -430,6 +430,7 @@ def _make_task_executor(c: Any) -> Any:
         mission_brief_for=_mission_brief_for,
         upstream_results_for=_upstream_results_for,
         livrables_pour=_livrables_pour,
+        journal_pour=_journal_du_projet,
         agentic_capable_for=_agentic_capable_for,
     )
 
@@ -505,6 +506,42 @@ def _mission_brief_for(task: Any) -> Optional[str]:
         if value:
             return value
     return None
+
+
+def _journal_du_projet(task: Any) -> Optional[str]:
+    """Ce que les missions précédentes ont réellement fait ici (HOS-123).
+
+    Le contexte amont (HOS-121) et le manifeste (HOS-122) font tenir une
+    mission ensemble ; ils s'évaporent avec elle. Un cahier des charges de
+    quarante sections se fait en quarante missions, et jusqu'ici la
+    douzième repartait aveugle.
+
+    Le journal ne contient **que des mesures** — diff du workspace, verdict
+    du manifeste, verdict des tests — jamais le récit d'un modèle. C'est la
+    condition pour qu'il puisse être relu comme un fait plutôt que comme un
+    souvenir : le §4 du cahier Skills360 interdit de compléter par
+    supposition, et une mémoire fabriquée ferait durer l'invention d'une
+    mission à l'autre.
+
+    `None` = premier passage sur ce projet. C'est une information, et elle
+    diffère de « les missions précédentes n'ont rien fait ».
+    """
+    workspace = _workspace_project_for(task)
+    if workspace is None:
+        return None
+    try:
+        from backend.mission import journal
+        entrees = journal.relire(workspace[1])
+    except Exception:
+        return None
+    if not entrees:
+        return None
+    return (
+        "Missions précédentes sur ce projet (mesuré : diff du disque, "
+        "manifeste, tests — pas le récit d'un modèle) :\n\n" + entrees
+        + "\n\nCe qui y figure a réellement eu lieu. Ne le refais pas ; "
+          "si tu as besoin d'un fichier qui y est nommé, lis-le."
+    )
 
 
 #: How much of each upstream node's summary travels forward. Node summaries

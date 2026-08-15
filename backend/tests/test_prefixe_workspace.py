@@ -79,3 +79,62 @@ class TestCeQuiNeDoitPasChanger:
         cible = espace / "calculatrice.py"
 
         assert Path(resolve_in_project(str(espace), str(cible))) == cible
+
+
+class TestUnCheminAbsoluAmputeDeSonLecteur:
+    """L'incident du 2026-08-16, mesuré sur deux missions consécutives.
+
+    Le modèle a écrit :
+
+        Users/emeri/AppData/Local/Temp/memoire_X/identity_model.py
+
+    — le chemin absolu de son workspace, **amputé de sa lettre de
+    lecteur**. Sous Windows, `Path.is_absolute()` rend `False` là-dessus :
+    sans drive, un chemin est « rooted » mais pas absolu. La branche des
+    chemins absolus ne le voyait donc pas, et la règle « retirer un segment
+    s'il égale le nom du dossier racine » ne reconnaissait pas `Users`.
+
+    Résultat sur le disque : six niveaux de dossiers recréés **dans** le
+    workspace, avec un double de chaque livrable dedans — et le double de
+    `identity_model.py` faisait 424 octets contre 1737 pour l'original.
+    Une relecture de vérification pouvait tomber sur le mauvais.
+    """
+
+    def test_le_chemin_complet_ampute_revient_a_la_racine(self, tmp_path):
+        racine = tmp_path / "memoire_X"
+        racine.mkdir()
+        parties = "/".join(racine.parts[1:])  # sans la lettre de lecteur
+
+        resolu = resolve_in_project(str(racine), f"{parties}/identity_model.py")
+
+        assert Path(resolu) == racine / "identity_model.py"
+
+    def test_un_prefixe_partiel_aussi(self, tmp_path):
+        """Le modèle n'ampute pas toujours au même endroit."""
+        racine = tmp_path / "memoire_X"
+        racine.mkdir()
+        deux = "/".join(racine.parts[-2:])
+
+        resolu = resolve_in_project(str(racine), f"{deux}/a.py")
+
+        assert Path(resolu) == racine / "a.py"
+
+    def test_le_cas_d_un_seul_segment_ne_change_pas(self, tmp_path):
+        """La règle d'origine (HOS-119) en est l'instance k=1."""
+        racine = tmp_path / "cahier_zk"
+        racine.mkdir()
+
+        resolu = resolve_in_project(str(racine), "cahier_zk/calculatrice.py")
+
+        assert Path(resolu) == racine / "calculatrice.py"
+
+    def test_une_arborescence_legitime_est_preservee(self, tmp_path):
+        """Le garde-fou : un projet qui contient réellement un sous-dossier
+        portant le nom de sa racine garde sa structure, parce que le
+        préfixe retiré doit reproduire la **fin** du chemin de la racine."""
+        racine = tmp_path / "memoire_X"
+        racine.mkdir()
+
+        resolu = resolve_in_project(str(racine), "src/memoire_X/x.py")
+
+        assert Path(resolu) == racine / "src" / "memoire_X" / "x.py"

@@ -90,8 +90,28 @@ def _sans_prefixe_redondant(candidate: Path, root: Path) -> Path:
     le join lui-même.
     """
     parties = candidate.parts
-    if len(parties) >= 2 and parties[0] == root.name:
-        return Path(*parties[1:])
+    if len(parties) < 2:
+        return candidate
+
+    # HOS-123 : le préfixe n'est pas toujours d'un seul segment. Mesuré sur
+    # deux missions consécutives, le modèle a écrit
+    #
+    #     Users/emeri/AppData/Local/Temp/memoire_X/identity_model.py
+    #
+    # — le chemin absolu de son workspace **amputé de sa lettre de
+    # lecteur**. `Path.is_absolute()` rend `False` là-dessus sous Windows
+    # (il n'y a pas de drive), donc la branche des chemins absolus ne le
+    # voyait pas, et l'ancienne règle « un segment » ne reconnaissait pas
+    # `Users`. Le join a recréé six niveaux de dossiers **à l'intérieur du
+    # workspace**, avec un double de chaque livrable dedans.
+    #
+    # On retire donc le plus long préfixe du candidat qui reproduit la fin
+    # du chemin de la racine. Le cas d'origine (un seul segment) en est
+    # l'instance k=1 : rien ne change pour lui.
+    racine_parties = root.parts
+    for k in range(min(len(parties) - 1, len(racine_parties)), 0, -1):
+        if parties[:k] == racine_parties[-k:]:
+            return Path(*parties[k:])
     return candidate
 
 

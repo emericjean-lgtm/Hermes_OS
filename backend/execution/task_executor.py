@@ -269,6 +269,7 @@ class RealTaskExecutor:
         mission_brief_for: Optional[Callable[[Any], Optional[str]]] = None,
         upstream_results_for: Optional[Callable[[Any], Optional[str]]] = None,
         livrables_pour: Optional[Callable[[Any], Optional[str]]] = None,
+        journal_pour: Optional[Callable[[Any], Optional[str]]] = None,
         agentic_capable_for: Optional[Callable[[str], Optional[bool]]] = None,
         agentic_fallback_model: str = _HERMES_AGENT_FALLBACK_MODEL,
         agentic_timeout_s: float = _HERMES_AGENT_TIMEOUT_S,
@@ -278,6 +279,7 @@ class RealTaskExecutor:
         self._mission_brief_for = mission_brief_for
         self._upstream_results_for = upstream_results_for
         self._livrables_pour = livrables_pour
+        self._journal_pour = journal_pour
         self._agentic_capable_for = agentic_capable_for
         self._fallback_model = agentic_fallback_model
         self._chat = chat
@@ -1070,6 +1072,19 @@ class RealTaskExecutor:
                 logger.debug("mission brief lookup failed", exc_info=True)
         user = (f"Mission objective: {brief}\n\nYour task in that mission: {title}"
                 if brief else f"Task: {title}")
+
+        # HOS-123 : ce que les missions **précédentes** ont fait ici. Placé
+        # juste après l'objectif parce que c'est du même ordre — l'état du
+        # projet — et avant le détail de la tâche, qui doit rester la
+        # dernière chose lue.
+        journal_projet = ""
+        if self._journal_pour is not None:
+            try:
+                journal_projet = (self._journal_pour(task) or "").strip()
+            except Exception:  # pragma: no cover - une mémoire ne fait jamais échouer
+                logger.debug("journal de projet indisponible", exc_info=True)
+        if journal_projet:
+            user += "\n\n" + journal_projet
 
         # HOS-105: what the tasks this one depends on actually produced.
         # Before this, every task started from zero — result_summary was

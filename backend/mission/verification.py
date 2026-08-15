@@ -38,9 +38,17 @@ _HASH_LIMIT_BYTES = 8 * 1024 * 1024
 #: Directories whose churn says nothing about whether the mission did its
 #: work. Without this, any mission in a git repo or a Python project looks
 #: productive because a cache directory moved.
+#:
+#: `.hermes` en fait partie depuis HOS-123 : c'est là que vit le journal de
+#: projet, et il est écrit *après* la mission qu'il décrit. Sans cette
+#: ligne, une mission qui n'aurait rien fait d'autre qu'écrire sa propre
+#: trace verrait `touched_anything` à vrai au passage suivant et passerait
+#: pour productive. Le journal mesure le travail ; il ne doit jamais
+#: compter comme du travail.
 _IGNORED_DIRS = frozenset({
     ".git", "__pycache__", ".venv", "venv", "node_modules", ".pytest_cache",
     ".mypy_cache", ".ruff_cache", ".next", "dist", "build", ".idea", ".vscode",
+    ".hermes",
 })
 
 

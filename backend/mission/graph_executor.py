@@ -365,6 +365,20 @@ class GraphExecutor:
             # disque (HOS-122).
             result = verify(mission.mission_id, reported_success, root, before,
                             after, mission=mission)
+
+            # HOS-123 : la trace de ce qui a été *mesuré*, laissée dans le
+            # projet lui-même. Un cahier de quarante sections se fait en
+            # quarante missions, et jusqu'ici la douzième ignorait tout de
+            # la onzième. Écrit à partir du verdict, jamais du récit du
+            # modèle — un journal fabriqué serait pire que pas de journal,
+            # puisque le lancement suivant le lirait comme un fait.
+            from backend.mission import journal
+
+            journal.ecrire(
+                root,
+                mission.objective or mission.description or mission.title,
+                result,
+            )
             return result.as_dict()
         except Exception:  # pragma: no cover
             logger.debug("workspace verification failed", exc_info=True)

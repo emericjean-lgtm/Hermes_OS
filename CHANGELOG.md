@@ -1,3 +1,45 @@
+## HOS-123 — Un projet se souvient, et un chemin amputé se corrige (2026-08-16)
+
+Le contexte amont (HOS-121) et le manifeste (HOS-122) font tenir **une** mission ensemble ; ils s'évaporent avec elle. Un cahier de quarante sections se fait en quarante missions, et la douzième repartait aveugle.
+
+### La décision prise avant d'écrire une ligne
+
+Le cahier Skills360 dit de son propre `PROJECT_STATUS.md` qu'il ne faut « jamais le compléter par supposition ». Un journal rédigé **par le modèle** serait exactement cette fabrication — et pire que pas de journal, puisque le lancement suivant le lirait comme un fait établi. L'invention durerait d'une mission à l'autre au lieu de mourir avec elle.
+
+`backend/mission/journal.py` n'écrit donc que des **mesures** : diff du workspace, verdict du manifeste, verdict des tests. Conséquence directe et voulue : « tests non lancés » s'écrit *non lancés*, avec sa raison. Écrire « passés » dans une mémoire persistante ferait durer le mensonge sur quarante missions.
+
+**Le piège désamorcé d'emblée** : le journal est écrit après la mission qu'il décrit, dans le workspace. Sans `.hermes` dans `_IGNORED_DIRS`, une mission qui n'aurait rien fait d'autre qu'écrire sa propre trace verrait `touched_anything` à vrai au passage suivant et passerait pour productive — le faux succès exact que ce module documente. Deux tests le gardent : l'un vérifie que le diff ne bouge pas, l'autre que le fichier existe bel et bien, sinon le premier ne prouverait que l'absence d'écriture.
+
+### Mesuré sur deux missions consécutives, même workspace
+
+| | étape 1 (§6/§7) | étape 2 (§9) |
+|---|---|---|
+| Statut | `completed`, 5/5, 835 s | `completed`, 4/4, 1 163 s |
+| Qualité constatée | `partielle` | **`contredite`** |
+| Manifeste | 3 déclarés, 3 présents | 4 déclarés, **`workshop_design.md` absent** |
+
+Le manifeste de HOS-122 a fait son travail sur un cas qu'il n'avait pas servi à construire : un livrable annoncé et absent a contredit un `4/4` annoncé réussi.
+
+### Un chemin absolu amputé de sa lettre de lecteur
+
+L'étape 2 a créé **six niveaux de dossiers dans le workspace** — `Users/emeri/AppData/Local/Temp/memoire_X/` — avec un double de chaque livrable dedans. Le double d'`identity_model.py` faisait 424 octets contre 1737 pour l'original ; une relecture de vérification pouvait tomber sur le mauvais.
+
+Le modèle avait écrit le chemin absolu de son workspace **sans sa lettre de lecteur**. Sous Windows `Path.is_absolute()` rend `False` là-dessus — sans drive, un chemin est *rooted* mais pas absolu — donc la branche des chemins absolus ne le voyait pas, et la règle de HOS-119 (« retirer un segment s'il égale le nom du dossier racine ») ne reconnaissait pas `Users`.
+
+Ma première hypothèse était fausse et la mesure l'a réfutée : les quatre formes que je soupçonnais se résolvaient correctement. C'est la cinquième, non envisagée, qui cassait.
+
+`_sans_prefixe_redondant` retire désormais le plus long préfixe reproduisant la **fin** du chemin de la racine. Le cas d'origine en est l'instance k=1, inchangée, et une arborescence légitime `src/<nom-racine>/` est préservée puisque le préfixe doit être en tête.
+
+### Ce que cet essai n'établit pas
+
+L'étape 2 a réutilisé son voisin de run (`workshop.py` importe `organization.py`) et n'a pas touché à l'`identity_model.py` racine — mais elle en a écrit une version dégradée dans l'arbre fantôme. **Je ne peux donc pas créditer la mémoire d'avoir empêché la réécriture** : le défaut de chemin a brouillé la mesure. Il faudra rejouer après correction.
+
+Défaut du livrable non traité : `organization.py` et `workshop.py` s'importent mutuellement. Les deux compilent — la porte de syntaxe ne voit rien — et seul un import réel échouerait. Consigné, non corrigé.
+
+### Verified
+
+21 tests ajoutés. Suite : **4 057 passés, 3 ignorés, code de sortie 0** (4 036 avant).
+
 ## HOS-122 — Chaque tâche déclare ses fichiers, et l'essai converge (2026-08-16)
 
 Le run 3 avait réglé la duplication du code — un module d'identité au lieu de quatre — mais pas celle des tests : deux fichiers au même nom de base, dont l'un appelait `User("user_001", "auth_uid_123")` face à un `User.__init__` qui exige un `email`. Écrit **sans jamais lire le module qu'il teste**.
