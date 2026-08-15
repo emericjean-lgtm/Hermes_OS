@@ -398,10 +398,12 @@ class RealTaskExecutor:
         # whenever a mission was workspace-bound. _chat_with_tools_for stays
         # for the explicit local-Ollama runtime, which has no agent of its
         # own and would otherwise get no tools at all.
+        boucle_d_outils = False
         if runtime_id == "hermes-agent" and self._chat is None and not use_cloud:
             chat = self._hermes_agent_chat_for(task, workspace)
         elif workspace is not None and not use_cloud:
             chat = self._chat_with_tools_for(workspace)
+            boucle_d_outils = True
 
         started = time.perf_counter()
         try:
@@ -410,8 +412,20 @@ class RealTaskExecutor:
                 self._check_vram_admission(model)
             response = self._run_coro(
                 active_chat(messages=messages, model=model, num_ctx=num_ctx),
-                # An agent loop needs its own budget — see _HERMES_AGENT_TIMEOUT_S.
-                self._agentic_timeout_s if runtime_id == "hermes-agent" else self._timeout_s,
+                # Une boucle a besoin de son propre budget — voir
+                # _HERMES_AGENT_TIMEOUT_S. HOS-121 : la leçon avait été
+                # apprise pour `hermes-agent` et jamais appliquée au chemin
+                # frère. `_chat_with_tools_for` enchaîne jusqu'à
+                # `mission_max_tool_rounds` inférences (12), et les 180 s de
+                # `_timeout_s` couvraient la boucle **entière** — 15 s par
+                # tour sur un matériel mesuré entre 13 et 89 tok/s.
+                #
+                # Mesuré sur l'essai Skills360 : la mission a tourné 878 s
+                # et terminé 1/7 tâches, un nœud tombant sur
+                # « runtime 'default' timed out after 180s » et bloquant les
+                # cinq suivants. Signature identique à celle décrite six
+                # lignes au-dessus de `_HERMES_AGENT_TIMEOUT_S`.
+                self._budget_d_appel(runtime_id, boucle_d_outils),
             )
         except Exception as exc:
             if use_cloud:
@@ -451,8 +465,12 @@ class RealTaskExecutor:
                 self._record_failure()
                 self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False,
                                        runtime_id=runtime_id)
+                # Le budget réellement appliqué, pas `_timeout_s` : le
+                # message annonçait 180 s même quand la boucle en avait eu
+                # 900, ce qui envoyait droit sur la mauvaise constante.
                 raise RuntimeUnavailableError(
-                    f"runtime {runtime_id!r} timed out after {self._timeout_s:.0f}s"
+                    f"runtime {runtime_id!r} timed out after "
+                    f"{self._budget_d_appel(runtime_id, boucle_d_outils):.0f}s"
                 ) from exc
             else:
                 self._record_failure()
@@ -704,6 +722,30 @@ class RealTaskExecutor:
         except Exception:
             logger.debug("workspace_project_for callback failed", exc_info=True)
             return None
+
+    def _budget_d_appel(self, runtime_id: str, boucle_d_outils: bool) -> float:
+        """Combien de temps on accorde à ce que `chat` va vraiment faire.
+
+        Trois choses très différentes se cachent derrière le même appel, et
+        les mesurer avec le même chronomètre était le défaut (HOS-121) :
+
+        * **une complétion simple** — un aller-retour, `_timeout_s` suffit
+          et doit rester serré : au-delà, c'est que le modèle est en peine ;
+        * **la boucle d'outils** (`_chat_with_tools_for`) — jusqu'à
+          `mission_max_tool_rounds` inférences enchaînées, chacune suivie
+          d'une lecture ou d'une écriture sur le disque ;
+        * **Hermes Agent** — un processus, un toolset, sa propre boucle.
+
+        Les deux derniers partagent le même budget parce qu'ils font la
+        même chose : plusieurs tours sur du matériel local. Le retenir de
+        `_timeout_s` reviendrait à demander douze inférences en trois
+        minutes.
+        """
+        if runtime_id == "hermes-agent":
+            return self._agentic_timeout_s
+        if boucle_d_outils:
+            return self._agentic_timeout_s
+        return self._timeout_s
 
     def _chat_with_tools_for(
         self, workspace: tuple[str, str],

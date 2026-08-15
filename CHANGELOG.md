@@ -50,11 +50,37 @@ Le filet de HOS-119 avait bien répondu :
 
 Le seuil de sécurité **n'a pas été baissé** — exécuter le code d'un projet tiers sans surveillance au niveau par défaut est une vraie décision, et elle appartient à l'opérateur. Ce qui change, c'est que `AutonomousReport` porte `verification` et une propriété `qualite` à trois états — `non_mesuree` / `verifiee` / `contredite` — et que l'onglet Autonomous affiche « Qualité constatée » à côté de « Résultat », avec la raison en infobulle. Les deux se lisent ensemble ou pas du tout.
 
+### Amendement — un quatrième défaut, trouvé en relançant l'essai
+
+Le relancement a produit une **régression** : 1/7 tâches, zéro fichier, 878 s. Un nœud sur `runtime 'default' timed out after 180s`, cinq bloqués en cascade.
+
+La cause est arithmétique : `_chat_with_tools_for` enchaîne jusqu'à 12 inférences, chacune suivie d'une lecture ou d'une écriture, et la boucle **entière** était enveloppée par les 180 s de `_timeout_s` — 15 s par tour sur un matériel mesuré entre 13 et 89 tok/s.
+
+**Cette leçon avait déjà été apprise.** Six lignes au-dessus de `_HERMES_AGENT_TIMEOUT_S = 900` on lit qu'une tâche triviale prend déjà 37-57 s et que 180 s produisaient « une mission qui tournait 12 minutes et terminait 0/5 tâches ». Le correctif n'avait jamais été appliqué au chemin frère.
+
+Pourquoi le premier run passait : sans contexte amont le modèle n'allait rien lire et écrivait son module directement, en peu de tours. **La correction du contexte l'a poussé à faire le travail correctement, et le travail correct ne tenait pas dans le budget.** La réussite du run 1 et sa duplication étaient la même chose.
+
+`_budget_d_appel(runtime_id, boucle_d_outils)` distingue désormais trois choses qui se cachaient derrière un même appel : complétion simple (180 s, volontairement serré), boucle d'outils (900 s), Hermes Agent (900 s). Le message d'erreur annonçait `_timeout_s` quel que soit le budget réel — corrigé aussi, un « timed out after 180s » sur une boucle qui en avait eu 900 envoie droit sur la mauvaise constante.
+
+### Le verdict, mesuré
+
+| | run 1 | run 3 |
+|---|---|---|
+| Tâches | 7/7 | 7/7 |
+| Durée | 2 186 s | **1 084 s** |
+| Fichiers produits | 12 | **5** |
+| Modules d'identité | **4** | **1** |
+| Erreur de syntaxe | oui | **non** |
+
+**La duplication du code est résolue.** Ce qui reste : deux fichiers de tests au même nom de base, dont l'un appelle `User("user_001", "auth_uid_123")` face à un `User.__init__` qui exige un `email` — écrit sans jamais lire le module qu'il teste. La duplication s'est déplacée du code vers les tests, et désigne précisément le prochain levier : `expected_outputs`, déjà rempli par le planificateur et lu par personne.
+
+Un run n'est pas une mesure. L'écart est assez large pour être rapporté, pas pour être tenu pour une constante.
+
 ### Verified
 
-36 tests ajoutés. Suite : **4 007 passés, 3 ignorés, code de sortie 0** (3 983 avant). `npx tsc --noEmit` vert.
+42 tests ajoutés. Suite : **4 013 passés, 3 ignorés, code de sortie 0** (3 983 avant). `npx tsc --noEmit` vert.
 
-Mesure complète de l'essai dans `docs/essai-skills360.md`.
+Mesure complète des trois lancements dans `docs/essai-skills360.md`.
 
 ## HOS-120 — Le passé se résume, et le troisième état global partagé se ferme (2026-08-15)
 

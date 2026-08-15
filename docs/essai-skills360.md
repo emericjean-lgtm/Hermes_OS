@@ -137,6 +137,88 @@ n'a besoin que du `mission_id`.
 Chaque tâche repartait donc de zéro — d'où quatre modules d'identité
 parallèles.
 
+## Les deux relancements
+
+### Run 2 — une régression qui a révélé un défaut plus vieux
+
+Après les trois correctifs : **1/7 tâches, zéro fichier, `failed`, 878 s**.
+Un seul nœud a signalé une erreur — `runtime 'default' timed out after 180s`
+— et les cinq suivants ont été bloqués en cascade.
+
+La cause est arithmétique. `_chat_with_tools_for` enchaîne jusqu'à 12
+inférences (`mission_max_tool_rounds`), chacune suivie d'une lecture ou
+d'une écriture, et la boucle **entière** était enveloppée par les 180 s de
+`_timeout_s` : 15 s par tour, sur un matériel mesuré entre 13 et 89 tok/s.
+
+Cette leçon avait déjà été apprise. Six lignes au-dessus de
+`_HERMES_AGENT_TIMEOUT_S = 900` on lit qu'« une tâche triviale à un seul
+fichier prend déjà 37-57 s » et que le plafond de 180 s produisait « une
+mission qui tournait 12 minutes et terminait 0/5 tâches ». Le correctif
+n'avait jamais été appliqué au chemin frère, qui fait la même chose :
+plusieurs tours sur du matériel local.
+
+**Pourquoi le run 1 passait**, lui : sans contexte amont le modèle n'allait
+rien lire et écrivait son module directement, en peu de tours. La
+correction du contexte l'a poussé à faire le travail correctement, et le
+travail correct ne tenait pas dans le budget. La réussite du run 1 et sa
+duplication étaient la même chose — sept tâches paresseuses.
+
+### Run 3 — après correction du budget
+
+| | run 1 | run 3 |
+|---|---|---|
+| Tâches | 7/7 | 7/7 |
+| Durée | 2 186 s | **1 084 s** |
+| Fichiers produits | 12 | **5** |
+| Modules d'identité | **4** | **1** |
+| Documents de décision | 4 | 2 |
+| Fichiers de tests | 4 | 2 |
+| Erreur de syntaxe | oui | **non** |
+
+**La duplication du code est résolue** : un seul `identity_model.py`
+définissant `Auth`, `User`, `Employee`. Le contexte amont, une fois qu'il
+arrive vraiment, suffit à faire converger les tâches sur un module unique.
+
+### Ce qui reste, et ce que ça désigne
+
+Les deux fichiers de tests portent le **même nom de base**, ce qui suffit à
+faire échouer `pytest` à la collecte (`import file mismatch`). Lancés
+séparément :
+
+| fichier | résultat |
+|---|---|
+| `test_identity_model.py` | 6 passent, 1 échoue (une assertion sur `__repr__`) |
+| `tests/test_identity_model.py` | 1 passe, 4 échouent |
+
+Et l'erreur est parlante :
+
+```
+TypeError: User.__init__() missing 1 required positional argument: 'email'
+```
+
+Ce second fichier appelle `User("user_001", "auth_uid_123")`. Il a été écrit
+**sans jamais lire le module** qu'il teste. La duplication n'a pas disparu :
+elle s'est déplacée du code vers les tests.
+
+C'est exactement ce que l'axe `expected_outputs` doit traiter — le
+planificateur remplit déjà ce champ sur chaque nœud, le sérialiseur
+l'expose, et rien ne le lit à l'exécution. Une mission qui déclare « le
+livrable est `identity_model.py` et `test_identity_model.py` » rend
+impossible qu'une tâche invente un second fichier de tests contre une API
+imaginée. On sait désormais que c'est le prochain levier, au lieu de le
+supposer.
+
+Réserve de méthode : **un run n'est pas une mesure**. L'écart est assez
+large (12 → 5 fichiers, 4 → 1 module, moitié moins de temps) pour être
+rapporté, pas pour être tenu pour une constante.
+
+Une note sur l'instrument : le compte de `À DÉCIDER` passe de 28 à 5, mais
+il faut se méfier de ce chiffre — le run 2, qui n'a produit **aucun**
+fichier, en affichait 24, tous venant de `PROJECT_SPEC.md` lui-même. Le
+comptage inline de `essai_skills360.py` inclut les fichiers d'amorce ;
+seul celui de `mesurer_s360.py` les exclut. Les 28 et les 5 sont
+comparables entre eux, le 24 ne l'est avec rien.
+
 ## Ce que cet essai établit
 
 - L'orchestrateur **exécute** un vrai cahier des charges, lit sa
