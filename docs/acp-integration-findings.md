@@ -72,10 +72,38 @@ total sur toute la session). Le motif commun est donc : l'agent émet
 client. La permission n'était que la dernière chose visible avant l'arrêt
 — une coïncidence de position, prise pour une cause.
 
-Piste suivante, dans cet ordre : un prompt sans aucun outil doit-il
-aboutir (isole l'exécution d'outil du reste) ; l'agent attend-il un
-`ToolCallProgress`/`ToolCallEnd` du client ; les toolsets de la session
-sont-ils vides comme ils l'étaient pour le CLI en HOS-089.
+**Le témoin sans outil aboutit.** Un tour qui demande un seul mot rend
+`stop_reason=end_turn` avec 0 appel d'outil, systématiquement. La boucle
+de tour, le modèle, le streaming et le retour de `prompt` fonctionnent
+donc tous. Ce témoin est désormais exécuté à chaque passage du spike :
+sans lui on ne sait pas ce qu'on mesure.
+
+### Écarté par la mesure
+
+| Hypothèse | Réfutée par |
+|---|---|
+| Le protocole d'approbation | Réponse en 0 ms, bien formée ; un refus fait passer les updates de 53 à 183 et l'agent enchaîne sur un autre outil |
+| Le serveur MCP injoignable | Backend relancé, `/mcp/` répond `200` en 0,07 s, l'agent s'y connecte (`200`/`202` côté backend) — blocage identique |
+| Le client auxiliaire en panne | Ses échecs concernent la *génération de titre* et se rabattent sur le modèle local ; ils précèdent l'appel d'outil et n'y touchent pas |
+| Le modèle | Le témoin sans outil répond normalement avec le même modèle |
+
+### Ce qui reste, et pourquoi c'est l'adaptateur ACP
+
+**Le même agent exécute des outils tous les jours par le CLI** : HOS-084
+et HOS-085 ont vérifié sur disque des missions qui écrivent réellement des
+fichiers. Son moteur d'outils fonctionne donc. Ce qui échoue est
+spécifique au chemin ACP.
+
+L'agent émet `ToolCallStart`, puis **ne journalise plus rien** jusqu'au
+délai — ni côté agent, ni côté client. Le motif est identique pour un
+outil `edit` (après approbation) et pour un outil `execute` (sans aucune
+approbation demandée).
+
+À explorer ensuite : élever la verbosité côté `hermes-acp` pour voir ce
+qu'il fait de l'approbation ; vérifier si le client doit accuser réception
+par un `ToolCallProgress`/`ToolCallEnd` que le spike n'envoie pas ; et
+comparer la négociation de capacités `fs` avec ce que l'agent attend
+réellement avant d'appeler `write_text_file`.
 
 ## Une affirmation de ce document est devenue fausse
 

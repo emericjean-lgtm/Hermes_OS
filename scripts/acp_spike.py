@@ -38,6 +38,10 @@ MODEL = "lfm2.5-2.6b-125k"
 #: spike rejouable en boucle courte.
 PROMPT_TIMEOUT_S = 180.0
 
+#: Le temoin ne demande qu'un mot : s'il n'a pas abouti en une minute, ce
+#: n'est deja plus une question de lenteur.
+SANS_OUTIL_TIMEOUT_S = 60.0
+
 
 def _tag_de(model_id: str) -> str:
     """Le tag Ollama derriere un identifiant de modele de l'agent.
@@ -270,6 +274,36 @@ async def main() -> int:
             print("2d. AUCUN modele `custom:` de l'agent ne correspond a un tag servi")
             print(f"    Ollama sert: {sorted(servis)}")
             return 2
+
+        # ── Mesure de reference : un tour sans aucun outil ──────────────
+        #
+        # Sans elle on ne sait pas ce qu'on mesure. Le blocage observe suit
+        # toujours un `ToolCallStart` ; reste a savoir si un tour qui n'en
+        # emet aucun aboutit. Si oui, la panne est l'execution d'outil et
+        # rien d'autre. Si non, elle est plus profonde et toute enquete sur
+        # les outils serait perdue.
+        avant = len(client.updates)
+        try:
+            temoin = await asyncio.wait_for(
+                conn.prompt(
+                    session_id=sid,
+                    prompt=[TextContentBlock(
+                        type="text",
+                        text="Reply with exactly one word: pong. "
+                             "Do not use any tool.",
+                    )],
+                ),
+                timeout=SANS_OUTIL_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            print(f"2e. TEMOIN SANS OUTIL: bloque apres {SANS_OUTIL_TIMEOUT_S:.0f}s "
+                  f"({len(client.updates) - avant} updates) — la panne n'est PAS "
+                  f"specifique aux outils")
+            return 3
+        outils = [u for u in client.updates[avant:] if "ToolCall" in u]
+        print(f"2e. TEMOIN SANS OUTIL: abouti, stop_reason="
+              f"{getattr(temoin, 'stop_reason', '?')}, "
+              f"{len(client.updates) - avant} updates, {len(outils)} appel(s) d'outil")
 
         # Borne explicite : le blocage connu ne rend jamais la main, et un
         # spike qui pend n'apprend rien de plus a 900 s qu'a 180 s. La
