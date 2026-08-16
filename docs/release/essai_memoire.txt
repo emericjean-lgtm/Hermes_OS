@@ -1,12 +1,12 @@
-workspace : C:\Users\emeri\AppData\Local\Temp\memoire_ho6u5w5w
+workspace : C:\Users\emeri\AppData\Local\Temp\memoire_t29pmi0w
 
 ============================================================
 ETAPE 1 — modele d'identite (§6/§7)
 ============================================================
-statut   : completed  |  duree : 1940s
-resume   : 6/6 task(s) completed in 1909948ms
+statut   : completed  |  duree : 1935s
+resume   : 6/6 task(s) completed in 1904929ms
 qualite  : contredite
-manifeste: {'declares': 5, 'manquants': ['analysis_report.md', 'docs/decisions.md'], 'nombre_manquants': 2, 'tenu': False}
+manifeste: {'declares': 4, 'manquants': ['docs/identity_design.md'], 'nombre_manquants': 1, 'tenu': False}
 nouveaux fichiers (9) :
   .pytest_cache\.gitignore
   .pytest_cache\CACHEDIR.TAG
@@ -14,12 +14,12 @@ nouveaux fichiers (9) :
   .pytest_cache\v\cache\lastfailed
   .pytest_cache\v\cache\nodeids
   .pytest_cache\v\cache\stepwise
+  docs\decisions.md
   identity_model.py
-  identity_model_design.md
   tests\test_identity_model.py
 
 --- journal apres l'etape 1 ---
-## 2026-08-16 08:04 UTC
+## 2026-08-16 09:46 UTC
 
 **Objectif** : Tu travailles sur le projet Skills360 Industry. Sa spécification est le
 fichier `PROJECT_SPEC.md`, à la racine de ce dossier.
@@ -30,15 +30,15 @@ Réalise **une seule étape** : le modèle d'identité des sections 6 et 7 —
 les trois entités distinctes `Auth`, `User` et `Employee`, le lien
 `Auth --authUid--> User --> Employee`, et l'identifiant métier 
 
-- Créés : identity_model.py, identity_model_design.md, tests\test_identity_model.py
+- Créés : docs\decisions.md, identity_model.py, tests\test_identity_model.py
 - Modifiés : aucun
 - Supprimés : aucun
-- Manifeste : **2 livrable(s) annoncé(s) et absent(s)** : analysis_report.md, docs/decisions.md
-- Tests du livrable : **en échec**
+- Manifeste : **1 livrable(s) annoncé(s) et absent(s)** : docs/identity_design.md
+- Tests du livrable : passés
 
 > Cette mission s'est annoncée réussie et la mesure la contredit. Ne pas repartir de ses conclusions.
 
-## 2026-08-16 08:19 UTC
+## 2026-08-16 10:01 UTC
 
 **Objectif** : Tu travailles sur le projet Skills360 Industry. Sa spécification est le
 fichier `PROJECT_SPEC.md`, à la racine de ce dossier.
@@ -50,28 +50,26 @@ les trois entités distinctes `Auth`, `User` et `Employee`, le lien
 `Auth --authUid--> User --> Employee`, et l'identifiant métier 
 
 - Créés : aucun
-- Modifiés : aucun
+- Modifiés : docs\decisions.md, identity_model.py, tests\test_identity_model.py
 - Supprimés : aucun
-- Manifeste : **2 livrable(s) annoncé(s) et absent(s)** : analysis_report.md, docs/decisions.md
-- Tests du livrable : **en échec**
+- Manifeste : **1 livrable(s) annoncé(s) et absent(s)** : docs/identity_design.md
+- Tests du livrable : passés
 
 > Cette mission s'est annoncée réussie et la mesure la contredit. Ne pas repartir de ses conclusions.
 
 ============================================================
 ETAPE 2 — ateliers (§9)
 ============================================================
-statut   : completed  |  duree : 1374s
-resume   : 5/5 task(s) completed in 1336079ms
-qualite  : contredite
-manifeste: {'declares': 4, 'manquants': ['design/workshop_entity_design.md'], 'nombre_manquants': 1, 'tenu': False}
-nouveaux fichiers (4) :
-  analysis\section9_section8_analysis.md
-  organization.py
-  workshop.py
-  workshop_registry.py
+statut   : completed  |  duree : 390s
+resume   : 4/4 task(s) completed in 341490ms
+qualite  : verifiee
+manifeste: {'declares': 2, 'manquants': [], 'nombre_manquants': 0, 'tenu': True}
+nouveaux fichiers (2) :
+  organization_workshops.py
+  workshops.py
 
 ============================================================
 VERDICT
 ============================================================
-total fichiers : 16
+total fichiers : 14
 identite reecrite par l'etape 2 : NON — elle a reutilise

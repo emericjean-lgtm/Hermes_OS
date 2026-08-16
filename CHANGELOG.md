@@ -33,6 +33,21 @@ Et quand `contradicted` est vrai sans cause nommable, le brief **le dit** plutô
 
 Un test existant a été respecté plutôt que contourné : `test_the_brief_asks_for_self_verification` exigeait « read back ». Ma reformulation l'avait perdu ; l'exigence est juste, c'est la formulation qui a été corrigée.
 
+### Mesuré — la reprise agit, et le premier `verifiee`
+
+| | avant HOS-125 | après |
+|---|---|---|
+| Reprise de l'étape 1 | « Créés : **aucun** », rien de modifié | **3 fichiers modifiés** |
+| Étape 2 | `contredite`, 1 374 s | **`verifiee`**, 390 s |
+
+La reprise ne se contentait plus de relancer : elle a repris `docs/decisions.md`, `identity_model.py` et `tests/test_identity_model.py`. Le brief était bien la cause, pas la boucle.
+
+Et l'étape 2 est le **premier `verifiee` de la journée** : manifeste tenu 2/2, tests exécutés et passés, aucune boucle d'import. Vérifié indépendamment en relançant `pytest` sur le workspace produit — `4 passed`.
+
+L'étape 1 reste `contredite`, et à juste titre : ses tests passent (`exit 0`), mais elle avait **déclaré** `docs/identity_design.md` et **écrit** `docs/decisions.md`. C'est exactement le genre d'écart que le manifeste existe pour attraper — le plan et l'exécution divergent d'un nom de fichier, et rien d'autre ne l'aurait vu.
+
+C'est désormais le seul défaut nommé qui reste sur ce parcours.
+
 ### Verified
 
 17 tests ajoutés. Suite : **4 082 passés, 3 ignorés, code de sortie 0** (4 071 avant).
