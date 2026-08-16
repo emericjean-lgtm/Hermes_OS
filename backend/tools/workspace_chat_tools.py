@@ -32,6 +32,7 @@ texte fourni par l'appelant.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -108,9 +109,19 @@ def _sans_prefixe_redondant(candidate: Path, root: Path) -> Path:
     # On retire donc le plus long préfixe du candidat qui reproduit la fin
     # du chemin de la racine. Le cas d'origine (un seul segment) en est
     # l'instance k=1 : rien ne change pour lui.
+    # `normcase` et pas `==` : mesuré le 2026-08-16, la comparaison stricte
+    # laissait passer `users/emeri/appdata/local/temp/<racine>/b.py` — la
+    # même chose en minuscules. Sous Windows les chemins ne sont pas
+    # sensibles à la casse ; les comparer comme des chaînes recréait
+    # l'arbre fantôme pour toute variante de casse produite par le modèle.
+    # `normcase` est l'identité sous POSIX, où la casse compte vraiment.
+    def _norm(parties_: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(os.path.normcase(p) for p in parties_)
+
     racine_parties = root.parts
+    normalisees, racine_normalisee = _norm(parties), _norm(racine_parties)
     for k in range(min(len(parties) - 1, len(racine_parties)), 0, -1):
-        if parties[:k] == racine_parties[-k:]:
+        if normalisees[:k] == racine_normalisee[-k:]:
             return Path(*parties[k:])
     return candidate
 

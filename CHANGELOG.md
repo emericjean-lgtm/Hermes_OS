@@ -36,9 +36,20 @@ L'étape 2 a réutilisé son voisin de run (`workshop.py` importe `organization.
 
 Défaut du livrable non traité : `organization.py` et `workshop.py` s'importent mutuellement. Les deux compilent — la porte de syntaxe ne voit rien — et seul un import réel échouerait. Consigné, non corrigé.
 
+### Amendement — la mémoire répond oui, et le correctif de chemin était incomplet
+
+L'essai rejoué tranche la question laissée ouverte : **l'étape 2 n'a pas réécrit `identity_model.py`**. Elle a produit quatre fichiers sur les ateliers, manifeste tenu (3/3), qualité `partielle`. La mémoire de projet fait ce qu'on lui demandait.
+
+Deux autres résultats du même run :
+
+- **La boucle de reprise a fonctionné pour de vrai.** L'étape 1 s'est annoncée `5/5` avec deux livrables annoncés absents ; le manifeste l'a contredite, la reprise s'est déclenchée, et le journal porte **deux entrées** dont la première dit « Cette mission s'est annoncée réussie et la mesure la contredit. Ne pas repartir de ses conclusions. » La deuxième tentative a ramené les manquants de trois à deux.
+- **L'arbre fantôme est réapparu**, alors que le correctif du matin était vérifié. `_sans_prefixe_redondant` comparait ses segments avec `==` ; les chemins Windows ne sont pas sensibles à la casse, et le modèle avait écrit une variante de casse. Reproduit avant de corriger : sur quatre formes écrites de bout en bout par `execute_workspace_tool`, trois atterrissaient à la racine et seule la variante en minuscules créait l'arborescence. La comparaison passe par `os.path.normcase` — identité sous POSIX, où la casse compte vraiment.
+
+Deux correctifs successifs sur le même défaut, dont le premier vérifié et pourtant insuffisant : le signal qu'une mesure de bout en bout ne se remplace pas par un test unitaire sur la fonction corrigée.
+
 ### Verified
 
-21 tests ajoutés. Suite : **4 057 passés, 3 ignorés, code de sortie 0** (4 036 avant).
+23 tests ajoutés. Suite : **4 059 passés, 3 ignorés, code de sortie 0** (4 036 avant).
 
 ## HOS-122 — Chaque tâche déclare ses fichiers, et l'essai converge (2026-08-16)
 

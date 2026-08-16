@@ -138,3 +138,36 @@ class TestUnCheminAbsoluAmputeDeSonLecteur:
         resolu = resolve_in_project(str(racine), "src/memoire_X/x.py")
 
         assert Path(resolu) == racine / "src" / "memoire_X" / "x.py"
+
+
+class TestLaCasseDesCheminsWindows:
+    """Le correctif du matin était incomplet, et deux essais l'ont montré.
+
+    `_sans_prefixe_redondant` comparait ses segments avec `==`. Les chemins
+    Windows ne sont pas sensibles à la casse : le modèle a écrit une
+    variante en minuscules, aucun segment ne correspondait, et l'arbre
+    fantôme est réapparu **après** la correction — six niveaux de dossiers
+    dans le workspace, avec un double de chaque livrable.
+
+    Reproduit avant d'être corrigé : sur quatre formes écrites de bout en
+    bout par `execute_workspace_tool`, trois atterrissaient à la racine et
+    seule la variante en minuscules créait l'arborescence.
+    """
+
+    def test_le_prefixe_en_minuscules_est_reconnu(self, tmp_path):
+        racine = tmp_path / "MemoireX"
+        racine.mkdir()
+        parties = "/".join(p.lower() for p in racine.parts[1:])
+
+        resolu = resolve_in_project(str(racine), f"{parties}/b.py")
+
+        assert Path(resolu) == racine / "b.py"
+
+    def test_le_prefixe_en_majuscules_aussi(self, tmp_path):
+        racine = tmp_path / "MemoireX"
+        racine.mkdir()
+        parties = "/".join(p.upper() for p in racine.parts[1:])
+
+        resolu = resolve_in_project(str(racine), f"{parties}/e.py")
+
+        assert Path(resolu) == racine / "e.py"
