@@ -1,3 +1,42 @@
+## HOS-125 — Le brief de reprise disait le contraire de ce qui s'était passé (2026-08-16)
+
+La reprise se déclenchait, relançait, et ne réparait rien. La cause n'était pas la boucle : c'est ce qu'elle disait au modèle.
+
+`build_retry_brief` était écrit en dur pour un seul cas, celui pour lequel il avait été conçu en HOS-099 — la mission n'avait rien touché :
+
+```
+this task was already attempted and did not take effect.
+After that attempt, {workspace} was unchanged: …
+```
+
+Trois autres contradictions existent depuis : tests en échec (HOS-119), livrable annoncé et absent (HOS-122), boucle d'import fatale (HOS-124). Le brief continuait d'annoncer « inchangé » **sur un workspace qui avait changé**.
+
+Mesuré le 2026-08-16 : l'étape 1 a écrit trois fichiers, quatre de ses tests échouaient, deux livrables manquaient — et la reprise a produit **« Créés : aucun »**. On disait au modèle « rien ne s'est passé, écris les fichiers » ; il a regardé, les a trouvés là, et n'a rien écrit. **Il a fait exactement ce qu'on lui demandait.**
+
+Un brief qui décrit mal l'échec ne vaut pas mieux qu'un rapport qui le cache. C'est la même faute, un cran plus loin dans la boucle.
+
+Le brief énumère désormais les constats réels, et transporte **la sortie des tests telle quelle** :
+
+```
+- The project's own tests were run with pytest and FAILED (exit code 1).
+  This is the real output — fix what it reports, do not guess:
+
+  >   assert "three distinct entities" in "SECTION 6"
+  E   AssertionError: assert 'three distinct entities' in 'SECTION 6'
+```
+
+Sans l'erreur, la seconde tentative repartait aussi aveugle que la première.
+
+Le `reason` suit la même règle : il répétait « the workspace did not change » quel que soit le motif, y compris dans le journal et les événements que quelqu'un lira plus tard.
+
+Et quand `contradicted` est vrai sans cause nommable, le brief **le dit** plutôt que d'inventer une explication plausible — c'est précisément ce que ce dépôt reproche aux rapports de mission.
+
+Un test existant a été respecté plutôt que contourné : `test_the_brief_asks_for_self_verification` exigeait « read back ». Ma reformulation l'avait perdu ; l'exigence est juste, c'est la formulation qui a été corrigée.
+
+### Verified
+
+17 tests ajoutés. Suite : **4 082 passés, 3 ignorés, code de sortie 0** (4 071 avant).
+
 ## HOS-124 — Les modules qui s'importent en rond, et un réglage qui décidait des tests (2026-08-16)
 
 ### Le niveau d'autonomie passe à `high`

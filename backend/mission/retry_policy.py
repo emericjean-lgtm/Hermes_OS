@@ -74,10 +74,27 @@ def decide(
         )
     return RetryDecision(
         should_retry=True,
-        reason="reported success but the workspace did not change",
+        # HOS-125 : la raison suit ce qui a été constaté. Elle disait « the
+        # workspace did not change » quel que soit le motif réel, y compris
+        # sur une mission qui avait écrit trois fichiers dont les tests
+        # échouaient — le journal et les événements répétaient donc une
+        # cause fausse à qui les lisait ensuite.
+        reason=_motif(verification),
         brief=build_retry_brief(objective, verification),
         attempt=attempts_made + 1,
     )
+
+
+def _motif(verification: dict) -> str:
+    """Le motif réel, en une ligne, pour le journal et les événements."""
+    if (verification.get("tests") or {}).get("ran") and \
+            (verification.get("tests") or {}).get("passed") is False:
+        return "reported success but the project's own tests fail"
+    if (verification.get("manifeste") or {}).get("manquants"):
+        return "reported success but announced deliverables are missing"
+    if (verification.get("imports") or {}).get("fatals"):
+        return "reported success but the modules import each other in a fatal cycle"
+    return "reported success but the workspace did not change"
 
 
 def preparer_reprise(mission, *, executor) -> bool:
@@ -148,15 +165,84 @@ def build_retry_brief(objective: str, verification: dict) -> str:
     another confident paragraph, which is the behaviour being corrected.
     """
     workspace = verification.get("workspace") or "the workspace"
-    lines = [
-        objective.strip(),
-        "",
-        "IMPORTANT — this task was already attempted and did not take effect.",
-        f"After that attempt, {workspace} was unchanged: "
-        f"{verification.get('summary', 'no file was created, modified or deleted')}.",
-        "",
-        "A description of the work is not the work. Use your tools to make "
-        "the change, then read back what you wrote to confirm it exists on "
-        "disk before reporting success.",
-    ]
+    lines = [objective.strip(), "",
+             "IMPORTANT — this task was already attempted, and the result was "
+             "checked against the disk. Here is what was found."]
+
+    constats = _constats(verification, workspace)
+    lines += ["", *constats, ""]
+    lines.append(
+        "Fix exactly what is listed above. What is already correct is on disk "
+        "— read it rather than rewriting it. Then read back your own output "
+        "from disk to confirm the fix before reporting success."
+    )
     return "\n".join(lines)
+
+
+#: Assez de sortie de test pour voir l'erreur, pas assez pour chasser
+#: l'objectif hors de la fenêtre — le mur des 64k de CLAUDE.md.
+_MAX_SORTIE_TESTS = 1500
+
+
+def _constats(verification: dict, workspace: str) -> list[str]:
+    """Ce qui a été constaté, un point par contradiction réelle (HOS-125).
+
+    Cette fonction est née d'un mensonge mesuré. Le brief affirmait, en dur :
+
+        this task was already attempted and did not take effect.
+        After that attempt, {workspace} was unchanged: …
+
+    C'était vrai du seul cas pour lequel il avait été écrit (HOS-099 : la
+    mission n'avait rien touché). Depuis, trois autres contradictions
+    existent — tests en échec (HOS-119), livrable annoncé et absent
+    (HOS-122), boucle d'import fatale (HOS-124) — et le brief continuait de
+    dire « inchangé » alors que le workspace avait changé.
+
+    Mesuré sur l'essai du 2026-08-16 : trois fichiers écrits, quatre tests
+    en échec, deux livrables manquants — et la reprise a produit
+    **« Créés : aucun »**. On avait dit au modèle « rien ne s'est passé,
+    écris les fichiers » ; il a regardé, les a trouvés là, et n'a rien
+    écrit. Il a fait exactement ce qu'on lui demandait.
+
+    Un brief qui décrit mal l'échec ne vaut pas mieux qu'un rapport qui le
+    cache.
+    """
+    constats: list[str] = []
+
+    if not (verification.get("created") or verification.get("modified")
+            or verification.get("deleted")):
+        constats.append(
+            f"- {workspace} was unchanged: "
+            f"{verification.get('summary', 'no file was created, modified or deleted')}. "
+            "A description of the work is not the work — use your tools.")
+
+    manquants = (verification.get("manifeste") or {}).get("manquants") or []
+    if manquants:
+        constats.append(
+            "- These files were announced as deliverables and do not exist on "
+            "disk: " + ", ".join(str(m) for m in manquants) + ".")
+
+    tests = verification.get("tests") or {}
+    if tests.get("ran") and tests.get("passed") is False:
+        sortie = str(tests.get("output") or "").strip()
+        constats.append(
+            f"- The project's own tests were run with "
+            f"{tests.get('runner', 'the test runner')} and FAILED "
+            f"(exit code {tests.get('exit_code')}). This is the real output — "
+            f"fix what it reports, do not guess:\n\n"
+            + (sortie[-_MAX_SORTIE_TESTS:] if sortie else "(no output captured)"))
+
+    fatals = (verification.get("imports") or {}).get("fatals") or []
+    if fatals:
+        constats.append(
+            "- These modules import each other in a cycle that raises at "
+            "import time: " + "; ".join(str(f) for f in fatals)
+            + ". Break the cycle — the files compile, but nothing can load them.")
+
+    if not constats:
+        # `contradicted` était vrai sans qu'aucun constat ne s'explique :
+        # inventer une raison serait pire que de dire qu'on n'en a pas.
+        constats.append(
+            "- The check contradicted the reported result without naming a "
+            "specific cause. Re-verify your own output on disk.")
+    return constats
