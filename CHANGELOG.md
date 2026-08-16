@@ -1,3 +1,42 @@
+## HOS-126 — Le cahier complet d'un coup : mesuré (2026-08-16)
+
+Tous les essais précédents portaient sur **une** section. Celui-ci donne les quarante d'un coup — 23 Ko — sur un workspace neuf.
+
+| | |
+|---|---|
+| Statut rapporté | `completed`, 7/7 tâches, **43 min** |
+| Qualité constatée | **`contredite`** |
+| Fichiers produits | **1** — `skills360.py`, 176 lignes, compile |
+| Manifeste | 6 déclarés, **6 absents** |
+| Tests | aucun fichier de test produit → `ran: false` |
+| Couverture du §30 | **10 / 18 concepts définis** |
+
+### La prédiction posée avant, et réfutée
+
+J'avais écrit : « pas un échec bruyant mais un vernis mince — quelques fichiers plausibles, un manifeste tenu, des tests qui passent, et l'essentiel du cahier absent. C'est le pire cas pour ce dépôt, parce que tous les instruments diraient oui. »
+
+**Les instruments ont dit non.** Le manifeste a relevé que les six livrables annoncés — `src/skills360.py`, `tests/test_skills360.py`, `docs/README.md`… — étaient tous absents : le modèle avait déclaré une arborescence et écrit un fichier plat à la racine. Le verdict `contredite` est tombé sans que rien ne soit ajouté pour l'occasion.
+
+Et la couverture est meilleure que prévu : 10 concepts sur 18 réellement définis en 176 lignes, là où j'annonçais 3 à 6.
+
+### Ce qui casse en premier n'est pas le code, c'est la discipline
+
+Le résultat le plus instructif n'était dans aucune prédiction. Sur une section, le §4 — « n'invente aucune règle, écris `À DÉCIDER` » — était la contrainte la **mieux** tenue : 28, 26, puis 5 marqueurs selon les runs.
+
+Sur quarante sections : **zéro**.
+
+Le modèle n'a pas produit du code plus faux ; il a cessé d'appliquer la règle qui distingue une spécification d'une supposition. À grande échelle, ce n'est pas la syntaxe qui lâche, c'est la fidélité au cahier — et c'est exactement ce qu'aucun test unitaire ne mesure.
+
+### Les trois plafonds, et l'arithmétique
+
+Rien de tout cela ne tient au modèle. Le décomposeur borne à 3-8 tâches, chaque tâche à 12 tours d'outils, chaque tour à un budget de 900 s. Au mieux ~96 opérations de fichier pour un cahier qui demande 18 entités, leurs relations, une API, un frontend, des tests et de la documentation.
+
+**L'arithmétique dit non avant le modèle.** Un cahier de quarante sections se découpe ; il ne se lance pas.
+
+### Ce que cet essai ne dit pas
+
+Il ne dit pas que le résultat est mauvais : 10/18 en une passe de 43 minutes est un point de départ utilisable. Il dit que **le rapport ne ment pas dessus**, ce qui était toute la question.
+
 ## HOS-125 — Le brief de reprise disait le contraire de ce qui s'était passé (2026-08-16)
 
 La reprise se déclenchait, relançait, et ne réparait rien. La cause n'était pas la boucle : c'est ce qu'elle disait au modèle.

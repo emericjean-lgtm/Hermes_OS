@@ -1,0 +1,18 @@
+workspace : C:\Users\emeri\AppData\Local\Temp\cahier_complet_fio51s_x
+cahier    : 23335 octets, 40 sections
+
+============================================================
+statut    : completed   duree : 2579s (43 min)
+resume    : 7/7 task(s) completed in 2551496ms
+qualite   : contredite
+manifeste : {'declares': 6, 'manquants': ['analysis/spec_summary.txt', 'design/architecture.md', 'src/skills360.py', 'tests/test_skills360.py', 'tests/integration_test.py', 'docs/README.md'], 'nombre_manquants': 6, 'tenu': False}
+tests     : ran=False passed=None code=None
+imports   : {'modules': 1, 'cycles': [], 'fatals': []}
+
+--- 1 fichiers produits ---
+  skills360.py                                      6746 o
+
+--- couverture du §30 : 10/18 concepts DEFINIS dans le code ---
+  definis   : ['Auth', 'Employee', 'EmployeeAssignment', 'Position', 'PositionAuthorization', 'PositionSkill', 'PositionTraining', 'Skill', 'Training', 'User']
+  mentionnes sans definition : ['Authorization']
+  absents   : ['Alert', 'Audit', 'AuditLog', 'KPI', 'Organisation', 'Risk', 'Workshop']
