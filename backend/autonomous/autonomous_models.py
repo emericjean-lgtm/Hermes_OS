@@ -191,6 +191,10 @@ class AutonomousReport:
         # avait promis n'a pas fait le travail.
         if (self.verification.get("manifeste") or {}).get("manquants"):
             return "contredite"
+        # HOS-124 : une boucle d'import démontrée fatale aussi. Les
+        # fichiers existent, ils compilent — et rien ne peut les charger.
+        if (self.verification.get("imports") or {}).get("fatals"):
+            return "contredite"
         if self.verification.get("contradicted"):
             return "contredite"
         if not self.verification.get("verified"):

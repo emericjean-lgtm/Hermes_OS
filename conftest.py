@@ -39,7 +39,9 @@ retiree ; seule son application est suspendue pendant un test `lent`.
 """
 from __future__ import annotations
 
+import os
 import socket
+import tempfile
 
 import pytest
 
@@ -109,3 +111,43 @@ def _suspendre_pour_les_lents(request: pytest.FixtureRequest):
         yield
     finally:
         _applique[0] = True
+
+
+# ── Le reglage d'exploitation ne decide pas du verdict des tests (HOS-124) ──
+#
+# Mesure du 2026-08-16 : passer le niveau d'autonomie a `high` — un acte
+# d'exploitation legitime, prevu par `backend/security/autonomy.py` — a fait
+# echouer **onze tests** repartis sur cinq fichiers. Leurs noms disent
+# pourtant ce qu'ils verifient : `test_shipped_policy_requires_validation_
+# at_default_autonomy`, `test_propose_write_requires_validation_at_low_
+# autonomy`. Ils portent sur la **politique livree**, pas sur ce qu'un
+# operateur a choisi ce matin sur cette machine.
+#
+# Le trou etait donc reel et anterieur : la suite lisait
+# `data/autonomy_override.json`, un fichier absent du depot et que rien ne
+# garantit. Le meme depot, clone sur deux machines, ne rendait pas le meme
+# verdict.
+#
+# ## Pourquoi a l'import, et non dans une fixture
+#
+# Une premiere version posait une fixture `scope="session"`. Elle a ramene
+# les echecs de onze a six — et les six restants passaient isolement.
+# `permission_matrix.py` lit la derogation dans son `__init__` : un objet
+# construit pendant la collecte, avant la premiere fixture, fige le niveau
+# pour toute la session. Meme raisonnement que la garde reseau ci-dessus :
+# ce qui doit valoir pour tout le processus se pose a l'import.
+#
+# Le fichier de l'operateur n'est ni lu ni efface : un test qui detruirait
+# un reglage de production serait pire que le probleme.
+# On deplace `HERMES_DATA_DIR`, on ne remplace pas `_chemin()`. Une premiere
+# version substituait la fonction par un lambda rendant un chemin fixe : elle
+# rendait bien `lire_derogation() is None`, et **cassait la fixture
+# d'isolation de `test_autonomy_control.py`**, qui isole justement en posant
+# `HERMES_DATA_DIR` sur un `tmp_path`. Ignoree, cette fixture ne separait plus
+# rien : un test qui ecrivait `high` le laissait au suivant. Corriger un
+# defaut d'isolation en supprimant l'isolation existante — le correctif etait
+# le defaut.
+#
+# Le fichier de l'operateur n'est ni lu ni efface : un test qui detruirait un
+# reglage de production serait pire que le probleme.
+os.environ["HERMES_DATA_DIR"] = tempfile.mkdtemp(prefix="hermes_donnees_")

@@ -184,6 +184,22 @@ class MissionVerification:
     #: deux fichiers de tests au même nom de base dont l'un testait une API
     #: qui n'existait pas.
     manifeste: Optional[dict] = None
+    #: Les boucles d'import entre les modules du livrable (HOS-124).
+    #: `None` = rien à analyser. Une boucle *démontrée fatale* contredit un
+    #: succès annoncé ; une boucle non démontrée est signalée sans l'être.
+    #:
+    #: Mesuré : `organization.py` et `workshop.py` s'importaient
+    #: mutuellement — `ImportError: cannot import name 'Organization' from
+    #: partially initialized module`. La porte de syntaxe ne voyait rien,
+    #: les deux fichiers compilent parfaitement.
+    imports: Optional[dict] = None
+
+    @property
+    def imports_boucles(self) -> bool:
+        """Une boucle d'import démontrée fatale."""
+        from backend.mission import imports_locaux
+
+        return imports_locaux.contredit(self.imports)
 
     @property
     def manifeste_manque(self) -> bool:
@@ -222,7 +238,7 @@ class MissionVerification:
         """
         return (self.measured and self.reported_success
                 and self.changes.touched_anything and not self.tests_echouent
-                and not self.manifeste_manque)
+                and not self.manifeste_manque and not self.imports_boucles)
 
     @property
     def contradicted(self) -> bool:
@@ -242,7 +258,7 @@ class MissionVerification:
         if not (self.measured and self.reported_success):
             return False
         return (not self.changes.touched_anything or self.tests_echouent
-                or self.manifeste_manque)
+                or self.manifeste_manque or self.imports_boucles)
 
     def as_dict(self) -> dict:
         return {
@@ -258,6 +274,7 @@ class MissionVerification:
             "summary": self.changes.summary(),
             "tests": self.tests,
             "manifeste": self.manifeste,
+            "imports": self.imports,
             "tests_echouent": self.tests_echouent,
         }
 
@@ -324,6 +341,7 @@ def verify(
             mission_id=mission_id, reported_success=reported_success,
             workspace=workspace, changes=WorkspaceDiff(), measured=False,
         )
+    from backend.mission import imports_locaux as _imports
     from backend.mission import manifeste as _manifeste
 
     result = MissionVerification(
@@ -332,6 +350,7 @@ def verify(
         tests=_verdict_des_tests(workspace, reported_success),
         manifeste=_manifeste.verdict(mission, workspace) if mission is not None
                   else None,
+        imports=_imports.verdict(workspace),
     )
     if result.contradicted:
         logger.warning(

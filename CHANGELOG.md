@@ -1,3 +1,46 @@
+## HOS-124 — Les modules qui s'importent en rond, et un réglage qui décidait des tests (2026-08-16)
+
+### Le niveau d'autonomie passe à `high`
+
+Décision d'opérateur, prise explicitement. `verification_run` s'arme : le verdict des tests du livrable passe de `ran: false` à `ran: true`, ce qui débloque l'état `verifiee`. La dérogation passe par `backend/security/autonomy.py` — un fichier JSON à part — et ne réécrit pas `config/security.yaml`.
+
+### Une boucle d'import qu'aucun instrument ne voyait
+
+Mesuré sur l'essai de mémoire : la mission a produit `organization.py` et `workshop.py` qui s'importent mutuellement.
+
+```
+ImportError: cannot import name 'Organization' from partially
+initialized module 'organization' (most likely due to a circular import)
+```
+
+La porte de syntaxe (HOS-121) analyse chaque fichier isolément — **les deux compilent parfaitement**. Le verdict des tests l'aurait attrapé, mais il ne dit rien d'un projet sans tests.
+
+`backend/mission/imports_locaux.py` construit le graphe d'imports **statiquement** : importer du code écrit par un modèle, c'est l'exécuter, et c'est précisément ce que `verification_run` place derrière une décision d'opérateur.
+
+Trois choix pour éviter les faux échecs, la leçon la plus chère de ce dépôt :
+
+- les imports **dans une fonction** ne comptent pas — c'est la façon canonique de casser un cycle, les signaler dénoncerait la correction ;
+- ceux sous `if TYPE_CHECKING:` non plus, ils ne s'exécutent pas ;
+- une boucle n'est **contredisante que si on peut démontrer qu'elle lève** : le nom importé doit être défini après l'import qui referme la boucle. Une boucle où les définitions précèdent les imports tourne sans erreur, et la déclarer fatale serait un faux négatif.
+
+Vérifié sur trois corpus : la boucle mesurée est trouvée et nommée, le livrable sain du run 4 ne déclenche rien, et **les 300+ modules de ce dépôt non plus**.
+
+Un défaut trouvé en le construisant : `fichiers[chemin.stem]` gardait le dernier trouvé, si bien qu'un doublon enfoui masquait le vrai module. Le `organization.py` fantôme de HOS-123b faisait 140 octets sans un seul import et **effaçait la boucle même qu'on cherchait**. Le plus proche de la racine gagne désormais.
+
+### Un réglage d'exploitation décidait du verdict des tests
+
+Passer en `high` a fait échouer **onze tests** sur cinq fichiers. Leurs noms disent pourtant ce qu'ils vérifient : `test_shipped_policy_requires_validation_at_default_autonomy`. Ils portent sur la politique **livrée**, pas sur ce qu'un opérateur a choisi ce matin.
+
+Le trou était réel et antérieur : la suite lisait `data/autonomy_override.json`, un fichier absent du dépôt. Le même dépôt, cloné sur deux machines, ne rendait pas le même verdict.
+
+**Et mon premier correctif était lui-même le défaut.** Il remplaçait `_chemin()` par un lambda rendant un chemin fixe. Onze échecs sont passés à six — et les six restants passaient isolément. La raison : `test_autonomy_control.py` s'isole en posant `HERMES_DATA_DIR` sur un `tmp_path`, et mon lambda ignorait cette variable. Ignorée, la fixture ne séparait plus rien ; un test qui écrivait `high` le laissait au suivant. J'avais corrigé un défaut d'isolation en supprimant l'isolation existante.
+
+`conftest.py` déplace donc `HERMES_DATA_DIR`, à l'import — comme la garde réseau, et pour la même raison : `permission_matrix.py` lit la dérogation dans son `__init__`, et un objet construit pendant la collecte fige le niveau avant toute fixture.
+
+### Verified
+
+12 tests ajoutés. Suite : **4 071 passés, 3 ignorés, code de sortie 0** (4 059 avant).
+
 ## HOS-123 — Un projet se souvient, et un chemin amputé se corrige (2026-08-16)
 
 Le contexte amont (HOS-121) et le manifeste (HOS-122) font tenir **une** mission ensemble ; ils s'évaporent avec elle. Un cahier de quarante sections se fait en quarante missions, et la douzième repartait aveugle.
