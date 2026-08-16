@@ -37,6 +37,35 @@ Le trou était réel et antérieur : la suite lisait `data/autonomy_override.jso
 
 `conftest.py` déplace donc `HERMES_DATA_DIR`, à l'import — comme la garde réseau, et pour la même raison : `permission_matrix.py` lit la dérogation dans son `__init__`, et un objet construit pendant la collecte fige le niveau avant toute fixture.
 
+### L'essai, tous instruments armés
+
+Premier lancement où le contexte amont, le manifeste, le journal, la porte de syntaxe, les boucles d'import **et les tests du livrable** jouent ensemble.
+
+| | avant aujourd'hui | maintenant |
+|---|---|---|
+| Étape 1 (§6/§7) | `success: True, 6/6` | **`contredite`** — 2 livrables annoncés absents, 4 tests en échec |
+| Étape 2 (§9) | `success: True, 5/5` | **`contredite`** — 1 livrable annoncé absent |
+
+Et la mesure a de quoi convaincre. Le modèle avait écrit :
+
+```python
+assert "three distinct entities" in "SECTION 6"
+```
+
+Des assertions entre deux littéraux, qui ne testent rien et ne peuvent pas passer. Quatre tests dans ce cas. **Le système refuse désormais d'appeler ça une réussite.**
+
+Trois autres résultats du même run :
+
+- **Aucun arbre fantôme.** Le correctif de casse (HOS-123b) tient sur un run réel.
+- **L'identité n'est pas réécrite** — l'étape 2 réutilise. La mémoire de projet se confirme sur un second essai.
+- **Aucune boucle d'import** cette fois, sur les quatre modules produits : le cycle de HOS-124 n'était pas systématique, ce qui rend l'analyse d'autant plus utile — elle ne signale que ce qui est là.
+
+### La limite, nommée
+
+La reprise de l'étape 1 s'est déclenchée et **n'a produit aucun fichier** : « Créés : aucun » dans la seconde entrée du journal. La boucle détecte, avertit, relance — et la seconde tentative n'a pas mieux fait. Détecter n'est pas corriger, et rien dans cette version ne prétend le contraire.
+
+Défaut de mon propre banc, consigné : il compte `.pytest_cache` parmi les « nouveaux fichiers ». `verification.py` l'ignore correctement ; c'est le script de mesure qui est trop naïf.
+
 ### Verified
 
 12 tests ajoutés. Suite : **4 071 passés, 3 ignorés, code de sortie 0** (4 059 avant).
