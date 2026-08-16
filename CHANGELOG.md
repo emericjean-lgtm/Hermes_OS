@@ -1,3 +1,31 @@
+## HOS-128 — La première file réelle a produit le faux succès qu'elle devait empêcher (2026-08-17)
+
+26 sections lancées. Résultat : **`{"faite": 26}` en 0 seconde, zéro fichier sur le disque.**
+
+Deux signaux que CLAUDE.md nomme explicitement — une durée absurde, un compteur trop rond — sur le module écrit la veille pour détecter exactement ce genre de mensonge.
+
+### La cause première
+
+`scripts/derouler_cahier.py` ne posait pas `ALLOWED_PATHS`. Aegis refusait donc le dossier, la validation du Project échouait, et chaque objectif **refusait de démarrer** — comportement correct, voulu depuis HOS-119. Chacun rendait `status: failed` et un rapport vide.
+
+### Le défaut qui l'a rendu invisible
+
+`bloquant()` recevait `verification = None` et répondait « rien à signaler ». J'avais écrit ce cas en raisonnant : « l'absence de mesure n'est pas une preuve d'échec, c'est la règle appliquée partout ailleurs ici ».
+
+C'est vrai d'une mission qui a **tourné** sans workspace lié. C'est faux d'une mission **qui n'a jamais eu lieu**. Les deux se présentent de la même façon — pas de `verification` — et j'ai raisonné sur la première en oubliant la seconde.
+
+**Le module chargé de détecter les faux succès en a produit un, par application trop littérale de la règle qui les évite.**
+
+`derouler` regarde désormais le statut de l'objectif **avant** la vérification : un objectif qui n'aboutit pas, ou un rapport vide, bloque la file. Le statut voyage avec le rapport, sans quoi les deux situations restent indiscernables.
+
+### Ce que cet incident confirme
+
+Chaque brique avait ses tests, tous verts. Le défaut n'était dans aucune brique : il était dans l'enchaînement, et seule une exécution réelle pouvait le montrer. C'est la quatrième fois aujourd'hui qu'une mesure de bout en bout trouve ce qu'aucun test unitaire ne voyait — après le contexte amont inerte, le plafond de 180 s et la casse des chemins.
+
+### Verified
+
+6 tests ajoutés, dont deux qui vérifient le lanceur lui-même — l'ordre de `ALLOWED_PATHS` avant le bootstrap, et le transport du statut. Suite : **4 114 passés, 3 ignorés, code de sortie 0** (4 108 avant).
+
 ## HOS-127 — Un cahier des charges se déroule, il ne se lance pas (2026-08-16)
 
 HOS-126 a mesuré ce que donnent quarante sections d'un coup : **un fichier de 176 lignes**, 10 concepts sur 18, zéro marqueur `À DÉCIDER`. Une section seule, elle, produit un résultat `verifiee` en **390 secondes**.

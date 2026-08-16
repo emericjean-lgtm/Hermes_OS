@@ -295,3 +295,78 @@ class TestLeBilan:
         resultat = bilan([Etape(Section(1, "A", "x"), statut="faite")])
 
         assert resultat["arret"] is None
+
+
+class TestUneMissionQuiNAPasEuLieu:
+    """L'incident de la première file réelle (HOS-128).
+
+    26 sections, `{"faite": 26}`, **0 seconde**, zéro fichier sur le disque.
+
+    Les objectifs refusaient de démarrer — le dossier n'était pas autorisé,
+    le lanceur ne posait pas `ALLOWED_PATHS` — chacun rendait
+    `status: failed` et un rapport vide. `bloquant()` recevait donc
+    `verification = None` et répondait « rien à signaler », au motif que
+    l'absence de mesure n'est pas une preuve d'échec.
+
+    C'est vrai d'une mission qui a **tourné** sans workspace lié. C'est
+    faux d'une mission qui n'a jamais eu lieu. Les deux se présentaient de
+    la même façon, et j'ai raisonné sur la première en oubliant la seconde
+    — produisant le faux succès exact que ce module est chargé de
+    détecter.
+    """
+
+    def _section(self, n: int) -> Section:
+        return Section(numero=n, titre=f"S{n}", corps="corps")
+
+    def test_un_objectif_qui_refuse_de_demarrer_bloque(self):
+        etapes = derouler([self._section(1), self._section(2)],
+                          lancer=lambda s: {"statut_objectif": "failed"})
+
+        assert etapes[0].statut == "bloquee"
+        assert "n'a pas abouti" in etapes[0].detail
+        assert etapes[1].statut == "ignoree", "la suite ne doit pas partir"
+
+    def test_un_rapport_vide_bloque(self):
+        """Zéro seconde et aucun rapport : la mission n'a pas eu lieu."""
+        etapes = derouler([self._section(1)], lancer=lambda s: {})
+
+        assert etapes[0].statut == "bloquee"
+        assert "n'a pas eu lieu" in etapes[0].detail
+
+    def test_une_mission_qui_a_tourne_sans_workspace_ne_bloque_pas(self):
+        """La distinction. Celle-ci a réellement tourné : elle n'avait
+        simplement rien à confronter, et l'absence de mesure n'est pas une
+        preuve d'échec."""
+        etapes = derouler([self._section(1)], lancer=lambda s: {
+            "statut_objectif": "completed", "qualite": "non_mesuree",
+            "execution_summary": "3/3 task(s) completed"})
+
+        assert etapes[0].statut == "faite"
+
+    def test_le_bilan_nomme_l_arret(self):
+        etapes = derouler([self._section(1), self._section(2)],
+                          lancer=lambda s: {"statut_objectif": "failed"})
+
+        assert bilan(etapes)["arret"]["section"] == "§1 S1"
+
+
+class TestLeLanceurAutoriseLeDossier:
+    def test_il_pose_allowed_paths_avant_le_bootstrap(self):
+        """La cause première : sans whitelist, Aegis refuse le dossier et
+        chaque objectif meurt avant d'exister. La whitelist est lue à la
+        construction du conteneur, donc la variable doit être posée avant.
+        """
+        from pathlib import Path
+
+        source = Path("scripts/derouler_cahier.py").read_text(encoding="utf-8")
+        avant = source.index('os.environ.setdefault("ALLOWED_PATHS"')
+        apres = source.index("HermesBootstrap()")
+
+        assert avant < apres
+
+    def test_le_statut_de_l_objectif_voyage_avec_le_rapport(self):
+        from pathlib import Path
+
+        source = Path("scripts/derouler_cahier.py").read_text(encoding="utf-8")
+
+        assert '"statut_objectif": goal.get("status")' in source

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -69,6 +70,13 @@ def main() -> int:
         print("\nRelance avec --lancer pour executer.")
         return 0
 
+    # Sans ca, Aegis refuse le dossier, chaque objectif rend
+    # `status: failed` avec un rapport vide, et la file compte 26 sections
+    # "faites" en zero seconde sur un disque vide (HOS-128). Pose avant le
+    # bootstrap : la whitelist est lue a la construction.
+    os.environ.setdefault("ALLOWED_PATHS", str(projet))
+    print(f"workspace autorise : {projet}")
+
     from backend.core.bootstrap.bootstrap import HermesBootstrap
 
     boot = HermesBootstrap()
@@ -81,7 +89,11 @@ def main() -> int:
         objectif = brief_de_section(section, nom_du_cahier=args.cahier,
                                     regles=bloc)
         goal = moteur.start_goal(objectif, {"local_path": str(projet)})
-        return moteur.get_report(goal.get("goal_id", "")) or {}
+        rapport = moteur.get_report(goal.get("goal_id", "")) or {}
+        # Le statut de l'objectif voyage avec le rapport : un objectif qui
+        # refuse de demarrer rend un rapport vide, indiscernable d'une
+        # mission sans workspace si on ne le porte pas.
+        return {**rapport, "statut_objectif": goal.get("status")}
 
     def tracer(etape):
         print(f"  -> {etape.statut}  ({etape.qualite or 'sans verdict'})"

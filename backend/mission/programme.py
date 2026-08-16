@@ -239,9 +239,11 @@ def bloquant(verification: Optional[dict]) -> tuple[bool, str]:
     contradiction est cosmétique.
     """
     if not verification:
-        # Rien n'a été mesuré. On ne bloque pas là-dessus : l'absence de
-        # mesure n'est pas une preuve d'échec, c'est la règle appliquée
-        # partout ailleurs ici.
+        # Rien n'a été mesuré, et **on ne peut rien en conclure ici**.
+        # L'appelant a déjà écarté le cas « la mission n'a pas eu lieu »
+        # avant d'arriver jusqu'ici (voir `derouler`) ; ce qui reste est
+        # une mission qui a tourné sans workspace lié, et l'absence de
+        # mesure n'est pas une preuve d'échec.
         return False, ""
 
     tests = verification.get("tests") or {}
@@ -338,9 +340,38 @@ def derouler(
                 on_etape(etape)
             continue
 
-        verification = rapport.get("verification")
         etape.qualite = str(rapport.get("qualite") or "")
         etape.duree_s = float(rapport.get("total_duration_ms") or 0.0) / 1000.0
+
+        # HOS-128 : **une mission qui n'a pas eu lieu n'est pas une mission
+        # sans mesure.** Les deux se présentent pareil — pas de
+        # `verification` — et `bloquant()` répondait « rien à signaler »
+        # pour les deux.
+        #
+        # Mesuré sur la première file réelle : les 26 sections ont rendu
+        # `{"faite": 26}` en **0 seconde**, zéro fichier sur le disque. Les
+        # objectifs refusaient de démarrer — le dossier n'était pas
+        # autorisé — chacun rendait `status: failed` et un rapport vide, et
+        # ce module les comptait comme faites. Le faux succès exact que ce
+        # dépôt existe pour empêcher, produit par le module chargé de le
+        # détecter.
+        statut_objectif = str(rapport.get("statut_objectif") or "").lower()
+        if statut_objectif and statut_objectif != "completed":
+            etape.statut = "bloquee"
+            etape.detail = f"l'objectif n'a pas abouti (statut : {statut_objectif})"
+            arretee = True
+            if on_etape is not None:
+                on_etape(etape)
+            continue
+        if not rapport:
+            etape.statut = "bloquee"
+            etape.detail = "aucun rapport — la mission n'a pas eu lieu"
+            arretee = True
+            if on_etape is not None:
+                on_etape(etape)
+            continue
+
+        verification = rapport.get("verification")
         doit_arreter, raison = bloquant(verification)
         if doit_arreter:
             etape.statut, etape.detail, arretee = "bloquee", raison, True
