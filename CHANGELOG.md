@@ -1,3 +1,36 @@
+## HOS-127 — Un cahier des charges se déroule, il ne se lance pas (2026-08-16)
+
+HOS-126 a mesuré ce que donnent quarante sections d'un coup : **un fichier de 176 lignes**, 10 concepts sur 18, zéro marqueur `À DÉCIDER`. Une section seule, elle, produit un résultat `verifiee` en **390 secondes**.
+
+`backend/mission/programme.py` déroule donc le cahier section par section — une mission chacune, la mémoire de projet (HOS-123) les reliant.
+
+### Deux heuristiques prises en défaut par la mesure
+
+**La longueur minimale était à l'envers.** La première version écartait les sections de moins de 400 caractères. Mesuré sur le vrai cahier : elle jetait §6 (identité), §9 (ateliers), §11 (postes), §17 (compétences) — courtes parce qu'écrites en schémas — et gardait §4 « RÈGLE CONTRE L'INVENTION » et §34 « MATRICE DE VÉRITÉ », deux pages qui ne construisent rien. **La longueur mesure le bavardage, pas la matière.** Filtre supprimé.
+
+**Le classement automatique se trompe à ~30 %.** Une section est proposée « à construire » si elle nomme une entité du modèle de données que le cahier déclare lui-même — critère tiré du document, pas de mon jugement. Il classe pourtant `CONFORMITÉ`, `ALERTES`, `API`, `BACKEND`, `PERMISSIONS` en simples règles, et `OBJECTIF FINAL` en livrable.
+
+J'ai arrêté d'affiner. Aucune heuristique ne sera fiable là-dessus, et une classification silencieusement fausse ferait sauter un quart du cahier. **Le plan est donc écrit dans un fichier qu'on relit et corrige avant de lancer** — le lanceur refuse de dérouler tant qu'il n'existe pas. Proposer, ne pas décider.
+
+### Ce qui arrête la file, et ce qui ne l'arrête pas
+
+La décision de conception, et elle vient d'une mesure : l'étape 1 du dernier essai était `contredite` **uniquement** parce qu'elle avait déclaré `docs/identity_design.md` et écrit `docs/decisions.md` — ses tests passaient.
+
+- **Bloquant** : tests du livrable en échec, boucle d'import fatale, rien d'écrit, ou contradiction sans cause nommable. Ce qui suit s'appuierait sur du vide ou sur du faux.
+- **Signalé, et on continue** : un livrable annoncé sous un autre nom alors que le reste tient.
+
+Arrêter une nuit entière pour un nom de fichier serait absurde ; continuer sur une identité dont les tests échouent le serait tout autant, puisque trente sections en dépendent.
+
+Une exception pendant la file ne perd pas les étapes précédentes : quarante missions qui tombent sur la trente-deuxième doivent rendre les trente et une premières, pas une trace d'exception.
+
+### Prêt à lancer
+
+Sur le cahier Skills360 : 40 sections, **26 à construire** après correction du plan, 14 transmises en règles permanentes à chaque mission. Environ dix minutes par section — quatre à cinq heures, sans surveillance.
+
+### Verified
+
+26 tests ajoutés. Suite : **4 108 passés, 3 ignorés, code de sortie 0** (4 082 avant).
+
 ## HOS-126 — Le cahier complet d'un coup : mesuré (2026-08-16)
 
 Tous les essais précédents portaient sur **une** section. Celui-ci donne les quarante d'un coup — 23 Ko — sur un workspace neuf.
