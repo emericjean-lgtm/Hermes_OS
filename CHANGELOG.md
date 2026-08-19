@@ -1,3 +1,41 @@
+## HOS-131 — L'arbre fantome a disparu, et mon exemple est devenu un livrable (2026-08-17)
+
+Premiere execution ou trois choses tiennent en meme temps :
+
+| | |
+|---|---|
+| Arbre fantome | **aucun** — premiere fois en cinq lancements |
+| Cahier des charges | **intact**, 23 335 octets |
+| Arborescence produite | `src/models/{auth,employee,user}.py` + `tests/test_identity_models.py` |
+
+Annoncer la racine au modele (HOS-130) a fait disparaitre le probleme que quatre correctifs sur la resolution de chemins n'avaient pas resolu. Le defaut n'etait pas dans le code qui resout les chemins : il etait dans le fait que **personne ne disait au modele ou il etait**.
+
+### Et j'ai cree un defaut en corrigeant l'autre
+
+Le brief disait :
+
+> Ecris `src/models/x.py`, jamais `/home/user/...`
+
+La mission a cree **`src/models/x.py`** — un module de quarante lignes, a cote de ses vrais livrables. Elle a lu l'exemple comme une consigne, ce qui est une lecture raisonnable de « Ecris `src/models/x.py` ».
+
+**Un exemple dans un prompt doit etre impossible a confondre avec un livrable.** La forme est desormais `<dossier>/<fichier>`, un gabarit qu'on ne peut pas creer tel quel. Le retirer entierement serait revenir au defaut precedent : c'est lui qui a fait disparaitre l'arbre fantome.
+
+### L'arret a §6 est legitime
+
+La file s'est arretee a la premiere section sur des tests en echec. Le livrable contient :
+
+```python
+assert config.providers == ["mail", "oauth"]
+...
+assert config.providers == []  # par defaut
+```
+
+Deux assertions contradictoires sur le meme objet dans le meme test. Ce n'est pas un faux echec : le test se contredit lui-meme, et la file a eu raison de s'arreter.
+
+### Verified
+
+3 tests ajoutes. Suite : **4 141 passes, 3 ignores, code de sortie 0** (4 138 avant).
+
 ## HOS-130 — Le modele ne savait pas ou il etait (2026-08-17)
 
 Quatre correctifs successifs sur les chemins, chacun verifie, chacun insuffisant. J'ai arrete de corriger et instrumente : une sonde a trace **chaque resolution de chemin** d'une seule section, avec le chemin brut recu.

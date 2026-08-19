@@ -74,13 +74,17 @@ class TestLeBriefAnnonceLaRacine:
         assert RACINE in brief
         assert "relatifs" in brief
 
-    def test_l_exemple_est_donne_sous_la_bonne_forme(self):
-        """Une consigne abstraite se suit moins bien qu'un exemple."""
+    def test_la_forme_attendue_est_montree(self):
+        """Une consigne abstraite se suit moins bien qu'une forme montrée.
+
+        L'exemple était `src/models/x.py` — et la mission a créé ce
+        fichier (HOS-131). C'est désormais un gabarit qu'on ne peut
+        pas créer tel quel."""
         brief = brief_de_section(Section(11, "T", "corps"),
                                  nom_du_cahier="SPEC.md", racine=RACINE)
 
-        assert "src/models/x.py" in brief
-        assert "/home/user" in brief, "nommer la forme fautive mesurée"
+        assert "<dossier>/<fichier>" in brief
+        assert "/home/" in brief, "nommer la forme fautive mesurée"
 
     def test_sans_racine_connue_rien_n_est_affirme(self):
         """Un brief qui annoncerait une racine vide serait pire que muet."""
@@ -88,3 +92,42 @@ class TestLeBriefAnnonceLaRacine:
                                  nom_du_cahier="SPEC.md")
 
         assert "racine de ce dossier (" not in brief
+
+
+class TestUnExempleNEstPasUneCommande:
+    """Le défaut que j'ai introduit en corrigeant le précédent (HOS-131).
+
+    La première version du brief disait :
+
+        Écris `src/models/x.py`, jamais `/home/user/...`
+
+    Mesuré au lancement suivant : la mission a créé **`src/models/x.py`**,
+    un module de 40 lignes, à côté de ses vrais livrables. Elle a lu
+    l'exemple comme une consigne — ce qui est une lecture raisonnable de
+    « Écris `src/models/x.py` ».
+
+    Un exemple dans un prompt doit être impossible à confondre avec un
+    livrable. La forme `<dossier>/<fichier>` ne peut pas être créée telle
+    quelle.
+    """
+
+    def test_aucun_chemin_plausible_n_est_donne_en_exemple(self):
+        brief = brief_de_section(Section(6, "T", "corps"),
+                                 nom_du_cahier="SPEC.md", racine=RACINE)
+
+        assert "src/models/x.py" not in brief, (
+            "un chemin qui ressemble à un livrable finit par en devenir un")
+
+    def test_la_forme_attendue_reste_montree(self):
+        """Retirer l'exemple entièrement serait revenir au défaut d'avant :
+        c'est lui qui a fait disparaître l'arbre fantôme."""
+        brief = brief_de_section(Section(6, "T", "corps"),
+                                 nom_du_cahier="SPEC.md", racine=RACINE)
+
+        assert "<dossier>/<fichier>" in brief
+
+    def test_les_racines_fautives_mesurees_sont_toujours_nommees(self):
+        brief = brief_de_section(Section(6, "T", "corps"),
+                                 nom_du_cahier="SPEC.md", racine=RACINE)
+
+        assert "/home/" in brief and "/workspace" in brief

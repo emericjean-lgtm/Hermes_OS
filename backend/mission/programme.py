@@ -322,9 +322,9 @@ def brief_de_section(section: Section, *, nom_du_cahier: str,
         # était. Deux tiers de son budget d'outils y passaient.
         morceaux += [
             f"Tous les chemins que tu donnes aux outils sont **relatifs** à "
-            f"la racine de ce dossier ({racine}). Écris `src/models/x.py`, "
-            f"jamais `/home/user/...` ni un chemin absolu : ils sont "
-            f"refusés.",
+            f"la racine de ce dossier ({racine}). Un chemin absolu ou "
+            f"commençant par `/home/`, `/workspace` ou `/` est refusé : "
+            f"écris la forme `<dossier>/<fichier>` et rien d'autre.",
             "",
         ]
     morceaux += [
