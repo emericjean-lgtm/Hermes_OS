@@ -66,6 +66,38 @@ def resolve_in_project(project_root: str, raw_path: str) -> str:
     return str((root / _sans_prefixe_redondant(candidate, root)).resolve())
 
 
+def hors_du_workspace(project_root: str, raw_path: str, resolu: str) -> str:
+    """Le message quand un chemin sort du workspace, ou "" (HOS-130).
+
+    Mesuré : sur 145 résolutions d'une seule section, **101 pointaient hors
+    du workspace — 69 %**. Le modèle essayait `/home/user/<dossier>`,
+    `/workspace`, `/`, et des formes Windows : il **devinait**, parce que
+    rien ne lui disait jamais où il se trouvait.
+
+    Aegis refusait, correctement, avec un message de sécurité. Mais un
+    refus qui dit « accès interdit » sans dire « voici la racine, donne un
+    chemin relatif » laisse le modèle deviner une racine de plus. Deux
+    tiers de son budget d'outils partaient là.
+
+    La frontière ne bouge pas : ce qui est hors du workspace le reste. On
+    change ce qu'on en dit.
+    """
+    from pathlib import Path
+
+    try:
+        if Path(resolu).resolve().is_relative_to(Path(project_root).resolve()):
+            return ""
+    except (OSError, ValueError):
+        pass
+    return (
+        f"Chemin hors du workspace : {raw_path!r}.\n"
+        f"La racine de ce workspace est : {project_root}\n"
+        "Donne un chemin **relatif** a cette racine — par exemple "
+        "`src/models/position.py`, jamais `/home/user/...` ni un chemin "
+        "absolu. Aucune ecriture n'a eu lieu."
+    )
+
+
 def _sans_prefixe_redondant(candidate: Path, root: Path) -> Path:
     """Retirer le nom du workspace quand le modèle l'a préfixé lui-même.
 
@@ -309,6 +341,11 @@ async def execute_workspace_tool(
 
     path_arg = str(arguments.get("path", "")).strip()
     resolved = resolve_in_project(project_root, path_arg) if path_arg else project_root
+    # HOS-130 : dire où est la racine plutôt que de laisser deviner.
+    if path_arg:
+        egare = hors_du_workspace(project_root, path_arg, resolved)
+        if egare:
+            return egare
     aegis = _aegis()
 
     try:

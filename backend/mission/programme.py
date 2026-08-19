@@ -303,7 +303,7 @@ def bloquant(verification: Optional[dict]) -> tuple[bool, str]:
 
 
 def brief_de_section(section: Section, *, nom_du_cahier: str,
-                     regles: str = "") -> str:
+                     regles: str = "", racine: str = "") -> str:
     """Ce qu'on demande pour une section, et rien de plus.
 
     Le corps de la section est recopié tel quel : le modèle ne doit pas
@@ -314,6 +314,20 @@ def brief_de_section(section: Section, *, nom_du_cahier: str,
         f"Tu travailles sur le projet décrit par `{nom_du_cahier}`, "
         f"à la racine de ce dossier.",
         "",
+    ]
+    if racine:
+        # HOS-130 : mesuré, 101 résolutions de chemin sur 145 pointaient
+        # hors du workspace — le modèle inventait `/home/user/<dossier>`,
+        # `/workspace`, `/`. Il devinait parce que rien ne lui disait où il
+        # était. Deux tiers de son budget d'outils y passaient.
+        morceaux += [
+            f"Tous les chemins que tu donnes aux outils sont **relatifs** à "
+            f"la racine de ce dossier ({racine}). Écris `src/models/x.py`, "
+            f"jamais `/home/user/...` ni un chemin absolu : ils sont "
+            f"refusés.",
+            "",
+        ]
+    morceaux += [
         f"Réalise **une seule étape** : la section {section.etiquette}.",
         "",
         "Voici cette section, mot pour mot :",

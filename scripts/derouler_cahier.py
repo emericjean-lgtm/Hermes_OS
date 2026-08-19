@@ -91,7 +91,7 @@ def main() -> int:
     def lancer(section):
         print(f"\n=== §{section.numero} {section.titre} ===", flush=True)
         objectif = brief_de_section(section, nom_du_cahier=args.cahier,
-                                    regles=bloc)
+                                    regles=bloc, racine=str(projet))
         goal = moteur.start_goal(objectif, {"local_path": str(projet)})
         rapport = moteur.get_report(goal.get("goal_id", "")) or {}
         # Le statut de l'objectif voyage avec le rapport : un objectif qui

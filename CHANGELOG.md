@@ -1,3 +1,35 @@
+## HOS-130 — Le modele ne savait pas ou il etait (2026-08-17)
+
+Quatre correctifs successifs sur les chemins, chacun verifie, chacun insuffisant. J'ai arrete de corriger et instrumente : une sonde a trace **chaque resolution de chemin** d'une seule section, avec le chemin brut recu.
+
+Sur **145 resolutions, 101 pointaient hors du workspace — 69 %** :
+
+| racine essayee | occurrences |
+|---|---|
+| `/home/user/<dossier>` | 49 |
+| formes Windows | 36 |
+| `/workspace` | 17 |
+| `/` | 7 |
+
+**Le modele se croyait sous Linux.** Il devinait une racine, puis une autre, parce que **rien ne lui disait jamais ou il se trouvait** — ni le brief de la section, ni le message de refus.
+
+Aegis refusait correctement. Mais un refus qui dit « acces interdit » sans dire « voici la racine, donne un chemin relatif » laisse le modele deviner une racine de plus. Deux tiers de son budget d'outils partaient la — et c'est le terrain sur lequel l'arbre fantome se forme, quand une des racines devinees tombe sur une forme Windows plausible.
+
+Deux corrections, aux deux extremites :
+
+- le **brief de section** nomme la racine reelle et donne un exemple de la bonne forme, en nommant la forme fautive mesuree ;
+- le **refus** nomme la racine, demande un chemin relatif, et precise qu'aucune ecriture n'a eu lieu — sans quoi le modele peut croire que c'est passe et enchainer.
+
+La frontiere de securite ne bouge pas : `resolve_in_project` rend toujours un chemin hors racine tel quel, pour qu'Aegis le rejette explicitement. On change ce qu'on **dit** d'un refus, pas ce qui est refuse.
+
+### Ce que la file precedente a confirme
+
+Le cahier des charges est **intact** — 23 335 octets, exactement l'original — apres trois heures de missions travaillant dessus. La protection de HOS-129 a tenu.
+
+### Verified
+
+9 tests ajoutes. Suite : **4 138 passes, 3 ignores, code de sortie 0** (4 129 avant).
+
 ## HOS-129 — Le cahier des charges n'est plus modifiable par le travail (2026-08-17)
 
 La première file réelle a tourné 2 h 57, produit 54 fichiers, et s'est arrêtée à §13 sur des tests en échec — le comportement voulu. Elle a aussi révélé deux défauts.
