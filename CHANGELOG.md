@@ -1,3 +1,34 @@
+## HOS-132 — Un chemin du workspace ne re-decrit pas l'emplacement du workspace (2026-08-17)
+
+Cinquieme correctif sur l'arbre fantome, et le premier qui ne devine pas une forme.
+
+Les quatre precedents traitaient chacun une forme envoyee par le modele : le prefixe d'un segment, le prefixe multi-segments, la casse, les points finaux — puis l'annonce de la racine, qui l'avait fait disparaitre une fois. Chacun verifie, chacun insuffisant : au cinquieme lancement reel l'arbre est revenu.
+
+Et il coutait cher. Le doublon `tests/test_identity_models.py` a suffi a faire echouer `pytest` par collision de noms de module :
+
+```
+import file mismatch:
+  Skill360-nuit/Users/emeri/Skill360-nuit/tests/test_identity_models.py
+which is not the same as the test file we want to collect:
+  Skill360-nuit/tests/test_identity_models.py
+```
+
+**Toute la file de 26 sections s'est arretee la** — sur un defaut qui n'etait pas dans le code produit.
+
+Deviner la prochaine forme est une methode qui a echoue quatre fois. On verifie desormais un **invariant sur le resultat** : un chemin du workspace ne re-decrit jamais l'emplacement du workspace. Peu importe comment on y est arrive — chemin relatif mal forme, chemin absolu pointant deja dans un arbre existant, ou une forme que personne n'a encore vue. La reduction boucle jusqu'a stabilite, parce qu'un arbre fantome peut en contenir un autre.
+
+L'invariant normalise ce qui est **dedans** ; il ne fait pas rentrer ce qui est dehors. La frontiere reste celle d'Aegis.
+
+### Ce que le cinquieme lancement a confirme par ailleurs
+
+- `src/models/x.py` — mon exemple devenu livrable (HOS-131) — a bien disparu.
+- Le cahier des charges est intact pour le deuxieme lancement consecutif.
+- §6 passe desormais ; la file va jusqu'a §7.
+
+### Verified
+
+5 tests ajoutes. Suite : **4 146 passes, 3 ignores, code de sortie 0** (4 141 avant).
+
 ## HOS-131 — L'arbre fantome a disparu, et mon exemple est devenu un livrable (2026-08-17)
 
 Premiere execution ou trois choses tiennent en meme temps :

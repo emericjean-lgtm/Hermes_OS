@@ -227,3 +227,80 @@ class TestLesSegmentsSeComparentCommeLeSystemeDeFichiers:
         resolu = resolve_in_project(str(racine), "src/memoire_X/x.py")
 
         assert Path(resolu) == racine / "src" / "memoire_X" / "x.py"
+
+
+class TestLInvariantSurLeResultat:
+    """Cinquième correctif, et le premier qui ne devine pas une forme
+    (HOS-132).
+
+    Les quatre précédents traitaient chacun une forme envoyée par le
+    modèle : le préfixe d'un segment, le préfixe multi-segments, la casse,
+    les points finaux. Chacun vérifié, chacun insuffisant — l'arbre fantôme
+    est revenu au cinquième lancement réel, avec un
+    `tests/test_identity_models.py` en double. Ce doublon a suffi à faire
+    échouer `pytest` par collision de noms de module, donc à bloquer toute
+    la file de 26 sections sur un défaut qui n'était pas dans le code
+    produit.
+
+    Deviner la prochaine forme est une méthode qui a échoué quatre fois. On
+    vérifie donc l'**invariant sur le résultat** : un chemin du workspace ne
+    re-décrit jamais l'emplacement du workspace. Peu importe comment on y
+    est arrivé.
+    """
+
+    def test_un_chemin_absolu_pointant_dans_un_fantome_est_ramene(self, tmp_path):
+        """Le cas auto-entretenu : une fois l'arbre créé, le modèle le voit
+        avec `workspace_list` et y écrit par chemin absolu — lequel est
+        légitimement dans la racine, donc rien ne le corrigeait."""
+        racine = tmp_path / "projet"
+        racine.mkdir()
+        interne = "/".join(racine.parts[1:])
+
+        resolu = resolve_in_project(
+            str(racine), f"{racine}/{interne}/src/models/auth.py")
+
+        assert Path(resolu) == racine / "src" / "models" / "auth.py"
+
+    def test_un_fantome_imbrique_plusieurs_fois_est_ramene(self, tmp_path):
+        """Un arbre fantôme peut en contenir un autre : la réduction boucle
+        jusqu'à stabilité."""
+        racine = tmp_path / "projet"
+        racine.mkdir()
+        interne = "/".join(racine.parts[1:])
+
+        resolu = resolve_in_project(
+            str(racine), f"{racine}/{interne}/{interne}/x.py")
+
+        assert Path(resolu) == racine / "x.py"
+
+    def test_le_cas_qui_a_bloque_la_file(self, tmp_path):
+        """`tests/test_identity_models.py` écrit deux fois — à la racine et
+        dans le fantôme — a suffi à arrêter 26 sections."""
+        racine = tmp_path / "projet"
+        racine.mkdir()
+        interne = "/".join(racine.parts[1:])
+
+        resolu = resolve_in_project(
+            str(racine), f"{interne}/tests/test_identity_models.py")
+
+        assert Path(resolu) == racine / "tests" / "test_identity_models.py"
+
+    def test_une_arborescence_legitime_survit_a_l_invariant(self, tmp_path):
+        """Le garde-fou : boucler jusqu'à stabilité ne doit pas raboter un
+        dossier que le projet a le droit de nommer comme sa racine."""
+        racine = tmp_path / "projet"
+        racine.mkdir()
+
+        resolu = resolve_in_project(str(racine), "src/projet/legitime.py")
+
+        assert Path(resolu) == racine / "src" / "projet" / "legitime.py"
+
+    def test_un_chemin_hors_racine_reste_hors_racine(self, tmp_path):
+        """L'invariant normalise ce qui est dedans ; il ne fait pas rentrer
+        ce qui est dehors. La frontière reste celle d'Aegis."""
+        racine = tmp_path / "projet"
+        racine.mkdir()
+
+        resolu = resolve_in_project(str(racine), "C:/Windows/system32/x.dll")
+
+        assert "projet" not in resolu

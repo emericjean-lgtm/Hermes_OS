@@ -62,8 +62,45 @@ def resolve_in_project(project_root: str, raw_path: str) -> str:
         # Already inside root: normalize. Outside root: pass through
         # unchanged rather than reinterpreting as relative — Aegis's real
         # whitelist check rejects it explicitly (see module docstring).
-        return str(resolved) if resolved.is_relative_to(root) else raw_path
-    return str((root / _sans_prefixe_redondant(candidate, root)).resolve())
+        if not resolved.is_relative_to(root):
+            return raw_path
+        return str(_invariant(resolved, root))
+    joint = (root / _sans_prefixe_redondant(candidate, root)).resolve()
+    return str(_invariant(joint, root))
+
+
+def _invariant(absolu: Path, root: Path) -> Path:
+    """Un chemin du workspace ne re-decrit jamais l'emplacement du workspace.
+
+    C'est une **post-condition sur le resultat**, pas une n-ieme hypothese
+    sur la forme envoyee par le modele (HOS-132).
+
+    Cinq correctifs successifs ont chacun traite une forme : le prefixe
+    d'un segment, le prefixe multi-segments, la casse, les points finaux,
+    puis l'annonce de la racine. Chacun verifie, chacun insuffisant --
+    l'arbre fantome est revenu au cinquieme lancement, avec un
+    `tests/test_identity_models.py` en double qui a suffi a faire echouer
+    `pytest` par collision de noms, et donc a bloquer toute la file.
+
+    Deviner la prochaine forme est une methode qui a echoue cinq fois. On
+    verifie donc l'invariant : ce qui sort doit etre un chemin *dans* le
+    workspace dont la partie relative ne commence pas par la queue du
+    chemin du workspace lui-meme. Peu importe comment on y est arrive --
+    chemin relatif mal forme, chemin absolu pointant deja dans un arbre
+    fantome existant, ou une forme que personne n'a encore vue.
+
+    Boucle jusqu'a stabilite : un arbre fantome peut en contenir un autre.
+    """
+    for _ in range(8):
+        try:
+            relatif = absolu.relative_to(root)
+        except ValueError:
+            return absolu
+        reduit = _sans_prefixe_redondant(relatif, root)
+        if reduit == relatif:
+            return absolu
+        absolu = (root / reduit).resolve()
+    return absolu
 
 
 def hors_du_workspace(project_root: str, raw_path: str, resolu: str) -> str:
