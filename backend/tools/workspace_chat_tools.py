@@ -159,9 +159,25 @@ def _sans_prefixe_redondant(candidate: Path, root: Path) -> Path:
     quoi qu'il arrive. C'est une correction d'ergonomie, du même ordre que
     le join lui-même.
     """
+    def _norm(parties_: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(os.path.normcase(p.strip().strip("\"'").rstrip(". "))
+                     for p in parties_)
+
     parties = candidate.parts
     if len(parties) < 2:
         return candidate
+
+    # HOS-133 : le chemin peut etre **entierement** le prefixe. Mesure au
+    # sixieme lancement : `workspace_mkdir("Users/emeri/Skill360-nuit")`
+    # creait la chaine de dossiers fantome, vide. La boucle ci-dessous
+    # s'arrete a `len(parties) - 1` — elle insiste pour laisser un segment
+    # — donc le cas ou il ne reste rien, c'est-a-dire la racine elle-meme,
+    # n'etait jamais essaye. Les fichiers, eux, etaient bien ramenes :
+    # l'arbre observe ne contenait aucun fichier.
+    if _norm(parties) == _norm(root.parts)[-len(parties):]:
+        return Path(".")
+
+
 
     # HOS-123 : le préfixe n'est pas toujours d'un seul segment. Mesuré sur
     # deux missions consécutives, le modèle a écrit
@@ -197,10 +213,6 @@ def _sans_prefixe_redondant(candidate: Path, root: Path) -> Path:
     # On normalise donc les deux côtés de la comparaison. Le chemin
     # réellement écrit, lui, garde ses segments d'origine : ce qui est
     # retiré l'est en entier.
-    def _norm(parties_: tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(os.path.normcase(p.strip().strip("\"'").rstrip(". "))
-                     for p in parties_)
-
     racine_parties = root.parts
     normalisees, racine_normalisee = _norm(parties), _norm(racine_parties)
     for k in range(min(len(parties) - 1, len(racine_parties)), 0, -1):

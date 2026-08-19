@@ -1,3 +1,29 @@
+## HOS-133 — Le dernier cas de l'arbre fantome, et la file atteint §14 (2026-08-17)
+
+Sixieme lancement. La file va **deux fois plus loin** : arret a §14 au lieu de §6, apres neuf sections executees (6 signalees, 2 faites, 1 bloquee) en 2 h 29.
+
+Et l'arbre fantome observe ne contenait **aucun fichier**. L'invariant de HOS-132 les ramenait tous ; restait la chaine de dossiers vide, creee par `workspace_mkdir("Users/emeri/Skill360-nuit")`.
+
+La boucle de reduction s'arrete a `len(parties) - 1` : elle insiste pour laisser au moins un segment, donc le cas ou il ne reste rien — la racine elle-meme — n'etait jamais essaye.
+
+Un compromis assume, et un test plus ancien l'encodait deja : un chemin d'**un seul segment** portant le nom du workspace reste un fichier. `Skill360-nuit` peut legitimement etre un fichier que le projet cree ; `Users/emeri/Skill360-nuit` ne le peut pas. On ne collapse que ce qui est sans ambiguite.
+
+Le premier jet inversait l'ordre des deux gardes et faisait echouer
+`test_un_fichier_portant_le_nom_du_workspace_est_conserve` — un test ecrit precisement pour ce compromis. Il avait raison ; l'ordre a ete retabli.
+
+### Ou en est la file
+
+| lancement | arret | sections faites |
+|---|---|---|
+| 2ᵉ | §13 | 8 |
+| 4ᵉ | §6 | 0 |
+| 5ᵉ | §7 | 1 |
+| 6ᵉ | **§14** | **9** |
+
+### Verified
+
+2 tests ajoutes. Suite : **4 148 passes, 3 ignores, code de sortie 0** (4 146 avant).
+
 ## HOS-132 — Un chemin du workspace ne re-decrit pas l'emplacement du workspace (2026-08-17)
 
 Cinquieme correctif sur l'arbre fantome, et le premier qui ne devine pas une forme.

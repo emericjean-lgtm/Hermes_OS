@@ -304,3 +304,35 @@ class TestLInvariantSurLeResultat:
         resolu = resolve_in_project(str(racine), "C:/Windows/system32/x.dll")
 
         assert "projet" not in resolu
+
+
+class TestUnCheminQuiEstEntierementLaRacine:
+    """Le dernier cas, mesuré au sixième lancement (HOS-133).
+
+    L'arbre fantôme observé ne contenait **aucun fichier** : l'invariant de
+    HOS-132 les ramenait tous. Restait la chaîne de dossiers vide, créée
+    par `workspace_mkdir("Users/emeri/Skill360-nuit")`.
+
+    La boucle de réduction s'arrête à `len(parties) - 1` — elle insiste
+    pour laisser au moins un segment — donc le cas où il ne reste rien,
+    c'est-à-dire la racine elle-même, n'était jamais essayé.
+    """
+
+    def test_le_chemin_complet_de_la_racine_designe_la_racine(self, tmp_path):
+        racine = tmp_path / "projet"
+        racine.mkdir()
+        entier = "/".join(racine.parts[1:])
+
+        assert Path(resolve_in_project(str(racine), entier)) == racine
+
+    def test_un_segment_unique_reste_un_fichier(self, tmp_path):
+        """Le compromis, et il est encodé par un test plus ancien : un
+        chemin d'un seul segment portant le nom du workspace est ambigu —
+        c'est peut-être un fichier que le projet a le droit de créer. On
+        ne collapse que ce qui est sans ambiguïté."""
+        racine = tmp_path / "projet"
+        racine.mkdir()
+
+        resolu = resolve_in_project(str(racine), "projet")
+
+        assert Path(resolu) == racine / "projet"
