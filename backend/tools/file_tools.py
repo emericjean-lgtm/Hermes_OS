@@ -33,6 +33,65 @@ from backend.core.event_hub import get_event_hub
 from backend.security.aegis_engine import ActionRequest, Verdict
 
 
+#: Les documents qui **definissent** le travail ne sont pas modifiables par
+#: le travail (HOS-129).
+#:
+#: Mesure du 2026-08-17, sur la premiere file reelle : une mission a ecrase
+#: `PROJECT_SPEC.md`. Le cahier des charges est passe de 23 Ko et 342 lignes
+#: a 1,2 Ko ne contenant plus que la section sur laquelle elle travaillait.
+#: La source de verite du projet a ete detruite par le projet.
+#:
+#: Le §36 de ce cahier-la exige d'ailleurs une validation explicite pour
+#: toute modification : la regle existait, rien ne la faisait respecter.
+#:
+#: La liste vit dans le workspace, sous `.hermes/proteges.txt`, un chemin
+#: relatif par ligne. Elle est **relue a chaque appel** : un projet protege
+#: hier peut ne plus l'etre, et surtout la liste doit pouvoir changer sans
+#: redemarrage, comme le niveau d'autonomie.
+FICHIER_PROTEGES = ".hermes/proteges.txt"
+
+
+def _proteges(chemin: Path) -> set[Path]:
+    """Les chemins proteges du workspace qui contient `chemin`, s'il y en a.
+
+    On remonte les parents jusqu'a trouver un `.hermes/proteges.txt` : un
+    outil recoit un chemin de fichier, pas la racine du projet, et lui
+    demander de la deviner autrement serait une seconde source de verite.
+    """
+    for parent in [chemin, *chemin.parents]:
+        liste = parent / FICHIER_PROTEGES
+        try:
+            if not liste.is_file():
+                continue
+            lignes = liste.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        return {
+            (parent / ligne.strip()).resolve()
+            for ligne in lignes
+            if ligne.strip() and not ligne.strip().startswith("#")
+        }
+    return set()
+
+
+def _est_protege(path: str) -> bool:
+    """Ce chemin fait-il partie des documents d'entree du projet ?
+
+    Ne leve jamais et rend `False` en cas de doute : cette protection evite
+    une perte, elle n'est pas une frontiere de securite — Aegis l'est, et
+    il continue de s'appliquer independamment.
+    """
+    try:
+        cible = Path(path).expanduser().resolve()
+    except OSError:
+        return False
+    return cible in _proteges(cible.parent)
+
+
+class FichierProtegeError(PermissionError):
+    """Ecrire sur un document qui definit le travail."""
+
+
 def _publish(event_type: str, payload: dict) -> None:
     """Best-effort notification — mirrors security/approvals.py's own
     get_event_hub().publish() call for this style of plain, DB/DI-free
@@ -159,6 +218,17 @@ def propose_write(
     backup_dir: str = "./data/snapshots",
     project_id: str | None = None,
 ) -> FileWriteResult:
+    if _est_protege(path):
+        _publish("filesystem.permission_denied", {
+            "operation": "write", "path": path, "project_id": project_id,
+            "verdict": "deny", "reason": "document d'entree protege",
+        })
+        return FileWriteResult(
+            applied=False, verdict="deny",
+            reason=(f"Ce fichier definit le travail (voir {FICHIER_PROTEGES}) "
+                    "et n'est pas modifiable par lui. Lis-le, ne le reecris pas."),
+            diff="", verified=False,
+        )
     target = Path(path)
     before = target.read_text(encoding="utf-8") if target.exists() else ""
     diff = compute_diff(before, new_content, path)
@@ -249,6 +319,18 @@ def search(
 def create_directory(
     aegis: AegisAgent, path: str, *, project_id: str | None = None
 ) -> FileOpResult:
+    if _est_protege(path):
+        _publish("filesystem.permission_denied", {
+            "operation": "create_directory", "path": path, "project_id": project_id,
+            "verdict": "deny", "reason": "document d'entree protege",
+        })
+        return FileOpResult(
+            success=False, operation="create_directory", path=path, verdict="deny",
+            reason=("Ce fichier definit le travail (voir "
+                    f"{FICHIER_PROTEGES}) et n'est pas modifiable par lui. "
+                    "Lis-le, ne le reecris pas."),
+            verified=False,
+        )
     decision = aegis.evaluate(ActionRequest(
         action_type="file_write", description=f"Create directory {path}",
         target_path=path, requesting_agent="atlas", project_id=project_id,
@@ -277,6 +359,18 @@ def create_directory(
 def append(
     aegis: AegisAgent, path: str, content: str, *, project_id: str | None = None
 ) -> FileOpResult:
+    if _est_protege(path):
+        _publish("filesystem.permission_denied", {
+            "operation": "append", "path": path, "project_id": project_id,
+            "verdict": "deny", "reason": "document d'entree protege",
+        })
+        return FileOpResult(
+            success=False, operation="append", path=path, verdict="deny",
+            reason=("Ce fichier definit le travail (voir "
+                    f"{FICHIER_PROTEGES}) et n'est pas modifiable par lui. "
+                    "Lis-le, ne le reecris pas."),
+            verified=False,
+        )
     decision = aegis.evaluate(ActionRequest(
         action_type="file_write", description=f"Append to {path}",
         target_path=path, requesting_agent="atlas", project_id=project_id,
@@ -357,6 +451,30 @@ def move(
     """Both endpoints are gated as file_move (mandatory human validation,
     config/security.yaml) — a move makes the source disappear, the same
     real-loss-of-access risk profile as a delete."""
+    if _est_protege(source):
+        _publish("filesystem.permission_denied", {
+            "operation": "move", "path": source, "project_id": project_id,
+            "verdict": "deny", "reason": "document d'entree protege",
+        })
+        return FileOpResult(
+            success=False, operation="move", path=source, verdict="deny",
+            reason=("Ce fichier definit le travail (voir "
+                    f"{FICHIER_PROTEGES}) et n'est pas modifiable par lui. "
+                    "Lis-le, ne le reecris pas."),
+            verified=False,
+        )
+    if _est_protege(destination):
+        _publish("filesystem.permission_denied", {
+            "operation": "move", "path": destination, "project_id": project_id,
+            "verdict": "deny", "reason": "document d'entree protege",
+        })
+        return FileOpResult(
+            success=False, operation="move", path=destination, verdict="deny",
+            reason=("Ce fichier definit le travail (voir "
+                    f"{FICHIER_PROTEGES}) et n'est pas modifiable par lui. "
+                    "Lis-le, ne le reecris pas."),
+            verified=False,
+        )
     src_decision = aegis.evaluate(ActionRequest(
         action_type="file_move", description=f"Move {source} to {destination} (source)",
         target_path=source, requesting_agent="atlas", project_id=project_id,
@@ -400,6 +518,18 @@ def move(
 
 
 def delete(aegis: AegisAgent, path: str, *, project_id: str | None = None) -> FileOpResult:
+    if _est_protege(path):
+        _publish("filesystem.permission_denied", {
+            "operation": "delete", "path": path, "project_id": project_id,
+            "verdict": "deny", "reason": "document d'entree protege",
+        })
+        return FileOpResult(
+            success=False, operation="delete", path=path, verdict="deny",
+            reason=("Ce fichier definit le travail (voir "
+                    f"{FICHIER_PROTEGES}) et n'est pas modifiable par lui. "
+                    "Lis-le, ne le reecris pas."),
+            verified=False,
+        )
     decision = aegis.evaluate(ActionRequest(
         action_type="file_delete", description=f"Delete {path}",
         target_path=path, requesting_agent="atlas", project_id=project_id,

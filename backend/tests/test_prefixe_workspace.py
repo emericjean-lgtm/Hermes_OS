@@ -171,3 +171,59 @@ class TestLaCasseDesCheminsWindows:
         resolu = resolve_in_project(str(racine), f"{parties}/e.py")
 
         assert Path(resolu) == racine / "e.py"
+
+
+class TestLesSegmentsSeComparentCommeLeSystemeDeFichiers:
+    """Troisième correctif sur le même défaut, et le premier qui traite la
+    cause (HOS-129).
+
+    Après deux correctifs **vérifiés** — le préfixe multi-segments, puis la
+    casse — un arbre fantôme de six niveaux est réapparu sur une file de
+    26 sections. La forme qui cassait :
+
+        Users/emeri/Skill360-nuit./src/models/auth.model.ts
+
+    Windows **supprime les points et espaces finaux** d'un nom de dossier :
+    le segment `Skill360-nuit.` crée bien le dossier `Skill360-nuit`, mais
+    ne lui est pas égal comme chaîne. La comparaison voyait deux noms
+    différents là où le système de fichiers n'en voit qu'un.
+
+    Les segments sont donc normalisés comme le système les normalise.
+    """
+
+    def test_un_point_final_ne_casse_plus_la_reconnaissance(self, tmp_path):
+        racine = tmp_path / "memoire_X"
+        racine.mkdir()
+        parties = "/".join(racine.parts[1:])
+
+        resolu = resolve_in_project(str(racine), f"{parties}./src/a.py")
+
+        assert Path(resolu) == racine / "src" / "a.py"
+
+    def test_un_espace_final_non_plus(self, tmp_path):
+        racine = tmp_path / "memoire_X"
+        racine.mkdir()
+        parties = "/".join(racine.parts[1:])
+
+        resolu = resolve_in_project(str(racine), f"{parties} /src/a.py")
+
+        assert Path(resolu) == racine / "src" / "a.py"
+
+    def test_des_guillemets_autour_du_chemin_non_plus(self, tmp_path):
+        """Un modèle en ajoute parfois, par mimétisme avec du JSON."""
+        racine = tmp_path / "memoire_X"
+        racine.mkdir()
+        parties = "/".join(racine.parts[1:])
+
+        resolu = resolve_in_project(str(racine), f'"{parties}/src/a.py')
+
+        assert Path(resolu).parts[-2:] == ("src", "a.py")
+
+    def test_une_arborescence_legitime_survit_toujours(self, tmp_path):
+        """Le garde-fou : normaliser plus ne doit pas retirer plus."""
+        racine = tmp_path / "memoire_X"
+        racine.mkdir()
+
+        resolu = resolve_in_project(str(racine), "src/memoire_X/x.py")
+
+        assert Path(resolu) == racine / "src" / "memoire_X" / "x.py"

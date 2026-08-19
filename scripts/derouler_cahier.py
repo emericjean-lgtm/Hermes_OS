@@ -44,7 +44,7 @@ def main() -> int:
 
     from backend.mission.programme import (
         CHEMIN_PLAN, bilan, bloc_de_regles, brief_de_section, classer,
-        decouper, derouler, ecrire_plan, lire_plan,
+        decouper, derouler, ecrire_plan, ecrire_proteges, lire_plan,
     )
 
     sections = decouper(cahier.read_text(encoding="utf-8"))
@@ -54,6 +54,10 @@ def main() -> int:
     cochees = lire_plan(chemin_plan)
     if cochees is None:
         ecrire_plan(chemin_plan, sections, proposees)
+        proteges = ecrire_proteges(
+            projet, [args.cahier, "AGENT.md", "AGENTS.md",
+                     "PROJECT_STATUS.md"])
+        print(f"documents proteges : {len(proteges.splitlines()) - 4} declares")
         print(f"{len(sections)} sections trouvees, {len(proposees)} proposees.")
         print(f"\nPlan ecrit : {chemin_plan}")
         print("Relis-le, corrige les cases, puis relance avec --lancer.")

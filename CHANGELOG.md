@@ -1,3 +1,37 @@
+## HOS-129 — Le cahier des charges n'est plus modifiable par le travail (2026-08-17)
+
+La première file réelle a tourné 2 h 57, produit 54 fichiers, et s'est arrêtée à §13 sur des tests en échec — le comportement voulu. Elle a aussi révélé deux défauts.
+
+### Une mission a détruit le cahier des charges
+
+`PROJECT_SPEC.md` est passé de **23 Ko et 342 lignes à 1,2 Ko**, ne contenant plus que la section sur laquelle la mission travaillait. La source de vérité du projet a été écrasée par le projet.
+
+Le §36 de ce cahier exigeait déjà une validation explicite pour toute modification. **La règle existait ; rien ne la faisait respecter.**
+
+Les documents d'entrée sont déclarés dans `.hermes/proteges.txt`, à côté du plan, et la protection est posée dans `file_tools` — **pas dans `workspace_chat_tools`**. C'est le goulot : le serveur MCP appelle `file_tools` directement (`server.py:252`), et une protection posée en amont laisserait cette porte ouverte. Le refus dit quoi faire à la place — « Lis-le, ne le réécris pas » — parce qu'un refus sans consigne fait boucler le modèle sur la même tentative.
+
+### Troisième correctif sur les chemins, et le premier qui traite la cause
+
+Après deux correctifs **vérifiés** — le préfixe multi-segments (HOS-123), puis la casse (HOS-123b) — un arbre fantôme de six niveaux est réapparu : 14 fichiers sur 54.
+
+J'ai commencé par instrumenter au lieu de relire, ayant déjà eu tort deux fois : une sonde traçant chaque écriture jusqu'à son appelant a montré que **tout passe bien par le chemin corrigé**. Le défaut n'était donc pas là. Un balayage de formes de chemin plausibles a trouvé la vraie :
+
+```
+Users/emeri/Skill360-nuit./src/models/auth.model.ts
+```
+
+Windows **supprime les points et espaces finaux** d'un nom de dossier : le segment `Skill360-nuit.` crée bien le dossier `Skill360-nuit`, mais ne lui est pas égal comme chaîne. La comparaison voyait deux noms différents là où le système de fichiers n'en voit qu'un — ce qui explique aussi pourquoi le dossier fantôme observé n'avait, lui, pas de point.
+
+Les segments sont désormais normalisés comme le système les normalise : casse, espaces, points finaux, guillemets. Une arborescence légitime `src/<nom-racine>/` reste intacte.
+
+### Ce que la file a aussi montré
+
+L'arrêt à §13 vient d'un `SyntaxError: unterminated triple-quoted string literal` dans `src/models/organisation.py` — le défaut exact du tout premier essai Skills360, que la porte de syntaxe (HOS-121) n'a pas signalé. Non résolu : consigné, à mesurer.
+
+### Verified
+
+15 tests ajoutés. Suite : **4 129 passés, 3 ignorés, code de sortie 0** (4 114 avant).
+
 ## HOS-128 — La première file réelle a produit le faux succès qu'elle devait empêcher (2026-08-17)
 
 26 sections lancées. Résultat : **`{"faite": 26}` en 0 seconde, zéro fichier sur le disque.**

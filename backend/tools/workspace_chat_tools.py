@@ -109,14 +109,28 @@ def _sans_prefixe_redondant(candidate: Path, root: Path) -> Path:
     # On retire donc le plus long préfixe du candidat qui reproduit la fin
     # du chemin de la racine. Le cas d'origine (un seul segment) en est
     # l'instance k=1 : rien ne change pour lui.
-    # `normcase` et pas `==` : mesuré le 2026-08-16, la comparaison stricte
-    # laissait passer `users/emeri/appdata/local/temp/<racine>/b.py` — la
-    # même chose en minuscules. Sous Windows les chemins ne sont pas
-    # sensibles à la casse ; les comparer comme des chaînes recréait
-    # l'arbre fantôme pour toute variante de casse produite par le modèle.
-    # `normcase` est l'identité sous POSIX, où la casse compte vraiment.
+    # Les segments sont comparés **comme le système de fichiers les
+    # compare**, pas comme des chaînes. Trois mesures successives ont
+    # démoli trois versions plus naïves :
+    #
+    # * `==` strict (HOS-123) — cassait sur `users/emeri/...` en
+    #   minuscules ; sous Windows les chemins ne sont pas sensibles à la
+    #   casse. D'où `normcase`, qui est l'identité sous POSIX où la casse
+    #   compte vraiment ;
+    # * `normcase` seul (HOS-129) — cassait encore sur
+    #   `Users/emeri/Skill360-nuit./src/…`. Windows **supprime les points
+    #   et espaces finaux** d'un nom de dossier : le segment
+    #   `Skill360-nuit.` crée le dossier `Skill360-nuit`, mais ne lui était
+    #   pas égal. C'est ainsi qu'un arbre fantôme de six niveaux est
+    #   réapparu après deux correctifs vérifiés ;
+    # * et les guillemets, qu'un modèle ajoute parfois autour du chemin.
+    #
+    # On normalise donc les deux côtés de la comparaison. Le chemin
+    # réellement écrit, lui, garde ses segments d'origine : ce qui est
+    # retiré l'est en entier.
     def _norm(parties_: tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(os.path.normcase(p) for p in parties_)
+        return tuple(os.path.normcase(p.strip().strip("\"'").rstrip(". "))
+                     for p in parties_)
 
     racine_parties = root.parts
     normalisees, racine_normalisee = _norm(parties), _norm(racine_parties)

@@ -217,6 +217,38 @@ def lire_plan(chemin) -> Optional[set[int]]:
             if m.group(1).lower() == "x"}
 
 
+def ecrire_proteges(chemin_workspace, documents: list[str]) -> str:
+    """Déclarer les documents que le travail ne doit pas réécrire (HOS-129).
+
+    Mesuré sur la première file réelle : une mission a écrasé
+    `PROJECT_SPEC.md`, qui est passé de 23 Ko et 342 lignes à 1,2 Ko ne
+    contenant plus que la section sur laquelle elle travaillait. **La
+    source de vérité du projet a été détruite par le projet.**
+
+    Le §36 de ce cahier exigeait déjà une validation explicite pour toute
+    modification : la règle existait, rien ne la faisait respecter.
+
+    La liste est écrite à côté du plan, en clair, un chemin par ligne —
+    elle se relit et se corrige comme lui. `file_tools` la consulte à
+    chaque écriture, quel que soit l'outil appelant.
+    """
+    from pathlib import Path
+
+    from backend.tools.file_tools import FICHIER_PROTEGES
+
+    cible = Path(chemin_workspace) / FICHIER_PROTEGES
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    entete = [
+        "# Documents qui definissent le travail. Le travail ne les reecrit",
+        "# pas : une mission a deja detruit un cahier des charges de 342",
+        "# lignes en y ecrivant la section sur laquelle elle travaillait.",
+        "# Un chemin relatif par ligne ; relu a chaque ecriture.",
+    ]
+    texte = "\n".join(entete + list(documents)) + "\n"
+    cible.write_text(texte, encoding="utf-8")
+    return texte
+
+
 def bloc_de_regles(regles: list[Section]) -> str:
     """Les règles permanentes, recopiées telles quelles pour chaque mission.
 
