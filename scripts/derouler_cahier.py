@@ -46,6 +46,7 @@ def main() -> int:
         CHEMIN_PLAN, bilan, bloc_de_regles, brief_de_section, classer,
         decouper, derouler, ecrire_plan, ecrire_proteges, lire_plan,
     )
+    from backend.mission.pile import contrainte as contrainte_de_pile
 
     sections = decouper(cahier.read_text(encoding="utf-8"))
     proposees, regles = classer(sections)
@@ -90,8 +91,11 @@ def main() -> int:
 
     def lancer(section):
         print(f"\n=== §{section.numero} {section.titre} ===", flush=True)
+        # Relue a chaque section : la pile du projet peut naitre a la
+        # troisieme section et doit contraindre la quatrieme.
         objectif = brief_de_section(section, nom_du_cahier=args.cahier,
-                                    regles=bloc, racine=str(projet))
+                                    regles=bloc, racine=str(projet),
+                                    pile=contrainte_de_pile(str(projet)))
         goal = moteur.start_goal(objectif, {"local_path": str(projet)})
         rapport = moteur.get_report(goal.get("goal_id", "")) or {}
         # Le statut de l'objectif voyage avec le rapport : un objectif qui

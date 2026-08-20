@@ -1,3 +1,43 @@
+## HOS-134 — La file avait la memoire des fichiers, pas celle des decisions (2026-08-20)
+
+Septieme lancement. **Aucun defaut d'outillage** pour la premiere fois de la serie : pas d'arbre fantome, cahier intact a 23 335 octets, arret legitime a §11 sur des tests en echec reels (`AttributeError: 'PositionAuthorization' object has no attribute 'id'` — un test ecrit contre une API non implementee).
+
+L'ecart avec le sixieme lancement (§14, neuf sections) n'est pas une regression : c'est la **variance du modele**. La meme section passe ou casse selon le tirage.
+
+### Trois piles dans le meme projet
+
+| Extension | Fichiers |
+|---|---|
+| `.ts` | 14 |
+| `.sql` | 7 |
+| `.py` | 6 |
+
+Et le meme concept ecrit deux fois, dans deux langages :
+
+```
+db/migrations/20240920_create_workshops.ts
+db/migrations/20240920_create_employee_table.sql
+src/models/employee.ts        <- TypeScript
+src/models/position.py        <- Python
+```
+
+Le §5 du cahier dit « ne pas supposer une stack, determiner l'architecture par inspection ». Personne ne le faisait. C'est aussi ce qui a bloque §11 : un `PositionAuthorization` en Python, teste comme s'il suivait les conventions du modele TypeScript produit trois sections plus tot.
+
+**La memoire des fichiers ne suffisait pas.** Le journal (HOS-123) transmettait ce qui avait ete produit — la section suivante savait qu'`employee.ts` existait, et ecrivait quand meme `position.py`. Ce qui manquait n'etait pas la liste des fichiers, c'etait la **decision** qu'ils incarnent.
+
+`backend/mission/pile.py` compte les extensions sur le disque et transmet la pile dominante a chaque section, avec la mesure qui la fonde. Quatre decisions :
+
+- **mecanique, jamais un modele** — demander a un modele quelle pile il « voit » rouvrirait la porte a l'invention que ce module ferme ;
+- **`.sql`, `.md`, `.json` ne sont pas des piles** ; les compter faisait apparaitre « trois piles » la ou il y en avait deux ;
+- **sous trois fichiers, on ne dit rien** — une section peut ecrire un script isole sans que le projet ait choisi, et imposer une pile que personne n'a retenue serait la supposition meme que le §5 interdit ;
+- **changer reste possible, mais doit se dire** — interdire fabriquerait de faux echecs ; la section doit l'ecrire dans son document de decisions, pas le faire en silence.
+
+Quand plusieurs langages coexistent deja, le texte le nomme comme **un defaut de ce projet et non un modele a suivre** : sans cela, une section voyant deux langages peut conclure que le projet en accepte plusieurs.
+
+### Verified
+
+12 tests ajoutes. Suite : **4 160 passes, 3 ignores, code de sortie 0** (4 148 avant).
+
 ## HOS-133 — Le dernier cas de l'arbre fantome, et la file atteint §14 (2026-08-17)
 
 Sixieme lancement. La file va **deux fois plus loin** : arret a §14 au lieu de §6, apres neuf sections executees (6 signalees, 2 faites, 1 bloquee) en 2 h 29.

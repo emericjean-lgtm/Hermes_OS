@@ -303,7 +303,8 @@ def bloquant(verification: Optional[dict]) -> tuple[bool, str]:
 
 
 def brief_de_section(section: Section, *, nom_du_cahier: str,
-                     regles: str = "", racine: str = "") -> str:
+                     regles: str = "", racine: str = "",
+                     pile: str = "") -> str:
     """Ce qu'on demande pour une section, et rien de plus.
 
     Le corps de la section est recopié tel quel : le modèle ne doit pas
@@ -342,6 +343,13 @@ def brief_de_section(section: Section, *, nom_du_cahier: str,
     ]
     if regles:
         morceaux += ["", regles]
+    if pile:
+        # HOS-134 : mesuré sur la septième file — trois piles dans le même
+        # projet, 14 `.ts`, 7 `.sql`, 6 `.py`, et le même concept écrit
+        # deux fois dans deux langages. Le journal transmet les fichiers
+        # produits ; il ne transmettait pas la **décision** qu'ils
+        # incarnent, et chaque section rechoisissait sa pile.
+        morceaux += ["", pile]
     morceaux += [
         "",
         "Écris réellement les fichiers sur le disque, puis relis-les pour "
