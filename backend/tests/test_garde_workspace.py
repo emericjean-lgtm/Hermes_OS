@@ -1,138 +1,273 @@
-"""Le terminal de l'agent ne demande aucune permission (HOS-141).
-
-L'incident, mesuré le 2026-08-21. La frontière du client ACP a refusé
-**trois fois** une écriture hors du workspace. L'agent a alors répondu, mot
-pour mot :
-
-    The write was blocked by the ACP client.
-    Let me try using the terminal directly.
-
-et le fichier est apparu hors du workspace. `session/request_permission` ne
-porte que sur les éditions de fichiers (`kind: "edit"`) ; le terminal, lui,
-exécute sans rien demander. Refuser côté client détournait donc l'agent vers
-un chemin non gardé, sans rien empêcher.
-
-Un garde-fou existait pourtant : un hook `pre_tool_call` déclaré dans la
-configuration de l'agent. **Il pointait vers `C:/Users/emeri/hermes-ollama`,
-dossier disparu au renommage du projet.** Il ne s'exécutait plus depuis des
-mois, et rien ne le disait — la même famille de défaut que les recettes de
-modèles perdues (HOS-140). Le script vit désormais dans le dépôt.
-
-## Ce que ces tests garantissent, et ce qu'ils ne garantissent pas
-
-Ils vérifient que le garde attrape les **erreurs franches** : un chemin
-absolu qui désigne un ailleurs. C'est le cas réel — un modèle qui interprète
-mal « le répertoire courant ».
-
-Ils ne prétendent pas que le garde arrête quelqu'un qui cherche à sortir :
-une variable shell, un `$(...)`, un `cd` préalable ne se lisent pas dans une
-chaîne sans exécuter un interpréteur. La seule contrainte réelle est un
-backend d'exécution isolé (`terminal.backend: docker`).
-"""
-from __future__ import annotations
-
-import importlib.util
-import sys
-from pathlib import Path
-
-import pytest
-
-_CHEMIN = Path("config/hooks/garde_workspace.py")
-
-
-def _charger():
-    """Le hook n'est pas un module du paquet : il s'exécute seul, appelé par
-    l'agent avec son propre interpréteur."""
-    spec = importlib.util.spec_from_file_location("garde_workspace", _CHEMIN)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["garde_workspace"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-garde = _charger()
-
-WS = r"C:\Users\emeri\projet"
-
-
-class TestCeQuiEstRefuse:
-    def test_le_chemin_exact_qui_s_est_echappe(self):
-        """`C:\\Users\\emeri\\note_fuite.txt` depuis le terminal — la
-        commande qui a réellement produit un fichier hors workspace."""
-        verdict = garde.verdict(
-            {"tool_name": "terminal",
-             "tool_input": {"command": r"echo EVADE > C:\Users\emeri\note_fuite.txt"}},
-            WS)
-
-        assert verdict is not None
-        assert verdict["action"] == "block"
-        assert "note_fuite.txt" in verdict["message"]
-
-    @pytest.mark.parametrize("commande", [
-        "cat /c/Users/emeri/secret.txt",          # graphie Git Bash
-        r"copy x \\serveur\partage\y",            # partage réseau
-        "python C:/Windows/System32/x.py",        # dossier système
-    ])
-    def test_les_autres_graphies_aussi(self, commande):
-        assert garde.verdict({"tool_name": "terminal",
-                              "tool_input": {"command": commande}}, WS) is not None
-
-    def test_tous_les_arguments_sont_regardes(self):
-        """Les outils d'exécution n'ont pas tous un paramètre `command` ;
-        n'en surveiller qu'un laisserait les autres passer en silence."""
-        assert garde.verdict(
-            {"tool_name": "execute_code",
-             "tool_input": {"code": "open(r'C:/Users/emeri/x.txt','w')"}}, WS) is not None
-
-
-class TestCeQuiPasse:
-    """Un faux refus coûte autant qu'une fuite — à ceci près qu'il se voit.
-    Le garde a déjà, ailleurs, coûté trois tentatives à une écriture
-    parfaitement légitime."""
-
-    @pytest.mark.parametrize("commande", [
-        "echo ok > note.txt",                       # relatif
-        "pytest -q",                                # aucun chemin
-        r"type C:\Users\emeri\projet\src\a.py",     # dans le workspace
-        "ls src/",
-    ])
-    def test_le_travail_legitime_n_est_pas_bloque(self, commande):
-        assert garde.verdict({"tool_name": "terminal",
-                              "tool_input": {"command": commande}}, WS) is None
-
-    def test_la_casse_ne_fait_pas_une_evasion(self):
-        """Windows est insensible à la casse. Une comparaison exacte
-        refuserait le workspace lui-même écrit autrement — défaut déjà payé
-        cinq fois côté Hermes OS (HOS-129 à 133)."""
-        assert garde.verdict(
-            {"tool_name": "terminal",
-             "tool_input": {"command": r"echo x > c:\users\EMERI\Projet\a.txt"}},
-            WS) is None
-
-    def test_un_outil_non_surveille_passe(self):
-        """Les éditions de fichiers ont déjà leur frontière côté client ACP.
-        Les refuser deux fois n'ajoute rien et double le risque de faux
-        refus."""
-        assert garde.verdict(
-            {"tool_name": "write_file",
-             "tool_input": {"path": r"C:\ailleurs\x.txt"}}, WS) is None
-
-
-class TestQuandLeGardeSeTait:
-    def test_sans_workspace_il_ne_bloque_rien(self):
-        """Sans référence, tout chemin est également suspect : bloquer au
-        hasard casserait le travail légitime sans rien protéger."""
-        assert garde.verdict(
-            {"tool_name": "terminal",
-             "tool_input": {"command": r"echo x > C:\ailleurs\y.txt"}}, "") is None
-
-    def test_une_charge_malformee_ne_bloque_pas(self):
-        """Un garde-fou qui plante ne doit pas arrêter l'agent : refuser par
-        défaut transformerait la moindre anomalie de plomberie en panne
-        totale des missions."""
-        for charge in ({}, {"tool_name": "terminal"},
-                       {"tool_name": "terminal", "tool_input": "pas un dict"}):
-            assert garde.verdict(charge, WS) is None
+"""Le terminal de l'agent ne demande aucune permission (HOS-141).
+
+
+
+L'incident, mesuré le 2026-08-21. La frontière du client ACP a refusé
+
+**trois fois** une écriture hors du workspace. L'agent a alors répondu, mot
+
+pour mot :
+
+
+
+    The write was blocked by the ACP client.
+
+    Let me try using the terminal directly.
+
+
+
+et le fichier est apparu hors du workspace. `session/request_permission` ne
+
+porte que sur les éditions de fichiers (`kind: "edit"`) ; le terminal, lui,
+
+exécute sans rien demander. Refuser côté client détournait donc l'agent vers
+
+un chemin non gardé, sans rien empêcher.
+
+
+
+Un garde-fou existait pourtant : un hook `pre_tool_call` déclaré dans la
+
+configuration de l'agent. **Il pointait vers `C:/Users/emeri/hermes-ollama`,
+
+dossier disparu au renommage du projet.** Il ne s'exécutait plus depuis des
+
+mois, et rien ne le disait — la même famille de défaut que les recettes de
+
+modèles perdues (HOS-140). Le script vit désormais dans le dépôt.
+
+
+
+## Ce que ces tests garantissent, et ce qu'ils ne garantissent pas
+
+
+
+Ils vérifient que le garde attrape les **erreurs franches** : un chemin
+
+absolu qui désigne un ailleurs. C'est le cas réel — un modèle qui interprète
+
+mal « le répertoire courant ».
+
+
+
+Ils ne prétendent pas que le garde arrête quelqu'un qui cherche à sortir :
+
+une variable shell, un `$(...)`, un `cd` préalable ne se lisent pas dans une
+
+chaîne sans exécuter un interpréteur. La seule contrainte réelle est un
+
+backend d'exécution isolé (`terminal.backend: docker`).
+
+"""
+
+from __future__ import annotations
+
+
+
+import importlib.util
+
+import sys
+
+from pathlib import Path
+
+
+
+import pytest
+
+
+
+_CHEMIN = Path("config/hooks/garde_workspace.py")
+
+
+
+
+
+def _charger():
+
+    """Le hook n'est pas un module du paquet : il s'exécute seul, appelé par
+
+    l'agent avec son propre interpréteur."""
+
+    spec = importlib.util.spec_from_file_location("garde_workspace", _CHEMIN)
+
+    module = importlib.util.module_from_spec(spec)
+
+    sys.modules["garde_workspace"] = module
+
+    spec.loader.exec_module(module)
+
+    return module
+
+
+
+
+
+garde = _charger()
+
+
+
+WS = r"C:\Users\emeri\projet"
+
+
+
+
+
+class TestCeQuiEstRefuse:
+
+    def test_le_chemin_exact_qui_s_est_echappe(self):
+
+        """`C:\\Users\\emeri\\note_fuite.txt` depuis le terminal — la
+
+        commande qui a réellement produit un fichier hors workspace."""
+
+        verdict = garde.verdict(
+
+            {"tool_name": "terminal",
+
+             "tool_input": {"command": r"echo EVADE > C:\Users\emeri\note_fuite.txt"}},
+
+            WS)
+
+
+
+        assert verdict is not None
+
+        assert verdict["action"] == "block"
+
+        assert "note_fuite.txt" in verdict["message"]
+
+
+
+    @pytest.mark.parametrize("commande", [
+
+        "cat /c/Users/emeri/secret.txt",          # graphie Git Bash
+
+        r"copy x \\serveur\partage\y",            # partage réseau
+
+        "python C:/Windows/System32/x.py",        # dossier système
+
+    ])
+
+    def test_les_autres_graphies_aussi(self, commande):
+
+        assert garde.verdict({"tool_name": "terminal",
+
+                              "tool_input": {"command": commande}}, WS) is not None
+
+
+
+    def test_tous_les_arguments_sont_regardes(self):
+
+        """Les outils d'exécution n'ont pas tous un paramètre `command` ;
+
+        n'en surveiller qu'un laisserait les autres passer en silence."""
+
+        assert garde.verdict(
+
+            {"tool_name": "execute_code",
+
+             "tool_input": {"code": "open(r'C:/Users/emeri/x.txt','w')"}}, WS) is not None
+
+
+
+
+
+class TestCeQuiPasse:
+
+    """Un faux refus coûte autant qu'une fuite — à ceci près qu'il se voit.
+
+    Le garde a déjà, ailleurs, coûté trois tentatives à une écriture
+
+    parfaitement légitime."""
+
+
+
+    @pytest.mark.parametrize("commande", [
+
+        "echo ok > note.txt",                       # relatif
+
+        "pytest -q",                                # aucun chemin
+
+        r"type C:\Users\emeri\projet\src\a.py",     # dans le workspace
+
+        "ls src/",
+
+    ])
+
+    def test_le_travail_legitime_n_est_pas_bloque(self, commande):
+
+        assert garde.verdict({"tool_name": "terminal",
+
+                              "tool_input": {"command": commande}}, WS) is None
+
+
+
+    def test_la_casse_ne_fait_pas_une_evasion(self):
+
+        """Windows est insensible à la casse. Une comparaison exacte
+
+        refuserait le workspace lui-même écrit autrement — défaut déjà payé
+
+        cinq fois côté Hermes OS (HOS-129 à 133)."""
+
+        assert garde.verdict(
+
+            {"tool_name": "terminal",
+
+             "tool_input": {"command": r"echo x > c:\users\EMERI\Projet\a.txt"}},
+
+            WS) is None
+
+
+
+    def test_un_outil_non_surveille_passe(self):
+
+        """Les éditions de fichiers ont déjà leur frontière côté client ACP.
+
+        Les refuser deux fois n'ajoute rien et double le risque de faux
+
+        refus."""
+
+        assert garde.verdict(
+
+            {"tool_name": "write_file",
+
+             "tool_input": {"path": r"C:\ailleurs\x.txt"}}, WS) is None
+
+
+
+
+
+class TestQuandLeGardeSeTait:
+
+    def test_sans_workspace_il_ne_bloque_rien(self):
+
+        """Sans référence, tout chemin est également suspect : bloquer au
+
+        hasard casserait le travail légitime sans rien protéger."""
+
+        assert garde.verdict(
+
+            {"tool_name": "terminal",
+
+             "tool_input": {"command": r"echo x > C:\ailleurs\y.txt"}}, "") is None
+
+
+
+    def test_une_charge_malformee_ne_bloque_pas(self):
+
+        """Un garde-fou qui plante ne doit pas arrêter l'agent : refuser par
+
+        défaut transformerait la moindre anomalie de plomberie en panne
+
+        totale des missions."""
+
+        for charge in ({}, {"tool_name": "terminal"},
+
+                       {"tool_name": "terminal", "tool_input": "pas un dict"}):
+
+            assert garde.verdict(charge, WS) is None
+
 
 
 class TestLaTrameReelle:
@@ -215,6 +350,21 @@ class TestUnWorkspaceAvecDesEspaces:
     def test_le_workspace_lui_meme_passe(self, commande):
         assert self._dit_oui(commande), (
             "un chemin du dossier confie ne doit jamais etre refuse")
+
+    @pytest.mark.parametrize("commande", [
+        # L'agent remplace les espaces par des separateurs...
+        "ls C:" + chr(92) + "Users" + chr(92) + "emeri" + chr(92) + "Skill360"
+        + chr(92) + "Nuit" + chr(92) + "HOS-141/",
+        # ...ou le shell les echappe.
+        "cd C:" + chr(92) + "Users" + chr(92) + "emeri" + chr(92) + "Skill360"
+        + chr(92) + " Nuit" + chr(92) + " HOS-141",
+    ])
+    def test_les_deformations_du_nom_ne_sont_pas_des_evasions(self, commande):
+        """Mesure en pleine campagne : l'agent a vise le dossier confie en
+        remplacant ses espaces par des separateurs, et le garde a refuse.
+        Aucune de ces graphies ne designe un dossier reel distinct — ce sont
+        des deformations d'un seul et meme chemin."""
+        assert self._dit_oui(commande)
 
     def test_le_dossier_voisin_reste_refuse(self):
         """« Skill360 Industry » partage son premier mot avec le workspace.

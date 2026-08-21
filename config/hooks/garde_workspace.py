@@ -121,6 +121,20 @@ def _sans_le_workspace(texte: str, racine: str) -> str:
     if not racine:
         return reste
     formes = {racine, racine.replace(os.sep, "/"), racine.replace("/", os.sep)}
+    # Les graphies qu'un modele produit quand le workspace contient des
+    # espaces. Mesure du 2026-08-21, en pleine campagne : l'agent a vise
+    # « ...\Skill360\Nuit\HOS-141/ », espaces remplaces par des
+    # separateurs — refuse, alors qu'il designait le dossier confie. La
+    # variante « Skill360\ Nuit », elle, vient de l'echappement shell.
+    #
+    # Ces formes sont ajoutees parce qu'aucune ne designe un dossier reel
+    # distinct : elles sont des deformations d'un seul et meme chemin, et
+    # les refuser coute un faux refus sans rien proteger.
+    for base in list(formes):
+        if " " in base:
+            formes.add(base.replace(" ", os.sep))
+            formes.add(base.replace(" ", "/"))
+            formes.add(base.replace(" ", chr(92) + " "))
     if len(racine) > 2 and racine[1] == ":":
         # La graphie Git Bash du meme dossier, que l'agent produit
         # naturellement sous Windows.
