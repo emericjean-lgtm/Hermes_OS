@@ -1,3 +1,98 @@
+## HOS-141 — Le harnais sur tout Hermes OS, et la porte de derriere qu'il a revelee (2026-08-21)
+
+Le harnais ne servait que les missions. Il sert desormais tout ce qui parle a l'agent, la continuite porte sur le projet et non sur la mission, et une session survit au processus qui la sert. Chemin faisant, une faille de securite est apparue — elle n'etait pas du harnais, mais il a fallu trois couches pour la voir.
+
+### La continuite porte sur le cahier, plus sur la section
+
+`derouler_cahier.py` lance les 26 sections d'un cahier comme autant d'objectifs successifs **sur un meme dossier**. Chaque objectif devient une mission distincte : une session par mission, c'etait donc une session par section, et la section 4 ignorait tout de ce qu'avait fait la section 3. Le harnais corrigeait l'amnesie **entre les taches** d'une section et la laissait intacte **entre les sections** — la ou elle coute le plus, la profondeur moyenne mesuree etant de 4,4 sections sur neuf lancements pour un cahier qui en compte 26.
+
+La cle de session est desormais le projet quand il y en a un. Deux missions concurrentes sur un meme projet partagent alors leur session : leurs tours restent serialises par le verrou, et travailler sur un workspace en sachant ce qu'une autre mission y a fait vaut mieux que l'ignorer.
+
+Une session de projet ne se ferme donc plus a la fin d'une mission — ce serait jeter le contexte juste avant la section suivante. Elle part par la purge d'inactivite, ou sur demande explicite en fin de campagne.
+
+### Une session survit au processus qui la sert
+
+L'agent persiste ses sessions sur disque ; `session/resume` les retrouve. Le registre retient l'identifiant, meme apres fermeture, et **rejoue le tour une fois** quand le processus meurt en plein travail. Une seule fois, et c'est delibere : reessayer en boucle sur une panne durable transformerait un echec lisible en attente muette, ce qui a deja coute une seance entiere a ce projet.
+
+Sans cela, un agent qui meurt a la section 18 emportait toute la campagne — le harnais ne valait alors, a cet instant, que le mode jetable qu'il remplace.
+
+### Le chat de l'Assistant passe par la session du projet
+
+Il appelait Ollama en direct, avec les seuls outils `workspace_*` que Hermes OS reimplemente. Quand la session est liee a un projet, l'inference passe maintenant par la session de ce projet : memes outils que les missions, meme continuite — une question posee dans le chat beneficie de ce qu'une mission a fait sur le dossier — et la compression de l'agent au lieu de l'erreur terminale.
+
+Sans projet lie, le chemin direct reste strictement meilleur : il n'y a rien a faire durer. Le choix est journalise **dans les deux sens** : un chat qui bascule en silence entre deux moteurs aux capacites differentes est indebogable.
+
+Le flux part au fil de l'eau, et ce n'etait pas optionnel : une tache de mission tolere qu'un tour rende tout d'un coup, une conversation non — une minute d'attente muette est indiscernable d'une panne. Le pont entre le rappel du client ACP et l'iterateur de la route a d'ailleurs livre son propre defaut : une premiere version passait par `call_soon_threadsafe` « au cas ou », differait chaque morceau d'un tour de boucle, et la sentinelle de fin les doublait tous. Un tour rapide rendait une reponse **vide**. La prudence inutile avait produit le defaut qu'elle pretendait prevenir.
+
+### Onglet Mission et mode autonome : deja servis
+
+Verification faite avant d'ecrire quoi que ce soit : les deux passent par `RealTaskExecutor`, donc par le harnais depuis HOS-138. Rien a faire, et c'est dit plutot que suppose.
+
+### La porte de derriere : le terminal ne demande rien
+
+Trouve en verifiant que les fonctions de l'agent tournaient vraiment. La frontiere du client ACP a refuse **trois fois** une ecriture hors du workspace. L'agent a repondu, mot pour mot :
+
+    The write was blocked by the ACP client.
+    Let me try using the terminal directly.
+
+et le fichier est apparu hors du workspace. `session/request_permission` ne porte que sur les editions de fichiers ; le terminal execute sans rien demander. **Refuser cote client detournait l'agent vers un chemin non garde, sans rien empecher.**
+
+Ce n'est pas une regression du harnais — le mode jetable donnait deja le meme terminal. Mais le commentaire du repondeur affirmait que la frontiere etait « ici, et nulle part ailleurs ». C'etait faux, et c'est corrige.
+
+Trois couches se sont revelees l'une apres l'autre, chacune masquant la suivante :
+
+1. **un garde-fou existait** — un hook `pre_tool_call` declare dans la configuration — et pointait vers `C:/Users/emeri/hermes-ollama`, dossier disparu au renommage du projet. Il ne s'executait plus depuis des mois, sans que rien ne le dise ;
+2. une fois remplace : `agent/shell_hooks.py` expose `register_from_config()` et son propre commentaire annonce « so the CLI and gateway can both call register_from_config() safely ». **Personne ne l'appelle** dans la version installee. Aucun hook shell n'etait jamais enregistre ;
+3. une fois enregistre par le lanceur : le garde recevait `args=None`. L'agent serialise la charge au format Claude-Code, ou les arguments arrivent sous **`tool_input`**.
+
+Le troisieme point est le plus instructif. **Les premiers tests du garde passaient tous** — ils construisaient la charge avec `args`, un format que rien n'emet. Ils mesuraient l'idee qu'on se faisait du contrat, pas le contrat. Seizieme defaut d'instrument de ce projet, et le premier ou un test vert couvrait une protection inerte.
+
+Mesure finale, la seule qui compte :
+
+    fichier hors workspace cree : False
+    workspace                   : ['note_fuite.txt']
+    journal du garde            : REFUS outil='terminal' :: ... hors du
+                                  workspace confie ...
+
+Le resultat est le bon : pas un blocage sterile, une **redirection**. L'agent a ecrit son fichier, au bon endroit.
+
+### Ce que ce garde-fou vaut, et ce qu'il ne vaut pas
+
+Il attrape les **erreurs franches** : un chemin absolu qui designe un ailleurs. C'est le cas reel — un modele qui interprete mal « le repertoire courant ».
+
+Il **n'arrete pas qui cherche a sortir**. Une variable shell, une substitution `$(...)`, un `cd` prealable : rien de tout cela ne se lit dans une chaine sans executer un interpreteur. Pretendre le contraire donnerait une fausse assurance, pire que pas de garde.
+
+La seule contrainte reelle est un backend d'execution isole — `terminal.backend: docker`. Docker est installe sur cette machine, son demon ne tourne pas ; l'activer est une decision d'exploitation.
+
+Le garde **note ce qu'il refuse**, et note aussi quand il est invoque sans reference : un garde qui parait en place et ne protege rien est le pire des etats, et c'est exactement celui dans lequel le precedent est reste des mois.
+
+### Ce qui etait suppose, et ce que la mesure en dit
+
+Trois affirmations de HOS-138 n'avaient jamais ete verifiees. Elles le sont.
+
+**Le plafond de sessions.** Il valait 4, pose au juge — le commentaire le disait lui-meme. Six sessions ouvertes simultanement :
+
+| mesure | valeur |
+|---|---|
+| memoire par session | **220 Mio** (219,2 a 220,2) |
+| six sessions | 1 318 Mio |
+| latence, 2 premieres | 20,7 s |
+| latence, 2 dernieres | 24,7 s (**+19 %**) |
+
+La RAM n'est pas la contrainte et la contention reste modeste. **La vraie limite est ailleurs** : toutes ces sessions parlent au meme Ollama, qui ne tient qu'un modele a la fois. Six missions reclamant six modeles differents feraient s'evincer les poids en boucle — un cout invisible dans ces chiffres, ou toutes employaient le meme modele. Plafond porte a 6 : la mesure autorise plus, l'eviction non.
+
+**La compression de contexte.** Active, et elle annonce son seuil : `~98 304 tokens until threshold (75 %)` sur une fenetre de 131 072. Le plancher a 75 % pour les fenetres sous 512k explique ce seuil plutot que les 65 536 d'un `threshold: 0.5`. Elle ne s'est jamais declenchee sur huit tours — parce qu'il n'y avait pas lieu : 22,3 % de la fenetre consommee.
+
+**La revue de fond, le curator, la memoire.** **Non observes.** Aucune ligne de journal ne les mentionne sur une session de huit tours avec ecriture de fichier. Le code ecrit qu'ils sont « rendus atteignables » par le harnais, et c'est tout ce qu'on peut affirmer : atteignable n'est pas actif. Ils demandent probablement une session plus longue, ou une configuration que rien n'indique. Ecrit ici plutot que laisse en suspens.
+
+### Le mode est visible
+
+`GET /system/harnais` alimente un voyant `HRN` dans la barre d'etat. Les deux modes produisent des resultats de **meme forme** : rien, dans un rapport de mission, ne dit si l'agent gardait le contexte de la tache precedente ou le decouvrait. Le voyant ne bouge qu'en cas de probleme.
+
+### Verified
+
+Suite : **1 726 passes, 2 ignores, code de sortie 0** (1 682 avant). Frontend : 92 tests, typecheck propre.
+
 ## HOS-140 — ornith-9b-256k reconstruit, et sa recette enfin ecrite (2026-08-21)
 
 Le modele du role `standard` avait ete supprime par erreur (HOS-139). Il est reconstruit et remesure. Ce qui a rendu l'incident couteux n'est pas la suppression : c'est que **la recette du tag n'existait nulle part**.

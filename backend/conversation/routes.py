@@ -345,6 +345,91 @@ async def send_message(payload: dict = Body(...)) -> dict[str, Any]:
     return handle_send_message(payload.get("session_id", ""), payload.get("message", ""))
 
 
+
+async def _repondre_par_le_harnais(
+    mgr, session_id: str, message: str, intent, model_messages,
+    *, project_id: str, project_root: str,
+):
+    """Le même contrat NDJSON, servi par la session d'agent du projet.
+
+    Écrit à côté du chemin direct plutôt qu'en le remplaçant : les deux
+    doivent pouvoir coexister, parce qu'une conversation sans projet lié n'a
+    rien à faire durer et que le chemin direct lui reste strictement
+    meilleur.
+
+    Ce qui est délibérément identique : la clôture d'historique passe par
+    `mgr.finish_stream` dans un `finally`, donc une réponse partielle
+    devient de l'historique réel même si l'utilisateur raccroche. La perdre
+    désynchroniserait le tour suivant — le module de conversation croirait
+    avoir dit ce que l'agent n'a jamais dit.
+    """
+    from backend.conversation import harnais as _harnais
+
+    modele = _modele_du_role_standard()
+    flux, verdict = await _harnais.repondre(
+        message, project_id=project_id, project_root=project_root,
+        modele=modele)
+
+    async def _corps() -> AsyncIterator[str]:
+        recu: list[str] = []
+        try:
+            async for morceau in flux:
+                if morceau.kind == "content":
+                    recu.append(morceau.text)
+                yield json.dumps({"kind": morceau.kind, "text": morceau.text},
+                                 ensure_ascii=False) + "\n"
+        except Exception as exc:  # coupure en cours : on garde ce qui est arrivé
+            logger.warning("flux de conversation par le harnais interrompu",
+                           exc_info=True)
+            yield json.dumps({"kind": "error",
+                              "error": f"{type(exc).__name__}: {exc}"},
+                             ensure_ascii=False) + "\n"
+        finally:
+            reponse = "".join(recu)
+            mgr.finish_stream(session_id, reponse, metadata={
+                "model": modele, "intent": intent.intent.value,
+                "runtime": "hermes-agent-acp",
+            })
+
+        # `inputTokens` est **cumulatif** sur la session, pas une occupation
+        # de fenêtre : le lire comme telle affichait 133 687 là où l'agent
+        # déclarait 29 176 sur 131 072. On garde donc ici la même estimation
+        # que le chemin direct, qui porte sur ce tour et sur rien d'autre.
+        caracteres = sum(len(m.get("content", "")) for m in model_messages)
+        yield json.dumps({
+            "kind": "done", "session_id": session_id,
+            "intent": {"type": intent.intent.value,
+                       "confidence": intent.confidence,
+                       "domain": intent.domain},
+            "context": {"used_tokens_estimate": max(1, (caracteres + len(reponse)) // 4),
+                        "window": _harnais.fenetre_de(modele)},
+            "runtime": "hermes-agent-acp",
+        }, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(_corps(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Hermes-Runtime": "hermes-agent-acp"})
+
+
+def _modele_du_role_standard() -> str:
+    """Le modèle que le harnais doit servir pour une conversation.
+
+    Le rôle `standard` est décrit par le catalogue comme « conversation
+    générale, écriture, extraction » — c'est littéralement ce cas d'usage.
+    On ne passe pas par le ModelRouter : la session tient son propre modèle
+    et n'en change que sur demande explicite, alors que le routeur décide
+    par tour. Faire basculer le modèle à chaque message reconstruirait
+    l'agent à chaque fois, pour un gain que rien ne mesure.
+    """
+    try:
+        from backend.core.config import load_models_config
+
+        return str((load_models_config().get("roles") or {})
+                   .get("standard", {}).get("model") or "")
+    except Exception:  # pragma: no cover - catalogue illisible
+        logger.debug("rôle standard illisible", exc_info=True)
+        return ""
+
 @router.post("/stream")
 async def stream_message(payload: dict = Body(...)) -> StreamingResponse:
     """Streamed reply, token by token (HOS-074).
@@ -398,6 +483,25 @@ async def stream_message(payload: dict = Body(...)) -> StreamingResponse:
         return await _execute_conversation_tool(
             name, arguments, project_id=project_id, project_root=project_root or "",
         )
+
+    # Harnais (HOS-141) : quand la session est liee a un projet, l'inference
+    # passe par la session d'agent de ce projet — memes outils que les
+    # missions, meme continuite, et la compression de l'agent au lieu de
+    # l'erreur terminale quand la conversation s'allonge. Sans projet, le
+    # chemin direct reste strictement meilleur : il n'y a rien a faire durer.
+    #
+    # Le choix est journalise dans les deux sens. Un chat qui bascule en
+    # silence entre deux moteurs aux capacites differentes est indebogable :
+    # la meme question donnerait deux reponses sans que rien n'explique
+    # l'ecart.
+    from backend.conversation import harnais as _harnais
+
+    _par_harnais, _pourquoi = _harnais.disponible(project_root or "")
+    if _par_harnais:
+        return await _repondre_par_le_harnais(
+            mgr, session_id, message, intent, model_messages,
+            project_id=project_id, project_root=project_root or "")
+    logger.info("chat servi en direct (sans harnais) : %s", _pourquoi)
 
     decision = None
     events: AsyncIterator[Any] | None = None

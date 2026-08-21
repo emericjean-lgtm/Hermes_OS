@@ -117,12 +117,35 @@ def main() -> int:
         rapport = moteur.get_report(goal.get("goal_id", "")) or {}
         return {**rapport, "statut_objectif": goal.get("status")}
 
+    def fermer_la_session_de_campagne():
+        try:
+            import asyncio
+
+            from backend.projects.store import get_project_store
+            from backend.ral.adapters.sessions_de_mission import registre
+
+            projet_enregistre = get_project_store().ensure_for_path(str(projet))
+            if projet_enregistre is None:
+                return
+            asyncio.run(registre().fermer_projet(projet_enregistre.id))
+        except Exception:
+            # Une session qui survit quelques minutes de trop ne justifie
+            # pas de faire echouer un cahier qui vient d'aboutir.
+            pass
+
     def tracer(etape):
         print(f"  -> {etape.statut} (passe {etape.passes})  ({etape.qualite or 'sans verdict'})"
               + (f"  {etape.detail}" if etape.detail else ""), flush=True)
 
     etapes = derouler(a_faire, lancer=lancer, reparer=reparer,
                       on_etape=tracer, max_passes=2)
+    # La session du harnais traverse volontairement les sections — c'est ce
+    # qui donne a la section 4 ce qu'a fait la section 3. Elle ne se ferme
+    # donc a aucune fin de mission : sans ce point de sortie, elle
+    # attendrait sa purge d'inactivite, une demi-heure apres le dernier
+    # travail utile.
+    fermer_la_session_de_campagne()
+
     resultat = bilan(etapes)
     resultat["duree_reelle_s"] = round(time.monotonic() - depart)
 

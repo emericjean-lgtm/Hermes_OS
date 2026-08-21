@@ -372,11 +372,23 @@ class GraphExecutor:
         ramasse-miettes d'inactivité du registre reste derrière elle.
         """
         try:
-            from backend.ral.adapters.sessions_de_mission import registre
+            from backend.ral.adapters.sessions_de_mission import (
+                porte_sur_une_mission_seule,
+                registre,
+            )
 
             sessions = registre()
-            if not sessions.connait(mission_id):
-                return  # mission servie en mode jetable : rien à fermer
+            cle = f"mission:{mission_id}"
+            if not sessions.connait(cle):
+                # Soit la mission a été servie en mode jetable, soit sa
+                # session porte sur le **projet** et traverse volontairement
+                # les missions — un cahier enchaîne ses sections sur un même
+                # dossier, et fermer ici jetterait le contexte juste avant la
+                # section suivante. Ces sessions-là partent par la purge
+                # d'inactivité, ou sur demande explicite en fin de campagne.
+                return
+            if not porte_sur_une_mission_seule(cle):  # pragma: no cover
+                return
             import asyncio
 
             try:
@@ -384,13 +396,13 @@ class GraphExecutor:
             except RuntimeError:
                 boucle = None
             if boucle is None:
-                asyncio.run(sessions.fermer(mission_id))
+                asyncio.run(sessions.fermer(cle))
             else:
                 # `asyncio.run` lèverait ici. Ce chemin s'exécute
                 # habituellement dans le threadpool de FastAPI, sans boucle ;
                 # mais un appelant asynchrone ne doit pas se traduire par une
                 # session qui traîne jusqu'à sa purge.
-                boucle.create_task(sessions.fermer(mission_id))
+                boucle.create_task(sessions.fermer(cle))
         except Exception:  # noqa: BLE001 - une clôture ne casse pas la mission
             logger.debug("fermeture de la session de mission %s", mission_id,
                          exc_info=True)

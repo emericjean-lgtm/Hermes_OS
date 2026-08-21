@@ -52,14 +52,69 @@ from backend.ral.adapters.hermes_agent_acp import (
 logger = logging.getLogger("hermes_os.ral.sessions")
 
 #: Au-delà, on retombe sur le mode jetable plutôt que d'ouvrir un processus
-#: de plus. Quatre agents résidents tiennent en RAM à côté d'Ollama ; le
-#: chiffre est un garde-fou, pas une mesure.
-PLAFOND_SESSIONS = 4
+#: de plus.
+#:
+#: Le chiffre valait 4 et était posé au jugé — le commentaire d'origine le
+#: disait : « un garde-fou, pas une mesure ». Mesuré depuis, six sessions
+#: ouvertes simultanément sur cette machine :
+#:
+#:     220 Mio par session (219,2 à 220,2 — remarquablement stable)
+#:     1 318 Mio au total pour six
+#:     latence d'un tour : 20,7 s pour les deux premières,
+#:                         24,7 s pour les deux dernières (+19 %)
+#:
+#: La RAM n'est donc pas la contrainte, et la contention reste modeste.
+#: **La vraie limite est ailleurs** : toutes ces sessions parlent au même
+#: Ollama, qui ne tient qu'un modèle à la fois
+#: (`OLLAMA_MAX_LOADED_MODELS=1`). Six missions réclamant six modèles
+#: différents feraient s'évincer les poids en boucle — un coût qui ne se
+#: voit pas dans les chiffres ci-dessus, parce qu'elles employaient toutes
+#: le même modèle.
+#:
+#: D'où six et non davantage : la mesure autorise plus, l'éviction non.
+PLAFOND_SESSIONS = 6
 
 #: Une mission qui ne s'est pas manifestée depuis une demi-heure a
 #: probablement échoué sans le dire. Sans cette purge, son processus agent
 #: survivrait au serveur qui l'a lancé.
 TTL_INACTIVITE_S = 1800.0
+
+
+def cle_de_session(runtime_ctx: dict) -> str:
+    """Sur quoi la continuité doit porter : le projet, sinon la mission.
+
+    Une mission par section, c'est une session par section — et la section 4
+    ignore alors tout de ce qu'a fait la section 3. Or c'est exactement le
+    cas d'usage : `derouler_cahier.py` lance les 26 sections d'un cahier
+    comme autant d'objectifs successifs **sur le même dossier**, donc sur le
+    même Project. Grouper par projet donne la continuité à toute la campagne.
+
+    Deux missions concurrentes sur un même projet partagent alors leur
+    session. Ce n'est pas un accident : leurs tours restent sérialisés par
+    le verrou de session, et travailler sur le même workspace en sachant ce
+    que l'autre y a fait vaut mieux que l'ignorer. La fenêtre se remplit
+    plus vite, et c'est la compression de l'agent qui prend le relais — la
+    raison même pour laquelle elle a été rendue atteignable.
+
+    Sans projet, on retombe sur la mission : une mission isolée n'a rien à
+    partager avec personne.
+    """
+    projet = str(runtime_ctx.get("project_id") or "").strip()
+    if projet:
+        return f"projet:{projet}"
+    mission = str(runtime_ctx.get("mission_id") or "").strip()
+    return f"mission:{mission}" if mission else ""
+
+
+def porte_sur_une_mission_seule(cle: str) -> bool:
+    """La clé est-elle propre à une seule mission ?
+
+    Décide qui a le droit de fermer la session à la fin d'une mission. Une
+    session de projet survit à la mission qui l'a ouverte — la fermer
+    reviendrait à jeter le contexte juste avant la section suivante, soit
+    précisément l'amnésie qu'on corrige.
+    """
+    return cle.startswith("mission:")
 
 
 @dataclass
@@ -87,6 +142,13 @@ class SessionsDeMission:
         # mesurait le tick du système, pas la règle d'expiration.
         self._horloge = horloge or time.monotonic
         self._verrou = asyncio.Lock()
+        # Les identifiants de session **survivent a la fermeture**. L'agent
+        # persiste ses sessions sur disque : garder l'identifiant permet de
+        # reprendre le contexte apres un processus mort, ou apres un
+        # redemarrage du backend. Sans cela, un agent qui meurt a la section
+        # 18 d'un cahier emporte toute la campagne — et le harnais ne
+        # vaudrait alors, a cet instant, que le mode jetable qu'il remplace.
+        self._identifiants: dict[str, str] = {}
 
     # -- interrogation ------------------------------------------------
 
@@ -125,10 +187,36 @@ class SessionsDeMission:
         async with self._verrou:
             await self._fermer_sans_verrou(cle)
 
+    async def fermer_projet(self, project_id: str) -> None:
+        """Fin de campagne : libère la session qui traversait les missions.
+
+        Une session de projet ne se ferme pas à la fin d'une mission — c'est
+        tout son intérêt. Sans ce point de sortie, elle attendrait la purge
+        d'inactivité, soit une demi-heure de processus retenu après le
+        dernier travail utile.
+        """
+        await self.fermer(f"projet:{project_id}")
+
     async def fermer_tout(self) -> None:
         async with self._verrou:
             for cle in list(self._entrees):
                 await self._fermer_sans_verrou(cle)
+
+    async def _ouvrir(self, cle: str, workspace: str) -> _Entree:
+        """Ouvre — ou **reprend** — la session de cette clé."""
+        client = self._fabrique()
+        session = await client.ouvrir(
+            workspace, reprendre=self._identifiants.get(cle, ""))
+        identifiant = getattr(session, "session_id", "") if session else ""
+        if identifiant:
+            self._identifiants[cle] = identifiant
+        reprise = bool(getattr(session, "reprise", False))
+        logger.info("session %s %s sur %s", cle,
+                    "reprise" if reprise else "ouverte", workspace)
+        entree = _Entree(client=client, workspace=workspace,
+                         derniere_activite=self._horloge())
+        self._entrees[cle] = entree
+        return entree
 
     # -- usage --------------------------------------------------------
 
@@ -154,11 +242,17 @@ class SessionsDeMission:
 
     async def tour(self, cle: str, workspace: str, texte: str, *,
                    amorce: str = "", modele: str = "",
-                   delai: float = DELAI_TOUR_S) -> Tour:
+                   delai: float = DELAI_TOUR_S,
+                   au_fil_de_l_eau: Any = None) -> Tour:
         """Un tour dans la session de cette mission, ouverte au besoin.
 
         `amorce` n'est envoyée qu'au **premier** tour : c'est le contexte de
         mission, que l'agent conserve ensuite lui-même.
+
+        `au_fil_de_l_eau(genre, fragment)` reçoit chaque morceau au moment
+        où il arrive. Une tâche de mission n'en a pas besoin ; une
+        conversation si, où une minute d'attente muette ne se distingue pas
+        d'une panne.
 
         `modele` est appliqué à la session quand il change. Sans cela, le
         routeur de Hermes OS choisirait un modèle par tâche que personne
@@ -180,12 +274,7 @@ class SessionsDeMission:
                 if len(self._entrees) >= self._plafond:
                     raise RuntimeError(
                         f"plafond de {self._plafond} sessions atteint")
-                client = self._fabrique()
-                await client.ouvrir(workspace)
-                entree = _Entree(client=client, workspace=workspace,
-                                 derniere_activite=self._horloge())
-                self._entrees[cle] = entree
-                logger.info("session de mission %s ouverte sur %s", cle, workspace)
+                entree = await self._ouvrir(cle, workspace)
 
         if modele:
             # Hors du verrou du registre : la bascule est un aller-retour
@@ -195,7 +284,24 @@ class SessionsDeMission:
 
         premier = entree.tours == 0
         message = f"{amorce}\n\n{texte}" if (premier and amorce) else texte
-        resultat = await entree.client.tour(message, delai=delai)
+        try:
+            resultat = await entree.client.tour(
+                message, delai=delai, au_fil_de_l_eau=au_fil_de_l_eau)
+        except Exception as erreur:  # noqa: BLE001 - une seule reprise
+            # Un processus d'agent mort en plein tour ne doit pas emporter la
+            # campagne. L'agent persiste ses sessions : on rouvre, on reprend
+            # l'identifiant, et on rejoue **le tour, une fois**.
+            #
+            # Une seule fois, et c'est delibere : reessayer en boucle sur une
+            # panne persistante transformerait un echec lisible en attente
+            # muette, ce qui a deja coute une seance entiere a ce projet.
+            logger.warning("session %s perdue en plein tour (%s) — reprise",
+                           cle, erreur)
+            async with self._verrou:
+                await self._fermer_sans_verrou(cle)
+                entree = await self._ouvrir(cle, workspace)
+            resultat = await entree.client.tour(
+                message, delai=delai, au_fil_de_l_eau=au_fil_de_l_eau)
         entree.tours += 1
         entree.derniere_activite = self._horloge()
         return resultat

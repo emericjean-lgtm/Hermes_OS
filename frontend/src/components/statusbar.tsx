@@ -1,6 +1,6 @@
 "use client";
 
-import { useSystemStatistics } from "@/hooks/use-api";
+import { useHarnais, useSystemStatistics } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
 
 /** The footer readout.
@@ -14,6 +14,7 @@ import { useCockpitStore } from "@/hooks/use-store";
  *  the whole page reflow on load. */
 export function StatusBar() {
   const { data: stats } = useSystemStatistics();
+  const { data: harnais } = useHarnais();
   const { liveEvents } = useCockpitStore();
 
   const n = (v: unknown) => (typeof v === "number" ? v : null);
@@ -42,6 +43,36 @@ export function StatusBar() {
     >
       <div className="pointer-events-none absolute top-0 left-0 h-px w-full
         bg-gradient-to-r from-hermes-border-bright/50 to-transparent" />
+
+      {/* HOS-141 — Hermes Agent tourne-t-il en session tenue ouverte, ou
+          jeté après chaque tâche ? Les deux modes rendent des résultats de
+          **même forme** : sans ce voyant, la dégradation ne se voit nulle
+          part. Il ne bouge qu'en cas de problème — c'est le seul endroit de
+          l'écran qui n'appelle jamais l'attention, donc ce qui s'y allume
+          est vraiment une information. */}
+      <div
+        className="flex items-center gap-1.5 px-3.5 h-full border-r border-hermes-border/60 shrink-0 first:pl-5"
+        title={
+          harnais === undefined
+            ? "État du harnais inconnu"
+            : harnais.pret
+              ? `Session d'agent tenue ouverte — ${harnais.sessions_ouvertes} en cours`
+              : `Mode jetable : un agent sans mémoire par tâche. ${harnais.explication}`
+        }
+      >
+        <span className="tech-label !text-[8.5px]">HRN</span>
+        <span
+          className={`num text-[10.5px] ${
+            harnais === undefined
+              ? "text-hermes-muted"
+              : harnais.pret
+                ? "text-hermes-sodium"
+                : "text-hermes-amber"
+          }`}
+        >
+          {harnais === undefined ? "––" : harnais.pret ? harnais.sessions_ouvertes : "!"}
+        </span>
+      </div>
 
       {readouts.map((r) => (
         <div

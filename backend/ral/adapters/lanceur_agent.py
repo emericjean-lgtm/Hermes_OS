@@ -119,6 +119,39 @@ def isoler_les_sous_processus() -> None:
     subprocess.Popen.__init__ = __init__
 
 
+def enregistrer_les_hooks() -> str:
+    """Branche les hooks `pre_tool_call` declares dans la config de l'agent.
+
+    Mesure du 2026-08-21 : `agent/shell_hooks.py` expose
+    `register_from_config()`, et son propre commentaire annonce « so the CLI
+    and gateway can both call register_from_config() safely ». **Personne ne
+    l'appelle** dans la version installee — ni la CLI, ni la passerelle, ni
+    l'adaptateur ACP. Les hooks declares en configuration ne sont donc jamais
+    enregistres, et le blocage `pre_tool_call` reste lettre morte.
+
+    Consequence mesuree : la frontiere du client ACP refuse une ecriture hors
+    du workspace, l'agent repond « Let me try using the terminal directly »,
+    et le fichier apparait — parce que le terminal, lui, n'est garde par
+    rien.
+
+    L'enregistrement se fait ici plutot que dans l'arbre de l'agent : un
+    `hermes update` effacerait le correctif sans rien dire, comme la
+    confusion des deux environnements Python de HOS-103.
+
+    Ne leve jamais. Un garde-fou qui refuse de demarrer ne doit pas empecher
+    l'agent de travailler — mais il rend ce qu'il a fait, pour que
+    l'appelant puisse le **dire** au lieu de le supposer.
+    """
+    try:
+        from agent.shell_hooks import register_from_config
+        from hermes_cli.config import load_config
+
+        poses = register_from_config(load_config())
+        return f"{len(poses)} hook(s) shell enregistre(s)"
+    except Exception as erreur:  # noqa: BLE001 - jamais bloquant
+        return f"hooks shell non enregistres : {type(erreur).__name__}: {erreur}"
+
+
 def main(argv: list[str] | None = None) -> None:
     """Attend la racine de l'agent en premier argument.
 
@@ -135,6 +168,11 @@ def main(argv: list[str] | None = None) -> None:
     sys.path.insert(0, racine)
 
     isoler_les_sous_processus()
+    # Sur la sortie d'erreur : c'est le seul canal de diagnostic du harnais,
+    # et un garde-fou silencieux ne se distingue pas d'un garde-fou absent.
+    sys.stderr.write(f"[lanceur] {enregistrer_les_hooks()}" + chr(10))
+    sys.stderr.flush()
+
     # `run_module` et non un import : `acp_adapter/__main__.py` attend
     # d'être le point d'entrée, et `sys.argv[0]` sert à son analyse
     # d'arguments.

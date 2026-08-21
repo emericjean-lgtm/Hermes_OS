@@ -34,3 +34,6 @@ data/generated/
 
 # Verrou de session du CLI Claude Code (non lié au projet)
 .claude/scheduled_tasks.lock
+
+# Trace d execution du garde-fou (HOS-141), pas du code.
+config/hooks/*.log

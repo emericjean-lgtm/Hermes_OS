@@ -102,7 +102,9 @@ class TestQuandLeHarnaisSert:
         _appel(_executeur(), registre, _Prerequis(True), contexte, monkeypatch)
 
         cle, workspace, _, amorce, modele = registre.appels[0]
-        assert (cle, workspace) == ("m-7", "/ws")
+        # Pas de `project_id` dans ce contexte : on retombe sur la mission,
+        # prefixee pour dire sur quoi porte la continuite (HOS-141).
+        assert (cle, workspace) == ("mission:m-7", "/ws")
         assert "m-7" in amorce, "le contexte de mission doit amorcer la session"
         # Le routeur de Hermes OS choisit un modele par tache. Une session
         # qui ne l'apprend jamais ferait de ce choix une decoration —
@@ -155,7 +157,7 @@ class TestQuandOnRetombeSurLeModeJetable:
                          monkeypatch)
 
         assert reponse is None
-        assert registre.fermetures == ["m-7"]
+        assert registre.fermetures == ["mission:m-7"]
 
 
 class TestLeDefautVientDeLEnvironnement:
@@ -216,3 +218,41 @@ class TestLesTagsDeModeleNommesDansLeCode:
         assert _HERMES_AGENT_FALLBACK_MODEL in connus, (
             f"{_HERMES_AGENT_FALLBACK_MODEL!r} n'est affecte a aucun role du "
             f"catalogue ; connus : {sorted(c for c in connus if c)}")
+
+
+class TestLaContinuiteEntreLesSectionsDUnCahier:
+    """Le cas qui motive HOS-141, verifie sur le chemin d'execution reel.
+
+    `derouler_cahier.py` lance les 26 sections d'un cahier comme autant
+    d'objectifs successifs sur un meme dossier. Chaque objectif devient une
+    mission distincte : sans regroupement par projet, chaque section
+    repartait d'un agent qui ne savait rien de la precedente.
+    """
+
+    def test_deux_missions_d_un_meme_projet_partagent_leur_session(
+            self, monkeypatch):
+        registre = _RegistreFactice(Tour(texte="fait", stop="end_turn"))
+        executeur = _executeur()
+        base = {"workspace": "/ws", "project_id": "p-cahier"}
+
+        _appel(executeur, registre, _Prerequis(True),
+               {**base, "mission_id": "section-3"}, monkeypatch)
+        _appel(executeur, registre, _Prerequis(True),
+               {**base, "mission_id": "section-4"}, monkeypatch)
+
+        cles = {appel[0] for appel in registre.appels}
+        assert cles == {"projet:p-cahier"}, (
+            "deux sections d'un meme cahier doivent tomber sur une seule "
+            f"session ; vues : {cles}")
+
+    def test_la_mission_reste_lisible_dans_les_metadonnees(self, monkeypatch):
+        """Grouper par projet ne doit pas effacer quelle mission a travaille
+        — un rapport qui ne nomme plus sa mission est intracable."""
+        registre = _RegistreFactice(Tour(texte="fait", stop="end_turn"))
+
+        reponse = _appel(_executeur(), registre, _Prerequis(True),
+                         {"workspace": "/ws", "project_id": "p-1",
+                          "mission_id": "m-42"}, monkeypatch)
+
+        assert reponse.metadata["mission_id"] == "m-42"
+        assert reponse.metadata["session"] == "projet:p-1"

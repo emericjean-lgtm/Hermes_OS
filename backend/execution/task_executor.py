@@ -687,10 +687,17 @@ class RealTaskExecutor:
             _messages_to_prompt,
         )
         from backend.ral.adapters.prerequis_harnais import verifier
-        from backend.ral.adapters.sessions_de_mission import registre
+        from backend.ral.adapters.sessions_de_mission import (
+            cle_de_session,
+            registre,
+        )
         from backend.ral.capabilities import ChatResponse
 
-        cle = str(runtime_ctx.get("mission_id") or "")
+        # La continuité porte sur le **projet** quand il y en a un, pas sur
+        # la mission : un cahier lance ses sections comme autant de missions
+        # successives sur un même dossier, et une session par section les
+        # rendrait de nouveau étrangères les unes aux autres.
+        cle = cle_de_session(runtime_ctx)
         workspace = str(runtime_ctx.get("workspace") or "")
         if not self._harnais_actif or not cle or not workspace:
             return None
@@ -707,7 +714,7 @@ class RealTaskExecutor:
         sessions = registre()
         ok, raison = await sessions.disponible_pour(cle)
         if not ok:
-            logger.info("harnais écarté pour la mission %s : %s", cle, raison)
+            logger.info("harnais écarté pour %s : %s", cle, raison)
             return None
 
         try:
@@ -716,7 +723,7 @@ class RealTaskExecutor:
                 amorce=_format_context({**runtime_ctx, "model": model}),
                 modele=model, delai=self._agentic_timeout_s)
         except Exception as erreur:  # noqa: BLE001 - le repli reste ouvert
-            logger.warning("harnais en échec sur la mission %s : %s", cle, erreur)
+            logger.warning("harnais en échec sur %s : %s", cle, erreur)
             await sessions.fermer(cle)
             return None
 
@@ -734,7 +741,11 @@ class RealTaskExecutor:
             metadata={
                 "runtime": "hermes-agent-acp",
                 "model": model,
-                "mission_id": cle,
+                "mission_id": str(runtime_ctx.get("mission_id") or ""),
+                # La clé dit sur quoi porte la continuité — un opérateur
+                # qui voit `projet:...` sait que la session traverse les
+                # missions, ce qu'un identifiant de mission cacherait.
+                "session": cle,
                 "tours_de_session": sessions.tours_de(cle),
                 "stop_reason": tour.stop,
                 "input_tokens": tour.jetons_entree,

@@ -77,6 +77,16 @@ export function useSystemStatistics() {
 // session, silently. react-query's default retry (providers.tsx) gives it
 // two more attempts, and isError/refetch let the caller show and recover
 // from a real, persistent failure instead of hiding it.
+/** L'état du harnais, rafraîchi régulièrement : il change sans action de
+ *  l'utilisateur — un backend qui redémarre, une session qui se ferme. */
+export function useHarnais() {
+  return useQuery({
+    queryKey: ["system", "harnais"],
+    queryFn: systemClient.harnais,
+    refetchInterval: 15_000,
+  });
+}
+
 export function useSystemModelRoles() {
   return useQuery({ queryKey: ["system", "models"], queryFn: systemClient.models });
 }

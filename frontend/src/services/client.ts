@@ -185,8 +185,20 @@ export const systemClient = {
    *  qu'Ollama tient réellement chargé. Alimente le sélecteur de modèle
    *  manuel de l'Assistant : chaque rôle proposé est un vrai modèle avec
    *  un vrai num_ctx, pas une liste inventée côté frontend. */
-  models: () => fetchJSON<{ roles: SystemModelRoleDTO[]; loaded_count: number }>("/system/models"),
+  models: () => fetchJSON<{ roles: SystemModelRoleDTO[]; loaded_count: number; roles_sans_modele: string[] }>("/system/models"),
+  /** HOS-141 — le harnais sert-il vraiment, ou est-on retombé sur un agent
+   *  jeté après chaque tâche ? Les deux modes produisent des résultats de
+   *  **même forme** : sans cette route, la dégradation est invisible. */
+  harnais: () => fetchJSON<HarnaisDTO>("/system/harnais"),
 };
+
+export interface HarnaisDTO {
+  actif: boolean;
+  pret: boolean;
+  explication: string;
+  prerequis: { agent_installe: boolean; backend_joignable: boolean; mcp_declare: boolean };
+  sessions_ouvertes: number;
+}
 
 export interface SystemModelRoleDTO {
   role: string;
@@ -194,7 +206,12 @@ export interface SystemModelRoleDTO {
   tier: string;
   vram_gb: number | null;
   always_loaded: boolean;
+  /** Résident en VRAM. Sur cette machine un seul modèle l'est à la fois :
+   *  `false` est donc le cas **normal**, pas une anomalie. */
   loaded: boolean;
+  /** Présent sur le disque. `null` quand Ollama est injoignable — « on ne
+   *  sait pas » n'est pas « absent » (HOS-139). */
+  installe: boolean | null;
   description: string;
 }
 

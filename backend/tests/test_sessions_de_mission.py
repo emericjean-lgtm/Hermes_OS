@@ -28,6 +28,9 @@ class _ClientFactice:
     def __init__(self, *, disponible=(True, "")) -> None:
         self.recus: list[str] = []
         self.ouvertures: list[str] = []
+        self.reprises: list[str] = []
+        self.session_id = ""
+        self.reprise = False
         self.fermetures = 0
         self.modeles: list[str] = []
         self._modele = ""
@@ -36,11 +39,19 @@ class _ClientFactice:
     def disponible(self):
         return self._disponible
 
-    async def ouvrir(self, cwd):
+    async def ouvrir(self, cwd, *, reprendre=""):
         self.ouvertures.append(cwd)
+        self.reprises.append(reprendre)
+        # Meme contrat que le vrai client : l'identifiant rendu est celui
+        # qu'on reprend, ou un neuf. `reprise` dit lequel des deux.
+        self.session_id = reprendre or f"s-{len(self.ouvertures)}"
+        self.reprise = bool(reprendre)
+        return self
 
-    async def tour(self, texte, *, delai=0):
+    async def tour(self, texte, *, delai=0, au_fil_de_l_eau=None):
         self.recus.append(texte)
+        if au_fil_de_l_eau is not None:
+            au_fil_de_l_eau("reponse", "fait")
         return Tour(texte="fait", stop="end_turn")
 
     async def choisir_modele(self, modele):
@@ -277,3 +288,106 @@ class TestLeModeleSuitLeRouteur:
         asyncio.run(registre.tour("m-1", "/ws", "x"))
 
         assert clients[0].modeles == []
+
+
+class TestLeFluxAuFilDeLEau:
+    """Une conversation ne peut pas attendre la fin du tour.
+
+    Une tache de mission tolere qu'un tour rende tout d'un coup ; une
+    conversation non — une minute d'attente muette est indiscernable d'une
+    panne, et c'est ce que le chat de l'Assistant montrerait si le harnais
+    ne savait qu'assembler.
+    """
+
+    def test_les_morceaux_traversent_le_registre(self):
+        registre, _ = _registre()
+        vus: list[tuple[str, str]] = []
+
+        asyncio.run(registre.tour("m-1", "/ws", "x",
+                                  au_fil_de_l_eau=lambda g, f: vus.append((g, f))))
+
+        assert vus == [("reponse", "fait")]
+
+    def test_sans_observateur_rien_ne_change(self):
+        """Le chemin des missions ne doit pas payer pour celui du chat."""
+        registre, clients = _registre()
+
+        tour = asyncio.run(registre.tour("m-1", "/ws", "x"))
+
+        assert tour.abouti and clients[0].recus == ["x"]
+
+
+class _ClientQuiMeurt(_ClientFactice):
+    """Un agent dont le processus meurt **une fois**, puis repart.
+
+    C'est le scenario reel : le tube se ferme, `_echanger` leve « flux ferme
+    par l'agent », et tout le contexte de la campagne part avec lui si rien
+    ne le reprend.
+
+    Le compteur est partage entre les instances, et c'est le point : une
+    premiere version le portait sur chaque client, si bien que le client
+    ouvert **pour la reprise** remourait aussitot. Le test echouait alors sur
+    un defaut de son propre echafaudage, pas sur le code mesure.
+    """
+
+    def __init__(self, morts: list):
+        super().__init__()
+        self._morts = morts
+
+    async def tour(self, texte, *, delai=0, au_fil_de_l_eau=None):
+        if not self._morts:
+            self._morts.append(1)
+            raise RuntimeError("flux ferme par l'agent")
+        return await super().tour(texte, delai=delai,
+                                  au_fil_de_l_eau=au_fil_de_l_eau)
+
+
+class TestLaRepriseApresIncident:
+    """Un agent qui meurt a la section 18 d'un cahier ne doit pas emporter
+    la campagne. L'agent persiste ses sessions : l'identifiant retenu permet
+    de reprendre le contexte plutot que de repartir de rien.
+    """
+
+    def test_l_identifiant_est_retenu_et_repropose(self):
+        registre, clients = _registre()
+
+        async def scenario():
+            await registre.tour("m-1", "/ws", "a")
+            await registre.fermer("m-1")
+            await registre.tour("m-1", "/ws", "b")
+
+        asyncio.run(scenario())
+
+        assert len(clients) == 2, "un nouveau processus, donc un nouveau client"
+        # Le premier ouvre a neuf, le second reprend ce que le premier a rendu.
+        assert clients[0].reprises == [""]
+        assert clients[1].reprises == [clients[0].session_id]
+
+    def test_un_tour_perdu_est_rejoue_une_fois(self):
+        clients: list[_ClientQuiMeurt] = []
+        morts: list = []
+
+        def fabrique():
+            clients.append(_ClientQuiMeurt(morts))
+            return clients[-1]
+
+        registre = SessionsDeMission(fabrique=fabrique)
+
+        tour = asyncio.run(registre.tour("m-1", "/ws", "travail"))
+
+        assert tour.abouti, "le tour doit aboutir apres reprise"
+        assert len(clients) == 2, "la session morte doit etre rouverte"
+        assert clients[1].recus == ["travail"], "le tour est rejoue tel quel"
+
+    def test_une_panne_persistante_reste_une_panne(self):
+        """Une seule reprise, et c'est delibere : reessayer en boucle sur
+        une panne durable transformerait un echec lisible en attente muette
+        — ce qui a deja coute une seance entiere a ce projet."""
+        class _ToujoursMort(_ClientFactice):
+            async def tour(self, texte, *, delai=0, au_fil_de_l_eau=None):
+                raise RuntimeError("flux ferme par l'agent")
+
+        registre = SessionsDeMission(fabrique=_ToujoursMort)
+
+        with pytest.raises(RuntimeError, match="flux ferme"):
+            asyncio.run(registre.tour("m-1", "/ws", "travail"))

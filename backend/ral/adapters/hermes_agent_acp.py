@@ -154,6 +154,10 @@ class SessionAgent:
     #: rebasculer à chaque tour sur un modèle déjà en place : chaque bascule
     #: reconstruit l'agent côté Hermes Agent.
     modele: str = ""
+    #: Vrai quand l'agent a retrouve la session demandee, faux quand il en a
+    #: recree une. La difference est invisible dans le protocole et decisive
+    #: pour l'appelant : une reprise garde le contexte, une recreation non.
+    reprise: bool = False
     _lecteur: Any = None
 
     def derniers_signes(self, n: int = 4) -> str:
@@ -186,7 +190,19 @@ class HermesAgentACP:
             return False, f"acp_adapter absent sous {self._racine}"
         return True, ""
 
-    async def ouvrir(self, cwd: str) -> SessionAgent:
+    async def ouvrir(self, cwd: str, *, reprendre: str = "") -> SessionAgent:
+        """Ouvre une session, en reprenant `reprendre` si c'est possible.
+
+        L'agent persiste ses sessions sur disque : une session survit donc
+        au processus qui l'a servie, et `session/resume` la retrouve. Sans
+        cela, un agent qui meurt à la section 18 d'un cahier emporte tout le
+        contexte de la campagne — et le harnais ne vaudrait plus, à cet
+        instant précis, que le mode jetable qu'il remplace.
+
+        `session/resume` recrée une session neuve quand l'identifiant est
+        introuvable. C'est le bon comportement et il est voulu ici : perdre
+        le contexte est regrettable, refuser de travailler serait pire.
+        """
         ok, raison = self.disponible()
         if not ok:
             raise RuntimeError(raison)
@@ -199,6 +215,11 @@ class HermesAgentACP:
             cwd=str(self._racine),
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            # Le workspace confié, pour le garde-fou `pre_tool_call` de
+            # `config/hooks/garde_workspace.py`. Le terminal de l'agent ne
+            # demande aucune permission : sans cette référence, le hook n'a
+            # rien à quoi comparer et se tait.
+            env={**os.environ, "HERMES_OS_WORKSPACE": str(Path(cwd).resolve())},
         )
         session = SessionAgent(cwd=cwd, proc=proc)
         session.verrou = asyncio.Lock()
@@ -210,6 +231,25 @@ class HermesAgentACP:
             "clientCapabilities": {"fs": {"readTextFile": False,
                                           "writeTextFile": False}},
         }, DELAI_ETABLISSEMENT_S, [])
+        if reprendre:
+            reponse = await self._echanger(
+                session, "session/resume",
+                {"cwd": cwd, "sessionId": reprendre, "mcpServers": []},
+                DELAI_ETABLISSEMENT_S, [])
+            # `session/resume` peut rendre un identifiant different du
+            # demande : c'est alors qu'il n'a pas retrouve l'ancien et en a
+            # cree un neuf. On lit donc ce qu'il rend, sans jamais supposer
+            # que c'est celui qu'on a demande.
+            rendu = (reponse.get("result") or {}).get("sessionId", "") or reprendre
+            session.session_id = rendu
+            session.reprise = (rendu == reprendre)
+            logger.info("session ACP %s : %s (%s)",
+                        "reprise" if session.reprise else "recreee", rendu, cwd)
+            if session.session_id:
+                return session
+            logger.warning("reprise de %s sans identifiant : on repart a neuf",
+                           reprendre)
+
         reponse = await self._echanger(session, "session/new",
                                        {"cwd": cwd, "mcpServers": []},
                                        DELAI_ETABLISSEMENT_S, [])
@@ -219,11 +259,20 @@ class HermesAgentACP:
         logger.info("session ACP ouverte : %s (%s)", session.session_id, cwd)
         return session
 
-    async def tour(self, texte: str, *, delai: float = DELAI_TOUR_S) -> Tour:
-        """Un tour, dans le contexte accumulé."""
+    async def tour(self, texte: str, *, delai: float = DELAI_TOUR_S,
+                   au_fil_de_l_eau: Any = None) -> Tour:
+        """Un tour, dans le contexte accumulé.
+
+        `au_fil_de_l_eau(genre, fragment)` est appelé pour chaque morceau
+        reçu, `genre` valant `"reponse"` ou `"pensee"`. Sans lui, le tour
+        n'est rendu qu'à la fin — acceptable pour une tâche de mission,
+        pas pour une conversation, où l'attente muette d'une minute est
+        indiscernable d'une panne.
+        """
         if self._session is None or not self._session.session_id:
             raise RuntimeError("aucune session ouverte")
-        return await self._prompt(self._session, texte, delai)
+        return await self._prompt(self._session, texte, delai,
+                                  au_fil_de_l_eau=au_fil_de_l_eau)
 
     async def choisir_modele(self, modele: str) -> bool:
         """Change le modèle **sans perdre le contexte** de la session.
@@ -303,7 +352,8 @@ class HermesAgentACP:
                 logger.debug("agent: %s", texte)
 
     async def _echanger(self, session: SessionAgent, methode: str,
-                        params: dict, delai: float, collecte: list) -> dict:
+                        params: dict, delai: float, collecte: list, *,
+                        au_fil_de_l_eau: Any = None) -> dict:
         session.compteur += 1
         identifiant = session.compteur
         message = {"jsonrpc": "2.0", "id": identifiant,
@@ -350,6 +400,16 @@ class HermesAgentACP:
             # Notification. Le texte de la réponse ne voyage QUE par là :
             # le résultat JSON-RPC ne porte que stopReason et usage.
             collecte.append(recu)
+            if au_fil_de_l_eau is not None:
+                genre, fragment = self.morceau(recu)
+                if genre and fragment:
+                    try:
+                        au_fil_de_l_eau(genre, fragment)
+                    except Exception:  # noqa: BLE001 - un observateur ne
+                        # casse pas le tour qu'il observe : le client peut
+                        # avoir raccroché, le travail lui continue.
+                        logger.debug("observateur de flux en échec",
+                                     exc_info=True)
 
 
     @staticmethod
@@ -425,12 +485,38 @@ class HermesAgentACP:
         pendant que le dossier confié restait vide.
 
         Le `cwd` d'une session ACP *oriente* l'agent ; il ne le contraint
-        pas. La frontière est **ici**, et nulle part ailleurs : rien en
-        aval ne repassera par Aegis, puisque l'agent écrit par ses propres
-        outils.
+        pas. Rien en aval ne repassera par Aegis, puisque l'agent écrit par
+        ses propres outils.
 
         Un chemin qu'on ne sait pas situer est refusé. Ne pas savoir n'est
         pas une raison d'autoriser.
+
+        ## Ce que cette frontière ne couvre pas
+
+        Une version antérieure de ce commentaire affirmait que la frontière
+        était « ici, et nulle part ailleurs ». **C'était faux**, et la
+        mesure l'a démenti le 2026-08-21 : trois demandes `write_file` vers
+        un chemin hors workspace, trois refus — puis, mot pour mot dans la
+        réponse de l'agent :
+
+            The write was blocked by the ACP client.
+            Let me try using the terminal directly.
+
+        Le fichier est apparu hors du workspace.
+
+        `session/request_permission` ne porte que sur les **éditions de
+        fichiers** (`kind: "edit"`). Le terminal de l'agent, lui, ne demande
+        aucune permission : il exécute. Refuser ici détourne donc l'agent
+        vers un chemin non gardé, sans rien empêcher.
+
+        Ce n'est pas une régression du harnais — le mode jetable donnait
+        déjà le même terminal à l'agent. C'est une propriété de Hermes
+        Agent, conçu pour tourner avec la confiance de son utilisateur.
+
+        La seule contrainte réelle est un backend d'exécution isolé
+        (`terminal.backend: docker`), qui est une décision d'exploitation.
+        À défaut, `config/hooks/` pose un garde-fou côté agent : il attrape
+        les erreurs franches, il n'arrête pas qui cherche à sortir.
         """
         methode = requete.get("method", "")
         if methode.endswith("request_permission"):
@@ -466,7 +552,7 @@ class HermesAgentACP:
         session.proc.stdin.write((json.dumps(reponse) + "\n").encode())
 
     async def _prompt(self, session: SessionAgent, texte: str,
-                      delai: float) -> Tour:
+                      delai: float, *, au_fil_de_l_eau: Any = None) -> Tour:
         collecte: list = []
         async with session.verrou:
             try:
@@ -474,7 +560,7 @@ class HermesAgentACP:
                     session, "session/prompt",
                     {"sessionId": session.session_id,
                      "prompt": [{"type": "text", "text": texte}]},
-                    delai, collecte)
+                    delai, collecte, au_fil_de_l_eau=au_fil_de_l_eau)
             except Exception as erreur:  # noqa: BLE001 - un tour ne casse rien
                 # Le motif seul ne dit rien d'un tour qui expire : « aucune
                 # réponse en 900 s » n'oriente vers rien. Ce que l'agent
@@ -484,6 +570,29 @@ class HermesAgentACP:
                                    + (f" — dernier signe de l'agent : {signes}"
                                       if signes else ""))
         return self.lire(reponse, collecte)
+
+    @staticmethod
+    def morceau(notification: dict) -> tuple[str, str]:
+        """Ce qu'une notification porte : `(genre, texte)`.
+
+        Partagé par le flux au fil de l'eau et par l'assemblage final, pour
+        qu'ils ne puissent pas diverger. Les avoir écrits deux fois aurait
+        laissé le direct montrer autre chose que ce que la conversation
+        garde — et c'est le direct que l'utilisateur croit.
+
+        `genre` vaut `"reponse"`, `"pensee"`, ou `""` pour tout le reste :
+        une session émet aussi des mises à jour d'outils et de plan, qui ne
+        sont ni l'une ni l'autre.
+        """
+        maj = (notification.get("params") or {}).get("update") or {}
+        contenu = maj.get("content") or {}
+        fragment = contenu.get("text", "") if isinstance(contenu, dict) else ""
+        genre = maj.get("sessionUpdate")
+        if genre == "agent_message_chunk":
+            return "reponse", fragment
+        if genre == "agent_thought_chunk":
+            return "pensee", fragment
+        return "", ""
 
     @staticmethod
     def lire(reponse: dict, notifications: list) -> Tour:
@@ -499,13 +608,10 @@ class HermesAgentACP:
         morceaux: list[str] = []
         pensees: list[str] = []
         for notification in notifications:
-            maj = (notification.get("params") or {}).get("update") or {}
-            genre = maj.get("sessionUpdate")
-            contenu = maj.get("content") or {}
-            fragment = contenu.get("text", "") if isinstance(contenu, dict) else ""
-            if genre == "agent_message_chunk":
+            genre, fragment = HermesAgentACP.morceau(notification)
+            if genre == "reponse":
                 morceaux.append(fragment)
-            elif genre == "agent_thought_chunk":
+            elif genre == "pensee":
                 pensees.append(fragment)
         return Tour(
             texte="".join(morceaux),
