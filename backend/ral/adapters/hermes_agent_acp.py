@@ -44,17 +44,28 @@ import asyncio
 import json
 import logging
 import os
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger("hermes_os.ral.acp")
 
+#: Combien de lignes du journal de l'agent on garde sous la main. Assez pour
+#: qu'un blocage soit explicable — le diagnostic du 21 août tenait dans les
+#: quatre dernières —, assez peu pour ne pas retenir une session entière.
+LIGNES_DE_JOURNAL = 200
+
 #: Un tour d'agent sur du travail réel : plusieurs inférences, des appels
 #: d'outils, parfois une compression. Même ordre de grandeur que
 #: `_HERMES_AGENT_TIMEOUT_S`, pour la même raison mesurée.
 DELAI_TOUR_S = 900.0
 DELAI_ETABLISSEMENT_S = 120.0
+
+
+#: Le lanceur vit à côté de ce module et s'exécute avec l'interpréteur de
+#: **l'agent**, pas celui de Hermes OS.
+LANCEUR = Path(__file__).with_name("lanceur_agent.py")
 
 
 def _racine_agent() -> Path:
@@ -91,6 +102,19 @@ class SessionAgent:
     proc: Any = None
     compteur: int = 0
     verrou: Any = field(default=None)
+    #: Les dernières lignes de la sortie d'erreur de l'agent. Jeter ce flux
+    #: dans `DEVNULL` a rendu invisible, une séance entière durant, un
+    #: blocage que ses quatre dernières lignes expliquaient.
+    journal: Any = field(default_factory=lambda: deque(maxlen=LIGNES_DE_JOURNAL))
+    #: Le modèle actuellement servi par la session. Retenu pour ne pas
+    #: rebasculer à chaque tour sur un modèle déjà en place : chaque bascule
+    #: reconstruit l'agent côté Hermes Agent.
+    modele: str = ""
+    _lecteur: Any = None
+
+    def derniers_signes(self, n: int = 4) -> str:
+        """Ce que l'agent disait juste avant de se taire."""
+        return " | ".join(list(self.journal)[-n:])
 
 
 class HermesAgentACP:
@@ -123,12 +147,18 @@ class HermesAgentACP:
         if not ok:
             raise RuntimeError(raison)
         proc = await asyncio.create_subprocess_exec(
-            str(self._python), "-m", "acp_adapter", cwd=str(self._racine),
+            # Jamais `-m acp_adapter` directement : le lanceur interdit aux
+            # sous-processus de l'agent d'hériter du canal ACP, sans quoi le
+            # premier outil fichier de chaque mission bloque pour toujours.
+            # Voir `lanceur_agent.py` pour la mesure.
+            str(self._python), str(LANCEUR), str(self._racine),
+            cwd=str(self._racine),
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
         session = SessionAgent(cwd=cwd, proc=proc)
         session.verrou = asyncio.Lock()
+        session._lecteur = asyncio.create_task(self._suivre_journal(session))
         self._session = session
 
         await self._echanger(session, "initialize", {
@@ -151,10 +181,49 @@ class HermesAgentACP:
             raise RuntimeError("aucune session ouverte")
         return await self._prompt(self._session, texte, delai)
 
+    async def choisir_modele(self, modele: str) -> bool:
+        """Change le modèle **sans perdre le contexte** de la session.
+
+        Le routeur de Hermes OS choisit un modèle par tâche ; une session
+        ouverte au premier modèle et jamais informée ensuite ferait de ce
+        choix une décoration. `session/set_model` est la méthode que l'agent
+        expose déjà pour cela — on ne réimplémente rien.
+
+        Ce qui rend l'opération sûre est côté agent, et vaut d'être écrit
+        ici parce que rien ne le laisse deviner : `set_session_model`
+        reconstruit `state.agent` mais **ne touche pas à `state.history`**.
+        Le contexte accumulé traverse donc le changement de modèle — ce qui
+        est exactement ce qu'on veut d'une mission qui alterne un petit
+        modèle d'exécution et un plus grand pour une étape difficile.
+
+        Rend `False` plutôt que de lever : un changement de modèle refusé
+        dégrade la tâche, il ne l'annule pas.
+        """
+        session = self._session
+        if session is None or not session.session_id:
+            raise RuntimeError("aucune session ouverte")
+        if not modele or modele == session.modele:
+            return True
+        async with session.verrou:
+            try:
+                await self._echanger(
+                    session, "session/set_model",
+                    {"sessionId": session.session_id, "modelId": modele},
+                    DELAI_ETABLISSEMENT_S, [])
+            except Exception as erreur:  # noqa: BLE001 - dégrade, n'annule pas
+                logger.warning("modèle %r refusé par l'agent : %s", modele, erreur)
+                return False
+        session.modele = modele
+        logger.info("session %s : modèle basculé sur %s",
+                    session.session_id, modele)
+        return True
+
     async def fermer(self) -> None:
         session, self._session = self._session, None
         if session is None or session.proc is None:
             return
+        if session._lecteur is not None:
+            session._lecteur.cancel()
         try:
             session.proc.terminate()
             await asyncio.wait_for(session.proc.wait(), timeout=10)
@@ -165,6 +234,29 @@ class HermesAgentACP:
                 pass
 
     # -- plomberie ---------------------------------------------------
+
+    @staticmethod
+    async def _suivre_journal(session: SessionAgent) -> None:
+        """Draine la sortie d'erreur de l'agent, sans jamais la jeter.
+
+        Deux raisons, la seconde apprise le 21 août :
+
+        1. un tube que personne ne vide finit par se remplir, et l'agent
+           bloque alors sur sa propre journalisation ;
+        2. c'est la seule source qui explique un blocage. `MCP: registered
+           0 tool(s)` disait tout, et partait dans `DEVNULL`.
+        """
+        flux = session.proc.stderr
+        if flux is None:
+            return
+        while True:
+            ligne = await flux.readline()
+            if not ligne:
+                return
+            texte = ligne.decode("utf-8", "replace").rstrip()
+            if texte:
+                session.journal.append(texte)
+                logger.debug("agent: %s", texte)
 
     async def _echanger(self, session: SessionAgent, methode: str,
                         params: dict, delai: float, collecte: list) -> dict:
@@ -190,16 +282,27 @@ class HermesAgentACP:
                 recu = json.loads(ligne.decode("utf-8", "replace"))
             except json.JSONDecodeError:
                 continue
-            if recu.get("id") == identifiant:
-                return recu
             if recu.get("method") and recu.get("id") is not None:
                 # **Une requête, pas une notification.** L'agent interroge
                 # le client — `session/request_permission` avant toute
                 # écriture — et attend une réponse. La traiter comme une
                 # notification bloque le tour indéfiniment : mesuré, le
                 # tour « crée un fichier » n'est jamais revenu.
+                #
+                # Testé AVANT l'identifiant, et l'ordre est tout. Les deux
+                # sens numérotent dans le même espace — l'agent à partir de
+                # 0, nous à partir de 1 — si bien qu'une demande de
+                # permission finit par porter l'identifiant du tour en
+                # cours. Testé après, on la prenait pour notre réponse :
+                # le tour rendait la main sans `stopReason`, tandis que
+                # l'agent attendait pour toujours une permission qui ne
+                # venait plus. Mesuré le 2026-08-21 — le fichier était bien
+                # écrit, la tâche suivante recevait « Redirected the active
+                # turn », et rien dans le protocole ne le disait.
                 await self._repondre(session, recu)
                 continue
+            if recu.get("id") == identifiant:
+                return recu
             # Notification. Le texte de la réponse ne voyage QUE par là :
             # le résultat JSON-RPC ne porte que stopReason et usage.
             collecte.append(recu)
@@ -326,7 +429,13 @@ class HermesAgentACP:
                      "prompt": [{"type": "text", "text": texte}]},
                     delai, collecte)
             except Exception as erreur:  # noqa: BLE001 - un tour ne casse rien
-                return Tour(erreur=f"{type(erreur).__name__}: {erreur}")
+                # Le motif seul ne dit rien d'un tour qui expire : « aucune
+                # réponse en 900 s » n'oriente vers rien. Ce que l'agent
+                # disait juste avant, si.
+                signes = session.derniers_signes()
+                return Tour(erreur=f"{type(erreur).__name__}: {erreur}"
+                                   + (f" — dernier signe de l'agent : {signes}"
+                                      if signes else ""))
         return self.lire(reponse, collecte)
 
     @staticmethod

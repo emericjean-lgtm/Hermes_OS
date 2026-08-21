@@ -1,3 +1,83 @@
+## HOS-138 — Le harnais entre en service, et le canal cesse d'etre partage (2026-08-21)
+
+HOS-137 avait ouvert la session ACP mais l'avait laissee hors du chemin d'execution, en le disant. Elle y est desormais : `RealTaskExecutor` sert chaque tache de mission par une session vivante, et retombe sur le mode jetable en journalisant **pourquoi**.
+
+### La relation est bidirectionnelle
+
+Hermes OS lance l'agent — et **l'agent rappelle Hermes OS** par MCP pour obtenir ses outils. Backend eteint, le journal de l'agent dit :
+
+    MCP server 'hermes-ollama' failed initial connection after 3 attempts
+    [WinError 1225] Le systeme distant a refuse la connexion reseau
+    MCP: registered 0 tool(s) from 0 server(s) (1 failed)
+
+Backend demarre : **16 outils enregistres**. Rien dans le protocole ACP ne signalait la difference ; le tour ne revenait simplement jamais. `prerequis_harnais.py` transforme ce blocage muet en une phrase, avant qu'il ne se produise.
+
+### Le blocage qui a coute la journee, et ce qui l'a resolu
+
+Chaque mission bloquait sur son **premier outil fichier**. Le journal s'arretait sur `Creating new local environment for task default...` et plus rien. Trois dumps de pile a 45 s d'intervalle : le meme point a chaque fois, `tools/environments/local.py:911`, la sonde qui verifie que Git Bash demarre, bloquee dans `subprocess.communicate`. Hors ACP, cette sonde rend en **0,1 s**.
+
+Quatre variantes lancees *dans le processus ACP lui-meme*, cinq fois de suite, identiques a chaque fois :
+
+| variante | issue |
+|---|---|
+| reference, stdin herite | bloque > 20 s |
+| `stdin=DEVNULL` | code 0, **0,1 s** |
+| sans `creationflags`, stdin herite | bloque > 20 s |
+| tout en `DEVNULL` | code 0, **0,1 s** |
+
+`creationflags` etait hors de cause : **c'est l'heritage de stdin**. Sous ACP, l'entree standard *est* le transport JSON-RPC ; un enfant qui en herite lit des octets qui ne lui sont pas destines. Le blocage est definitif bien que la sonde se donne `timeout=15`, parce que sur Windows `subprocess.run` rattrape son propre delai puis rappelle `communicate()` **sans delai**, et ce second appel joint des threads lecteurs qui n'atteindront jamais EOF.
+
+Et des que la sonde a cesse de bloquer, `note.txt` est apparu dans le workspace : **l'ecriture n'echouait pas, elle n'avait jamais lieu.**
+
+`lanceur_agent.py` pose l'invariant — aucun sous-processus de l'agent n'herite du canal ACP — cote Hermes OS et non dans l'arbre de l'agent, qu'un `hermes update` effacerait sans rien dire (meme classe de piege que HOS-103). `stderr` est explicitement epargne : c'est la seule fenetre de diagnostic, et l'avoir jete dans `DEVNULL` est ce qui a rendu ce blocage invisible une seance durant.
+
+### Les deux sens numerotent dans le meme espace
+
+Defaut suivant, trouve sur une mission reelle et non en relisant du code. `_echanger` testait l'identifiant **avant** de regarder la nature de la trame. L'agent numerote ses requetes a partir de 0, le client a partir de 1 : les identifiants finissent par se croiser. Une demande de permission portant l'identifiant du tour en cours etait donc prise pour la reponse au tour.
+
+Consequence mesuree : le tour rendait la main sans `stopReason` — donc non abouti, sans erreur, sans rien a lire — pendant que l'agent restait en attente d'une permission qui ne viendrait plus. La tache suivante recevait pour toute reponse « Redirected the active turn with your correction. »
+
+**Le fichier demande etait pourtant bien ecrit sur le disque.** Un rapport qui se serait fie au tour aurait conclu a un echec sur un travail reussi — l'exacte symetrie de « ne jamais croire un succes sur parole ». Le discriminant est `method` : une reponse JSON-RPC n'en porte jamais. L'ordre des deux tests est le correctif entier, et les trois tests de collision echouent quand on le remet a l'envers (verifie).
+
+### Ce que la continuite change, mesure
+
+Deux taches d'une meme mission, par le chemin de production :
+
+| verdict | mesure |
+|---|---|
+| harnais reellement choisi | `runtime = hermes-agent-acp` |
+| fichier **sur le disque** | `notes.md` contenant `PALIER-UN` |
+| contexte herite | la tache 2 nomme le fichier de la tache 1 **sans relire le disque** |
+| une seule session | 2 tours, 1 processus |
+
+Le troisieme verdict est impossible en mode jetable, et c'est tout l'objet du chantier.
+
+### Le modele suit le routeur, et le contexte survit
+
+Le routeur de Hermes OS choisit un modele par tache. Une session ouverte au premier modele et jamais informee ensuite aurait fait de ce choix une decoration — **regression silencieuse** par rapport au mode jetable, qui relancait tout et appliquait donc le modele a chaque fois. `session/set_model` est la methode que l'agent expose deja ; on ne reimplemente rien.
+
+Mesure, temoin ancre sous un modele et redemande a l'autre :
+
+    tour 1 sous lfm2.5-2.6b-125k   -> OK              entree 15 637
+    bascule vers qwen3.5-9b-256k   -> acceptee
+    tour 2 sous qwen3.5-9b-256k    -> BASCULE-7741    entree 15 766
+
+Journal de l'agent : deux modeles distincts sur les deux tours. **Le contexte traverse le changement de modele** — cote agent, `set_session_model` reconstruit l'agent sans toucher a `state.history`.
+
+### Deux tests qui mesuraient la machine
+
+`test_hermes_agent_is_the_brain.py` s'est mis a lancer un **vrai agent** et a bloquer jusqu'au timeout de pytest : la garde reseau de `conftest.py` autorise la boucle locale, si bien qu'un backend en fonctionnement sur le poste suffisait a satisfaire les prerequis du harnais. Le test mesurait l'etat de la machine, pas le code. `HERMES_HARNAIS=0` coupe le harnais pour toute la suite, d'un seul endroit ; un test qui veut l'exercer passe `harnais_actif=True`.
+
+Et une purge de session testee en dormant 10 ms avec un TTL nul passait seule, echouait dans la suite complete : `time.monotonic` a une resolution d'environ 15 ms sous Windows, le delta pouvait valoir exactement zero. L'horloge du registre est desormais injectable, et le test la pilote au lieu de l'attendre.
+
+### Amendement a HOS-137
+
+L'entree HOS-137 annonce « 4 212 passes, 3 ignores (4 197 avant) ». **Ces chiffres sont faux** et ne correspondent a aucune execution de cette suite. Mesure sur le meme HEAD : **1 614 passes, 2 ignores**. Conserve tel quel plutot que reecrit en silence, selon la convention du depot.
+
+### Verified
+
+50 tests ajoutes. Suite : **1 664 passes, 2 ignores, code de sortie 0** (1 614 avant).
+
 ## HOS-137 — Hermes Agent tenu ouvert, et la frontiere qui manquait (2026-08-21)
 
 `hermes_agent_cli.py` lance `cli.py` en sous-processus **jete apres chaque tache**. Aucun etat ne survit — et l'agent implemente pourtant, dans ses 134 modules, la compression de contexte (`context_compressor.py`), la revue de fond apres chaque tour (`background_review.py`), la maintenance des skills (`curator.py`), l'orchestration de la memoire (`memory_manager.py`) et une garde de fin de tour sur les editions de code (`verification_stop.py`).

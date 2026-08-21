@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -126,6 +127,16 @@ _HERMES_AGENT_FALLBACK_MODEL = "lfm2.5-2.6b-128k"
 #: task in a mission failed with "runtime 'hermes-agent' timed out" —
 #: producing a mission that ran for 12 minutes and completed 0/5 tasks.
 _HERMES_AGENT_TIMEOUT_S = 900.0
+
+
+def _harnais_par_defaut() -> bool:
+    """Le harnais est-il en service ?
+
+    Actif sauf mention contraire : c'est le mode normal depuis HOS-138.
+    `HERMES_HARNAIS=0` ramène au mode jetable, un processus par tâche.
+    """
+    return os.environ.get("HERMES_HARNAIS", "1").strip().lower() not in (
+        "0", "false", "non", "off")
 
 
 class RuntimeUnavailableError(RuntimeError):
@@ -273,8 +284,18 @@ class RealTaskExecutor:
         agentic_capable_for: Optional[Callable[[str], Optional[bool]]] = None,
         agentic_fallback_model: str = _HERMES_AGENT_FALLBACK_MODEL,
         agentic_timeout_s: float = _HERMES_AGENT_TIMEOUT_S,
+        harnais_actif: Optional[bool] = None,
     ) -> None:
         self._agentic_timeout_s = agentic_timeout_s
+        # Le harnais — une session d'agent qui dure toute la mission —
+        # est le mode normal. Le défaut vient de l'environnement pour
+        # qu'un opérateur puisse revenir au mode jetable sans
+        # redéployer, et surtout pour que la suite de tests puisse le
+        # couper d'un seul endroit : autrement un test unitaire
+        # lancerait un vrai agent dès que le backend tourne sur la
+        # machine, et mesurerait donc l'état du poste, pas le code.
+        self._harnais_actif = (_harnais_par_defaut() if harnais_actif is None
+                               else bool(harnais_actif))
         self._hermes_toolsets = hermes_toolsets
         self._mission_brief_for = mission_brief_for
         self._upstream_results_for = upstream_results_for
@@ -620,6 +641,10 @@ class RealTaskExecutor:
             )
 
             model = self._agentic_model(model)
+            harnais = await self._par_le_harnais(
+                messages, model=model, runtime_ctx=runtime_ctx)
+            if harnais is not None:
+                return harnais
             runtime = HermesAgentCliRuntime(
                 HermesAgentCliConfig(model=model, timeout_seconds=self._agentic_timeout_s)
             )
@@ -634,6 +659,86 @@ class RealTaskExecutor:
             })
 
         return _chat
+
+    async def _par_le_harnais(
+        self, messages: list[dict[str, Any]], *, model: str,
+        runtime_ctx: dict[str, Any],
+    ) -> Any:
+        """Le tour dans la session vivante de la mission, ou ``None``.
+
+        ``None`` signifie « pas par ici » et l'appelant retombe sur le mode
+        jetable. Chaque refus est journalisé avec sa raison : un repli
+        silencieux vers un agent amnésique est indiscernable d'un succès, et
+        c'est exactement ce qui a laissé des missions contourner l'agent
+        sans que rien ne l'indique (HERMES_AGENT_BYPASS_DETECTED).
+
+        Ce que le harnais apporte ici et que le mode jetable ne peut pas
+        offrir : la tâche N+1 hérite du contexte de la tâche N, donc de ce
+        que l'agent a déjà lu, écrit et compris du workspace.
+        """
+        from backend.ral.adapters.hermes_agent_cli import (
+            _format_context,
+            _messages_to_prompt,
+        )
+        from backend.ral.adapters.prerequis_harnais import verifier
+        from backend.ral.adapters.sessions_de_mission import registre
+        from backend.ral.capabilities import ChatResponse
+
+        cle = str(runtime_ctx.get("mission_id") or "")
+        workspace = str(runtime_ctx.get("workspace") or "")
+        if not self._harnais_actif or not cle or not workspace:
+            return None
+
+        etat = verifier()
+        if not etat.pret:
+            # `warning` et non `info` : le mode normal est le harnais. Un
+            # prérequis manquant — presque toujours le backend éteint, dont
+            # l'agent tire ses outils par MCP — dégrade toute la mission vers
+            # un agent amnésique. Un plafond atteint, lui, reste nominal.
+            logger.warning("harnais écarté : %s", etat.explication())
+            return None
+
+        sessions = registre()
+        ok, raison = await sessions.disponible_pour(cle)
+        if not ok:
+            logger.info("harnais écarté pour la mission %s : %s", cle, raison)
+            return None
+
+        try:
+            tour = await sessions.tour(
+                cle, workspace, _messages_to_prompt(messages),
+                amorce=_format_context({**runtime_ctx, "model": model}),
+                modele=model, delai=self._agentic_timeout_s)
+        except Exception as erreur:  # noqa: BLE001 - le repli reste ouvert
+            logger.warning("harnais en échec sur la mission %s : %s", cle, erreur)
+            await sessions.fermer(cle)
+            return None
+
+        if not tour.abouti:
+            # Un tour qui n'aboutit pas n'est pas une réponse. Le rendre
+            # quand même ferait passer une session bloquée pour un modèle
+            # laconique — « ni un échec sur parole », mais pas un succès sur
+            # parole non plus.
+            logger.warning("harnais : tour non abouti sur %s (stop=%r) %s",
+                           cle, tour.stop, tour.erreur)
+            return None
+
+        return ChatResponse(
+            content=tour.texte,
+            metadata={
+                "runtime": "hermes-agent-acp",
+                "model": model,
+                "mission_id": cle,
+                "tours_de_session": sessions.tours_de(cle),
+                "stop_reason": tour.stop,
+                "input_tokens": tour.jetons_entree,
+                "output_tokens": tour.jetons_sortie,
+                # Le raisonnement est séparé à la source par l'agent ; les
+                # confondre a déjà fait compter 316 mots là où le modèle en
+                # avait écrit 7.
+                "reasoning_chars": len(tour.pensee),
+            },
+        )
 
     def _agentic_model(self, model: str) -> str:
         """Keep Hermes Agent off models that cannot drive its tool loop.

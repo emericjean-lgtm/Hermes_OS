@@ -249,6 +249,16 @@ class GraphExecutor:
                         mission.status = MissionStatus.COMPLETED if all_success else MissionStatus.FAILED
                         mission.completed_at = datetime.now(timezone.utc)
 
+                        # La session d'agent de cette mission n'a plus de
+                        # raison d'être (HOS-138). Sans cette ligne, elle ne
+                        # part qu'au bout de sa demi-heure d'inactivité — un
+                        # processus Python complet retenu pour rien, sur une
+                        # machine dont les 16 Go de VRAM sont déjà le facteur
+                        # limitant. Ici plutôt que dans l'exécuteur de tâche :
+                        # c'est le seul endroit qui sache qu'une mission est
+                        # finie, quelle qu'en soit l'issue.
+                        self._fermer_session_de_mission(mission.mission_id)
+
                         verification = self._verify_workspace(mission, all_success)
                         if verification is not None:
                             # Gardé sur la mission, pas seulement publié
@@ -351,6 +361,39 @@ class GraphExecutor:
                 self._snapshots[mission.mission_id] = snapshot(root)
         except Exception:  # pragma: no cover - diagnostics never block a run
             logger.debug("workspace snapshot failed", exc_info=True)
+
+    @staticmethod
+    def _fermer_session_de_mission(mission_id: str) -> None:
+        """Libère l'agent tenu ouvert pour cette mission (HOS-138).
+
+        Ne lève jamais, et n'ouvre rien : appelée sous le verrou, sur le
+        chemin de clôture d'une mission. Une fermeture qui échouerait ne
+        doit pas transformer une mission terminée en mission en erreur — le
+        ramasse-miettes d'inactivité du registre reste derrière elle.
+        """
+        try:
+            from backend.ral.adapters.sessions_de_mission import registre
+
+            sessions = registre()
+            if not sessions.connait(mission_id):
+                return  # mission servie en mode jetable : rien à fermer
+            import asyncio
+
+            try:
+                boucle = asyncio.get_running_loop()
+            except RuntimeError:
+                boucle = None
+            if boucle is None:
+                asyncio.run(sessions.fermer(mission_id))
+            else:
+                # `asyncio.run` lèverait ici. Ce chemin s'exécute
+                # habituellement dans le threadpool de FastAPI, sans boucle ;
+                # mais un appelant asynchrone ne doit pas se traduire par une
+                # session qui traîne jusqu'à sa purge.
+                boucle.create_task(sessions.fermer(mission_id))
+        except Exception:  # noqa: BLE001 - une clôture ne casse pas la mission
+            logger.debug("fermeture de la session de mission %s", mission_id,
+                         exc_info=True)
 
     def _verify_workspace(self, mission: Mission, reported_success: bool) -> dict | None:
         """Confront the mission's verdict with the filesystem's."""

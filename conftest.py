@@ -151,3 +151,16 @@ def _suspendre_pour_les_lents(request: pytest.FixtureRequest):
 # Le fichier de l'operateur n'est ni lu ni efface : un test qui detruirait un
 # reglage de production serait pire que le probleme.
 os.environ["HERMES_DATA_DIR"] = tempfile.mkdtemp(prefix="hermes_donnees_")
+
+
+# Le harnais (HOS-138) tient une session Hermes Agent ouverte pour toute la
+# duree d'une mission. C'est le mode normal en production, et c'est
+# exactement ce qu'un test unitaire ne doit pas declencher : la garde reseau
+# ci-dessus autorise la boucle locale, si bien qu'un backend qui tourne sur
+# le poste suffisait a faire lancer un vrai agent par
+# `test_hermes_agent_is_the_brain.py` — qui bloquait alors jusqu'au timeout
+# de pytest. Le test mesurait l'etat de la machine, pas le code.
+#
+# Un test qui veut vraiment exercer le harnais passe `harnais_actif=True` a
+# l'executeur : le parametre est explicite, la variable ne fixe qu'un defaut.
+os.environ["HERMES_HARNAIS"] = "0"
