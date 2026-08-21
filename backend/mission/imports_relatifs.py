@@ -123,3 +123,37 @@ def message(racine: str) -> str:
         f"refuse : « attempted relative import beyond top-level package ».\n"
         f"Utilise un import absolu depuis la racine du projet."
     )
+
+
+def message_du_fichier(chemin: str, source: str, racine: str) -> str:
+    """Le meme avertissement, mais **au moment de l'ecriture**.
+
+    `message(racine)` parcourt un projet fini ; celui-ci juge un seul
+    fichier qu'on vient d'ecrire. La difference est ce qu'elle coute :
+    mesure du 2026-08-21, §9 a echoue **deux fois** sur le meme import
+    avant que quiconque ne le voie. Dit a l'ecriture, il se corrige au tour
+    suivant, pas a la campagne suivante.
+
+    Se tait quand le fichier n'est pas du Python, ou n'est pas sous la
+    racine : un avertissement hors sujet apprend a l'agent a ignorer les
+    avertissements.
+    """
+    cible = Path(chemin)
+    if cible.suffix != ".py":
+        return ""
+    profondeur = _profondeur(cible, Path(racine))
+    if profondeur is None:
+        return ""
+    fautes = remontees_invalides(source, profondeur)
+    if not fautes:
+        return ""
+    ligne, niveau = fautes[0]
+    points = "." * niveau
+    saut = chr(10) * 2
+    return (
+        f"{saut}IMPORT RELATIF INVALIDE — ligne {ligne} : "
+        f"`from {points}module import ...` remonte de {niveau} niveaux, "
+        f"mais ce fichier n'en a que {profondeur} au-dessus de lui. Python "
+        f"refusera : « attempted relative import beyond top-level "
+        f"package ». Utilise un import absolu depuis la racine du projet."
+    )

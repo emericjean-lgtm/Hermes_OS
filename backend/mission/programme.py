@@ -387,6 +387,22 @@ def diagnostic(verification, raison: str) -> str:
     if fatals:
         morceaux.append("Boucle d'import fatale : " + "; ".join(map(str, fatals))
                         + ". Casse-la.")
+    # Mesure du 2026-08-21 : §9 a echoue **deux fois** sur le meme
+    # `from ..models import Atelier`. La sortie des tests le disait, mais
+    # noyee dans une trace de collecte pytest ou l'essentiel — le fichier,
+    # la ligne, la regle violee — n'apparaissait qu'implicitement. Le dire
+    # en clair coute une ligne et evite une passe.
+    remontee = v.get("imports_remontent") or {}
+    if remontee:
+        points = "." * int(remontee.get("niveau") or 0)
+        morceaux.append(
+            f"Import relatif invalide : {remontee.get('fichier')} ligne "
+            f"{remontee.get('ligne')}, `from {points}module import ...` "
+            f"remonte de {remontee.get('niveau')} niveaux alors que ce "
+            f"fichier n'en a que {remontee.get('profondeur')} au-dessus de "
+            f"lui. Python refuse : « attempted relative import beyond "
+            f"top-level package ». Remplace-le par un import absolu depuis "
+            f"la racine du projet.")
     morceaux.append(
         "Le travail deja correct est sur le disque : lis-le, ne le reecris "
         "pas. Corrige uniquement ce qui est liste ci-dessus, puis relis tes "

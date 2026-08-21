@@ -50,9 +50,17 @@ Le harnais n'a donc pas augmente la profondeur. Il a change autre chose : les qu
 
 Et la comparaison n'est de toute facon pas propre : le modele a change en cours de route (HOS-144). Ecrit ici plutot que presente comme une victoire.
 
+### Dit a l'ecriture, pas deux passes plus tard
+
+Detecter ne suffit pas : §9 a echoue **deux fois** sur le meme import, et la seule trace etait une erreur de collecte pytest, apres coup, la section deja consommee.
+
+Le controle rejoint donc `syntaxe` et `symboles` sur le chemin d'ecriture — meme place, meme raison. Un import relatif qui remonte trop haut compile parfaitement et ne reference aucun symbole absent : les deux gardes existants le laissaient passer.
+
+Et la reparation recoit desormais l'erreur exacte — fichier, ligne, regle violee — au lieu de la deviner dans une trace pytest. Sans quoi la seconde passe repart aussi aveugle que la premiere (HOS-136).
+
 ### Verified
 
-15 tests ajoutes. Suite : **1 782 passes, 2 ignores, code de sortie 0** (1 767 avant).
+22 tests ajoutes. Suite : **1 789 passes, 2 ignores, code de sortie 0** (1 767 avant).
 
 ## HOS-144 — Le routeur de modeles n'a aucune donnee pour departager (2026-08-21, non corrige)
 

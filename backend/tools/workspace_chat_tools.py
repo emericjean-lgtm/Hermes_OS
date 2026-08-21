@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from backend.tools import syntaxe
-from backend.mission import symboles
+from backend.mission import imports_relatifs, symboles
 
 if TYPE_CHECKING:  # pragma: no cover - annotation seulement
     from backend.tools.file_tools import FileOpResult
@@ -428,9 +428,18 @@ async def execute_workspace_tool(
             # mais référence un symbole absent relève de `symboles`. Trois
             # lancements de la file se sont arrêtés sur le second — et les
             # trois fichiers compilaient parfaitement.
+            # HOS-146 : troisième contrôle, pour la même raison que les
+            # deux précédents. Un import relatif qui remonte au-dessus de
+            # son paquet compile parfaitement et ne référence aucun symbole
+            # absent — les deux gardes ci-dessus le laissent passer. §9
+            # d'un cahier a échoué deux fois dessus avant que quiconque ne
+            # le voie, et la seule trace était une erreur de collecte
+            # pytest, deux passes plus tard.
             return (f"Fichier écrit et vérifié : {resolved}"
                     + syntaxe.message(resolved, content)
-                    + symboles.message(resolved, content))
+                    + symboles.message(resolved, content)
+                    + imports_relatifs.message_du_fichier(
+                        resolved, content, project_root))
 
         if name == "workspace_search":
             motif = str(arguments.get("pattern", "")).strip()

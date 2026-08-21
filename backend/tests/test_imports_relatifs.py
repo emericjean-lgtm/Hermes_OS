@@ -143,3 +143,60 @@ class TestLaContradiction:
             changes=WorkspaceDiff(), measured=True, imports_remontent=faute)
 
         assert rapport.as_dict()["imports_remontent"] == faute
+
+
+class TestAuMomentDeLEcriture:
+    """Dire le defaut **quand il est ecrit**, pas deux passes plus tard.
+
+    Mesure du 2026-08-21 : §9 a echoue deux fois sur le meme import. La
+    seule trace etait une erreur de collecte pytest, apres coup, une fois la
+    section deja consommee. Le meme avertissement rendu au tour d'ecriture
+    se corrige au tour suivant.
+    """
+
+    def test_le_cas_mesure_est_signale(self):
+        rendu = ir.message_du_fichier(
+            r"C:\ws\tests\test_atelier.py",
+            "from django.test import TestCase\nfrom ..models import Atelier\n",
+            r"C:\ws")
+
+        assert "IMPORT RELATIF INVALIDE" in rendu
+        assert "ligne 2" in rendu
+
+    def test_un_import_relatif_valide_ne_dit_rien(self):
+        assert ir.message_du_fichier(r"C:\ws\pkg\a.py",
+                                     "from .voisin import X\n", r"C:\ws") == ""
+
+    @pytest.mark.parametrize("chemin", [r"C:\ws\notes.md", r"C:\ws\data.json"])
+    def test_il_se_tait_hors_python(self, chemin):
+        """Un avertissement hors sujet apprend a l'agent a ignorer les
+        avertissements."""
+        assert ir.message_du_fichier(chemin, "from ..x import y", r"C:\ws") == ""
+
+    def test_il_se_tait_hors_de_la_racine(self):
+        assert ir.message_du_fichier(r"C:\ailleurs\a.py",
+                                     "from ..x import y", r"C:\ws") == ""
+
+
+class TestLaReparationSaitQuoiCorriger:
+    """La passe 2 doit recevoir l'erreur exacte, sinon elle repart aussi
+    aveugle que la premiere (HOS-136)."""
+
+    def test_le_diagnostic_nomme_le_fichier_et_la_ligne(self):
+        from backend.mission.programme import diagnostic
+
+        texte = diagnostic(
+            {"imports_remontent": {"fichier": "tests/test_atelier.py",
+                                   "ligne": 2, "niveau": 2, "profondeur": 1}},
+            "les tests du livrable echouent")
+
+        assert "tests/test_atelier.py" in texte
+        assert "ligne 2" in texte
+        assert "import absolu" in texte
+
+    def test_sans_faute_il_n_en_parle_pas(self):
+        from backend.mission.programme import diagnostic
+
+        texte = diagnostic({}, "les tests du livrable echouent")
+
+        assert "IMPORT RELATIF" not in texte.upper()
