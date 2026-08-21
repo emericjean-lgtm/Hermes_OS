@@ -97,23 +97,54 @@ def _dedans(chemin: str, racine: str) -> bool:
     return vise == base or vise.startswith(base + os.sep)
 
 
+def _sans_le_workspace(texte: str, racine: str) -> str:
+    """Retire du texte toutes les mentions du workspace, avant analyse.
+
+    **Un workspace peut contenir des espaces**, et une ligne de commande
+    n'offre aucun moyen fiable de delimiter un chemin qui en contient. La
+    premiere version de `_ABSOLUS` s'arretait donc au premier espace : le
+    chemin du dossier confie etait tronque a son premier mot, qui n'est
+    evidemment pas sous le workspace — donc refuse.
+
+    Mesure du 2026-08-21, en plein deroulement d'un cahier sur un dossier
+    nomme « Skill360 Nuit HOS-141 » : deux refus sur des commandes
+    parfaitement legitimes, dans le dossier confie. Le garde bloquait le
+    travail qu'il devait proteger, et la section a ete notee « contredite,
+    aucun fichier ecrit ».
+
+    On ote donc d'abord ce qu'on sait etre le workspace — dans ses graphies
+    usuelles, casse comprise — et on analyse le reste. Ce qui subsiste ne
+    peut plus etre un chemin du workspace, et les vraies sorties restent
+    entieres.
+    """
+    reste = texte or ""
+    if not racine:
+        return reste
+    formes = {racine, racine.replace(os.sep, "/"), racine.replace("/", os.sep)}
+    if len(racine) > 2 and racine[1] == ":":
+        # La graphie Git Bash du meme dossier, que l'agent produit
+        # naturellement sous Windows.
+        formes.add("/" + racine[0].lower() + racine[2:].replace(os.sep, "/"))
+    for forme in sorted(formes, key=len, reverse=True):
+        # Insensible a la casse : Windows l'est, et une variante suffirait
+        # sinon a reintroduire le faux refus.
+        reste = re.compile(re.escape(forme), re.IGNORECASE).sub(" ", reste)
+    return reste
+
+
 def chemins_suspects(texte: str, racine: str) -> list[str]:
     """Les chemins absolus de `texte` qui sortent de `racine`."""
-    return [c for c in _ABSOLUS.findall(texte or "") if not _dedans(c, racine)]
+    epure = _sans_le_workspace(texte, racine)
+    return [c for c in _ABSOLUS.findall(epure) if not _dedans(c, racine)]
 
 
-def _arguments(charge: dict) -> dict | None:
-    """Les arguments de l'appel, quelle que soit la clé qui les porte.
+def _arguments(charge: dict):
+    """Les arguments de l'appel, quelle que soit la cle qui les porte.
 
-    Hermes Agent sérialise la charge du hook au format Claude-Code : les
+    Hermes Agent serialise la charge du hook au format Claude-Code : les
     arguments arrivent sous **`tool_input`**, pas sous `args`. Ne lire
-    qu'`args` rendait donc systématiquement `None`, et le garde autorisait
-    tout en silence.
-
-    Le pire est que les premiers tests passaient : ils construisaient la
-    charge avec `args`, c'est-à-dire un format que rien n'émet. Ils
-    mesuraient l'idée qu'on se faisait du contrat, pas le contrat. Les deux
-    clés sont désormais acceptées, et le test porte sur la trame réelle.
+    qu'`args` rendait systematiquement `None`, et le garde autorisait tout
+    en silence.
     """
     for cle in ("tool_input", "args"):
         valeur = charge.get(cle)

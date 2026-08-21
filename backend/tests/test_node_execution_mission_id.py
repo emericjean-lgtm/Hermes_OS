@@ -13,6 +13,25 @@ from __future__ import annotations
 
 from backend.execution.execution_controller import ExecutionController
 from backend.execution.mission_executor import MissionExecutor
+from backend.execution.task_executor import RealTaskExecutor
+
+
+def _sans_inference():
+    """Un MissionExecutor qui parcourt le vrai chemin sans rien inferer.
+
+    Ces tests verifient la **propagation de `mission_id`** jusqu'a la
+    TaskExecution, pas la production d'un resultat. Laisses sans stub, ils
+    lancaient un vrai appel de modele — et depuis HOS-142, ou un runtime
+    non choisi tombe sur Hermes Agent, un vrai **processus d'agent** : la
+    suite se bloquait par intermittence, d'autant plus longtemps que la
+    machine etait occupee ailleurs.
+
+    Un test unitaire qui depend de la charge de la machine ne mesure plus
+    le code. Meme lecon que pour `HERMES_HARNAIS` dans `conftest.py`.
+    """
+    return MissionExecutor(
+        task_executor=RealTaskExecutor(
+            chat=lambda **_: {"message": {"content": "fait"}, "model": "stub"}))
 from backend.mission.mission_models import MissionNode
 from backend.mission.node_execution import make_node_executor
 
@@ -20,7 +39,7 @@ from backend.mission.node_execution import make_node_executor
 def test_execute_node_propagates_node_mission_id_onto_task_execution():
     # A real controller exercises the real prepare/execute path end to
     # end, rather than re-deriving MissionExecutor's contract in a mock.
-    controller = ExecutionController(MissionExecutor())
+    controller = ExecutionController(_sans_inference())
     node = MissionNode(node_id="n1", title="Do a thing", mission_id="mission-real-123")
 
     execute_node = make_node_executor(controller)
@@ -33,7 +52,7 @@ def test_execute_node_propagates_node_mission_id_onto_task_execution():
 
 
 def test_execute_node_leaves_mission_id_empty_when_node_has_none():
-    controller = ExecutionController(MissionExecutor())
+    controller = ExecutionController(_sans_inference())
     node = MissionNode(node_id="n2", title="Standalone node")  # mission_id defaults to ""
 
     execute_node = make_node_executor(controller)
@@ -58,7 +77,7 @@ def test_start_execution_route_propagates_mission_id_to_tasks(monkeypatch):
     """
     import backend.execution.routes as execution_routes
 
-    fresh_executor = MissionExecutor()
+    fresh_executor = _sans_inference()
     monkeypatch.setattr(execution_routes, "_executor", fresh_executor)
     monkeypatch.setattr(execution_routes, "_controller", ExecutionController(fresh_executor))
 
