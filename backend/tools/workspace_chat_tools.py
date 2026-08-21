@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from backend.tools import syntaxe
+from backend.mission import symboles
 
 if TYPE_CHECKING:  # pragma: no cover - annotation seulement
     from backend.tools.file_tools import FileOpResult
@@ -422,8 +423,14 @@ async def execute_workspace_tool(
             # vérifié ne compilait pas, et personne ne l'a su pendant
             # trente minutes. L'analyse est gratuite, ne s'arme pas sur un
             # niveau d'autonomie, et rend l'erreur au tour suivant.
+            # HOS-135 : deux contrôles, dans cet ordre. Un fichier qui
+            # ne compile pas relève de `syntaxe` ; un fichier qui compile
+            # mais référence un symbole absent relève de `symboles`. Trois
+            # lancements de la file se sont arrêtés sur le second — et les
+            # trois fichiers compilaient parfaitement.
             return (f"Fichier écrit et vérifié : {resolved}"
-                    + syntaxe.message(resolved, content))
+                    + syntaxe.message(resolved, content)
+                    + symboles.message(resolved, content))
 
         if name == "workspace_search":
             motif = str(arguments.get("pattern", "")).strip()

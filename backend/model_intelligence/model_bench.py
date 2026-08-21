@@ -38,6 +38,14 @@ import time
 from dataclasses import dataclass, field, asdict
 from collections.abc import Sequence
 from typing import Any, Callable, Optional
+import logging
+
+#: `on_tier` est fourni par l'appelant : son echec ne doit pas faire
+#: tomber la campagne. Le gestionnaire qui l'absorbe appelait
+#: `logger.debug` sans qu'aucun `logger` n'existe dans ce module —
+#: il aurait leve un NameError, et un gestionnaire qui plante est
+#: pire que pas de gestionnaire (HOS-135, trouve par symboles.py).
+logger = logging.getLogger("hermes_os.model_intelligence.bench")
 
 import requests
 

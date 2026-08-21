@@ -1,3 +1,35 @@
+## HOS-135 — Un symbole reference et jamais defini (2026-08-21)
+
+Trois lancements de la file, trois workspaces neufs, trois sections differentes — et le **meme** defaut a chaque fois :
+
+| run | section | echec |
+|---|---|---|
+| 7 | §11 | `AttributeError: 'PositionAuthorization' has no attribute 'id'` |
+| 8 | §6 | `AttributeError: 'User' has no attribute '_current_time'` |
+| 9 | §6 | `NameError: name 'Optional' is not defined` |
+
+Ce n'est pas de la variance. Et **aucun instrument ne le voyait** : la porte de syntaxe (HOS-121) analyse chaque fichier et les trois compilent parfaitement ; le detecteur de boucles d'import (HOS-124) cherche autre chose ; le verdict des tests (HOS-119) l'attrape, mais a la **fin** de la mission, une fois le temps depense.
+
+`backend/mission/symboles.py` repond a la meme question que `pyflakes`, sans la dependance et **sans rien executer** — importer du code ecrit par un modele, c'est le lancer. Deux verifications : `self.X` jamais pose dans la classe, et un nom utilise sans etre importe ni defini.
+
+### Trois corrections trouvees par la mesure, pas par la relecture
+
+**`visit_arg` n'explorait pas ses enfants.** L'annotation d'un argument est un enfant du noeud `arg` ; sans `generic_visit`, `def f(x: Optional[int])` ne visitait jamais `Optional` — **exactement le defaut du run 9, rate par le module ecrit pour l'attraper**.
+
+**Les constantes de classe produisaient 20 faux positifs** sur les 574 fichiers du depot, toutes du meme motif : `MAX_RETAINED = 100` en corps de classe, lu via `self.MAX_RETAINED`. Je collectais les methodes et les annotations, pas les affectations simples.
+
+**Le vingt-et-unieme signalement etait un vrai defaut.** `model_bench.py` appelait `logger.debug()` sans qu'aucun `logger` n'existe dans le module — dans le gestionnaire meme cense absorber l'echec d'un `on_tier`. Un gestionnaire d'erreur qui leve est pire que pas de gestionnaire. Corrige.
+
+### Ce qui le fait taire
+
+Un faux echec coute autant qu'un faux succes — cinq des huit defauts de mesure de ce depot etaient des echecs imaginaires. Le module **se tait** des qu'une construction rend l'analyse incertaine : `import *`, `setattr`/`globals`/`eval`, une classe qui herite, un decorateur, un fichier qui ne compile pas.
+
+Mesure finale : **574 fichiers du depot, zero signalement**.
+
+### Verified
+
+18 tests ajoutes. Suite : **4 178 passes, 3 ignores, code de sortie 0** (4 160 avant).
+
 ## HOS-134 — La file avait la memoire des fichiers, pas celle des decisions (2026-08-20)
 
 Septieme lancement. **Aucun defaut d'outillage** pour la premiere fois de la serie : pas d'arbre fantome, cahier intact a 23 335 octets, arret legitime a §11 sur des tests en echec reels (`AttributeError: 'PositionAuthorization' object has no attribute 'id'` — un test ecrit contre une API non implementee).
