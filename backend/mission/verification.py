@@ -193,6 +193,26 @@ class MissionVerification:
     #: partially initialized module`. La porte de syntaxe ne voyait rien,
     #: les deux fichiers compilent parfaitement.
     imports: Optional[dict] = None
+    #: Le premier import relatif qui remonte au-dessus de son paquet, ou
+    #: None. Distinct de `imports` : celui-la cherche des boucles, une autre
+    #: question (HOS-146).
+    imports_remontent: Optional[dict] = None
+
+    @property
+    def import_hors_paquet(self) -> bool:
+        """Un import relatif que Python refusera, quoi qu'il arrive.
+
+        Mesure du 2026-08-21 : `from ..models import Atelier` dans un
+        fichier a un seul dossier de profondeur. La collecte des tests
+        echouait avant le premier test, et la campagne s'est arretee la —
+        apres avoir consomme deux passes sur la section.
+
+        Contredit un succes annonce sans reserve : contrairement a une
+        boucle d'import, dont seules certaines sont fatales, celle-ci
+        echoue partout et toujours. C'est la regle du langage, pas une
+        convention de projet.
+        """
+        return self.imports_remontent is not None
 
     @property
     def imports_boucles(self) -> bool:
@@ -254,11 +274,17 @@ class MissionVerification:
         Et quand un livrable annoncé manque (HOS-122) : une mission qui a
         écrit six fichiers dont aucun n'est celui qu'elle avait promis n'a
         pas fait le travail, quoi qu'en dise le compteur de tâches.
+
+        Et quand un import relatif remonte au-dessus de son paquet
+        (HOS-146) : le code ne s'importera nulle part, quelle que soit la
+        façon dont le projet est lancé. Signalé même sans tests, parce que
+        c'est précisément un projet sans tests qui ne le verrait jamais.
         """
         if not (self.measured and self.reported_success):
             return False
         return (not self.changes.touched_anything or self.tests_echouent
-                or self.manifeste_manque or self.imports_boucles)
+                or self.manifeste_manque or self.imports_boucles
+                or self.import_hors_paquet)
 
     def as_dict(self) -> dict:
         return {
@@ -275,6 +301,10 @@ class MissionVerification:
             "tests": self.tests,
             "manifeste": self.manifeste,
             "imports": self.imports,
+            # Sans cette ligne, le rapport dirait « contredite » sans dire
+            # quel fichier, ni quelle ligne — et le diagnostic repartirait
+            # de zero, comme il a du le faire le 2026-08-21.
+            "imports_remontent": self.imports_remontent,
             "tests_echouent": self.tests_echouent,
         }
 
@@ -342,6 +372,7 @@ def verify(
             workspace=workspace, changes=WorkspaceDiff(), measured=False,
         )
     from backend.mission import imports_locaux as _imports
+    from backend.mission import imports_relatifs as _relatifs
     from backend.mission import manifeste as _manifeste
 
     result = MissionVerification(
@@ -351,6 +382,7 @@ def verify(
         manifeste=_manifeste.verdict(mission, workspace) if mission is not None
                   else None,
         imports=_imports.verdict(workspace),
+        imports_remontent=_relatifs.verdict(workspace),
     )
     if result.contradicted:
         logger.warning(

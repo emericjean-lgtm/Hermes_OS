@@ -28,6 +28,40 @@ RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
 
+def ouvrir_le_journal() -> None:
+    """Fait remonter les decisions de Hermes OS sur la sortie d'erreur.
+
+    Sans cela, une nuit de huit heures laisse un fichier d'erreur de six
+    lignes : trois avertissements de demarrage et deux constats de mission
+    « reported success but no file was created ». Rien sur **pourquoi**.
+
+    Mesure du 2026-08-21 : une section a echoue trois fois de suite sans
+    qu'aucune trace ne dise si le harnais avait servi, quel modele avait
+    ete retenu, ni si un tour avait abouti. Le diagnostic a demande de
+    compter des processus a la main, dehors, pendant que la campagne
+    tournait — une donnee qu'aucun rapport ne porte et qui disparait a la
+    seconde ou le processus meurt.
+
+    Les journaux nommes ici sont ceux qui portent une **decision** : quel
+    modele, quel runtime, harnais ou mode jetable, tour abouti ou non. Pas
+    le detail des requetes, qui noierait le reste.
+    """
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+    for nom in ("hermes_os.execution.task", "hermes_os.ral.acp",
+                "hermes_os.ral.sessions", "hermes_os.ral.prerequis",
+                "hermes_os.mission.graph_executor"):
+        logging.getLogger(nom).setLevel(logging.INFO)
+    # Ceux-la parlent a chaque requete HTTP et enterreraient le reste.
+    for bruyant in ("httpx", "httpcore", "urllib3", "asyncio"):
+        logging.getLogger(bruyant).setLevel(logging.WARNING)
+
+
 def verifier_le_harnais(*, accepte_le_mode_jetable: bool) -> bool:
     """Refuse de partir si le harnais ne servira pas — sauf accord explicite.
 
@@ -128,6 +162,7 @@ def main() -> int:
     os.environ.setdefault("ALLOWED_PATHS", str(projet))
     print(f"workspace autorise : {projet}")
 
+    ouvrir_le_journal()
     if not verifier_le_harnais(accepte_le_mode_jetable=args.sans_harnais):
         return 2
 

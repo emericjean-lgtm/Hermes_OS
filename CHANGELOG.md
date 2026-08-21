@@ -1,3 +1,59 @@
+## HOS-146 — Le harnais tient ; le code genere ne tient pas (2026-08-21)
+
+Premiere campagne complete avec le harnais en service, un modele capable et la journalisation des decisions.
+
+### Ce que la nuit a produit
+
+| | |
+|---|---|
+| sections faites | **4** (§1, §6, §7, §8), toutes en **passe 1** |
+| section bloquee | §9 ATELIERS, apres deux passes |
+| livrables sur le disque | **27 fichiers** |
+| duree | 2 611 s (43 min) |
+
+Les quatre premieres sections ont abouti sans reparation — la file a enchaine, ce qu'aucune tentative de la soiree n'avait fait.
+
+### Le harnais, mesure et non deduit
+
+Le journal le dit desormais, ligne a ligne :
+
+    modele impose par l'operateur : 'gpt-oss-20b-64k'
+                                    (le routeur proposait 'lfm2.5-2.6b-125k')
+    session ACP ouverte : 9068703f-... (C:\Users\emeri\Skill360 Nuit HOS-141)
+    session projet:4f6eb3d7-... ouverte
+    session ... : modele bascule sur gpt-oss-20b-64k
+    task ... executed on hermes-agent/gpt-oss-20b-64k in 65846ms
+
+Une session par **projet**, pas par mission : les quatre sections ont partage la meme.
+
+### Ce qui bloque maintenant, et ce n'est plus l'architecture
+
+§9 a echoue deux fois sur la meme cause :
+
+    # tests/test_atelier.py
+    from ..models import Atelier
+    ImportError: attempted relative import beyond top-level package
+
+Le modele a par ailleurs cree un faux paquet `django/` — `django/db/__init__.py`, `django/test.py` — pour satisfaire ses propres imports.
+
+Aucun instrument ne voyait le premier defaut. La porte de syntaxe (HOS-121) compile le fichier sans broncher, il est syntaxiquement parfait. La detection de symboles (HOS-135) ne suit pas les imports. `imports_locaux` (HOS-124) cherche des **boucles**, une autre question. Le verdict des tests l'a attrape, mais apres coup : deux passes consommees, puis l'arret.
+
+`imports_relatifs.py` repond a cette question-la, statiquement et gratuitement. La regle est celle du langage : pour `a/b/c.py`, `.` vaut `a.b`, `..` vaut `a`, `...` sort de l'arbre. Elle ne depend d'aucun `sys.path`, d'aucun outil de test — un import qui la viole echoue partout.
+
+Verifie sur les 574 fichiers du depot : **aucun faux positif**.
+
+### La profondeur, honnetement
+
+Neuf campagnes precedentes : 8, 7, 1, 2, 9, 6, 1, 1 — moyenne 4,4 sections. Celle-ci : 4 faites, 1 tentee. **Dans la moyenne, pas au-dessus.**
+
+Le harnais n'a donc pas augmente la profondeur. Il a change autre chose : les quatre sections ont abouti du premier coup, la continuite a joue entre elles, et l'echec est desormais **diagnostiquable** — c'est la premiere fois qu'on sait, ligne a ligne, pourquoi une campagne s'arrete.
+
+Et la comparaison n'est de toute facon pas propre : le modele a change en cours de route (HOS-144). Ecrit ici plutot que presente comme une victoire.
+
+### Verified
+
+15 tests ajoutes. Suite : **1 782 passes, 2 ignores, code de sortie 0** (1 767 avant).
+
 ## HOS-144 — Le routeur de modeles n'a aucune donnee pour departager (2026-08-21, non corrige)
 
 Suite de HOS-143. Le magasin de sondes remis a jour, `_agentic_model` ne substitue plus rien — et le routeur continue pourtant de choisir `lfm2.5-2.6b-125k`, 2,6 Md, pour **toutes** les taches :
