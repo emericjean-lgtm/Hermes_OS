@@ -89,9 +89,19 @@ La RAM n'est pas la contrainte et la contention reste modeste. **La vraie limite
 
 `GET /system/harnais` alimente un voyant `HRN` dans la barre d'etat. Les deux modes produisent des resultats de **meme forme** : rien, dans un rapport de mission, ne dit si l'agent gardait le contexte de la tache precedente ou le decouvrait. Le voyant ne bouge qu'en cas de probleme.
 
+### La nuit ne partira pas en croyant avoir le harnais
+
+`derouler_cahier.py` construit ses services **en memoire** ; il ne sert aucun HTTP. Or l'agent rappelle Hermes OS par MCP pour obtenir ses outils : lance seul, le script aurait donc tourne **toute la nuit en mode jetable**, un agent neuf par tache qui redecouvre le workspace a chaque fois.
+
+Ce n'est pas une erreur qui se voit. C'est un bilan **de meme forme** qu'une nuit ou la continuite a joue — la classe de defaut que ce depot traque depuis HOS-128 : « une mission qui n'a pas eu lieu n'est pas une mission sans mesure ».
+
+Le script verifie donc les prerequis avant de partir, et **refuse** si le harnais ne servira pas, en donnant la commande exacte a lancer. `--sans-harnais` reste ouvert pour qui veut comparer les deux modes ; il faut alors l'ecrire.
+
+A noter, parce que la confusion est facile : `HERMES_HARNAIS=0` ne concerne **que la suite de tests** (`conftest.py`). Il ne coupe rien en exploitation.
+
 ### Verified
 
-Suite : **1 726 passes, 2 ignores, code de sortie 0** (1 682 avant). Frontend : 92 tests, typecheck propre.
+Suite : **1 729 passes, 2 ignores, code de sortie 0** (1 682 avant). Frontend : 92 tests, typecheck propre.
 
 ## HOS-140 — ornith-9b-256k reconstruit, et sa recette enfin ecrite (2026-08-21)
 

@@ -28,10 +28,56 @@ RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
 
+def verifier_le_harnais(*, accepte_le_mode_jetable: bool) -> bool:
+    """Refuse de partir si le harnais ne servira pas — sauf accord explicite.
+
+    Ce script construit ses services **en memoire** ; il ne sert aucun HTTP.
+    Or l'agent rappelle Hermes OS par MCP pour obtenir ses outils : sans un
+    backend qui ecoute, il demarre avec zero outil, et chaque tache retombe
+    sur un agent jete apres usage — donc amnesique.
+
+    Une nuit entiere dans cet etat est le pire resultat possible. Elle ne
+    produit pas une erreur : elle produit un bilan **de meme forme** qu'une
+    nuit reussie, ou chaque section a redecouvert le workspace. C'est
+    exactement la classe de defaut que ce depot traque depuis HOS-128 — une
+    mission qui n'a pas eu lieu n'est pas une mission sans mesure.
+
+    D'ou ce refus. Soit la nuit tourne avec le harnais, soit elle ne tourne
+    pas ; jamais une nuit qui croit l'avoir et ne l'a pas. `--sans-harnais`
+    reste ouvert pour qui veut comparer les deux modes, et il faut alors
+    l'ecrire.
+    """
+    from backend.ral.adapters.prerequis_harnais import verifier
+
+    etat = verifier()
+    if etat.pret:
+        print("harnais : pret (session d'agent tenue ouverte par projet)")
+        return True
+
+    print(f"\nHARNAIS INDISPONIBLE : {etat.explication()}")
+    if accepte_le_mode_jetable:
+        print("--sans-harnais : on part quand meme, un agent par tache,")
+        print("sans memoire d'une section a l'autre.")
+        return True
+
+    print("\nLa nuit tournerait en mode jetable : un agent neuf par tache,")
+    print("qui redecouvre le workspace a chaque fois. Le bilan aurait la")
+    print("meme forme qu'une nuit reussie — c'est pourquoi on s'arrete ici.")
+    if not etat.backend_joignable:
+        print("\nDemarre le backend, puis relance :")
+        print("  .venv/Scripts/python.exe -m uvicorn backend.main:app "
+              "--host 127.0.0.1 --port 8010")
+    print("\nOu assume le mode degrade avec --sans-harnais.")
+    return False
+
+
 def main() -> int:
     analyseur = argparse.ArgumentParser(description=__doc__)
     analyseur.add_argument("projet", help="dossier du projet")
     analyseur.add_argument("--cahier", default="PROJECT_SPEC.md")
+    analyseur.add_argument("--sans-harnais", action="store_true",
+                           help="accepter de tourner en mode jetable, un "
+                                "agent amnesique par tache")
     analyseur.add_argument("--lancer", action="store_true",
                            help="executer le plan au lieu de le proposer")
     args = analyseur.parse_args()
@@ -82,7 +128,10 @@ def main() -> int:
     os.environ.setdefault("ALLOWED_PATHS", str(projet))
     print(f"workspace autorise : {projet}")
 
-    from backend.core.bootstrap.bootstrap import HermesBootstrap
+    if not verifier_le_harnais(accepte_le_mode_jetable=args.sans_harnais):
+        return 2
+
+    from backend.core.bootstrap.bootstrap import HermesBootstrap  # noqa: E402
 
     boot = HermesBootstrap()
     boot.build()
