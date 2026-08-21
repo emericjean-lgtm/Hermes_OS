@@ -1,3 +1,61 @@
+## HOS-143 — Toutes les missions tournaient sur le plus petit modele (2026-08-21)
+
+Trouve en diagnostiquant l'arret d'un test nuit a sa premiere section. Le harnais fonctionnait, la session tenait, les fichiers etaient ecrits — et le travail etait confie a **`lfm2.5-2.6b-125k`**, 2,6 milliards de parametres, note `code 28`, le plus faible du catalogue. Ni ornith-9b, ni gpt-oss-20b.
+
+### La chaine complete
+
+`ModelProfile.agentic_capable` traite un modele non mesure comme **non prouve**, deliberement (HOS-096) : deviner s'etait revele faux une fois sur deux, et le cout d'une erreur est une mission qui rapporte un succes sans rien accomplir.
+
+Le magasin de sondes ne contenait plus que des **tags morts** :
+
+    devstral, qwen3.5:9b-128k, gemma4:12b-64k, lfm2.5-2.6b-128k,
+    gemma4:12b-128k, ornith-1.5-35b-128k, ornith-1.5-9b-128k
+
+Aucun tag du catalogue actuel. La refonte HOS-104 a HOS-109 avait renomme les modeles, et les mesures etaient restees sur les anciens noms — le meme piege que les recettes de modeles perdues (HOS-140) et que le hook pointant vers un dossier disparu (HOS-141).
+
+Consequence : `agentic_capable` rendait `False` pour **tous** les modeles du catalogue, et `_agentic_model` substituait systematiquement le repli, quel que soit le choix du routeur. Le routeur de modeles etait decoratif.
+
+### Pourquoi le magasin ne se remplissait plus
+
+`agentic_probe.probe()` mesure, mais **ne persiste rien**. `save_result()` n'etait appele que par les tests : aucun code de production ne l'invoquait. Un verdict mourait avec le processus qui l'avait obtenu, et le magasin ne pouvait se remplir que par un script ad hoc que personne n'avait garde.
+
+C'est l'outil manquant : `scripts/sonder_modeles.py`, versionne, sonde **et** enregistre.
+
+### Mesure
+
+Six essais par modele du catalogue, trois chacun, un a la fois :
+
+| modele | essais | temps |
+|---|---|---|
+| ornith-9b-256k | **3/3** | 41 s, 28 s, 26 s |
+| gpt-oss-20b-64k | **3/3** | 40 s, 21 s, 18 s |
+
+Les deux passent haut la main. Ils etaient ecartes non par incapacite, mais parce que leur mesure portait un nom qui n'existe plus.
+
+Apres enregistrement, la chaine complete repond enfin :
+
+    ornith-9b-256k    capable=True   ->  ornith-9b-256k
+    gpt-oss-20b-64k   capable=True   ->  gpt-oss-20b-64k
+
+### Ce que cela explique probablement
+
+Neuf deroules de cahier, profondeur mesuree 8, 7, 1, 2, 9, 6, 1, 1 — moyenne 4,4 sections sur 26. Le harnais n'y etait pour rien : le travail avait toujours ete confie au plus petit modele disponible. Ecrit au conditionnel parce que la contre-mesure reste a faire, et qu'aucune campagne ne l'a encore prouve.
+
+### Le catalogue entier, remesure
+
+| modele | role | essais |
+|---|---|---|
+| gpt-oss-20b-64k | code, orchestrator, code_agentic | **3/3** |
+| ornith-9b-256k | standard | **3/3** |
+| qwen3.6-35b-128k | reasoning, security, advanced_analysis | **3/3** |
+| lfm2.5-2.6b-125k | swift, double_check, repli | **2/3** (67 %) |
+
+Le repli passe a 67 %, au-dessus du seuil de 60 % — une majorite, pas l'unanimite, parce que le succes agentique n'est pas deterministe sur ce materiel.
+
+### Verified
+
+5 tests ajoutes. Suite : **1 759 passes, 2 ignores, code de sortie 0** (1 753 avant).
+
 ## HOS-142 — Un non-choix de runtime contournait Hermes Agent (2026-08-21)
 
 Trouve en surveillant le premier test nuit, vingt minutes apres son lancement. Le harnais annoncait `pret`, des fichiers apparaissaient dans le workspace, les sections passaient « faites » — et **aucun processus d'agent n'existait**. Ni session ACP, ni mode jetable. Dix echantillons a douze secondes d'intervalle : zero.
