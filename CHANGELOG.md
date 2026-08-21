@@ -1,3 +1,44 @@
+## HOS-140 — ornith-9b-256k reconstruit, et sa recette enfin ecrite (2026-08-21)
+
+Le modele du role `standard` avait ete supprime par erreur (HOS-139). Il est reconstruit et remesure. Ce qui a rendu l'incident couteux n'est pas la suppression : c'est que **la recette du tag n'existait nulle part**.
+
+### Ce qu'il a fallu pour le retrouver
+
+Aucun modele du catalogue n'existe sous son nom chez son editeur : chaque tag est **construit** par un Modelfile qui releve `num_ctx`, parce que l'endpoint `/v1` qu'emprunte Hermes Agent ne transporte pas ce parametre. Le depot ne gardait aucune de ces recettes. Il a donc fallu :
+
+* retrouver le modele de base par recherche — `deepreinforce-ai/Ornith-1.0-9B`, un ~9 Md dense bati sur Qwen 3.5 ;
+* **deduire la quantification de la taille affichee**. Cinq variantes existent : Q4_K_M 5,63 Gio, Q5_K_M 6,47, Q6_K 7,36, Q8_0 9,53, BF16 17,9. Ollama annoncait 6,6 Go pour le tag disparu — une seule tombe juste ;
+* constater que le Modelfile genere par Ollama pour un GGUF tire de HuggingFace ne porte que `TEMPLATE {{ .Prompt }}` : **ni `RENDERER` ni `PARSER`**. Sans eux le prompt part brut, sans balises de tour, et ni le raisonnement ni les appels d'outils ne sont extraits de la reponse. `ollama show` rapporte l'architecture `qwen35` — la meme que le tag frere `qwen3.5-9b-256k`, dont le gabarit est donc le bon.
+
+Les parametres d'echantillonnage viennent de l'editeur d'Ornith (temperature 0,6, top_p 0,95, top_k 20) et non du tag frere, qui porte `temperature 1` et `presence_penalty 1.5` — les defauts d'Ollama pour Qwen 3.5, pas un reglage mesure pour ce modele-ci.
+
+### Remesure apres reconstruction
+
+| mesure | catalogue | apres reconstruction |
+|---|---|---|
+| VRAM a 256k | 13,50 Gio | **13,76 Gio** |
+| deport CPU | 0 % | **0 %** |
+
+L'ecart de 2 % tient a la methode de lecture. Le point qui compte est le second : **rien ne deborde sur CPU a 262 144 jetons**, ce qui etait la propriete recherchee.
+
+Verifie autrement qu'en lisant `ollama list` : reponse propre sans balises de controle qui fuient, raisonnement separe dans `thinking` (546 caracteres pour une reponse d'un mot), `done_reason: stop`. Puis une mission complete a travers le harnais — fichier ecrit **sur le disque**, contexte herite d'une tache a l'autre, une seule session.
+
+### La recette est desormais versionnee
+
+`config/modelfiles/ornith-9b-256k.Modelfile`, et `config/models.yaml` y renvoie. Un test garde ce qui a manque le jour ou la recette a ete perdue : que le `FROM` nomme le modele de base **et sa quantification**, que `num_ctx` s'accorde avec ce que le catalogue annonce — sinon les mesures du catalogue portent sur autre chose —, et que `RENDERER`/`PARSER` soient explicites.
+
+Il ne verifie pas que les recettes sont justes : seul Ollama peut le dire, et la suite est hermetique. Il verifie qu'elles existent et qu'elles sont completes.
+
+### qwen3.8-27B retire
+
+Modele Ollama (13 Go), GGUF source `Qwen3.8-27B-i1-IQ4_XS-Smaller.gguf` (12,6 Gio) et son Modelfile. Aucun role n'en dependait — verifie avant, contrairement a la fois precedente. Le dossier `gguf` est vide, 13 Go liberes.
+
+Ses relevés de campagne (`docs/release/banc_qwen38_27b_iq4xs.*`) sont conserves : ce sont des mesures, pas des artefacts du modele, et le depot garde ses mesures.
+
+### Verified
+
+Suite : **1 688 passes, 2 ignores, code de sortie 0** (1 682 avant).
+
 ## HOS-139 — Ce que le harnais a mis au jour en entrant en service (2026-08-21)
 
 Trois defauts, tous devenus visibles parce que le harnais applique reellement ce que Hermes OS decide. Aucun n'a ete trouve en relisant du code.

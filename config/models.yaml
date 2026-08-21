@@ -33,6 +33,18 @@
 # the total by several GB, always in the direction that makes a second
 # model look loadable when it is not.
 #
+# ── Les tags sont construits, pas tires tels quels ────────────────────────
+#
+# Aucun modele de ce tableau n'existe sous ce nom chez son editeur : chaque
+# tag est derive d'un modele de base par un Modelfile qui releve `num_ctx`
+# (l'endpoint /v1 qu'emprunte Hermes Agent ne transporte pas ce parametre —
+# c'est donc la, et nulle part ailleurs, que la fenetre se decide).
+#
+# Ces recettes vivent desormais dans `config/modelfiles/`. Elles n'y etaient
+# pas : quand `ornith-9b-256k` a ete supprime par erreur, plus rien dans le
+# depot ne disait de quel modele de base il venait, ni avec quelle
+# quantification. Un tag perdu ne doit pas etre un modele perdu.
+#
 # ── `always_loaded` asks for more than the runtime grants ──────────────────
 #
 # The flag sends `keep_alive: -1`, which stops a model expiring for
@@ -95,6 +107,11 @@ roles:
     # 13.50 GiB at its full 256k, 0 % offload, 68.2 tok/s. Agentic 3/3 with
     # the artefact verified on disk, reasoning 4/4 in 125 s, long context
     # 5/6. Weak at code (36) — which is why `code` is a separate role.
+    #
+    # Recette de reconstruction : config/modelfiles/ornith-9b-256k.Modelfile.
+    # Elle existe parce que son absence a coute cher — le tag a ete supprime
+    # par erreur et plus rien ne disait de quel modele il derivait. Remesure
+    # apres reconstruction : 13,76 GiB, 0 % de deport CPU.
     vram_gb: 13.5
     num_ctx: 262144
     description: General conversation, writing, extraction.

@@ -1,0 +1,48 @@
+# ornith-9b-256k — le modele du role `standard` (HOS-140).
+#
+# Cette recette existe parce que son absence a coute cher. Le tag avait ete
+# construit a la main pendant la refonte du catalogue (HOS-104 a HOS-109) et
+# n'etait ecrit nulle part : quand le modele a ete supprime d'Ollama par
+# erreur, plus rien dans le depot ne disait de quoi il derivait ni comment le
+# reconstruire. Il a fallu le retrouver par recherche.
+#
+# Base : deepreinforce-ai/Ornith-1.0-9B, un ~9 Md dense bati sur Qwen 3.5,
+# architecture `qwen35` (8,95 Md, contexte natif 262144, capacites `tools` et
+# `thinking`). Quantification Q5_K_M — 6,47 Gio, la seule qui redonne les
+# 6,6 Go affiches par Ollama pour le tag d'origine ; Q4_K_M en fait 5,63 et
+# Q6_K 7,36.
+#
+#   ollama pull hf.co/deepreinforce-ai/Ornith-1.0-9B-GGUF:Q5_K_M
+#   ollama create ornith-9b-256k -f config/modelfiles/ornith-9b-256k.Modelfile
+#
+# Mesures de la campagne, `config/models.yaml` :
+#   13,50 Gio de VRAM a 256k, 0 % de deport CPU, 68,2 tok/s,
+#   agentique 3/3, raisonnement 4/4 en 125 s, long contexte 5/6, code 36.
+# Le code faible est assume : `code` est un role separe, servi par gpt-oss.
+
+FROM hf.co/deepreinforce-ai/Ornith-1.0-9B-GGUF:Q5_K_M
+
+# Pass-through : c'est le RENDERER natif qui met en forme, pas ce template.
+# `TEMPLATE` est du Go, jamais le Jinja embarque dans le GGUF — confondre les
+# deux est un piege deja paye dans ce projet.
+TEMPLATE {{ .Prompt }}
+
+# Sans eux, Ollama envoie le prompt brut : pas de balises de tour, et le
+# raisonnement comme les appels d'outils ne sont plus extraits de la reponse.
+# `qwen35` est l'architecture que rapporte `ollama show`, la meme que le tag
+# frere `qwen3.5-9b-256k`.
+RENDERER qwen3.5
+PARSER qwen3.5
+
+# Le contexte natif est deja 262144, mais Ollama sert `OLLAMA_CONTEXT_LENGTH`
+# tant qu'un Modelfile ne le releve pas — et l'endpoint /v1 qu'emprunte
+# Hermes Agent ne transporte pas `num_ctx`. C'est donc ici, et nulle part
+# ailleurs, que la fenetre se decide.
+PARAMETER num_ctx 262144
+
+# Valeurs publiees par l'editeur du modele, et non recopiees du tag frere :
+# `qwen3.5-9b-256k` porte temperature 1 et presence_penalty 1.5, qui sont les
+# defauts d'Ollama pour Qwen 3.5, pas un reglage mesure pour Ornith.
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
+PARAMETER top_k 20
