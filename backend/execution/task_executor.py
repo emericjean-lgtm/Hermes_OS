@@ -178,6 +178,32 @@ def _runtime_demande(brut: str) -> str:
     return "hermes-agent" if nom in _NON_CHOISI else brut.strip()
 
 
+def modele_impose() -> str:
+    """Le modele que l'operateur impose aux missions, ou "".
+
+    **Un contournement, et il est nomme comme tel.** Le routeur choisit sur
+    des profils vides — `task_scores={}`, `benchmark_score=0.0` pour les
+    sept modeles du catalogue (HOS-144) — et retient donc invariablement le
+    plus petit, `lfm2.5-2.6b-125k`, note `code 28`.
+
+    Mesure du 2026-08-21, trois deroules de cahier consecutifs : ce modele
+    n'a jamais ecrit dans le workspace. Ses seules tentatives visaient
+    `/home/user/skills/...`, un chemin POSIX qui n'existe pas sur cette
+    machine — il ne travaillait pas sur la tache, il inventait un systeme.
+
+    Tant que les scores mesures du catalogue ne sont pas charges dans les
+    profils, un operateur doit pouvoir trancher. `HERMES_MISSION_MODEL`
+    n'est donc pas un reglage de confort : c'est la seule facon actuelle de
+    confier une campagne a un modele capable.
+
+    Il reste soumis a la verification agentique : imposer un modele qui ne
+    sait pas piloter la boucle d'outils produirait une mission qui rapporte
+    un succes sans rien accomplir — le defaut que tout ce travail existe
+    pour supprimer.
+    """
+    return os.environ.get("HERMES_MISSION_MODEL", "").strip()
+
+
 class RuntimeUnavailableError(RuntimeError):
     """No runtime could serve the task.
 
@@ -800,8 +826,17 @@ class RealTaskExecutor:
         count, and a real measured run where one exists. Substitution is
         logged rather than silent: the router's pick is telemetry-backed
         reasoning, and overriding it is something an operator should see.
+
+        Un modele impose par l'operateur (`HERMES_MISSION_MODEL`) prime
+        sur le choix du routeur, mais **pas** sur la verification qui suit :
+        un modele impose qui ne sait pas piloter la boucle d'outils est
+        substitue comme un autre. Voir `modele_impose` pour la raison.
         """
-        name = (model or "").strip()
+        impose = modele_impose()
+        if impose:
+            logger.info("modele impose par l'operateur : %r "
+                        "(le routeur proposait %r)", impose, model)
+        name = (impose or model or "").strip()
         capable: Optional[bool] = None
         if name and self._agentic_capable_for is not None:
             try:
