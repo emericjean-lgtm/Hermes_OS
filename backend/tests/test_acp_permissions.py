@@ -159,3 +159,49 @@ class TestLaDisponibilite:
 
         assert ok is False
         assert "interpréteur" in raison or "acp_adapter" in raison
+
+
+class TestLaGraphieGitBash:
+    """Un faux refus coûte autant qu'une fuite (HOS-138).
+
+    L'agent fait passer ses outils fichier par Git Bash sous Windows : il
+    produit donc `/c/Users/...`, la graphie MSYS d'un lecteur. La frontière
+    résolvait ce chemin contre la racine du lecteur et obtenait un segment
+    `c` parasite — hors du workspace, donc refusé.
+
+    Mesuré le 2026-08-21 sur une mission réelle : **trois refus
+    consécutifs** sur une écriture parfaitement légitime, dans le workspace
+    confié. L'agent a fini par contourner et le fichier a été écrit, si
+    bien que le verdict final était vert et le défaut invisible — il n'était
+    lisible que dans le journal.
+    """
+
+    def test_le_chemin_msys_du_workspace_est_accepte(self, session):
+        espace = Path(session.cwd)
+        lecteur = espace.drive.rstrip(":").lower()
+        msys = "/" + lecteur + "/" + str(espace)[3:].replace(chr(92), "/") + "/notes.md"
+
+        assert HermesAgentACP._hors_workspace(session, _demande(msys)) == ""
+
+    def test_un_dossier_systeme_en_graphie_msys_reste_refuse(self, session):
+        """La traduction ne relâche rien : elle précède la vérification,
+        elle ne la remplace pas."""
+        assert HermesAgentACP._hors_workspace(
+            session, _demande("/c/Windows/system32/x.dll"))
+
+    def test_un_chemin_posix_a_plusieurs_lettres_n_est_pas_un_lecteur(self):
+        """`/etc/passwd` ne doit pas devenir un lecteur `E:`. Le motif exige
+        une lettre unique, sans quoi la traduction inventerait des disques."""
+        from backend.ral.adapters.hermes_agent_acp import _depuis_msys
+
+        assert _depuis_msys("/etc/passwd") == "/etc/passwd"
+        assert _depuis_msys("/Users/emeri/note.txt") == "/Users/emeri/note.txt"
+
+    def test_le_motif_du_refus_cite_le_chemin_recu(self, session):
+        """Traduit, le chemin ne ressemble plus à ce que l'agent a demandé.
+        Un journal qui cite la forme interne envoie chercher un chemin que
+        personne n'a écrit."""
+        motif = HermesAgentACP._hors_workspace(
+            session, _demande("/c/Windows/system32/x.dll"))
+
+        assert "/c/Windows" in motif

@@ -1,3 +1,43 @@
+## HOS-139 — Ce que le harnais a mis au jour en entrant en service (2026-08-21)
+
+Trois defauts, tous devenus visibles parce que le harnais applique reellement ce que Hermes OS decide. Aucun n'a ete trouve en relisant du code.
+
+### Un tag de modele mort depuis la refonte du catalogue
+
+`_HERMES_AGENT_FALLBACK_MODEL` valait `lfm2.5-2.6b-128k`. Ce tag n'existe plus cote Ollama depuis HOS-104 a HOS-109, ou le modele a ete renomme `-125k` — la configuration de l'agent le note d'ailleurs explicitement.
+
+Le defaut etait **latent** : le mode jetable ne transmettait pas le modele a l'agent, qui retombait sur celui de sa propre configuration. Des que le harnais a commence a appliquer le modele choisi, chaque tour a rendu `HTTP 404: model 'lfm2.5-2.6b-128k' not found` et la mission n'a rien ecrit du tout.
+
+Un garde le nomme desormais : la constante doit s'accorder avec un role de `config/models.yaml`, seule source de verite hors ligne (la suite est hermetique, elle ne peut pas interroger Ollama).
+
+### La frontiere du workspace ne parlait pas Git Bash
+
+L'agent fait passer ses outils fichier par Git Bash sous Windows. Il produit donc `/c/Users/...`, la graphie MSYS d'un lecteur. `_hors_workspace` resolvait ce chemin contre la racine du lecteur, obtenait un segment `c` parasite, et refusait — **trois refus consecutifs sur une ecriture parfaitement legitime, dans le workspace confie**.
+
+L'agent a fini par contourner et le fichier a bien ete ecrit : le verdict final etait vert et le defaut n'existait que dans le journal. Un faux refus coute pourtant autant qu'une fuite, a ceci pres qu'il se voit — quand on regarde.
+
+La traduction precede la verification, elle ne la remplace pas : `/c/Windows/system32` devient sa forme Windows et reste refuse. Et le motif du refus cite le chemin **recu**, pas le chemin traduit — citer la forme interne enverrait chercher un chemin que personne n'a ecrit.
+
+### Un handler qui se declarait mort dans sa propre reponse
+
+`GET /system/harnais` sonde le backend en HTTP pour dire si l'agent pourra le joindre. Ecrite en `async def`, cette sonde bloquante gelait la boucle meme qui devait repondre a la sous-requete. Mesure sur le backend reel :
+
+    {"pret": false, "backend_joignable": false, ... "(ReadTimeout)"}
+
+obtenu, precisement, en interrogeant ce backend. Un operateur y aurait lu « backend eteint » sur une reponse que le backend venait de produire. En `def`, FastAPI execute le handler dans un threadpool et la boucle reste libre — `{"pret": true}`, tous prerequis verts.
+
+Cette route existe parce que la degradation est invisible autrement : un rapport de mission a exactement la meme forme selon que l'agent gardait le contexte de la tache precedente ou le decouvrait.
+
+### Une suppression de modele trop rapide, et elle est de mon fait
+
+`ornith-9b-256k` a ete supprime d'Ollama en croyant qu'il faisait partie des deux modeles d'essai a jeter. **C'etait faux** : les deux essais portaient sur `ornith-1.5-35b` et `ornith-1.5-9b`, deja supprimes. `ornith-9b-256k` etait le modele du catalogue, mesure lors de la campagne, et affecte au role `standard` — « conversation generale, ecriture, extraction », le plus sollicite.
+
+Le role n'a **pas** ete reaffecte : aucun candidat mesure ne partage son profil (256k de contexte, agentique 3/3, vision 3/3), et choisir sans mesure serait masquer l'erreur plutot que la reparer. La restauration appartient a l'operateur.
+
+### Verified
+
+Suite : **1 676 passes, 2 ignores, code de sortie 0** (1 664 avant).
+
 ## HOS-138 — Le harnais entre en service, et le canal cesse d'etre partage (2026-08-21)
 
 HOS-137 avait ouvert la session ACP mais l'avait laissee hors du chemin d'execution, en le disant. Elle y est desormais : `RealTaskExecutor` sert chaque tache de mission par une session vivante, et retombe sur le mode jetable en journalisant **pourquoi**.
@@ -69,6 +109,27 @@ Journal de l'agent : deux modeles distincts sur les deux tours. **Le contexte tr
 `test_hermes_agent_is_the_brain.py` s'est mis a lancer un **vrai agent** et a bloquer jusqu'au timeout de pytest : la garde reseau de `conftest.py` autorise la boucle locale, si bien qu'un backend en fonctionnement sur le poste suffisait a satisfaire les prerequis du harnais. Le test mesurait l'etat de la machine, pas le code. `HERMES_HARNAIS=0` coupe le harnais pour toute la suite, d'un seul endroit ; un test qui veut l'exercer passe `harnais_actif=True`.
 
 Et une purge de session testee en dormant 10 ms avec un TTL nul passait seule, echouait dans la suite complete : `time.monotonic` a une resolution d'environ 15 ms sous Windows, le delta pouvait valoir exactement zero. L'horloge du registre est desormais injectable, et le test la pilote au lieu de l'attendre.
+
+### Amendement du meme jour — un compteur cumulatif lu comme une occupation
+
+Les chiffres « jetons d'entree 15 638 -> 47 252 -> 63 188 » ci-dessus, et les « 13 121 puis 26 273 » de HOS-137, ont ete presentes comme la fenetre qui se remplit. **Ils ne mesurent pas cela.** `usage.inputTokens` d'ACP est **cumulatif** sur la session : la somme des jetons d'entree de chaque appel au fournisseur, ce qui interesse le cout, pas l'occupation.
+
+Interroge sur son propre etat apres huit tours — sa commande `/context`, pas une reimplementation — l'agent repond :
+
+    Conversation: 16 messages
+    Context usage: ~29 176 / 131 072 tokens (22,3 %)
+    Compression: ~69 128 tokens until threshold (~98 304, 75 %)
+
+Soit **22,3 % de la fenetre** la ou le compteur cumulatif affichait 133 687. Quatorzieme defaut de mesure de ce projet, et la meme famille que les treize precedents : un champ lu au mauvais endroit.
+
+Deux consequences, l'une rassurante et l'autre non :
+
+* la compression ne s'etait pas declenchee parce qu'**il n'y avait pas lieu**. Elle est active, elle annonce son seuil, et le plancher a 75 % pour les fenetres sous 512k explique le seuil de 98 304 plutot que les 65 536 attendus d'un `threshold: 0.5`. Il n'y a pas de defaut de compression ;
+* huit tours ne consomment que 22,3 % : une mission longue a donc bien plus de marge que ces chiffres ne le laissaient croire.
+
+Ce que la session tient est mesure autrement, et tient : deux temoins ancres, l'un au **premier** tour et l'autre au **milieu**, tous deux restitues au huitieme. La distinction n'est pas academique — llama.cpp, en decalage de contexte, conserve le debut et evince le milieu ; un temoin de debut seul aurait donc pu survivre a une perte de memoire reelle.
+
+`compression.enabled` et `memory_enabled` etaient a `false` dans la configuration de l'agent (`%LOCALAPPDATA%\hermes\config.yaml`, sauvegarde en `config.yaml.avant-hos138`). Sans compression, un depassement de fenetre ne tronque pas en silence : il produit une **erreur terminale**, ce qui tue la mission au moment precis ou elle devient longue. Les deux sont desormais actives.
 
 ### Amendement a HOS-137
 

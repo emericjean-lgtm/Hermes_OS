@@ -20,9 +20,14 @@ pas absentes, elles sont **inatteignables**.
 ## Ce que ce module change
 
 Une session ACP tenue ouverte, sur laquelle on envoie des tours successifs.
-Mesuré le 2026-08-21 : deux prompts dans une même session, jetons d'entrée
-**13 121 puis 26 273** — le contexte s'accumule, et le second tour se
-souvient du premier.
+Mesuré le 2026-08-21, huit tours dans une même session : deux témoins
+ancrés, l'un au **premier** tour et l'autre au **milieu**, tous deux
+restitués au huitième. Interrogé sur son propre état, l'agent déclare
+16 messages et **29 176 / 131 072 jetons (22,3 %)**.
+
+Les deux témoins comptent, pas un seul : llama.cpp, en décalage de
+contexte, conserve le début et évince le milieu. Un témoin de début aurait
+donc pu survivre à une perte de mémoire réelle.
 
 ## Deux pièges, tous deux mesurés
 
@@ -44,6 +49,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,6 +74,38 @@ DELAI_ETABLISSEMENT_S = 120.0
 LANCEUR = Path(__file__).with_name("lanceur_agent.py")
 
 
+#: `/c/Users/x`, `/cygdrive/c/...`, `/mnt/c/...` — un lecteur Windows dans
+#: la graphie POSIX. Une seule lettre, sans quoi `/etc/passwd` deviendrait
+#: un lecteur `E:` et un chemin système passerait pour un disque.
+_LECTEUR_POSIX = re.compile(r"^/(?:(?:cygdrive|mnt)/)?([a-zA-Z])(/.*)?$")
+
+
+def _depuis_msys(chemin: str) -> str:
+    """Traduit un chemin Git Bash en chemin Windows, sinon rend l'entrée.
+
+    L'agent fait passer ses outils fichier par Git Bash sous Windows et
+    produit donc naturellement `/c/Users/...`. Sans cette traduction, la
+    frontière du workspace résolvait ce chemin contre la racine du lecteur
+    et obtenait un `C:` suivi d'un segment `c` parasite — hors du
+    workspace, donc refusé.
+
+    Mesure du 2026-08-21 : trois refus consécutifs sur une écriture
+    parfaitement légitime, dans le workspace confié. L'agent a fini par
+    contourner, mais un faux refus coûte autant qu'une fuite — à ceci près
+    qu'il se voit.
+
+    La traduction ne relâche rien : `is_relative_to` s'applique ensuite au
+    chemin traduit, donc la forme POSIX d'un dossier système reste refusée
+    exactement comme sa forme Windows.
+    """
+    correspondance = _LECTEUR_POSIX.match(chemin or "")
+    if not correspondance:
+        return chemin
+    lecteur = correspondance.group(1).upper()
+    reste = (correspondance.group(2) or "").replace("/", chr(92))
+    return f"{lecteur}:{reste or chr(92)}"
+
+
 def _racine_agent() -> Path:
     return Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "hermes-agent"
 
@@ -79,6 +117,12 @@ class Tour:
     texte: str = ""
     pensee: str = ""
     stop: str = ""
+    #: **Cumulatif sur la session**, pas l'occupation de la fenêtre — c'est
+    #: la somme des jetons d'entrée de chaque appel au fournisseur. Lu comme
+    #: une occupation, il affichait 133 687 là où l'agent déclarait 29 176 :
+    #: quatorzième défaut de mesure de ce projet, même famille que les
+    #: treize précédents. Pour l'occupation réelle, la commande `/context`
+    #: de l'agent est la source.
     jetons_entree: int = 0
     jetons_sortie: int = 0
     erreur: str = ""
@@ -342,9 +386,12 @@ class HermesAgentACP:
                 vises.extend(str((v or {}).get("path", "")) for v in valeur
                              if isinstance(v, dict) and v.get("path"))
 
-        for brut in vises:
-            if not brut:
+        for recu in vises:
+            if not recu:
                 continue
+            # Traduit AVANT toute décision : la vérification porte ensuite
+            # sur le chemin réel, jamais sur la graphie.
+            brut = _depuis_msys(recu)
             candidat = Path(brut)
             try:
                 if candidat.is_absolute():
@@ -356,9 +403,9 @@ class HermesAgentACP:
                 else:
                     resolu = (racine / candidat).resolve()
                 if not resolu.is_relative_to(racine):
-                    return f"{brut!r} -> {resolu} hors de {racine}"
+                    return f"{recu!r} -> {resolu} hors de {racine}"
             except (OSError, ValueError):
-                return f"chemin non résoluble : {brut!r}"
+                return f"chemin non résoluble : {recu!r}"
         return ""
 
     async def _repondre(self, session: SessionAgent, requete: dict) -> None:

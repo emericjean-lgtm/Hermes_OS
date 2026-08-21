@@ -117,7 +117,13 @@ _HERMES_AGENT_TOOLSETS: tuple[str, ...] = ("coding",)
 #: This constant has moved twice, both times because a measurement refuted
 #: the previous choice. It is a starting point for an unprobed deployment,
 #: not a verdict — agentic_probe.py is what settles it.
-_HERMES_AGENT_FALLBACK_MODEL = "lfm2.5-2.6b-128k"
+#: Le tag portait `-128k` jusqu'a HOS-138. Ce tag n'existe plus cote Ollama
+#: depuis la refonte du catalogue (HOS-104 a HOS-109) : le modele s'appelle
+#: `-125k`. Le defaut etait **latent** — le mode jetable ne transmettait pas
+#: le modele a l'agent, qui retombait sur celui de sa propre configuration.
+#: Des que le harnais a commence a appliquer reellement le modele choisi,
+#: chaque tour a rendu `HTTP 404: model 'lfm2.5-2.6b-128k' not found`.
+_HERMES_AGENT_FALLBACK_MODEL = "lfm2.5-2.6b-125k"
 
 #: An agent loop is not a completion. The default 180s here was sized for
 #: one model call; a Hermes Agent task spawns a process, loads a toolset,

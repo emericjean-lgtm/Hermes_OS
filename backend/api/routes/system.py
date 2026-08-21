@@ -30,6 +30,51 @@ async def system_status() -> dict:
     }
 
 
+@router.get("/system/harnais")
+def system_harnais() -> dict:  # noqa: ASYNC - voir la note ci-dessous
+    """L'état du harnais Hermes Agent (HOS-138).
+
+    Le harnais est le mode normal : une session d'agent tenue ouverte pour
+    toute la durée d'une mission. Quand ses prérequis manquent, chaque tâche
+    retombe sur un agent jeté après usage — donc amnésique.
+
+    D'où cette route. La dégradation est réelle et **invisible dans le
+    résultat d'une mission**, qui a exactement la même forme dans les deux
+    modes : rien, dans un rapport, ne dit si l'agent gardait le contexte de
+    la tâche précédente ou le découvrait. L'opérateur doit pouvoir le voir
+    sans lire les journaux, et savoir **lequel** des prérequis manque.
+
+    Le cas le plus fréquent, mesuré, est un backend éteint : l'agent
+    rappelle Hermes OS par MCP pour obtenir ses outils, et démarre sans
+    aucun outil quand il ne le trouve pas.
+
+    **Déclarée `def` et non `async def`, et c'est indispensable.** La
+    vérification sonde le backend en HTTP, de façon bloquante. Dans un
+    handler `async`, cet appel gèle la boucle même qui devrait répondre à
+    la sous-requête : mesuré, la route rendait
+    `backend_joignable: false (ReadTimeout)` — le backend se déclarait
+    éteint dans une réponse qu'il venait lui-même de produire. En `def`,
+    FastAPI exécute le handler dans un threadpool et la boucle reste libre.
+    """
+    from backend.execution.task_executor import _harnais_par_defaut
+    from backend.ral.adapters.prerequis_harnais import verifier
+    from backend.ral.adapters.sessions_de_mission import registre
+
+    etat = verifier()
+    sessions = registre()
+    return {
+        "actif": _harnais_par_defaut(),
+        "pret": etat.pret,
+        "explication": etat.explication(),
+        "prerequis": {
+            "agent_installe": etat.agent_installe,
+            "backend_joignable": etat.backend_joignable,
+            "mcp_declare": etat.mcp_declare,
+        },
+        "sessions_ouvertes": sessions.sessions_ouvertes(),
+    }
+
+
 @router.get("/system/models")
 async def system_models() -> dict:
     """The role → model table (§21) crossed with what Ollama is actually

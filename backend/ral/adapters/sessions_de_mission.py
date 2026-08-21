@@ -22,9 +22,10 @@ lui renvoyer l'historique complet le compterait deux fois et gaspillerait la
 fenêtre qu'on cherche justement à ménager. Le premier tour porte donc le
 contexte de mission, les suivants ne portent que ce qui est nouveau.
 
-Mesuré le 2026-08-21 sur trois tours d'une même session : jetons d'entrée
-15 638 → 47 252 → 63 188, code mémorisé au tour 1 restitué au tour 3,
-fichier écrit et relu **sur le disque**.
+Mesuré le 2026-08-21 : code mémorisé au tour 1 restitué au tour 3, fichier
+écrit et relu **sur le disque**. Sur huit tours, l'agent déclare 22,3 % de
+sa fenêtre consommée — une mission longue a donc de la marge, et la
+compression prend le relais au-delà de 75 %.
 
 ## Pourquoi un plafond
 

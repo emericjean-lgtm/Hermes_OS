@@ -76,7 +76,7 @@ def _appel(executeur, registre, prerequis, contexte, monkeypatch):
     monkeypatch.setattr(sess, "registre", lambda: registre)
     return asyncio.run(executeur._par_le_harnais(
         [{"role": "user", "content": "écris le fichier"}],
-        model="lfm2.5-2.6b-128k", runtime_ctx=contexte))
+        model="lfm2.5-2.6b-125k", runtime_ctx=contexte))
 
 
 class TestQuandLeHarnaisSert:
@@ -108,7 +108,7 @@ class TestQuandLeHarnaisSert:
         # qui ne l'apprend jamais ferait de ce choix une decoration —
         # regression silencieuse par rapport au mode jetable, qui relancait
         # tout et appliquait donc le modele a chaque fois.
-        assert modele == "lfm2.5-2.6b-128k"
+        assert modele == "lfm2.5-2.6b-125k"
 
 
 class TestQuandOnRetombeSurLeModeJetable:
@@ -180,3 +180,39 @@ class TestLeDefautVientDeLEnvironnement:
         monkeypatch.delenv("HERMES_HARNAIS", raising=False)
 
         assert _harnais_par_defaut() is True
+
+
+class TestLesTagsDeModeleNommesDansLeCode:
+    """Un tag mort reste invisible tant que personne ne l'emploie.
+
+    `_HERMES_AGENT_FALLBACK_MODEL` a porte `lfm2.5-2.6b-128k` pendant toute
+    la duree du mode jetable — un tag disparu du catalogue lors de la
+    refonte HOS-104 a HOS-109, ou le modele a ete renomme en `-125k`. Le
+    defaut ne se voyait pas : le mode jetable ne transmettait pas le modele
+    a l'agent, qui retombait sur celui de sa propre configuration.
+
+    Des que le harnais a commence a appliquer reellement le modele choisi,
+    chaque tour a rendu `HTTP 404: model 'lfm2.5-2.6b-128k' not found`, et
+    la mission n'a rien ecrit du tout.
+
+    Ce test ne peut pas interroger Ollama — la suite est hermetique. Il
+    verifie ce qu'il peut verifier sans reseau : que la constante s'accorde
+    avec le catalogue versionne du depot, seule source de verite hors
+    ligne.
+    """
+
+    def test_le_modele_de_repli_existe_au_catalogue(self):
+        import io
+
+        import yaml
+
+        from backend.execution.task_executor import _HERMES_AGENT_FALLBACK_MODEL
+
+        catalogue = yaml.safe_load(
+            io.open("config/models.yaml", encoding="utf-8").read())
+        connus = {spec.get("model") for spec in
+                  (catalogue.get("roles") or {}).values()}
+
+        assert _HERMES_AGENT_FALLBACK_MODEL in connus, (
+            f"{_HERMES_AGENT_FALLBACK_MODEL!r} n'est affecte a aucun role du "
+            f"catalogue ; connus : {sorted(c for c in connus if c)}")
