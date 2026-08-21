@@ -1,3 +1,29 @@
+## HOS-144 — Le routeur de modeles n'a aucune donnee pour departager (2026-08-21, non corrige)
+
+Suite de HOS-143. Le magasin de sondes remis a jour, `_agentic_model` ne substitue plus rien — et le routeur continue pourtant de choisir `lfm2.5-2.6b-125k`, 2,6 Md, pour **toutes** les taches :
+
+    Rediger la section IDENTITE DU PROJET          -> lfm2.5-2.6b-125k
+    Implementer le modele Employee avec ses tests  -> lfm2.5-2.6b-125k
+    Ecrire les tests unitaires du module auth      -> lfm2.5-2.6b-125k
+    Analyser les contraintes de conformite         -> lfm2.5-2.6b-125k
+
+Le routeur connait pourtant les sept modeles du catalogue. Mais leurs profils sont **vides** :
+
+    task_scores={}  benchmark_score=0.0  tokens_per_second=0.0
+    historical_success_rate=0.0  total_runs=0
+
+Les mesures existent — `config/models.yaml` documente code 100 pour gpt-oss, 88 pour qwen3.6, 36 pour ornith et gemma4, 28 pour lfm, avec les debits et les taux agentiques. **Elles vivent en commentaire.** Rien ne les charge dans les profils, et un routeur sans score ne departage pas sur la competence.
+
+### Pourquoi ce n'est pas corrige ce soir
+
+Une reecriture du chargement des profils, non testee, a 20 h 30, avant une nuit de huit heures : le remede serait pire. La correction demande de decider ou vivent ces scores — en commentaire lisible par un humain, ou en donnees lisibles par le routeur — et cette question merite mieux qu'une improvisation.
+
+### Ce que la nuit mesure quand meme
+
+Elle tourne sur `lfm2.5-2.6b-125k`, **le meme modele que les neuf campagnes precedentes**. La seule variable qui change est le harnais. C'est donc une comparaison plus propre qu'un changement simultane de modele et d'architecture : l'ecart de profondeur, s'il y en a un, sera attribuable au harnais et a rien d'autre.
+
+Profondeurs mesurees jusqu'ici, sur 26 sections : 8, 7, 1, 2, 9, 6, 1, 1 — moyenne 4,4.
+
 ## HOS-143 — Toutes les missions tournaient sur le plus petit modele (2026-08-21)
 
 Trouve en diagnostiquant l'arret d'un test nuit a sa premiere section. Le harnais fonctionnait, la session tenait, les fichiers etaient ecrits — et le travail etait confie a **`lfm2.5-2.6b-125k`**, 2,6 milliards de parametres, note `code 28`, le plus faible du catalogue. Ni ornith-9b, ni gpt-oss-20b.
