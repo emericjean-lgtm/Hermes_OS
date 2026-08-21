@@ -1,3 +1,37 @@
+## HOS-137 — Hermes Agent tenu ouvert, et la frontiere qui manquait (2026-08-21)
+
+`hermes_agent_cli.py` lance `cli.py` en sous-processus **jete apres chaque tache**. Aucun etat ne survit — et l'agent implemente pourtant, dans ses 134 modules, la compression de contexte (`context_compressor.py`), la revue de fond apres chaque tour (`background_review.py`), la maintenance des skills (`curator.py`), l'orchestration de la memoire (`memory_manager.py`) et une garde de fin de tour sur les editions de code (`verification_stop.py`).
+
+Aucune des quatre premieres ne peut s'appliquer a un processus qui meurt apres un tour. **Elles ne sont pas absentes, elles sont inatteignables.**
+
+### La session tient
+
+`backend/ral/adapters/hermes_agent_acp.py` ouvre une session ACP et la garde. Mesure : deux prompts, jetons d'entree **13 121 puis 26 273**, et le marqueur du premier tour rappele au troisieme. Le contexte s'accumule.
+
+### Le blocage ACP est nomme
+
+L'agent envoie des **requetes** au client — `session/request_permission` avant chaque ecriture — et attend la reponse. Un client qui les traite comme des notifications fige le tour indefiniment. C'est tres probablement ce qui faisait passer l'integration ACP pour bloquee depuis des jours : non pas un defaut de l'agent, mais un client qui n'ecoutait que dans un sens.
+
+### Et ma justification etait fausse
+
+La premiere version accordait aveuglement, avec ce commentaire :
+
+> Autoriser ici n'ouvre aucune porte. Le workspace est deja contraint par le `cwd` de la session.
+
+**Mesure, une heure plus tard** : session ouverte sur un dossier temporaire, l'agent demande a ecrire `/Users/emeri/note.txt`, la permission est accordee — et le fichier apparait a la racine du profil utilisateur, **hors du workspace**, pendant que le dossier confie reste vide.
+
+Le `cwd` d'une session ACP *oriente* l'agent ; il ne le contraint pas. Et rien en aval ne rattrape : l'agent ecrit par ses propres outils, sans repasser par Aegis ni `file_tools`. **La frontiere est dans le repondeur de permissions, et nulle part ailleurs.**
+
+Le piege technique est celui qui a deja coute cinq correctifs (HOS-129 a 133) : `/Users/emeri/note.txt` est **rote sans lettre de lecteur**, donc `Path.is_absolute()` rend `False` sous Windows. Un test naif le prend pour un chemin relatif et le croit dans le workspace. La verification resout donc contre la **racine du lecteur**, jamais contre le workspace.
+
+Un chemin qu'on ne sait pas situer est refuse : ne pas savoir n'est pas une raison d'autoriser.
+
+### Verified
+
+15 tests ajoutes. Suite : **4 212 passes, 3 ignores, code de sortie 0** (4 197 avant).
+
+Reste a faire, et ecrit ici plutot que sous-entendu : le client n'est branche sur aucun chemin d'execution. `hermes_agent_cli.py` reste le mode en service.
+
 ## HOS-135 — Un symbole reference et jamais defini (2026-08-21)
 
 Trois lancements de la file, trois workspaces neufs, trois sections differentes — et le **meme** defaut a chaque fois :

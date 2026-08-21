@@ -112,9 +112,7 @@ def main() -> int:
         objectif = brief_de_section(section, nom_du_cahier=args.cahier,
                                     regles=bloc, racine=str(projet),
                                     pile=contrainte_de_pile(str(projet)))
-        objectif += "
-
-" + diagnostic
+        objectif += "\n\n" + diagnostic
         goal = moteur.start_goal(objectif, {"local_path": str(projet)})
         rapport = moteur.get_report(goal.get("goal_id", "")) or {}
         return {**rapport, "statut_objectif": goal.get("status")}
