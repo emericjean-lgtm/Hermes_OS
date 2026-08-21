@@ -86,12 +86,22 @@ async def system_models() -> dict:
     is it resident? This joins config/models.yaml against Ollama's live
     list so `always_loaded` can be seen to be working (or not) rather
     than taken on trust.
+
+    `loaded` et `installe` sont deux questions distinctes, et les confondre
+    coûte cher (HOS-139). Un rôle dont le modèle a été supprimé d'Ollama
+    affichait `loaded: false` — indiscernable d'un modèle simplement non
+    résident, ce qui est le cas **normal** ici : `OLLAMA_MAX_LOADED_MODELS`
+    vaut 1 sur cette machine, donc tous les rôles sauf un sont
+    légitimement `loaded: false`. Le rôle `standard` est ainsi resté cassé
+    sans que rien ne le signale, jusqu'à ce qu'une mission le sollicite et
+    reçoive un 404.
     """
     config = load_models_config()
     # snapshot() is the monitor's public API; _read_loaded_models is
     # private and would couple this route to its internals.
     snapshot = await get_gpu_monitor().snapshot()
     loaded = {m.get("name", "") for m in snapshot.loaded_models}
+    installes = await _modeles_installes()
 
     def _is_loaded(tag: str) -> bool:
         # Ollama reports "qwen3:1.7b" as "qwen3:1.7b" but a tagless
@@ -110,6 +120,11 @@ async def system_models() -> dict:
                 "vram_gb": spec.get("vram_gb"),
                 "always_loaded": bool(spec.get("always_loaded")),
                 "loaded": _is_loaded(tag),
+                # `None` quand Ollama est injoignable : « on ne sait pas »
+                # n'est pas « absent », et afficher un rôle comme cassé
+                # parce qu'on n'a pas pu demander serait un faux négatif.
+                "installe": (None if installes is None
+                             else _est_installe(tag, installes)),
                 # HOS-075: the Assistant's manual model picker shows this
                 # verbatim rather than inventing its own blurb per role.
                 "description": (spec.get("description") or "").strip(),
@@ -121,4 +136,31 @@ async def system_models() -> dict:
         "roles": roles,
         "loaded_count": len(loaded),
         "always_loaded_count": sum(1 for r in roles if r["always_loaded"]),
+        # Le chiffre qu'un opérateur doit voir en premier : un rôle sans
+        # modèle installé échouera à la première mission qui l'emploie.
+        "roles_sans_modele": sorted(r["role"] for r in roles
+                                    if r["installe"] is False),
     }
+
+
+def _est_installe(tag: str, installes: set) -> bool:
+    """Même tolérance de nommage que `_is_loaded` : Ollama rend
+    `<nom>:latest` pour une référence sans tag."""
+    return tag in installes or f"{tag}:latest" in installes
+
+
+async def _modeles_installes():
+    """Ce qu'Ollama détient sur le disque, ou `None` s'il est injoignable."""
+    from backend.connectors.ollama_client import OllamaClient
+    from backend.core.config import get_settings
+
+    client = OllamaClient(get_settings().ollama_api_url, timeout=10.0)
+    try:
+        return {m.get("name", "") for m in await client.list_local_models()}
+    except Exception:  # noqa: BLE001 - ne pas faire echouer toute la route
+        return None
+    finally:
+        try:
+            await client.aclose()
+        except Exception:  # pragma: no cover - fermeture au mieux
+            pass

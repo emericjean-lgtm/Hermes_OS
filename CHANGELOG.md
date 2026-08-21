@@ -34,9 +34,17 @@ Cette route existe parce que la degradation est invisible autrement : un rapport
 
 Le role n'a **pas** ete reaffecte : aucun candidat mesure ne partage son profil (256k de contexte, agentique 3/3, vision 3/3), et choisir sans mesure serait masquer l'erreur plutot que la reparer. La restauration appartient a l'operateur.
 
+### Un role casse ne se distinguait pas d'un role au repos
+
+`OLLAMA_MAX_LOADED_MODELS` vaut 1 sur cette machine : a tout instant, tous les roles sauf un sont legitimement `loaded: false`. C'est le cas **normal**. Un role dont le modele a ete supprime d'Ollama affichait exactement la meme chose — le role `standard` est donc reste casse sans qu'aucune interface ne le signale.
+
+`/system/models` porte desormais `installe` a cote de `loaded`, et un champ `roles_sans_modele` que l'operateur voit en premier. Trois etats, pas deux : `true`, `false`, et `null` quand Ollama est injoignable — « on ne sait pas » n'est pas « absent », et declarer tous les roles casses faute d'avoir pu demander serait le faux negatif qui a coute le plus cher a ce projet.
+
+Sur cette machine, apres la suppression : `{"roles_sans_modele": ["standard"]}`.
+
 ### Verified
 
-Suite : **1 676 passes, 2 ignores, code de sortie 0** (1 664 avant).
+Suite : **1 682 passes, 2 ignores, code de sortie 0** (1 664 avant).
 
 ## HOS-138 — Le harnais entre en service, et le canal cesse d'etre partage (2026-08-21)
 
