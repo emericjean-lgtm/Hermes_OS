@@ -103,11 +103,28 @@ def main() -> int:
         # mission sans workspace si on ne le porte pas.
         return {**rapport, "statut_objectif": goal.get("status")}
 
+    def reparer(section, diagnostic):
+        # Seconde passe : on ne redemande pas le travail, on demande la
+        # correction. Le diagnostic porte la sortie reelle des tests, les
+        # livrables manquants et les boucles d'import — sans quoi la passe
+        # repart aussi aveugle que la premiere (HOS-136).
+        print(f"  ... reparation de §{section.numero}", flush=True)
+        objectif = brief_de_section(section, nom_du_cahier=args.cahier,
+                                    regles=bloc, racine=str(projet),
+                                    pile=contrainte_de_pile(str(projet)))
+        objectif += "
+
+" + diagnostic
+        goal = moteur.start_goal(objectif, {"local_path": str(projet)})
+        rapport = moteur.get_report(goal.get("goal_id", "")) or {}
+        return {**rapport, "statut_objectif": goal.get("status")}
+
     def tracer(etape):
-        print(f"  -> {etape.statut}  ({etape.qualite or 'sans verdict'})"
+        print(f"  -> {etape.statut} (passe {etape.passes})  ({etape.qualite or 'sans verdict'})"
               + (f"  {etape.detail}" if etape.detail else ""), flush=True)
 
-    etapes = derouler(a_faire, lancer=lancer, on_etape=tracer)
+    etapes = derouler(a_faire, lancer=lancer, reparer=reparer,
+                      on_etape=tracer, max_passes=2)
     resultat = bilan(etapes)
     resultat["duree_reelle_s"] = round(time.monotonic() - depart)
 

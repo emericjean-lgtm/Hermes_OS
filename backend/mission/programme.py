@@ -80,6 +80,9 @@ class Etape:
     detail: str = ""
     duree_s: float = 0.0
     fichiers: list[str] = field(default_factory=list)
+    #: Combien de passes ont ete faites. 1 = reussi du premier coup ;
+    #: 2 = une reparation a ete necessaire (HOS-136).
+    passes: int = 0
 
 
 def decouper(texte: str) -> list[Section]:
@@ -358,81 +361,132 @@ def brief_de_section(section: Section, *, nom_du_cahier: str,
     return "\n".join(morceaux)
 
 
+def diagnostic(verification, raison: str) -> str:
+    """Ce qu'on redonne au modele pour qu'il repare (HOS-136).
+
+    Le brief de reprise de `retry_policy` opere **dans** une mission. Ici on
+    est au-dessus : la mission a fini, elle s'est annoncee reussie, et la
+    mesure la dement. Ce qu'il faut transmettre n'est pas « recommence »,
+    c'est **l'erreur exacte** — sans quoi la seconde passe repart aussi
+    aveugle que la premiere (mesure de HOS-125 : la reprise produisait
+    « Créés : aucun » tant qu'on ne lui disait pas quoi corriger).
+    """
+    morceaux = [f"La passe precedente sur cette section a echoue : {raison}."]
+    v = verification or {}
+    tests = v.get("tests") or {}
+    if tests.get("ran") and tests.get("passed") is False:
+        sortie = str(tests.get("output") or "").strip()
+        morceaux.append(
+            "Voici la sortie reelle des tests. Corrige ce qu'elle rapporte, "
+            "ne devine pas :\n\n" + (sortie[-1500:] if sortie else "(vide)"))
+    manquants = (v.get("manifeste") or {}).get("manquants") or []
+    if manquants:
+        morceaux.append("Fichiers annonces et absents du disque : "
+                        + ", ".join(map(str, manquants)) + ".")
+    fatals = (v.get("imports") or {}).get("fatals") or []
+    if fatals:
+        morceaux.append("Boucle d'import fatale : " + "; ".join(map(str, fatals))
+                        + ". Casse-la.")
+    morceaux.append(
+        "Le travail deja correct est sur le disque : lis-le, ne le reecris "
+        "pas. Corrige uniquement ce qui est liste ci-dessus, puis relis tes "
+        "fichiers pour confirmer.")
+    return "\n\n".join(morceaux)
+
+
 def derouler(
     sections: list[Section],
     *,
     lancer: Callable[[Section], dict],
     nom_du_cahier: str = "PROJECT_SPEC.md",
     on_etape: Optional[Callable[[Etape], None]] = None,
+    reparer: Optional[Callable[[Section, str], dict]] = None,
+    max_passes: int = 2,
 ) -> list[Etape]:
-    """Enchaîner les sections, et s'arrêter sur ce qui compromet la suite.
+    """Enchainer les sections, et **reparer** avant d'abandonner.
 
-    `lancer` reçoit une section et rend le rapport d'objectif — c'est le
-    seul point de contact avec le moteur, pour que toute la logique
-    ci-dessus reste testable sans lui.
+    La premiere version s'arretait des qu'une section echouait. Mesure sur
+    neuf lancements : la file franchissait **4,4 sections en moyenne** avant
+    de s'arreter, soit un taux d'echec d'environ 18 % par section. A ce
+    rythme, atteindre la quatorzieme demande huit reussites d'affilee —
+    environ 1,7 % de chance. Un cahier de 26 sections etait donc
+    structurellement condamne, quelle que soit la qualite du modele.
 
-    Ne lève jamais : une file de quarante missions qui tombe sur la
-    trente-deuxième doit rendre les trente et une premières, pas une trace
-    d'exception.
+    Une section qui echoue est desormais **relancee avec le diagnostic
+    exact** — sortie des tests, livrables manquants, boucle d'import — et
+    la file ne s'arrete qu'apres `max_passes` tentatives. C'est le but du
+    mode autonome : rencontrer un probleme, l'identifier, le corriger.
+
+    `reparer` est distinct de `lancer` parce que la consigne l'est : la
+    premiere passe construit, la seconde repare. Sans `reparer`, le
+    comportement d'origine est conserve — on s'arrete.
+
+    Ne leve jamais : une file de quarante missions qui tombe sur la
+    trente-deuxieme doit rendre les trente et une premieres.
     """
     etapes = [Etape(section=s) for s in sections]
     arretee = False
     for etape in etapes:
         if arretee:
             etape.statut = "ignoree"
-            etape.detail = "étape précédente bloquante"
-            continue
-        try:
-            rapport = lancer(etape.section) or {}
-        except Exception as erreur:  # noqa: BLE001 - une file ne casse pas
-            logger.warning("section %s a levé", etape.section.etiquette,
-                           exc_info=True)
-            etape.statut = "bloquee"
-            etape.detail = f"{type(erreur).__name__}: {erreur}"
-            arretee = True
-            if on_etape is not None:
-                on_etape(etape)
+            etape.detail = "etape precedente bloquante"
             continue
 
-        etape.qualite = str(rapport.get("qualite") or "")
-        etape.duree_s = float(rapport.get("total_duration_ms") or 0.0) / 1000.0
+        raison_finale, verif_finale = "", None
+        for passe in range(1, max(1, max_passes) + 1):
+            try:
+                if passe == 1:
+                    rapport = lancer(etape.section) or {}
+                else:
+                    rapport = reparer(etape.section,
+                                      diagnostic(verif_finale, raison_finale)) or {}
+            except Exception as erreur:  # noqa: BLE001 - une file ne casse pas
+                logger.warning("section %s a leve (passe %d)",
+                               etape.section.etiquette, passe, exc_info=True)
+                etape.statut = "bloquee"
+                etape.detail = f"{type(erreur).__name__}: {erreur}"
+                raison_finale = etape.detail
+                break
 
-        # HOS-128 : **une mission qui n'a pas eu lieu n'est pas une mission
-        # sans mesure.** Les deux se présentent pareil — pas de
-        # `verification` — et `bloquant()` répondait « rien à signaler »
-        # pour les deux.
-        #
-        # Mesuré sur la première file réelle : les 26 sections ont rendu
-        # `{"faite": 26}` en **0 seconde**, zéro fichier sur le disque. Les
-        # objectifs refusaient de démarrer — le dossier n'était pas
-        # autorisé — chacun rendait `status: failed` et un rapport vide, et
-        # ce module les comptait comme faites. Le faux succès exact que ce
-        # dépôt existe pour empêcher, produit par le module chargé de le
-        # détecter.
-        statut_objectif = str(rapport.get("statut_objectif") or "").lower()
-        if statut_objectif and statut_objectif != "completed":
-            etape.statut = "bloquee"
-            etape.detail = f"l'objectif n'a pas abouti (statut : {statut_objectif})"
-            arretee = True
-            if on_etape is not None:
-                on_etape(etape)
-            continue
-        if not rapport:
-            etape.statut = "bloquee"
-            etape.detail = "aucun rapport — la mission n'a pas eu lieu"
-            arretee = True
-            if on_etape is not None:
-                on_etape(etape)
-            continue
+            etape.passes = passe
+            etape.qualite = str(rapport.get("qualite") or "")
+            etape.duree_s += float(rapport.get("total_duration_ms") or 0.0) / 1000.0
 
-        verification = rapport.get("verification")
-        doit_arreter, raison = bloquant(verification)
-        if doit_arreter:
-            etape.statut, etape.detail, arretee = "bloquee", raison, True
-        elif raison:
-            etape.statut, etape.detail = "signalee", raison
-        else:
-            etape.statut = "faite"
+            # HOS-128 : une mission qui n'a pas eu lieu n'est pas une
+            # mission sans mesure. Les deux se presentent pareil — pas de
+            # `verification` — et `bloquant()` repondait « rien a signaler »
+            # pour les deux. Mesure : 26 sections « faites » en 0 seconde
+            # sur un disque vide.
+            statut = str(rapport.get("statut_objectif") or "").lower()
+            if statut and statut != "completed":
+                etape.statut = "bloquee"
+                etape.detail = f"l'objectif n'a pas abouti (statut : {statut})"
+                raison_finale = etape.detail
+                break
+            if not rapport:
+                etape.statut = "bloquee"
+                etape.detail = "aucun rapport — la mission n'a pas eu lieu"
+                raison_finale = etape.detail
+                break
+
+            verif_finale = rapport.get("verification")
+            doit_arreter, raison = bloquant(verif_finale)
+            if doit_arreter:
+                raison_finale = raison
+                etape.statut, etape.detail = "bloquee", raison
+                if reparer is None or passe >= max(1, max_passes):
+                    break
+                etape.detail = f"{raison} — passe {passe} echouee, reparation"
+                if on_etape is not None:
+                    on_etape(etape)
+                continue
+            etape.statut = "reparee" if passe > 1 else (
+                "signalee" if raison else "faite")
+            etape.detail = raison
+            break
+
+        if etape.statut == "bloquee":
+            arretee = True
         if on_etape is not None:
             on_etape(etape)
     return etapes

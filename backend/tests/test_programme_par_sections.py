@@ -370,3 +370,118 @@ class TestLeLanceurAutoriseLeDossier:
         source = Path("scripts/derouler_cahier.py").read_text(encoding="utf-8")
 
         assert '"statut_objectif": goal.get("status")' in source
+
+
+class TestLaFileRepareAvantDAbandonner:
+    """Le but du mode autonome (HOS-136).
+
+    La premiere version s'arretait des qu'une section echouait. Mesure sur
+    **neuf lancements reels** : 8, 7, 1, 2, 9, 6, 1, 1 sections franchies —
+    une moyenne de 4,4, soit un taux d'echec d'environ **18 % par
+    section**. A ce rythme, atteindre la quatorzieme demande huit
+    reussites d'affilee : environ 1,7 % de chance.
+
+    Un cahier de 26 sections etait donc **structurellement condamne**,
+    quelle que soit la qualite du modele. Ce n'est pas le modele qui
+    s'aggravait — c'est la politique d'arret qui rendait la profondeur
+    attendue derisoire.
+    """
+
+    def _section(self, n: int) -> Section:
+        return Section(numero=n, titre=f"S{n}", corps="corps")
+
+    def _echec(self) -> dict:
+        return {"statut_objectif": "completed",
+                "verification": {"created": ["a.py"], "contradicted": True,
+                                 "tests": {"ran": True, "passed": False,
+                                           "output": "E NameError: Optional"}}}
+
+    def _succes(self) -> dict:
+        return {"statut_objectif": "completed",
+                "verification": {"created": ["a.py"], "contradicted": False}}
+
+    def test_une_section_qui_echoue_est_reparee_et_la_file_continue(self):
+        vus = []
+
+        def lancer(s):
+            vus.append(("lancer", s.numero))
+            return self._echec()
+
+        def reparer(s, diag):
+            vus.append(("reparer", s.numero))
+            return self._succes()
+
+        etapes = derouler([self._section(6), self._section(7)],
+                          lancer=lancer, reparer=reparer)
+
+        assert [e.statut for e in etapes] == ["reparee", "reparee"]
+        assert vus == [("lancer", 6), ("reparer", 6),
+                       ("lancer", 7), ("reparer", 7)]
+
+    def test_le_diagnostic_porte_l_erreur_exacte(self):
+        """Sans elle, la seconde passe repart aussi aveugle que la
+        premiere — mesure sur HOS-125, ou la reprise produisait
+        « Créés : aucun » tant qu'on ne lui disait pas quoi corriger."""
+        recu = []
+
+        def reparer(s, diag):
+            recu.append(diag)
+            return self._succes()
+
+        derouler([self._section(6)], lancer=lambda s: self._echec(),
+                 reparer=reparer)
+
+        assert "NameError: Optional" in recu[0]
+        assert "ne devine pas" in recu[0]
+        assert "ne le reecris pas" in recu[0]
+
+    def test_apres_epuisement_des_passes_la_file_s_arrete(self):
+        """Reparer indefiniment brulerait la nuit sur une section."""
+        etapes = derouler([self._section(6), self._section(7)],
+                          lancer=lambda s: self._echec(),
+                          reparer=lambda s, d: self._echec(),
+                          max_passes=2)
+
+        assert etapes[0].statut == "bloquee"
+        assert etapes[0].passes == 2
+        assert etapes[1].statut == "ignoree"
+
+    def test_sans_reparateur_le_comportement_d_origine_est_conserve(self):
+        """Un appelant qui n'en fournit pas doit voir exactement ce qu'il
+        voyait."""
+        etapes = derouler([self._section(6), self._section(7)],
+                          lancer=lambda s: self._echec())
+
+        assert etapes[0].statut == "bloquee"
+        assert etapes[1].statut == "ignoree"
+
+    def test_une_reussite_du_premier_coup_ne_declenche_aucune_reparation(self):
+        appels = []
+        etapes = derouler([self._section(6)], lancer=lambda s: self._succes(),
+                          reparer=lambda s, d: appels.append(1) or self._succes())
+
+        assert etapes[0].statut == "faite"
+        assert etapes[0].passes == 1
+        assert appels == []
+
+    def test_le_manifeste_qui_diverge_ne_declenche_pas_de_reparation(self):
+        """Un nom de livrable different n'est pas bloquant : reparer pour
+        ca couterait une passe entiere sur un ecart cosmetique."""
+        appels = []
+        etapes = derouler([self._section(6)], lancer=lambda s: {
+            "statut_objectif": "completed",
+            "verification": {"created": ["a.py"], "contradicted": True,
+                             "tests": {"ran": True, "passed": True},
+                             "manifeste": {"manquants": ["docs/x.md"],
+                                           "tenu": False}}},
+            reparer=lambda s, d: appels.append(1) or self._succes())
+
+        assert etapes[0].statut == "signalee"
+        assert appels == []
+
+    def test_les_durees_des_deux_passes_s_additionnent(self):
+        etapes = derouler([self._section(6)],
+                          lancer=lambda s: {**self._echec(), "total_duration_ms": 1000},
+                          reparer=lambda s, d: {**self._succes(), "total_duration_ms": 2000})
+
+        assert etapes[0].duree_s == 3.0
