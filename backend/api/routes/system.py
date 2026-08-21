@@ -48,6 +48,18 @@ def system_harnais() -> dict:  # noqa: ASYNC - voir la note ci-dessous
     rappelle Hermes OS par MCP pour obtenir ses outils, et démarre sans
     aucun outil quand il ne le trouve pas.
 
+    **`sessions_ouvertes` ne compte que celles de CE processus.** Le
+    registre est un singleton par interpréteur : un script lancé à côté —
+    `derouler_cahier.py` déroulant un cahier toute une nuit — tient les
+    siennes, que cette route ne verra jamais. Mesuré le 2026-08-21 : la
+    route répondait `0` pendant qu'une campagne de 22 sections tournait
+    avec le harnais.
+
+    Le chiffre n'est donc pas faux, il est **local** — et le dire ici vaut
+    mieux que laisser un opérateur conclure d'un `0` que le harnais ne sert
+    pas. `pret` et `prerequis`, eux, décrivent la machine et valent pour
+    tout le monde.
+
     **Déclarée `def` et non `async def`, et c'est indispensable.** La
     vérification sonde le backend en HTTP, de façon bloquante. Dans un
     handler `async`, cet appel gèle la boucle même qui devrait répondre à

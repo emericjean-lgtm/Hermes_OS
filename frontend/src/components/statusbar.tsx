@@ -56,7 +56,8 @@ export function StatusBar() {
           harnais === undefined
             ? "État du harnais inconnu"
             : harnais.pret
-              ? `Session d'agent tenue ouverte — ${harnais.sessions_ouvertes} en cours`
+              ? `Harnais prêt — ${harnais.sessions_ouvertes} session(s) ouverte(s) par le backend. `
+                + `Un script lancé à part (déroulé d'un cahier) tient les siennes, non comptées ici.`
               : `Mode jetable : un agent sans mémoire par tâche. ${harnais.explication}`
         }
       >
