@@ -145,6 +145,39 @@ def _harnais_par_defaut() -> bool:
         "0", "false", "non", "off")
 
 
+#: Ce qu'un coordinateur rend quand il n'a **rien choisi**. `_select_runtime`
+#: d'`agent_coordinator.py` rend littéralement `"default"` lorsque son
+#: registre de runtimes est vide — l'avertissement `registries still empty
+#: after seeding: runtimes` au démarrage annonce exactement cet état.
+_NON_CHOISI = {"", "default", "auto", "none", "any"}
+
+
+def _runtime_demande(brut: str) -> str:
+    """Le runtime réellement demandé, ou Hermes Agent à défaut.
+
+    **Un non-choix n'est pas un choix.** Mesuré le 2026-08-21 : le registre
+    des runtimes était vide, le coordinateur a donc assigné `"default"`, et
+    `execute()` — qui ne reconnaissait que la chaîne exacte
+    `"hermes-agent"` — est tombé sur sa propre boucle d'outils. Une nuit
+    entière allait se dérouler **sans Hermes Agent**, ni en session ni en
+    mode jetable.
+
+    C'est la même famille que l'incident `HERMES_AGENT_BYPASS_DETECTED`
+    (voir `backend/tests/test_hermes_agent_is_the_brain.py`), par une autre
+    porte : la première fois, la boucle d'outils écrasait un agent
+    correctement sélectionné ; ici, elle prend la place d'une sélection qui
+    n'a jamais eu lieu. Le garde-fou existant ne la couvrait pas, parce
+    qu'il fournit toujours un `runtime_id` explicite.
+
+    Le repli est Hermes Agent et non la boucle d'outils, parce que c'est la
+    règle qui prime dans ce dépôt : Hermes Agent est le cerveau, Hermes OS
+    son système d'exploitation. `_chat_with_tools_for` reste réservée au
+    runtime local **explicitement** demandé, qui n'a pas d'agent à lui.
+    """
+    nom = (brut or "").strip().lower()
+    return "hermes-agent" if nom in _NON_CHOISI else brut.strip()
+
+
 class RuntimeUnavailableError(RuntimeError):
     """No runtime could serve the task.
 
@@ -399,9 +432,9 @@ class RealTaskExecutor:
                 must fail the task — fabricating a result is what R-001 exists
                 to remove.
         """
-        runtime_id = (getattr(assignment, "runtime_id", "")
-                      or getattr(task, "assigned_runtime", "")
-                      or "hermes-agent")
+        runtime_id = _runtime_demande(
+            getattr(assignment, "runtime_id", "")
+            or getattr(task, "assigned_runtime", ""))
         model = self._resolve_model(task, assignment)
         num_ctx = self._resolve_num_ctx(task)
         workspace = self._resolve_workspace(task)

@@ -390,3 +390,41 @@ def test_the_agent_is_invoked_with_its_own_interpreter():
     assert "hermes-agent" in configured.as_posix(), (
         f"expected an interpreter inside the Hermes Agent install, got {configured}"
     )
+
+
+def test_un_runtime_non_choisi_va_quand_meme_a_hermes_agent(
+    hermes_agent, monkeypatch, tmp_path,
+):
+    """La seconde porte du meme contournement (HOS-142).
+
+    `agent_coordinator._select_runtime` rend litteralement `"default"` quand
+    son registre de runtimes est vide — et il l'etait sur cette machine,
+    l'avertissement `registries still empty after seeding: runtimes` le
+    disait a chaque demarrage.
+
+    `execute()` ne reconnaissait que la chaine exacte `"hermes-agent"` : avec
+    `"default"`, il tombait sur sa propre boucle d'outils. Le test ci-dessus
+    ne l'attrapait pas, parce qu'il ne fournit aucun `assigned_runtime` et
+    beneficie donc du defaut cable en dur.
+
+    Mesure du 2026-08-21, en plein deroulement d'un cahier : le harnais
+    annoncait `pret`, **aucun processus d'agent n'existait** — ni session ni
+    mode jetable — et des fichiers etaient pourtant crees, par Hermes OS
+    lui-meme. Ni le journal, ni le bilan, ni le rapport de mission ne
+    l'auraient dit : les sections etaient « faites ».
+    """
+    _forbid_ollama(monkeypatch)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+
+    executor = RealTaskExecutor(
+        workspace_project_for=lambda task: ("proj-1", str(workspace)),
+    )
+    outcome = executor.execute(
+        _FakeTask(mission_id="m-1", assigned_runtime="default"))
+
+    assert hermes_agent.started, (
+        "HERMES_AGENT_BYPASS_DETECTED: un runtime non choisi a fait "
+        "contourner Hermes Agent au profit de la boucle d'outils de Hermes OS"
+    )
+    assert outcome.metadata.get("provider") == "hermes-agent"

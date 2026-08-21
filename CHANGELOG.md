@@ -1,3 +1,45 @@
+## HOS-142 — Un non-choix de runtime contournait Hermes Agent (2026-08-21)
+
+Trouve en surveillant le premier test nuit, vingt minutes apres son lancement. Le harnais annoncait `pret`, des fichiers apparaissaient dans le workspace, les sections passaient « faites » — et **aucun processus d'agent n'existait**. Ni session ACP, ni mode jetable. Dix echantillons a douze secondes d'intervalle : zero.
+
+### La cause
+
+`agent_coordinator._select_runtime` rend litteralement `"default"` quand son registre de runtimes est vide :
+
+```python
+for rid in self._runtimes:
+    return rid
+return "default"
+```
+
+Et il l'etait — l'avertissement le disait a chaque demarrage, sans que personne n'y prete attention :
+
+    registries still empty after seeding: runtimes
+
+`execute()` ne reconnaissait que la chaine exacte `"hermes-agent"`. Avec `"default"`, il tombait sur `_chat_with_tools_for` : **sa propre boucle d'outils**. Hermes OS faisait le travail lui-meme.
+
+### Pourquoi le garde-fou ne l'a pas vu
+
+`test_hermes_agent_is_the_brain.py` existe precisement pour cela, et il passait. Il ne fournit aucun `assigned_runtime` et beneficie donc du defaut cable en dur `or "hermes-agent"` — il ne pouvait pas rencontrer `"default"`.
+
+C'est la meme famille que l'incident d'origine, par une autre porte. La premiere fois, la boucle d'outils **ecrasait** un agent correctement selectionne. Ici, elle prend la place d'une selection qui n'a jamais eu lieu.
+
+### Ce qui rendait la chose invisible
+
+Rien dans les sorties ne l'indiquait. Les fichiers etaient bien crees, les missions bien terminees, le bilan aurait eu la forme d'une nuit reussie. Le seul signal etait un **compte de processus a zero** — donnee qu'aucun rapport ne porte.
+
+Une nuit entiere allait mesurer le harnais sans jamais l'employer.
+
+### La correction
+
+Un non-choix n'est pas un choix : `""`, `"default"`, `"auto"`, `"none"`, `"any"` tombent desormais sur Hermes Agent. Le repli est l'agent et non la boucle d'outils, parce que c'est la regle qui prime dans ce depot. `_chat_with_tools_for` reste reservee au runtime local **explicitement** demande, qui n'a pas d'agent a lui.
+
+Le garde-fou nomme couvre desormais cette porte, et il mord : sans la correction, il rend `HERMES_AGENT_BYPASS_DETECTED` (verifie en retirant le correctif).
+
+### Verified
+
+15 tests ajoutes. Suite : **1 747 passes, 2 ignores, code de sortie 0** (1 731 avant).
+
 ## HOS-141 — Le harnais sur tout Hermes OS, et la porte de derriere qu'il a revelee (2026-08-21)
 
 Le harnais ne servait que les missions. Il sert desormais tout ce qui parle a l'agent, la continuite porte sur le projet et non sur la mission, et une session survit au processus qui la sert. Chemin faisant, une faille de securite est apparue — elle n'etait pas du harnais, mais il a fallu trois couches pour la voir.
