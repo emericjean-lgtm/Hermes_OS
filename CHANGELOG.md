@@ -1,3 +1,47 @@
+## HOS-151 — Le meme defaut, une seconde fois, avec un modele dix fois plus lent (2026-08-22)
+
+Premiere campagne ou deux modeles se partagent les taches : le code a Qwen3.8-27B (8,7 tok/s), le reste a gpt-oss-20b (92,7). La repartition a fonctionne — 20 taches d'un cote, 19 de l'autre — et la campagne s'est arretee a §6 avec **un seul livrable**.
+
+### Le chiffre absurde
+
+    gpt-oss-20b-64k   20 taches,  81 s au total,  4 s en moyenne
+    qwen38-27b-64k    18 taches,   2 s au total,  0 s en moyenne
+
+**Zero seconde par tache** pour un modele qui rend 8,7 jetons par seconde. C'est ce chiffre qui a mis sur la piste, comme le `0 s par tentative` d'un HTTP 400 jamais regarde.
+
+Le journal de l'agent disait la verite :
+
+    API call #2: model=qwen38-27b-64k ... latency=198.8s
+    harnais : tour non abouti ... TimeoutError
+
+Le modele travaillait. C'est le **tour** qui expirait.
+
+### La cause, et son echo
+
+Plusieurs appels a 200 s chacun, plus le raisonnement et l'execution des outils, ne tiennent pas dans les 900 s accordes a un tour. Le commentaire de `_HERMES_AGENT_TIMEOUT_S` raconte deja cette histoire :
+
+> Le defaut de 180 s etait dimensionne pour un seul appel de modele ; une tache reelle en plusieurs etapes le depassait couramment, et chaque tache d'une mission echouait sur « runtime 'hermes-agent' timed out » — produisant une mission qui tournait douze minutes et achevait 0/5 taches.
+
+Le budget avait ete porte a 900 s pour un modele rapide. Il est trop court des qu'on impose un 27 Md qui deborde de 20 % sur CPU. **Le meme defaut, a une echelle differente.**
+
+### Le budget est reglable, et pas augmente
+
+    HERMES_AGENT_TIMEOUT_S=3600
+
+Le defaut reste 900 s, deliberement : un tour qui n'aboutit pas en quinze minutes sur un modele rapide est un blocage, et l'allonger pour tout le monde le rendrait invisible. C'est l'operateur qui sait quel modele il impose, donc ce qu'il doit attendre.
+
+Une valeur nulle, negative ou illisible est refusee et journalisee — un budget nul ferait echouer chaque tour instantanement, ce qui ressemblerait a un modele incapable. Sixieme faux echec de ce depot, et on ne rouvre pas la porte.
+
+Le budget est lu **a la construction** de l'executeur, pas a l'import du module : lue a l'import, une variable posee ensuite paraitrait prise en compte sans l'etre.
+
+### Ce qui reste a faire
+
+Un budget derive du debit **mesure** — les bancs le portent deja sous `tok_s_moyen`. Cela demande de relier le catalogue a l'executeur, ce que HOS-144 fera lorsque les profils du routeur seront alimentes. En attendant, l'operateur tranche.
+
+### Verified
+
+10 tests ajoutes. Suite : **1 878 passes, 2 ignores, code de sortie 0**.
+
 ## HOS-150 — Le bon modele sur la bonne tache (2026-08-22)
 
 Deux defauts qui se cumulaient, et une campagne entiere pour les voir.

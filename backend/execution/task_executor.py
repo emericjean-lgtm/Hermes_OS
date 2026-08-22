@@ -134,6 +134,57 @@ _HERMES_AGENT_FALLBACK_MODEL = "lfm2.5-2.6b-125k"
 #: producing a mission that ran for 12 minutes and completed 0/5 tasks.
 _HERMES_AGENT_TIMEOUT_S = 900.0
 
+#: Le meme defaut, une seconde fois, avec un modele dix fois plus lent.
+#:
+#: Mesure du 2026-08-22 : une campagne confiant le code a Qwen3.8-27B
+#: (8,7 tok/s) contre gpt-oss-20b (92,7) a rendu 18 taches « executees » en
+#: 2 secondes cumulees — un chiffre absurde, et c'est ce qui a mis sur la
+#: piste. Le journal de l'agent disait la verite :
+#:
+#:     API call #2: model=qwen38-27b-64k ... latency=198.8s
+#:     harnais : tour non abouti ... TimeoutError
+#:
+#: Le modele travaillait. C'est le **tour** qui expirait : plusieurs appels
+#: a 200 s chacun, plus le raisonnement et les outils, ne tiennent pas dans
+#: 900 s. Exactement le defaut que le commentaire ci-dessus raconte —
+#: « 180 s dimensionnes pour un seul appel » — reproduit a l'echelle d'un
+#: modele de 27 Md qui deborde de 20 % sur CPU.
+#:
+#: Le budget est donc reglable. Il n'est pas augmente par defaut : un tour
+#: qui n'aboutit pas en quinze minutes sur un modele rapide est un blocage,
+#: et l'allonger le rendrait invisible. C'est l'operateur qui sait quel
+#: modele il impose, et donc ce qu'il doit attendre.
+#:
+#: La vraie correction serait un budget derive du debit mesure — les bancs
+#: le portent deja (`tok_s_moyen`). Elle demande de relier le catalogue a
+#: l'executeur, ce que HOS-144 fera lorsque les profils du routeur seront
+#: enfin alimentes.
+_VARIABLE_BUDGET = "HERMES_AGENT_TIMEOUT_S"
+
+
+def budget_du_tour() -> float:
+    """Le temps accorde a un tour d'agent, en secondes.
+
+    Rend le defaut mesure pour un modele rapide, ou la valeur imposee par
+    l'operateur. Une valeur illisible ou negative est ignoree : un budget
+    nul ferait echouer chaque tour instantanement, ce qui ressemblerait a
+    un modele incapable.
+    """
+    brut = os.environ.get(_VARIABLE_BUDGET, "").strip()
+    if not brut:
+        return _HERMES_AGENT_TIMEOUT_S
+    try:
+        valeur = float(brut)
+    except ValueError:
+        logger.warning("%s=%r illisible — budget par defaut (%.0f s)",
+                       _VARIABLE_BUDGET, brut, _HERMES_AGENT_TIMEOUT_S)
+        return _HERMES_AGENT_TIMEOUT_S
+    if valeur <= 0:
+        logger.warning("%s=%r ignore : un budget nul ferait echouer chaque "
+                       "tour instantanement", _VARIABLE_BUDGET, brut)
+        return _HERMES_AGENT_TIMEOUT_S
+    return valeur
+
 
 def _harnais_par_defaut() -> bool:
     """Le harnais est-il en service ?
@@ -391,10 +442,12 @@ class RealTaskExecutor:
         journal_pour: Optional[Callable[[Any], Optional[str]]] = None,
         agentic_capable_for: Optional[Callable[[str], Optional[bool]]] = None,
         agentic_fallback_model: str = _HERMES_AGENT_FALLBACK_MODEL,
-        agentic_timeout_s: float = _HERMES_AGENT_TIMEOUT_S,
+        agentic_timeout_s: Optional[float] = None,
         harnais_actif: Optional[bool] = None,
     ) -> None:
-        self._agentic_timeout_s = agentic_timeout_s
+        self._agentic_timeout_s = (budget_du_tour()
+                                   if agentic_timeout_s is None
+                                   else agentic_timeout_s)
         # Le harnais — une session d'agent qui dure toute la mission —
         # est le mode normal. Le défaut vient de l'environnement pour
         # qu'un opérateur puisse revenir au mode jetable sans
