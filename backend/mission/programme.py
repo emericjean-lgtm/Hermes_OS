@@ -392,6 +392,13 @@ def diagnostic(verification, raison: str) -> str:
     # noyee dans une trace de collecte pytest ou l'essentiel — le fichier,
     # la ligne, la regle violee — n'apparaissait qu'implicitement. Le dire
     # en clair coute une ligne et evite une passe.
+    faux = v.get("faux_paquet") or {}
+    if faux:
+        morceaux.append(
+            f"Dependance fabriquee : le repertoire {faux.get('chemin')} "
+            f"porte le nom du paquet tiers `{faux.get('paquet')}` et masque "
+            f"le vrai. Supprime-le. Si ce paquet est necessaire, declare-le "
+            f"comme dependance ; sinon ecris le code sans lui.")
     remontee = v.get("imports_remontent") or {}
     if remontee:
         points = "." * int(remontee.get("niveau") or 0)

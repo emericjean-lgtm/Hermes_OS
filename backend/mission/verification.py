@@ -197,6 +197,9 @@ class MissionVerification:
     #: None. Distinct de `imports` : celui-la cherche des boucles, une autre
     #: question (HOS-146).
     imports_remontent: Optional[dict] = None
+    #: Un repertoire portant le nom d'un paquet tiers, fabrique par le
+    #: modele pour satisfaire ses propres imports (HOS-148).
+    faux_paquet: Optional[dict] = None
 
     @property
     def import_hors_paquet(self) -> bool:
@@ -259,6 +262,21 @@ class MissionVerification:
         return (self.measured and self.reported_success
                 and self.changes.touched_anything and not self.tests_echouent
                 and not self.manifeste_manque and not self.imports_boucles)
+
+    @property
+    def dependance_fabriquee(self) -> bool:
+        """Le workspace contient un `flask` qui n'est pas Flask.
+
+        Contredit un succes annonce sans reserve, et **meme quand les tests
+        passent** : ils passent justement parce que la doublure satisfait
+        les imports. C'est un mensonge sur le contenu du workspace, pas une
+        faiblesse du code.
+
+        Mesure sur deux campagnes consecutives : un faux `django/`, puis un
+        faux `flask/` — « Minimal Flask stub for tests » — dont le
+        `DummyClient` n'avait pas la moitie des methodes appelees.
+        """
+        return self.faux_paquet is not None
 
     @property
     def travail_deja_fait(self) -> bool:
@@ -345,7 +363,8 @@ class MissionVerification:
         # etait deja fait » rouvrirait la porte au mensonge que ce module
         # existe pour attraper.
         if (self.tests_echouent or self.manifeste_manque
-                or self.imports_boucles or self.import_hors_paquet):
+                or self.imports_boucles or self.import_hors_paquet
+                or self.dependance_fabriquee):
             return True
         # Reste la seule question ouverte : un workspace intact. C'est un
         # mensonge, sauf quand une reparation n'avait rien a reparer.
@@ -371,6 +390,7 @@ class MissionVerification:
             # de zero, comme il a du le faire le 2026-08-21.
             "imports_remontent": self.imports_remontent,
             "travail_deja_fait": self.travail_deja_fait,
+            "faux_paquet": self.faux_paquet,
             "tests_echouent": self.tests_echouent,
         }
 
@@ -438,6 +458,7 @@ def verify(
             workspace=workspace, changes=WorkspaceDiff(), measured=False,
         )
     from backend.mission import imports_locaux as _imports
+    from backend.mission import faux_paquets as _faux
     from backend.mission import imports_relatifs as _relatifs
     from backend.mission import manifeste as _manifeste
 
@@ -449,6 +470,7 @@ def verify(
                   else None,
         imports=_imports.verdict(workspace),
         imports_remontent=_relatifs.verdict(workspace),
+        faux_paquet=_faux.verdict(workspace),
     )
     if result.contradicted:
         logger.warning(

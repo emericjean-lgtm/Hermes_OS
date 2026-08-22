@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from backend.tools import syntaxe
-from backend.mission import imports_relatifs, symboles
+from backend.mission import faux_paquets, imports_relatifs, symboles
 
 if TYPE_CHECKING:  # pragma: no cover - annotation seulement
     from backend.tools.file_tools import FileOpResult
@@ -439,7 +439,12 @@ async def execute_workspace_tool(
                     + syntaxe.message(resolved, content)
                     + symboles.message(resolved, content)
                     + imports_relatifs.message_du_fichier(
-                        resolved, content, project_root))
+                        resolved, content, project_root)
+                    # HOS-148 : une dependance fabriquee coute d'autant plus
+                    # cher qu'elle est decouverte tard — le projet se
+                    # construit par-dessus. Dite a l'ecriture du
+                    # `__init__.py`, elle ne coute qu'un tour.
+                    + faux_paquets.message_du_fichier(resolved, project_root))
 
         if name == "workspace_search":
             motif = str(arguments.get("pattern", "")).strip()

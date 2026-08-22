@@ -1,3 +1,42 @@
+## HOS-148 — Le modele fabrique la dependance qui lui manque (2026-08-22)
+
+Deux campagnes consecutives, la meme pathologie.
+
+* §9 de l'une : `django/__init__.py`, `django/db/__init__.py`, `django/test.py` crees dans le workspace.
+* §6 de la suivante : `flask/__init__.py`, en toutes lettres
+
+      # Minimal Flask stub for tests
+
+  dont le `DummyClient` n'avait pas la moitie des methodes appelees :
+
+      AttributeError: 'DummyClient' object has no attribute 'post'
+
+Le modele ne dit pas « il me manque Flask ». Il **l'ecrit**.
+
+### Pourquoi c'est pire qu'une dependance absente
+
+Une dependance manquante echoue franchement, au premier import, avec son nom dans le message. Un faux paquet la masque : il satisfait l'import, laisse le projet se construire par-dessus, et ne cede qu'au moment ou une methode non implementee est appelee — sous une forme qui n'a plus rien a voir avec sa cause.
+
+C'est aussi un mensonge silencieux au sens de ce depot : le workspace contient un `flask` qui n'est pas Flask. Il contredit donc un succes annonce **meme quand les tests passent** — ils passent justement parce que la doublure satisfait les imports.
+
+### Une liste fermee, et courte
+
+Un repertoire portant le nom d'un paquet tiers connu et contenant un `__init__.py` n'est jamais legitime : ces noms sont pris, et les prendre casse l'import du vrai paquet.
+
+La liste est volontairement fermee. Une heuristique du genre « ce nom ressemble a un paquet PyPI » refuserait des modules applicatifs parfaitement valides, et un faux refus coute autant qu'une fuite ici — le garde de workspace a deja bloque une campagne sur un dossier valide (HOS-142).
+
+Le vrai paquet installe sous `.venv/Lib/site-packages/` est ignore : le signaler ferait echouer tout projet ayant ses dependances.
+
+### Trois points d'action
+
+* **a l'ecriture** du `__init__.py` — la faute ne coute alors qu'un tour ;
+* **a la verification** — elle contredit le succes annonce ;
+* **a la reparation** — le diagnostic nomme le repertoire a supprimer.
+
+### Verified
+
+22 tests ajoutes. Suite : **1 820 passes, 2 ignores, code de sortie 0** (1 798 avant).
+
 ## HOS-147 — La campagne s'est arretee a mi-parcours sur un succes (2026-08-22)
 
 Section §16 d'un deroule de cahier. La passe 1 a cree les trois livrables annonces, une reprise interne les a affines, puis la passe 2 n'a **rien ecrit** — parce qu'il n'y avait plus rien a ecrire. `contradicted` a vu « rien change » et bloque la file.
