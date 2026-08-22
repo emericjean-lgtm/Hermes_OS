@@ -1,0 +1,101 @@
+{
+ "modele": "gpt-oss-20b-64k",
+ "num_ctx": 65536,
+ "note": 9,
+ "total": 9,
+ "tronquees": 0,
+ "empreinte": {
+  "name": "gpt-oss-20b-64k:latest",
+  "size_bytes": 12799117884,
+  "size_vram_bytes": 12799117884,
+  "cpu_offload_bytes": 0,
+  "cpu_offload_ratio": 0.0,
+  "context_length": 65536
+ },
+ "gpu_dedicated_bytes": 14533152768,
+ "deport_ratio": 0.0,
+ "tok_s_moyen": 92.7,
+ "resultats": [
+  {
+   "tache": "compter_mots",
+   "niveau": "simple",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 41.5,
+   "tok_s": 97.7
+  },
+  {
+   "tache": "fusion_intervalles",
+   "niveau": "moyen",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 6.3,
+   "tok_s": 97.3
+  },
+  {
+   "tache": "banque_transactions",
+   "niveau": "complexe",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 15.2,
+   "tok_s": 90.9
+  },
+  {
+   "tache": "parseur_expressions",
+   "niveau": "expert",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 21.4,
+   "tok_s": 89.1
+  },
+  {
+   "tache": "cache_lru_ttl",
+   "niveau": "maitre",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 27.0,
+   "tok_s": 87.8
+  },
+  {
+   "tache": "planificateur_taches",
+   "niveau": "extreme",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 16.7,
+   "tok_s": 90.2
+  },
+  {
+   "tache": "moteur_motifs",
+   "niveau": "legende",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 21.0,
+   "tok_s": 89.1
+  },
+  {
+   "tache": "top_k_efficace",
+   "niveau": "titan",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 5.5,
+   "tok_s": 97.3
+  },
+  {
+   "tache": "compteur_concurrent",
+   "niveau": "mythique",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 10.2,
+   "tok_s": 94.5
+  }
+ ]
+}

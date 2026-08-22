@@ -32,6 +32,11 @@
 #
 #   qwen38-27b-64k      13.10G*    64k      8.7    8/9   3/3     —        —
 #
+#   Note de code mesuree sur le meme banc que gpt-oss, qui fait **9/9** en
+#   92,7 tok/s sans deborder : sur le code, gpt-oss domine sur les trois
+#   axes a la fois. Le seul avantage residuel de Qwen3.8 est la fenetre —
+#   262 144 en natif contre 65 536 — au prix de 4,7 tok/s a 128k.
+#
 # * mesure au compteur GPU du processus ; il **deborde de 20 %** sur CPU a
 #   64k (3,48 Gio sur 17,43). C'est assume : ce modele ne sert pas le
 #   travail courant. 8/9 au banc de code est la meilleure note jamais

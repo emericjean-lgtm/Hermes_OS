@@ -22,6 +22,25 @@ L'echec est isole et il est **en dessous** de quatre reussites : il rate `parseu
 
 Agentique : **3/3**. Il sait piloter la boucle d'outils, ce qu'un code excellent ne garantit pas — gemma4:12b franchissait tous les criteres structurels et echouait 0/3.
 
+### Amendement du meme jour — gpt-oss fait 9/9
+
+L'entree ci-dessus annonce « la meilleure note jamais relevee par ce banc ». **C'etait faux, faute d'avoir mesure le bon modele.** Aucun banc de code n'existait pour gpt-oss-20b ; le « code 100 » du catalogue vient d'un bareme par paliers (`bench_score.py`), pas de ces neuf epreuves. Comparer les deux chiffres etait un raccourci, exactement celui que ce depot interdit.
+
+Mesure sur le meme instrument, meme contexte :
+
+| | qwen38-27b-64k | gpt-oss-20b-64k |
+|---|---|---|
+| note de code | 8/9 | **9/9** |
+| debit | 8,7 tok/s | **92,7 tok/s** |
+| deport CPU | 20,0 % | **0,0 %** |
+| duree du banc | ~28 min | **2 min 44** |
+
+gpt-oss reussit `parseur_expressions`, la seule epreuve que Qwen3.8 rate. Il domine donc **sur les trois axes a la fois** : plus juste, dix fois plus rapide, et il tient entierement en VRAM.
+
+**Consequence pour l'emploi de Qwen3.8-27B :** aucune raison de le sortir pour du code. Son seul avantage residuel est la fenetre — 262 144 en natif contre 65 536 pour gpt-oss — au prix de 4,7 tok/s a 128k. Il reste installe a ce titre, et a ce titre seulement.
+
+L'outil manquait aussi : `code_bench.py` portait les epreuves et leurs assertions, mais **aucun point d'entree** ne les enchainait — les bancs de `docs/release/` venaient d'un script ad hoc que personne n'avait garde. Meme absence que pour les sondes agentiques avant HOS-143. `scripts/banc_code.py` est desormais versionne.
+
 ### Le prix du contexte, mesure
 
 | contexte | deport CPU | debit |
