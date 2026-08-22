@@ -224,10 +224,27 @@ def modele_impose(task_type: str = "") -> str:
         cle, valeur = cle.strip().lower(), valeur.strip()
         if cle and valeur:
             table[cle] = valeur
-    # Le type exact d'abord, le joker ensuite : une regle precise prime
-    # toujours sur une regle generale, sans quoi `*` rendrait la table
-    # inutile.
-    return table.get((task_type or "").strip().lower()) or table.get("*", "")
+    # Trois cles essayees dans cet ordre, et l'ordre est le correctif.
+    #
+    # `runtime_ctx["task_type"]` porte la **categorie du planificateur**
+    # (`implementation`), pas le type du routeur (`code_generation`). Une
+    # premiere version ne cherchait que la valeur brute : une table ecrite
+    # dans le vocabulaire du routeur — le plus naturel, puisque c'est celui
+    # des modeles — ne correspondait alors a rien, et **toutes** les taches
+    # tombaient sur le joker. Mesure du 2026-08-22 : 16 taches, zero
+    # attribution specifique, la table entierement inerte.
+    #
+    # Les deux vocabulaires sont donc acceptes. Un operateur qui ecrit
+    # `implementation=...` vise une categorie, celui qui ecrit
+    # `code_generation=...` vise une famille de taches ; les deux sont
+    # legitimes et personne ne devrait avoir a deviner lequel est attendu.
+    from backend.model_intelligence.correspondance_types import type_du_routeur
+
+    brut_type = (task_type or "").strip().lower()
+    for cle in (brut_type, type_du_routeur(brut_type) or "", "*"):
+        if cle and cle in table:
+            return table[cle]
+    return ""
 
 
 class RuntimeUnavailableError(RuntimeError):

@@ -163,3 +163,56 @@ class TestLaTableParTypeDeTache:
         retenu = executeur._agentic_model("ornith-9b-256k", "code_generation")
 
         assert retenu != "un-incapable"
+
+
+class TestLesDeuxVocabulaires:
+    """La table etait entierement inerte (HOS-150).
+
+    `runtime_ctx["task_type"]` porte la **categorie du planificateur**
+    (`implementation`), pas le type du routeur (`code_generation`). Une
+    premiere version ne cherchait que la valeur brute : une table ecrite
+    dans le vocabulaire du routeur — le plus naturel, puisque c'est celui
+    des modeles — ne correspondait a rien.
+
+    Mesure du 2026-08-22, campagne en cours : **16 taches, zero attribution
+    specifique**, tout tombait sur le joker. Le pont avait ete pose pour le
+    routeur et oublie pour la table.
+
+    Les deux ecritures sont legitimes : `implementation=` vise une
+    categorie, `code_generation=` une famille de taches. Personne ne devrait
+    avoir a deviner laquelle est attendue.
+    """
+
+    ROUTEUR = "code_generation=fort,*=rapide"
+    PLANIFICATEUR = "implementation=fort,testing=fort,*=rapide"
+
+    @pytest.mark.parametrize("categorie", ["implementation", "testing",
+                                           "integration"])
+    def test_une_table_en_vocabulaire_routeur_attrape_les_categories(
+            self, monkeypatch, categorie):
+        monkeypatch.setenv("HERMES_MISSION_MODEL", self.ROUTEUR)
+
+        assert modele_impose(categorie) == "fort"
+
+    @pytest.mark.parametrize("categorie", ["implementation", "testing"])
+    def test_une_table_en_vocabulaire_planificateur_marche_aussi(
+            self, monkeypatch, categorie):
+        monkeypatch.setenv("HERMES_MISSION_MODEL", self.PLANIFICATEUR)
+
+        assert modele_impose(categorie) == "fort"
+
+    @pytest.mark.parametrize("categorie", ["documentation", "design",
+                                           "analysis", "custom", ""])
+    def test_le_reste_tombe_bien_sur_le_joker(self, monkeypatch, categorie):
+        monkeypatch.setenv("HERMES_MISSION_MODEL", self.ROUTEUR)
+
+        assert modele_impose(categorie) == "rapide"
+
+    def test_la_valeur_brute_prime_sur_la_traduction(self, monkeypatch):
+        """Un operateur qui nomme une categorie precise veut cette
+        categorie-la, pas toute sa famille."""
+        monkeypatch.setenv("HERMES_MISSION_MODEL",
+                           "testing=tres-fort,code_generation=fort,*=rapide")
+
+        assert modele_impose("testing") == "tres-fort"
+        assert modele_impose("implementation") == "fort"
