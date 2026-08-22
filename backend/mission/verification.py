@@ -261,6 +261,56 @@ class MissionVerification:
                 and not self.manifeste_manque and not self.imports_boucles)
 
     @property
+    def travail_deja_fait(self) -> bool:
+        """Rien ecrit, mais le projet le prouve sain.
+
+        Trois conditions, et les trois sont necessaires :
+
+        * rien n'a change sur le disque ;
+        * les tests ont **reellement tourne** et sont passes — pas
+          « aucun runner », pas « non execute » : la preuve executee ;
+        * aucun livrable annonce ne manque.
+
+        C'est l'etat d'une reparation qui arrive apres coup : la passe
+        precedente a fait le travail, celle-ci n'a plus rien a corriger, et
+        elle n'ecrit donc rien.
+
+        ## L'incident
+
+        Mesure du 2026-08-22, section §16 d'un deroule de cahier. La passe 1
+        a cree les trois livrables annonces, une reprise interne les a
+        affines, puis la passe 2 n'a rien ecrit — parce qu'il n'y avait plus
+        rien a ecrire. `contradicted` a vu « rien change » et bloque la
+        campagne.
+
+        Verification apres coup, sur le disque :
+
+            docs/employee_assignment.md        969 o
+            models/employee_assignment.py     2013 o
+            tests/test_employee_assignment.py 1405 o
+            3 passed
+
+        La section etait terminee. Dix sections n'ont jamais ete atteintes a
+        cause de ce verdict.
+
+        C'est le pendant exact du defaut que ce module existe pour attraper.
+        « Ne jamais croire un succes sur parole » a un jumeau — « ni un
+        echec sur parole » — et cinq des defauts de mesure de ce depot
+        etaient deja des echecs imaginaires.
+
+        ## Pourquoi ce n'est pas une porte derobee
+
+        Une mission qui n'aurait vraiment rien fait ne remplit pas les trois
+        conditions : ses livrables annonces manqueraient, et le manifeste le
+        dirait. Sans tests executes, la porte reste fermee — un projet sans
+        test ne peut pas se declarer sain par cette voie.
+        """
+        return (not self.changes.touched_anything
+                and bool((self.tests or {}).get("ran"))
+                and (self.tests or {}).get("passed") is True
+                and not self.manifeste_manque)
+
+    @property
     def contradicted(self) -> bool:
         """Reported success, changed nothing — the exact false positive that
         hid five separate defects. Only ever claimed when we actually
@@ -279,12 +329,27 @@ class MissionVerification:
         (HOS-146) : le code ne s'importera nulle part, quelle que soit la
         façon dont le projet est lancé. Signalé même sans tests, parce que
         c'est précisément un projet sans tests qui ne le verrait jamais.
+
+        Et **pas** quand une reparation n'avait rien a reparer (HOS-147) :
+        rien ecrit, mais les tests executes passent et les livrables
+        annonces sont la. Confondre les deux a bloque une campagne sur une
+        section terminee, dix sections avant la fin.
         """
         if not (self.measured and self.reported_success):
             return False
-        return (not self.changes.touched_anything or self.tests_echouent
-                or self.manifeste_manque or self.imports_boucles
-                or self.import_hors_paquet)
+        # Les defauts constates priment sur tout : ils sont une preuve
+        # positive, pas une absence de preuve. Un projet dont les tests
+        # passent peut parfaitement contenir une boucle d'import fatale ou
+        # un import hors paquet — il suffit qu'aucun test n'importe le
+        # module fautif. Les court-circuiter au motif que « le travail
+        # etait deja fait » rouvrirait la porte au mensonge que ce module
+        # existe pour attraper.
+        if (self.tests_echouent or self.manifeste_manque
+                or self.imports_boucles or self.import_hors_paquet):
+            return True
+        # Reste la seule question ouverte : un workspace intact. C'est un
+        # mensonge, sauf quand une reparation n'avait rien a reparer.
+        return not self.changes.touched_anything and not self.travail_deja_fait
 
     def as_dict(self) -> dict:
         return {
@@ -305,6 +370,7 @@ class MissionVerification:
             # quel fichier, ni quelle ligne — et le diagnostic repartirait
             # de zero, comme il a du le faire le 2026-08-21.
             "imports_remontent": self.imports_remontent,
+            "travail_deja_fait": self.travail_deja_fait,
             "tests_echouent": self.tests_echouent,
         }
 

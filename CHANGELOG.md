@@ -1,3 +1,38 @@
+## HOS-147 — La campagne s'est arretee a mi-parcours sur un succes (2026-08-22)
+
+Section §16 d'un deroule de cahier. La passe 1 a cree les trois livrables annonces, une reprise interne les a affines, puis la passe 2 n'a **rien ecrit** — parce qu'il n'y avait plus rien a ecrire. `contradicted` a vu « rien change » et bloque la file.
+
+Verification apres coup, sur le disque :
+
+    docs/employee_assignment.md        969 o
+    models/employee_assignment.py     2013 o
+    tests/test_employee_assignment.py 1405 o
+    3 passed
+
+La section etait terminee. **Dix sections sur vingt-deux n'ont jamais ete atteintes** a cause de ce verdict.
+
+### Le pendant exact du defaut que ce module combat
+
+« Ne jamais croire un succes sur parole » a un jumeau, ecrit dans le meme fichier de regles : « ni un echec sur parole ». Cinq des defauts de mesure de ce depot etaient deja des echecs imaginaires — un extracteur JSON glouton, une fusion raisonnement/reponse, un foin trop gros, un niveau de test affirmant une contrainte fausse, un extracteur de code prenant le mauvais bloc.
+
+Celui-ci est le sixieme, et il a coute la moitie d'une campagne.
+
+### La regle corrigee
+
+Un workspace intact reste un mensonge, **sauf** quand trois conditions tiennent ensemble : les tests ont reellement tourne et sont passes, et aucun livrable annonce ne manque. C'est l'etat d'une reparation qui arrive apres coup.
+
+Les trois sont necessaires. Un projet sans test ne peut pas se declarer sain par cette voie — c'est precisement celui qui en aurait le plus besoin, et c'est pourquoi on refuse. Une mission qui n'aurait vraiment rien fait se trahit par ses livrables annonces absents.
+
+### Un defaut de la correction, attrape par son propre test
+
+La premiere version court-circuitait **tout** verdict des lors que le travail paraissait fait, y compris une boucle d'import fatale ou un import hors paquet. Or les tests d'un projet peuvent parfaitement passer sans jamais importer le module fautif.
+
+Les defauts constates priment donc sur l'exemption : ils sont une preuve positive, pas une absence de preuve. La regle les evalue d'abord, et ne pose la question du workspace intact qu'ensuite.
+
+### Verified
+
+9 tests ajoutes. Suite : **1 798 passes, 2 ignores, code de sortie 0** (1 789 avant).
+
 ## HOS-146 — Le harnais tient ; le code genere ne tient pas (2026-08-21)
 
 Premiere campagne complete avec le harnais en service, un modele capable et la journalisation des decisions.
