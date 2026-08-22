@@ -1,0 +1,55 @@
+# qwen38-27b-64k — le modele des cas critiques, ou le code prime sur la vitesse.
+#
+# Base : Bucoid/Qwen3.8-27B-IQ4-XS-MTP-16GB-VRAM-GGUF, un 27,3 Md dense
+# quantifie IQ4_XS, 12,95 Go sur le disque, architecture `qwen35`, contexte
+# natif 262144, capacites `tools` et `thinking`. Pas de projecteur vision
+# dans ce depot : rien a desactiver de ce cote.
+#
+#   ollama pull hf.co/Bucoid/Qwen3.8-27B-IQ4-XS-MTP-16GB-VRAM-GGUF
+#   ollama create qwen38-27b-64k -f config/modelfiles/qwen38-27b-64k.Modelfile
+#
+# ## Pourquoi 64k et pas les 110k annonces
+#
+# Le depot annonce « environ 110k de contexte sans MTP » sur 16 Go de VRAM
+# libre, carte non affectee a l'affichage. Deux raisons de ne pas le croire
+# sur parole :
+#
+#   1. cette carte **sert l'affichage**, l'hypothese du depot ne tient donc
+#      pas ;
+#   2. un Qwen3.8-27B dense a deja ete mesure ici et debordait a tous les
+#      paliers dans ses deux quantifications utiles — 12 % a 32k en Q3,
+#      32 % en Q4 (voir `docs/model-selection.md`).
+#
+# 64k est donc un point de depart prudent, a remesurer avant d'y toucher.
+# La regle du depot vaut ici comme ailleurs : `/api/ps` ne compte que les
+# poids, ni le cache KV ni les tampons de calcul. L'occupation reelle se lit
+# sur le compteur GPU du processus d'inference — `model_bench.py`,
+# `gpu_dedicated_bytes`.
+#
+# ## Ce qu'on en attend, et ce qu'on n'en attend pas
+#
+# Un modele lent reserve aux cas ou un niveau de code eleve est exige. Le
+# Qwen3.8-27B mesure precedemment plafonnait a 13,3 tok/s. Il ne remplace
+# pas gpt-oss-20b (code 100, 94 tok/s) pour le travail courant : il est la
+# pour ce que celui-ci ne sait pas faire.
+
+FROM hf.co/Bucoid/Qwen3.8-27B-IQ4-XS-MTP-16GB-VRAM-GGUF
+
+# Pass-through : c'est le RENDERER natif qui met en forme, pas ce template.
+# `TEMPLATE` est du Go, jamais le Jinja embarque dans le GGUF.
+TEMPLATE {{ .Prompt }}
+
+# Sans eux, Ollama envoie le prompt brut : pas de balises de tour, et ni le
+# raisonnement ni les appels d'outils ne sont extraits de la reponse.
+# `qwen35` est l'architecture que rapporte `ollama show`.
+RENDERER qwen3.5
+PARSER qwen3.5
+
+# L'endpoint /v1 qu'emprunte Hermes Agent ne transporte pas `num_ctx` :
+# c'est ici, et nulle part ailleurs, que la fenetre se decide.
+PARAMETER num_ctx 65536
+
+# Valeurs publiees par Qwen pour cette famille.
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
+PARAMETER top_k 20

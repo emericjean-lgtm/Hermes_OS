@@ -1,3 +1,63 @@
+## HOS-149 — Qwen3.8-27B : 8/9 au banc de code, et le prix a payer (2026-08-22)
+
+Un modele de recours, mesure sur les trois axes qui decident : occupation, debit, code.
+
+### Le code, d'abord — c'est la seule raison de l'installer
+
+| # | niveau | epreuve | | duree |
+|---|---|---|---|---|
+| 1 | simple | compter_mots | ok | 64 s |
+| 2 | moyen | fusion_intervalles | ok | 43 s |
+| 3 | complexe | banque_transactions | ok | 270 s |
+| 4 | expert | parseur_expressions | **echec** | 158 s |
+| 5 | maitre | cache_lru_ttl | ok | 176 s |
+| 6 | extreme | planificateur_taches | ok | 518 s |
+| 7 | legende | moteur_motifs | ok | 333 s |
+| 8 | titan | top_k_efficace | ok | 74 s |
+| 9 | mythique | compteur_concurrent | ok | 102 s |
+
+**8/9, aucune troncature.** La meilleure note jamais relevee par ce banc — ornith-1.5-9b faisait 6/9, ornith-9b 5/9, ornith-1.5-35b 3/9.
+
+L'echec est isole et il est **en dessous** de quatre reussites : il rate `parseur_expressions` (priorite, parentheses imbriquees, unaire) mais reussit `top_k_efficace`, dont l'efficacite est chronometree, et `compteur_concurrent`, qui exige l'exactitude sous contention reelle. Un trou, pas un plafond.
+
+Agentique : **3/3**. Il sait piloter la boucle d'outils, ce qu'un code excellent ne garantit pas — gemma4:12b franchissait tous les criteres structurels et echouait 0/3.
+
+### Le prix du contexte, mesure
+
+| contexte | deport CPU | debit |
+|---|---|---|
+| 32k | 7,2 % | 15,9 tok/s |
+| 40k | 11,4 % | 13,3 tok/s |
+| 50k | 15,8 % | 11,0 tok/s |
+| **64k** | **20,0 %** | **8,7 tok/s** |
+| 128k | 36,8 % | 4,7 tok/s |
+
+Doubler la fenetre coute exactement la moitie de la vitesse. Le compteur GPU plafonne a 13,1 Gio quel que soit le palier : c'est la VRAM reellement disponible une fois l'affichage servi, et le depot annoncait ~110k « sur 16 Go libres, carte non affectee a l'affichage » — hypothese qui ne tient pas ici.
+
+Le chargement, lui, n'est pas en cause : 58 s a 128k, paye une fois par session.
+
+### Le debordement est assume, et c'est une decision
+
+`docs/model-selection.md` dit qu'un Qwen3.8-27B dense debordait a tous les paliers. C'est toujours vrai, et cette variante « 16GB VRAM » n'y change rien. La difference est ailleurs : ce modele ne sert pas le travail courant. Pour une tache ponctuelle ou le niveau de code prime, 20 % de deport et 8,7 tok/s sont un prix acceptable — la decision est de l'operateur, pas du catalogue.
+
+Aucune quantification sous Q4 n'a ete essayee : la perte de qualite y est jugee trop lourde.
+
+### Pas de role, et c'est deliberе
+
+Lui donner un role le ferait entrer dans le travail courant, ou sa lenteur ne se justifie pas et ou le routeur pourrait le choisir pour ecrire une ligne de documentation. Il s'emploie a la demande :
+
+    HERMES_MISSION_MODEL=qwen38-27b-64k
+
+Le test qui exigeait qu'une recette corresponde a un role a ete assoupli en consequence — il verifie desormais que le nom apparait dans le catalogue, a un titre ou a un autre. Exiger un role refusait un cas legitime ; n'exiger rien laisserait passer la recette oubliee.
+
+### Un defaut d'instrument de plus
+
+Le premier banc a 128k est mort sur un `ReadTimeout` a 900 s. La cause n'etait pas le modele : `generate` prend `timeout_s`, et le `timeout=1800` passe partait dans les **options de generation envoyees a Ollama** pendant que le plafond HTTP restait a sa valeur par defaut. Dix-septieme defaut de mesure de ce depot, et toujours la meme famille — un champ passe au mauvais endroit.
+
+### Verified
+
+Suite : **1 820 passes, 2 ignores, code de sortie 0**.
+
 ## HOS-148 — Le modele fabrique la dependance qui lui manque (2026-08-22)
 
 Deux campagnes consecutives, la meme pathologie.

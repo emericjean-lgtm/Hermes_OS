@@ -28,6 +28,27 @@
 #   lfm2.5-2.6b-125k      2.05G    16k    187.6     28   3/3   3/4       —
 #   qwen3-embedding:0.6b   0.6G     2k       —       —    —      —        —
 #
+# ── Un modele de recours, hors du travail courant ─────────────────────────
+#
+#   qwen38-27b-64k      13.10G*    64k      8.7    8/9   3/3     —        —
+#
+# * mesure au compteur GPU du processus ; il **deborde de 20 %** sur CPU a
+#   64k (3,48 Gio sur 17,43). C'est assume : ce modele ne sert pas le
+#   travail courant. 8/9 au banc de code est la meilleure note jamais
+#   relevee ici — il reussit `top_k_efficace` (chronometre) et
+#   `compteur_concurrent` (contention reelle), et echoue seulement sur
+#   `parseur_expressions`, quatre niveaux plus bas. Un trou isole, pas un
+#   plafond.
+#
+#   Le prix du contexte, mesure : 20 % de deport et 8,7 tok/s a 64k,
+#   36,8 % et 4,7 tok/s a 128k. Doubler la fenetre coute la moitie de la
+#   vitesse ; 64k est le point d'equilibre.
+#
+#   Il n'a **pas de role** : le lui donner le ferait entrer dans le travail
+#   courant, ou sa lenteur ne se justifie pas. Il s'emploie a la demande,
+#   par `HERMES_MISSION_MODEL=qwen38-27b-64k`, pour une tache ou le niveau
+#   de code prime sur le debit. Recette : config/modelfiles/.
+#
 # VRAM is the real figure read from the inference process's GPU counter,
 # not `/api/ps` — that endpoint reports the weights only and understates
 # the total by several GB, always in the direction that makes a second

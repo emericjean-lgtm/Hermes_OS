@@ -1,0 +1,101 @@
+{
+ "modele": "qwen38-27b-64k",
+ "num_ctx": 65536,
+ "note": 8,
+ "total": 9,
+ "tronquees": 0,
+ "empreinte": {
+  "name": "qwen38-27b-64k:latest",
+  "size_bytes": 18712373490,
+  "size_vram_bytes": 14977891040,
+  "cpu_offload_bytes": 3734482450,
+  "cpu_offload_ratio": 0.19957288967087627,
+  "context_length": 65536
+ },
+ "gpu_dedicated_bytes": 14062153728,
+ "deport_ratio": 20.0,
+ "tok_s_moyen": 8.7,
+ "resultats": [
+  {
+   "tache": "compter_mots",
+   "niveau": "simple",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 63.5,
+   "tok_s": 8.9
+  },
+  {
+   "tache": "fusion_intervalles",
+   "niveau": "moyen",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 43.3,
+   "tok_s": 8.9
+  },
+  {
+   "tache": "banque_transactions",
+   "niveau": "complexe",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 270.0,
+   "tok_s": 8.6
+  },
+  {
+   "tache": "parseur_expressions",
+   "niveau": "expert",
+   "reussi": false,
+   "detail": "AssertionError",
+   "tronquee": false,
+   "duree_s": 158.2,
+   "tok_s": 8.7
+  },
+  {
+   "tache": "cache_lru_ttl",
+   "niveau": "maitre",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 175.7,
+   "tok_s": 8.7
+  },
+  {
+   "tache": "planificateur_taches",
+   "niveau": "extreme",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 518.4,
+   "tok_s": 8.4
+  },
+  {
+   "tache": "moteur_motifs",
+   "niveau": "legende",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 333.0,
+   "tok_s": 8.6
+  },
+  {
+   "tache": "top_k_efficace",
+   "niveau": "titan",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 74.5,
+   "tok_s": 8.8
+  },
+  {
+   "tache": "compteur_concurrent",
+   "niveau": "mythique",
+   "reussi": true,
+   "detail": "assertions passées",
+   "tronquee": false,
+   "duree_s": 102.0,
+   "tok_s": 8.8
+  }
+ ]
+}

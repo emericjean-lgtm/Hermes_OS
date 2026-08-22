@@ -73,15 +73,27 @@ class TestLaRecetteDuRoleStandard:
 
 
 class TestLaCoherenceAvecLeCatalogue:
-    def test_une_recette_correspond_a_un_role_connu(self):
+    def test_une_recette_est_connue_du_catalogue(self):
         """Une recette orpheline signale un tag qu'on croit servir et que
-        plus aucun rôle n'emploie — ou un renommage à moitié fait."""
-        modeles = {spec.get("model") for spec in
-                   _catalogue()["roles"].values()}
+        plus rien n'emploie — ou un renommage à moitié fait.
+
+        On accepte deux formes d'appartenance, et pas une seule : un modèle
+        affecté à un **rôle**, ou un modèle **documenté** dans le catalogue
+        sans rôle. Le second cas est celui d'un modèle de recours —
+        `qwen38-27b-64k`, 8/9 au banc de code mais 8,7 tok/s : lui donner un
+        rôle le ferait entrer dans le travail courant, où sa lenteur ne se
+        justifie pas. Il s'emploie à la demande, par `HERMES_MISSION_MODEL`.
+
+        Exiger un rôle refuserait donc un cas légitime ; n'exiger rien
+        laisserait passer la recette oubliée. Le nom doit apparaître dans le
+        catalogue, à un titre ou à un autre.
+        """
+        texte = Path("config/models.yaml").read_text(encoding="utf-8")
 
         for nom in _recettes_presentes():
-            assert nom in modeles, (
-                f"la recette {nom!r} ne correspond à aucun rôle du catalogue")
+            assert nom in texte, (
+                f"la recette {nom!r} n'est nommée nulle part dans "
+                f"config/models.yaml : ni rôle, ni mesure documentée")
 
     @pytest.mark.parametrize("marqueur", ["RENDERER", "PARSER"])
     def test_le_formatage_de_tour_est_explicite(self, marqueur):

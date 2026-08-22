@@ -1,0 +1,65 @@
+[
+ {
+  "num_ctx": 51200,
+  "empreinte": {
+   "name": "qwen38-27b-64k:latest",
+   "size_bytes": 17655408882,
+   "size_vram_bytes": 14874270759,
+   "cpu_offload_bytes": 2781138123,
+   "cpu_offload_ratio": 0.15752329167722756,
+   "context_length": 51200
+  },
+  "gpu_dedicated_bytes": 14141046784,
+  "debit": {
+   "prompt_tokens": 26,
+   "prompt_tokens_per_s": 21.2,
+   "output_tokens": 52,
+   "output_tokens_per_s": 11.0,
+   "total_s": 29.7
+  },
+  "deport_ratio": 15.8,
+  "duree_s": 31.7
+ },
+ {
+  "num_ctx": 40960,
+  "empreinte": {
+   "name": "qwen38-27b-64k:latest",
+   "size_bytes": 16829141480,
+   "size_vram_bytes": 14908202679,
+   "cpu_offload_bytes": 1920938801,
+   "cpu_offload_ratio": 0.11414360044942709,
+   "context_length": 40960
+  },
+  "gpu_dedicated_bytes": 14006923264,
+  "debit": {
+   "prompt_tokens": 26,
+   "prompt_tokens_per_s": 26.1,
+   "output_tokens": 52,
+   "output_tokens_per_s": 13.3,
+   "total_s": 27.8
+  },
+  "deport_ratio": 11.4,
+  "duree_s": 29.9
+ },
+ {
+  "num_ctx": 32768,
+  "empreinte": {
+   "name": "qwen38-27b-64k:latest",
+   "size_bytes": 16191712129,
+   "size_vram_bytes": 15017841785,
+   "cpu_offload_bytes": 1173870344,
+   "cpu_offload_ratio": 0.07249822221688042,
+   "context_length": 32768
+  },
+  "gpu_dedicated_bytes": 14050045952,
+  "debit": {
+   "prompt_tokens": 26,
+   "prompt_tokens_per_s": 35.3,
+   "output_tokens": 52,
+   "output_tokens_per_s": 15.9,
+   "total_s": 26.7
+  },
+  "deport_ratio": 7.2,
+  "duree_s": 28.8
+ }
+]
