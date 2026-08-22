@@ -178,30 +178,56 @@ def _runtime_demande(brut: str) -> str:
     return "hermes-agent" if nom in _NON_CHOISI else brut.strip()
 
 
-def modele_impose() -> str:
-    """Le modele que l'operateur impose aux missions, ou "".
+def modele_impose(task_type: str = "") -> str:
+    """Le modele que l'operateur impose, pour ce type de tache ou pour tous.
 
-    **Un contournement, et il est nomme comme tel.** Le routeur choisit sur
-    des profils vides — `task_scores={}`, `benchmark_score=0.0` pour les
-    sept modeles du catalogue (HOS-144) — et retient donc invariablement le
-    plus petit, `lfm2.5-2.6b-125k`, note `code 28`.
+    Deux ecritures, la seconde ajoutee en HOS-150 :
 
-    Mesure du 2026-08-21, trois deroules de cahier consecutifs : ce modele
-    n'a jamais ecrit dans le workspace. Ses seules tentatives visaient
-    `/home/user/skills/...`, un chemin POSIX qui n'existe pas sur cette
-    machine — il ne travaillait pas sur la tache, il inventait un systeme.
+        HERMES_MISSION_MODEL=gpt-oss-20b-64k
+        HERMES_MISSION_MODEL=code_generation=qwen38-27b-64k,*=gpt-oss-20b-64k
 
-    Tant que les scores mesures du catalogue ne sont pas charges dans les
-    profils, un operateur doit pouvoir trancher. `HERMES_MISSION_MODEL`
-    n'est donc pas un reglage de confort : c'est la seule facon actuelle de
-    confier une campagne a un modele capable.
+    La premiere impose un modele a **tout**, y compris a la redaction d'une
+    ligne de documentation. La seconde confie chaque type de tache au modele
+    qui lui convient — `*` valant pour le reste.
 
-    Il reste soumis a la verification agentique : imposer un modele qui ne
-    sait pas piloter la boucle d'outils produirait une mission qui rapporte
-    un succes sans rien accomplir — le defaut que tout ce travail existe
-    pour supprimer.
+    ## Pourquoi une table, et pas seulement un nom
+
+    Mesure du 2026-08-22, sur une campagne complete : **54 taches, un seul
+    modele**. Le routeur proposait invariablement le plus petit (54 fois sur
+    54), et l'imposition d'un modele unique remplacait un uniforme par un
+    autre. Aucune tache n'a jamais recu un modele choisi pour elle.
+
+    Or les couts different d'un ordre de grandeur : gpt-oss-20b rend 9/9 au
+    banc de code a 92,7 tok/s, Qwen3.8-27B rend 8/9 a 8,7 tok/s. Confier a
+    ce dernier la redaction d'un fichier Markdown coute dix fois le temps
+    pour rien.
+
+    ## Toujours un contournement
+
+    La vraie correction reste de charger les scores mesures du catalogue
+    dans les profils du routeur (HOS-144), pour qu'il decide seul. Cette
+    table donne a l'operateur le moyen de trancher en attendant, et elle est
+    nommee comme telle.
+
+    Le modele retenu reste soumis a la verification agentique : imposer un
+    modele incapable de piloter la boucle d'outils produirait une mission
+    qui rapporte un succes sans rien accomplir.
     """
-    return os.environ.get("HERMES_MISSION_MODEL", "").strip()
+    brut = os.environ.get("HERMES_MISSION_MODEL", "").strip()
+    if not brut or "=" not in brut:
+        # Un nom seul : il vaut pour tout, comme avant HOS-150.
+        return brut
+
+    table: dict[str, str] = {}
+    for entree in brut.split(","):
+        cle, _, valeur = entree.partition("=")
+        cle, valeur = cle.strip().lower(), valeur.strip()
+        if cle and valeur:
+            table[cle] = valeur
+    # Le type exact d'abord, le joker ensuite : une regle precise prime
+    # toujours sur une regle generale, sans quoi `*` rendrait la table
+    # inutile.
+    return table.get((task_type or "").strip().lower()) or table.get("*", "")
 
 
 class RuntimeUnavailableError(RuntimeError):
@@ -705,7 +731,8 @@ class RealTaskExecutor:
                 HermesAgentCliRuntime,
             )
 
-            model = self._agentic_model(model)
+            model = self._agentic_model(
+                model, str(runtime_ctx.get("task_type") or ""))
             harnais = await self._par_le_harnais(
                 messages, model=model, runtime_ctx=runtime_ctx)
             if harnais is not None:
@@ -816,7 +843,7 @@ class RealTaskExecutor:
             },
         )
 
-    def _agentic_model(self, model: str) -> str:
+    def _agentic_model(self, model: str, task_type: str = "") -> str:
         """Keep Hermes Agent off models that cannot drive its tool loop.
 
         HOS-085 shipped this as a hard-coded list of model names, which was
@@ -832,7 +859,7 @@ class RealTaskExecutor:
         un modele impose qui ne sait pas piloter la boucle d'outils est
         substitue comme un autre. Voir `modele_impose` pour la raison.
         """
-        impose = modele_impose()
+        impose = modele_impose(task_type)
         if impose:
             logger.info("modele impose par l'operateur : %r "
                         "(le routeur proposait %r)", impose, model)

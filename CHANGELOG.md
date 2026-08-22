@@ -1,3 +1,62 @@
+## HOS-150 — Le bon modele sur la bonne tache (2026-08-22)
+
+Deux defauts qui se cumulaient, et une campagne entiere pour les voir.
+
+### 54 taches, un seul modele
+
+Mesure sur le dernier deroule de cahier :
+
+    54 taches executees sur  hermes-agent/gpt-oss-20b-64k
+    54 fois le routeur proposait  lfm2.5-2.6b-125k
+
+Pas une variation. Le routeur retenait invariablement le plus petit (HOS-144, profils vides), et l'imposition d'un modele unique remplacait un uniforme par un autre. **Aucune tache n'a jamais recu un modele choisi pour elle.**
+
+### Les deux vocabulaires ne se parlaient pas
+
+Le planificateur classe chaque tache dans une `TaskCategory` — douze valeurs. Le routeur raisonne en `TaskType` — dix. Ils ne se recouvraient que sur **trois mots** :
+
+    reconnues : analysis, documentation, optimization
+    jetees    : design, implementation, testing, deployment, review,
+                planning, integration, security, custom
+
+Neuf sur douze etaient donc rejetees, et le routeur retombait sur une inference par mots-cles du titre. `implementation` et `testing` — celles qui portent le code — etaient du nombre.
+
+L'ironie est dans le code lui-meme. Le commentaire de `_task_type_hint` annonce transmettre « un signal reel et plus precis que la re-inference par mots-cles » :
+
+    return getattr(task, "task_type", "") or None
+
+La valeur partait bien. Elle etait jetee a l'arrivee, faute de vocabulaire commun.
+
+### La traduction
+
+`correspondance_types.py` fait le pont. Les choix se discutent, aucun n'est arbitraire :
+
+* `testing` → `code_generation` : ecrire des tests est ecrire du code ;
+* `integration` → `code_generation` : brancher deux modules s'ecrit ;
+* `review` et `security` → `code_review` : un audit de securite est une relecture, avec un angle ;
+* `design` et `planning` → `reasoning` : on y decide avant d'ecrire ;
+* `deployment` et `custom` → `general` : faute de meilleur candidat, et c'est dit plutot que degnise en choix.
+
+Une categorie inconnue rend `None` et non `general` : « je ne sais pas » doit laisser l'inference reprendre la main, au lieu de la court-circuiter par un type fourre-tout — le routeur traiterait alors « ecris le module d'authentification » comme une conversation.
+
+### L'attribution par type
+
+`HERMES_MISSION_MODEL` accepte desormais une table :
+
+    HERMES_MISSION_MODEL=code_generation=qwen38-27b-64k,*=gpt-oss-20b-64k
+
+Une regle precise prime sur le joker, sans quoi `*` rendrait la table inutile. Un nom seul garde son sens d'avant. Un type absent de la table n'impose rien et laisse le routeur decider, plutot qu'un modele pris au hasard.
+
+Les couts justifient l'exercice : gpt-oss rend 9/9 au banc de code a 92,7 tok/s, Qwen3.8-27B rend 8/9 a 8,7 tok/s. Confier a ce dernier la redaction d'un fichier Markdown coute dix fois le temps pour rien.
+
+### Toujours un contournement
+
+La vraie correction reste HOS-144 — charger les scores mesures du catalogue dans les profils, pour que le routeur decide seul. Cette table donne a l'operateur le moyen de trancher en attendant, et elle reste soumise a la verification agentique : imposer un modele incapable de piloter la boucle d'outils produirait une mission qui rapporte un succes sans rien accomplir.
+
+### Verified
+
+36 tests ajoutes. Suite : **1 857 passes, 2 ignores, code de sortie 0** (1 821 avant).
+
 ## HOS-149 — Qwen3.8-27B : 8/9 au banc de code, et le prix a payer (2026-08-22)
 
 Un modele de recours, mesure sur les trois axes qui decident : occupation, debit, code.

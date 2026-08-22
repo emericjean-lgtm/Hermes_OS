@@ -312,8 +312,26 @@ def _make_task_executor(c: Any) -> Any:
         threaded from MissionNode.type) — a real, more precise signal than
         re-inferring one from keyword-matching the task's title text
         (HOS-071 Phase C). Empty/absent falls through to that same keyword
-        inference, unchanged prior behaviour."""
-        return getattr(task, "task_type", "") or None
+        inference, unchanged prior behaviour.
+
+        **Traduit depuis HOS-150.** Le planificateur classe en
+        `TaskCategory` (douze valeurs), le routeur raisonne en `TaskType`
+        (dix). Mesure du 2026-08-22 : les deux vocabulaires ne se
+        recouvraient que sur trois mots, et neuf categories sur douze
+        etaient jetees — dont `implementation` et `testing`, celles qui
+        portent le code. Le signal « reel et plus precis » que cette
+        fonction annonce transmettre etait donc perdu a l'arrivee.
+
+        Une categorie inconnue rend toujours `None`, et l'inference par
+        mots-cles reprend la main : c'est le comportement d'avant, conserve
+        pour ce qu'on ne sait pas traduire.
+        """
+        from backend.model_intelligence.correspondance_types import (
+            type_du_routeur,
+        )
+
+        brut = getattr(task, "task_type", "") or None
+        return type_du_routeur(brut) or brut
 
     def _model_for(task: Any) -> Optional[str]:
         title = getattr(task, "title", "") or ""

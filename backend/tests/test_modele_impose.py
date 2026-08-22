@@ -82,3 +82,84 @@ class TestCeQueLImpositionNeContournePas:
         retenu = executeur._agentic_model("ornith-9b-256k")
 
         assert retenu != "un-modele-incapable"
+
+
+class TestLaTableParTypeDeTache:
+    """54 taches, un seul modele (HOS-150).
+
+    Mesure sur une campagne complete : le routeur proposait invariablement
+    le plus petit (54 fois sur 54), et l'imposition d'un modele unique
+    remplacait un uniforme par un autre. Aucune tache n'a jamais recu un
+    modele choisi pour elle.
+
+    Or les couts different d'un ordre de grandeur : gpt-oss-20b rend 9/9 au
+    banc de code a 92,7 tok/s, Qwen3.8-27B rend 8/9 a 8,7 tok/s. Confier a
+    ce dernier la redaction d'un fichier Markdown coute dix fois le temps
+    pour rien.
+    """
+
+    TABLE = ("code_generation=qwen38-27b-64k,"
+             "code_review=qwen38-27b-64k,"
+             "*=gpt-oss-20b-64k")
+
+    def test_le_code_va_au_modele_fort(self, executeur, monkeypatch):
+        monkeypatch.setenv("HERMES_MISSION_MODEL", self.TABLE)
+
+        for tt in ("code_generation", "code_review"):
+            assert executeur._agentic_model("lfm2.5-2.6b-125k",
+                                            tt) == "qwen38-27b-64k"
+
+    def test_le_reste_va_au_modele_rapide(self, executeur, monkeypatch):
+        monkeypatch.setenv("HERMES_MISSION_MODEL", self.TABLE)
+
+        for tt in ("documentation", "reasoning", "analysis", ""):
+            assert executeur._agentic_model("lfm2.5-2.6b-125k",
+                                            tt) == "gpt-oss-20b-64k"
+
+    def test_une_regle_precise_prime_sur_le_joker(self, executeur,
+                                                  monkeypatch):
+        """Sans cet ordre, `*` rendrait la table inutile."""
+        monkeypatch.setenv("HERMES_MISSION_MODEL",
+                           "*=petit,code_generation=grand")
+
+        assert executeur._agentic_model("x", "code_generation") == "grand"
+        assert executeur._agentic_model("x", "documentation") == "petit"
+
+    def test_sans_joker_un_type_absent_n_impose_rien(self, executeur,
+                                                     monkeypatch):
+        """Le routeur reprend alors la main, plutot qu'un modele choisi au
+        hasard dans la table."""
+        monkeypatch.setenv("HERMES_MISSION_MODEL",
+                           "code_generation=qwen38-27b-64k")
+
+        assert executeur._agentic_model("ornith-9b-256k",
+                                        "documentation") == "ornith-9b-256k"
+
+    def test_un_nom_seul_vaut_toujours_pour_tout(self, executeur, monkeypatch):
+        """L'ecriture d'avant HOS-150 ne doit pas changer de sens."""
+        monkeypatch.setenv("HERMES_MISSION_MODEL", "gpt-oss-20b-64k")
+
+        for tt in ("code_generation", "documentation", ""):
+            assert executeur._agentic_model("x", tt) == "gpt-oss-20b-64k"
+
+    def test_une_entree_malformee_est_ignoree_sans_casser(self, monkeypatch):
+        monkeypatch.setenv("HERMES_MISSION_MODEL",
+                           "=vide,code_generation=,ok=modele,,*=repli")
+
+        assert modele_impose("ok") == "modele"
+        assert modele_impose("code_generation") == "repli"
+
+    def test_la_table_reste_soumise_a_la_verification_agentique(self,
+                                                               monkeypatch):
+        """Imposer par type ne contourne pas plus la capacite qu'imposer par
+        nom : un modele incapable de piloter la boucle d'outils produirait
+        une mission qui rapporte un succes sans rien accomplir."""
+        executeur = RealTaskExecutor(
+            chat=lambda **_: None,
+            agentic_capable_for=lambda m: m != "un-incapable")
+        monkeypatch.setenv("HERMES_MISSION_MODEL",
+                           "code_generation=un-incapable,*=gpt-oss-20b-64k")
+
+        retenu = executeur._agentic_model("ornith-9b-256k", "code_generation")
+
+        assert retenu != "un-incapable"
