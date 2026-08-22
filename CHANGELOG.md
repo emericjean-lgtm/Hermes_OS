@@ -1,3 +1,44 @@
+## HOS-152 — Le filet de securite coupait avant le budget qu'il couvrait (2026-08-22)
+
+### La compression de contexte, enfin observee
+
+Premiere occurrence mesuree depuis qu'elle a ete activee :
+
+    context compression done: session=4175477a
+      messages=116->93  rough_tokens=~47 337
+      total_duration_ms=520891
+
+**8 minutes 41.** 116 messages ramenes a 93. Le journal montre l'attente s'etendre par paliers — « still streaming after 360s », puis 480s, plafond a 600s — avant de committer.
+
+C'est la reponse a une question restee ouverte : la compression fonctionne, elle preserve la session, et sur ce materiel elle coute pres de neuf minutes. Ce temps s'ajoute au travail d'un noeud **sans lui appartenir**.
+
+### L'invariant viole
+
+`STEP_TIMEOUT_S` porte ce commentaire depuis HOS-112 :
+
+> Le budget d'un nœud appartient à l'exécuteur injecté — 900 s pour une boucle d'agent Hermes. Ce plafond est choisi bien au-dessus pour ne jamais couper un agent qui travaille réellement.
+
+1200 contre 900 : l'invariant tenait tant que les deux valeurs etaient figees. HOS-151 a rendu le budget du tour reglable et l'a porte a 3600 s pour un modele dix fois plus lent. **Le plafond, lui, est reste a 1200.** Le rapport s'est inverse.
+
+    mission b96305fe : 2 nœud(s) n'ont pas rendu la main en 1200 s
+    — Tests unitaires du modèle d'identité, Documentation de la section
+
+Les deux noeuds travaillaient. L'un attendait la compression ci-dessus.
+
+Aucune relecture n'aurait montre le defaut : les deux constantes vivent dans des fichiers differents et ne se citent que par commentaire. C'est en portant l'une que j'ai casse la promesse de l'autre.
+
+### Le rapport est desormais calcule
+
+    plafond = max(1200, budget_du_tour() x 1,33)
+
+La marge est exactement celle qu'avaient les deux constantes figees. Le defaut ne bouge pas — 900 s de budget donnent toujours 1200 s de plafond — et l'invariant tient pour toute valeur.
+
+Resolu **a la construction** de l'executeur, pas a l'import : un defaut de parametre serait evalue au chargement du module et figerait la valeur, reintroduisant le defaut par la porte de service. La premiere version du correctif faisait exactement cela, et une seconde s'appelait elle-meme au lieu de lire la constante — `RecursionError` a l'import.
+
+### Verified
+
+10 tests ajoutes. Suite : **1 888 passes, 2 ignores, code de sortie 0**.
+
 ## HOS-151 — Le meme defaut, une seconde fois, avec un modele dix fois plus lent (2026-08-22)
 
 Premiere campagne ou deux modeles se partagent les taches : le code a Qwen3.8-27B (8,7 tok/s), le reste a gpt-oss-20b (92,7). La repartition a fonctionne — 20 taches d'un cote, 19 de l'autre — et la campagne s'est arretee a §6 avec **un seul livrable**.

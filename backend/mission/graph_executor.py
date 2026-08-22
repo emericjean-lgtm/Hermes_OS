@@ -28,12 +28,42 @@ from backend.mission.mission_models import (
 logger = logging.getLogger("hermes_os.mission.graph_executor")
 
 #: Dernier recours, pas une politique (HOS-112). Le budget d'un nœud
-#: appartient à l'exécuteur injecté — 900 s pour une boucle d'agent Hermes
-#: (`_HERMES_AGENT_TIMEOUT_S`). Ce plafond est choisi bien au-dessus pour
-#: ne jamais couper un agent qui travaille réellement ; il n'existe que
-#: pour qu'une étape finisse par rendre un verdict même quand le nœud
-#: qu'on lui a confié n'en a aucun.
+#: appartient à l'exécuteur injecté — 900 s par défaut pour une boucle
+#: d'agent Hermes (`_HERMES_AGENT_TIMEOUT_S`). Ce plafond est choisi bien
+#: au-dessus pour ne jamais couper un agent qui travaille réellement ; il
+#: n'existe que pour qu'une étape finisse par rendre un verdict même quand
+#: le nœud qu'on lui a confié n'en a aucun.
 STEP_TIMEOUT_S = 1200.0
+
+#: De combien ce plafond dépasse le budget du tour. 1200 / 900, le rapport
+#: qu'avaient les deux constantes tant qu'elles étaient figées.
+MARGE_SUR_LE_BUDGET = 1200.0 / 900.0
+
+
+def plafond_du_noeud() -> float:
+    """Le dernier recours, calculé et non figé.
+
+    **L'invariant du commentaire ci-dessus a été violé le 2026-08-22.** Le
+    budget d'un tour est devenu réglable (HOS-151) et a été porté à 3600 s
+    pour un modèle dix fois plus lent ; ce plafond, lui, est resté à 1200.
+    Le filet de sécurité coupait donc **avant** le budget qu'il devait
+    couvrir :
+
+        mission b96305fe : 2 nœud(s) n'ont pas rendu la main en 1200 s
+        — Tests unitaires du modèle d'identité, Documentation de la section
+
+    Les deux nœuds travaillaient. L'un d'eux attendait une compression de
+    contexte qui a duré **8 min 41** — mesurée, 116 messages ramenés à 93 —
+    et ce temps-là s'ajoute au travail sans lui appartenir.
+
+    Le rapport entre les deux valeurs est donc maintenu par le calcul.
+    Figer l'un pendant que l'autre bouge est ce qui a produit le défaut, et
+    aucune relecture ne l'aurait montré : les deux constantes vivent dans
+    des fichiers différents et ne se citent que par commentaire.
+    """
+    from backend.execution.task_executor import budget_du_tour
+
+    return max(STEP_TIMEOUT_S, budget_du_tour() * MARGE_SUR_LE_BUDGET)
 
 
 class GraphExecutor:
@@ -47,9 +77,14 @@ class GraphExecutor:
         on_event: Optional[Callable] = None,
         execute_node: Optional[Callable[[MissionNode], bool]] = None,
         max_parallel_tasks: Optional[int] = None,
-        step_timeout_s: float = STEP_TIMEOUT_S,
+        step_timeout_s: Optional[float] = None,
     ) -> None:
-        self._step_timeout_s = step_timeout_s
+        # Resolu a la construction et non a l'import : un defaut de
+        # parametre figerait la valeur au chargement du module, et une
+        # variable posee ensuite n'aurait aucun effet — le defaut meme que
+        # `plafond_du_noeud` existe pour corriger.
+        self._step_timeout_s = (plafond_du_noeud() if step_timeout_s is None
+                                else step_timeout_s)
         self._lock = threading.Lock()
         self._graph = MissionGraph()
         self._resolver = DependencyResolver()
