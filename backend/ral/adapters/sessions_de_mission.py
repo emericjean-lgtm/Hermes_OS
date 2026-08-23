@@ -143,9 +143,6 @@ class _Entree:
     client: HermesAgentACP
     workspace: str
     tours: int = 0
-    #: Tours consecutifs qui n'ont pas abouti. Remis a zero des qu'un tour
-    #: aboutit : ce qui compte est la repetition, pas le total.
-    tours_perdus: int = 0
     derniere_activite: float = 0.0
 
 
@@ -156,6 +153,9 @@ class SessionsDeMission:
                  ttl_s: float = TTL_INACTIVITE_S,
                  fabrique: Any = None, horloge: Any = None) -> None:
         self._entrees: dict[str, _Entree] = {}
+        # Indexe par cle de travail, pas par session :
+        # voir `noter` pour la mesure qui l'a impose.
+        self._tours_perdus: dict[str, int] = {}
         self._plafond = plafond
         self._ttl = ttl_s
         # Injectable pour que les tests n'aient pas à lancer un agent réel.
@@ -187,14 +187,13 @@ class SessionsDeMission:
         return entree.tours if entree else 0
 
     def tours_perdus_de(self, cle: str) -> int:
-        """Combien de tours consecutifs cette session vient de perdre.
+        """Combien de tours consecutifs cette cle vient de perdre.
 
-        Lu par l'executeur avant d'engager un tour : une session qui a deja
+        Lu par l'executeur avant d'engager un tour : une clé qui a deja
         perdu `PLAFOND_TOURS_PERDUS` tours ne merite pas qu'on lui confie le
         meme budget avec le meme modele une fois de plus.
         """
-        entree = self._entrees.get(cle)
-        return entree.tours_perdus if entree else 0
+        return self._tours_perdus.get(cle, 0)
 
     def noter(self, cle: str, abouti: bool) -> int:
         """Enregistrer l'issue d'un tour, et rendre le compte des echecs.
@@ -202,12 +201,38 @@ class SessionsDeMission:
         Le registre ne peut pas la deduire seul : `tour()` rend un `Tour`
         non abouti sans lever, exactement comme il rend un tour normal. La
         difference est dans le champ `abouti`, que seul l'appelant regarde.
+
+        ## Pourquoi ce compte ne vit pas dans `_Entree`
+
+        Il y a vecu, une demi-journee, et c'etait faux. Mesure sur la
+        campagne du 2026-08-23 :
+
+            harnais : tour non abouti sur projet:6ac40a63 [0 d'affilee]
+
+        Zero apres une perte : l'entree avait deja disparu. Les sessions
+        sont fermees et rouvertes en permanence — a la fin de chaque noeud
+        de mission (`graph_executor`, en tache detachee), et chaque fois
+        que le processus de l'agent meurt. Un compteur porte par l'entree
+        se remet donc a zero entre deux tentatives.
+
+        **Et c'est exactement le cas qu'il devait attraper** : les quatre
+        tours perdus de §7 la nuit precedente ont chacun eu une session
+        neuve. La regle n'aurait pas joue une seule fois.
+
+        Le compte est donc indexe par la **cle**, qui designe le travail —
+        un projet, une mission — et non la session qui l'a servi. C'est le
+        meme choix que les identifiants de session, conserves a la
+        fermeture pour la meme raison : ce qui dure est le travail, pas le
+        processus.
         """
-        entree = self._entrees.get(cle)
-        if entree is None:
+        if not cle:
             return 0
-        entree.tours_perdus = 0 if abouti else entree.tours_perdus + 1
-        return entree.tours_perdus
+        perdus = 0 if abouti else self._tours_perdus.get(cle, 0) + 1
+        if abouti:
+            self._tours_perdus.pop(cle, None)
+        else:
+            self._tours_perdus[cle] = perdus
+        return perdus
 
     # -- cycle de vie -------------------------------------------------
 

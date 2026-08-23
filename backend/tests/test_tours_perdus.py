@@ -31,8 +31,6 @@ class _Registre:
 def test_le_registre_compte_les_tours_perdus_consecutifs() -> None:
     """Ce qui compte est la repetition, pas le total."""
     registre = SessionsDeMission()
-    registre._entrees["mission:x"] = type(
-        "E", (), {"tours": 0, "tours_perdus": 0})()
 
     assert registre.noter("mission:x", abouti=False) == 1
     assert registre.noter("mission:x", abouti=False) == 2
@@ -42,9 +40,38 @@ def test_le_registre_compte_les_tours_perdus_consecutifs() -> None:
     assert registre.noter("mission:x", abouti=False) == 1
 
 
-def test_noter_une_session_inconnue_ne_leve_pas() -> None:
-    """Une session purgee entre le tour et sa notation reste un cas normal."""
-    assert SessionsDeMission().noter("mission:disparue", abouti=False) == 0
+def test_le_compte_survit_a_la_fermeture_de_la_session() -> None:
+    """Le defaut de la premiere version de cette regle.
+
+    Elle rangeait le compte dans l'entree de session. Mesure du
+    2026-08-23, une demi-journee plus tard :
+
+        harnais : tour non abouti sur projet:6ac40a63 [0 d'affilee]
+
+    Zero apres une perte. Les sessions sont fermees et rouvertes en
+    permanence — a la fin de chaque noeud de mission, et chaque fois que le
+    processus de l'agent meurt — donc le compteur se remettait a zero entre
+    deux tentatives.
+
+    **C'etait exactement le cas a attraper** : les quatre tours perdus de
+    §7 la nuit precedente ont chacun eu une session neuve. La regle
+    n'aurait pas joue une seule fois.
+    """
+    registre = SessionsDeMission()
+
+    assert registre.noter("projet:x", abouti=False) == 1
+    registre._entrees.pop("projet:x", None)  # fin de noeud : session fermee
+    assert registre.noter("projet:x", abouti=False) == 2, (
+        "le compte doit suivre le travail, pas la session qui l'a servi")
+
+
+def test_noter_sans_cle_ne_leve_pas() -> None:
+    """Une tache sans identifiant de projet reste un cas normal."""
+    assert SessionsDeMission().noter("", abouti=False) == 0
+
+
+def test_une_cle_jamais_vue_n_a_rien_perdu() -> None:
+    assert SessionsDeMission().tours_perdus_de("projet:inconnu") == 0
 
 
 def test_sous_le_plafond_le_modele_impose_est_conserve() -> None:
