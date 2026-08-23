@@ -139,3 +139,88 @@ def test_le_refus_du_hook_dit_pourquoi(tmp_path) -> None:
     assert verdict is not None and verdict["action"] == "block"
     assert "PROJECT_SPEC.md" in verdict["message"]
     assert "definit le travail" in verdict["message"]
+
+
+# -- l'agent n'a jamais demande la permission -------------------------
+
+def test_le_hook_couvre_write_file_pas_seulement_le_terminal(tmp_path) -> None:
+    """Mesure decisive : zero `request_permission` sur deux campagnes.
+
+    Hermes Agent n'attend pas d'autorisation pour ecrire — il ecrit. Les
+    deux protections que Hermes OS croyait avoir sur ce chemin gardaient
+    l'une les outils de Hermes OS, l'autre une requete que l'agent n'emet
+    pas. Le cahier a ete detruit a 08:18 par `write_file` ; le hook a
+    refuse une commande shell equivalente **a 08:36**, dix-huit minutes
+    trop tard.
+    """
+    ws = _workspace(tmp_path)
+
+    verdict = garde_workspace.verdict(
+        {"tool_name": "write_file",
+         "tool_input": {"path": str(ws / "PROJECT_SPEC.md"),
+                        "content": "# 7. IDENTIFIANT EMPLOYEE"}},
+        str(ws))
+
+    assert verdict is not None and verdict["action"] == "block"
+    assert "PROJECT_SPEC.md" in verdict["message"]
+
+
+def test_le_hook_couvre_patch(tmp_path) -> None:
+    ws = _workspace(tmp_path)
+
+    assert garde_workspace.verdict(
+        {"tool_name": "patch",
+         "tool_input": {"file_path": "PROJECT_SPEC.md", "patch": "..."}},
+        str(ws)) is not None
+
+
+def test_ecrire_un_livrable_par_write_file_reste_libre(tmp_path) -> None:
+    """La protection ne doit pas gener le travail qu'elle protege."""
+    ws = _workspace(tmp_path)
+
+    assert garde_workspace.verdict(
+        {"tool_name": "write_file",
+         "tool_input": {"path": str(ws / "docs" / "identifiant.md"),
+                        "content": "du contenu"}},
+        str(ws)) is None
+
+
+def test_lire_par_read_file_reste_libre(tmp_path) -> None:
+    ws = _workspace(tmp_path)
+
+    assert garde_workspace.verdict(
+        {"tool_name": "read_file",
+         "tool_input": {"path": str(ws / "PROJECT_SPEC.md")}},
+        str(ws)) is None
+
+
+# -- la defense qui ne suppose rien du chemin d'appel ----------------
+
+def test_les_documents_d_entree_passent_en_lecture_seule(tmp_path) -> None:
+    """La seule protection qui aurait tenu les deux fois.
+
+    Les deux autres gardent un chemin nomme — le terminal, la permission
+    ACP. Celle-ci garde le fichier, quel que soit l'outil qui ecrit, y
+    compris un outil auquel personne n'a encore pense.
+    """
+    from backend.mission import programme
+
+    (tmp_path / "PROJECT_SPEC.md").write_text("mille lignes\n",
+                                              encoding="utf-8")
+    programme.ecrire_proteges(tmp_path, ["PROJECT_SPEC.md"])
+
+    import pytest
+    with pytest.raises(PermissionError):
+        (tmp_path / "PROJECT_SPEC.md").write_text("detruit", encoding="utf-8")
+
+    # Et il reste lisible : c'est un cahier des charges, pas un secret.
+    assert (tmp_path / "PROJECT_SPEC.md").read_text(encoding="utf-8")
+
+
+def test_un_document_absent_ne_fait_pas_echouer_le_lancement(tmp_path) -> None:
+    """Faire echouer une campagne pour un attribut de fichier serait pire."""
+    from backend.mission import programme
+
+    programme.ecrire_proteges(tmp_path, ["INEXISTANT.md"])
+
+    assert (tmp_path / ".hermes" / "proteges.txt").is_file()

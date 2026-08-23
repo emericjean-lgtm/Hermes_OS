@@ -222,17 +222,33 @@ class TestCeQuiPasse:
 
     def test_un_outil_non_surveille_passe(self):
 
-        """Les éditions de fichiers ont déjà leur frontière côté client ACP.
+        """Un outil qui ne touche pas au disque n'a rien a faire ici.
 
-        Les refuser deux fois n'ajoute rien et double le risque de faux
+        **Ce test affirmait le contraire jusqu'au 2026-08-23.** Il prenait
 
-        refus."""
+        `write_file` comme exemple d'outil non surveille, au motif que « les
+
+        editions de fichiers ont deja leur frontiere cote client ACP » et
+
+        que « les refuser deux fois n'ajoute rien ».
+
+        La frontiere ACP existe bien. Elle ne s'applique jamais : mesure sur
+
+        deux campagnes completes, **zero `session/request_permission`**.
+
+        Hermes Agent n'attend pas d'autorisation pour ecrire, il ecrit. Le
+
+        cahier des charges a ete detruit deux nuits de suite par ce chemin,
+
+        et ce test vert en garantissait l'ouverture.
+
+        `write_file` est desormais surveille ; voir `test_cahier_protege`."""
 
         assert garde.verdict(
 
-            {"tool_name": "write_file",
+            {"tool_name": "web_search",
 
-             "tool_input": {"path": r"C:\ailleurs\x.txt"}}, WS) is None
+             "tool_input": {"query": r"C:\ailleurs\x.txt"}}, WS) is None
 
 
 

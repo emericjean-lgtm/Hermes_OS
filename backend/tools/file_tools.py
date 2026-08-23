@@ -403,6 +403,14 @@ def append(
 def copy(
     aegis: AegisAgent, source: str, destination: str, *, project_id: str | None = None
 ) -> FileOpResult:
+    # `move` verifiait ses deux extremites, `copy` aucune : une copie
+    # ecraserait un document d'entree aussi surement qu'un deplacement.
+    # Trouve en auditant le module apres la seconde destruction du cahier,
+    # pas en le subissant — mais c'est le meme defaut.
+    if _est_protege(destination):
+        raise FichierProtegeError(
+            f"{destination} definit le travail : la copie ecraserait un "
+            f"document d'entree")
     read_decision = aegis.evaluate(ActionRequest(
         action_type="file_read", description=f"Read {source} to copy to {destination}",
         target_path=source, requesting_agent="atlas", project_id=project_id,

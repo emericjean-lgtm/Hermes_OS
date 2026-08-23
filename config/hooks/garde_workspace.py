@@ -64,6 +64,26 @@ VARIABLE = "HERMES_OS_WORKSPACE"
 #: seul chemin d'évasion mesuré, mais les autres exécutent aussi.
 OUTILS_SURVEILLES = {"terminal", "execute_code", "run_command", "bash", "shell"}
 
+#: Les outils qui ecrivent un fichier **sans passer par un shell**. Ils
+#: recoivent un chemin en argument, pas une ligne de commande.
+#:
+#: Mesure du 2026-08-23, decisive : **zero `session/request_permission` sur
+#: deux campagnes completes**. Hermes Agent n'attend pas d'autorisation pour
+#: ecrire — il ecrit. Les trois protections que Hermes OS croyait avoir sur
+#: ce chemin ne s'appliquaient donc a rien :
+#:
+#:   * `backend/tools/file_tools.py` garde les outils de Hermes OS, que
+#:     l'agent n'utilise pas ;
+#:   * la frontiere du client ACP garde `session/request_permission`, que
+#:     l'agent n'emet pas ;
+#:   * ce hook gardait le terminal, que l'agent n'emprunte qu'en second.
+#:
+#: Le cahier a ete detruit deux nuits de suite par ce trou. La seconde fois,
+#: le hook a bien refuse une commande shell — **dix-huit minutes apres** que
+#: `write_file` eut fait le travail sans rien demander.
+OUTILS_ECRIVANT = {"write_file", "patch", "edit_file", "create_file",
+                   "str_replace", "apply_patch"}
+
 #: `C:\...`, `C:/...`, `\\serveur\partage`, `/c/...` (Git Bash). Une seule
 #: lettre pour la forme POSIX, sans quoi `/etc/passwd` passerait pour un
 #: lecteur `E:`.
@@ -237,12 +257,36 @@ def verdict(charge: dict, racine: str) -> dict | None:
     """`{"action": "block", ...}` s'il faut refuser, sinon `None`."""
     if not racine:
         return None
-    if str(charge.get("tool_name") or "") not in OUTILS_SURVEILLES:
+    outil = str(charge.get("tool_name") or "")
+    if outil not in OUTILS_SURVEILLES and outil not in OUTILS_ECRIVANT:
         return None
 
     args = _arguments(charge)
     if not isinstance(args, dict):
         return None
+
+    if outil in OUTILS_ECRIVANT:
+        # Un chemin, pas une ligne de commande : on compare directement, sans
+        # l'heuristique du dernier jeton qui n'a de sens que pour un shell.
+        for valeur in args.values():
+            if not isinstance(valeur, str):
+                continue
+            vise = ntpath.basename(_en_windows(valeur).replace("/", os.sep))
+            for document in _documents_d_entree(racine):
+                if vise and vise == ntpath.basename(
+                        document.replace("/", os.sep)):
+                    return {
+                        "action": "block",
+                        "message": (
+                            f"Refuse par Hermes OS : {document} definit le "
+                            f"travail a faire, il n'en fait pas partie. Deux "
+                            f"campagnes ont deja remplace ce cahier par la "
+                            f"section en cours, et toutes les sections "
+                            f"suivantes ont travaille sur du vide. Lis-le "
+                            f"autant que tu veux ; ecris tes livrables "
+                            f"ailleurs."
+                        ),
+                    }
     # Tous les arguments texte, pas seulement `command` : les outils
     # d'exécution n'ont pas tous le même nom de paramètre, et n'en surveiller
     # qu'un laisserait les autres passer sans que rien ne le dise.

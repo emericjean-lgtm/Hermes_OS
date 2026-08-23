@@ -7756,3 +7756,40 @@ C'est une heuristique et elle est assumee comme telle : un hook recoit une
 ligne de commande, pas un chemin de destination. Elle attrape la faute
 franche, celle qui s'est produite deux fois ; elle ne pretend pas etre une
 frontiere.
+
+### La correction precedente etait fausse — le cahier detruit une seconde fois
+
+Une heure apres la relance, §7 a de nouveau remplace `PROJECT_SPEC.md` par
+la section sur laquelle elle travaillait. 1136 lignes -> 59. Les gardes
+poses le matin meme n'ont rien vu.
+
+**La mesure qui explique les deux nuits : zero `session/request_permission`
+sur deux campagnes completes.** Hermes Agent n'attend pas d'autorisation
+pour ecrire un fichier — il ecrit. Les trois protections que Hermes OS
+croyait avoir sur ce chemin gardaient toutes autre chose :
+
+* `backend/tools/file_tools.py` garde les outils **de Hermes OS**, que
+  l'agent n'utilise pas ;
+* la frontiere du client ACP garde une requete que l'agent **n'emet
+  jamais** ;
+* le hook `garde_workspace.py` gardait le terminal, que l'agent n'emprunte
+  qu'en second — le journal le montre nettement : le cahier detruit par
+  `write_file` a **08:18:36**, le hook refusant la commande shell
+  equivalente a **08:36:08**, dix-huit minutes trop tard.
+
+Un test vert garantissait meme l'ouverture. `test_un_outil_non_surveille_passe`
+prenait `write_file` comme exemple d'outil qu'il ne fallait pas surveiller,
+au motif que « les editions de fichiers ont deja leur frontiere cote client
+ACP » et que « les refuser deux fois n'ajoute rien ». La frontiere existe ;
+elle ne s'applique jamais. Le test est amende et nomme l'incident.
+
+Trois defenses desormais, parce qu'aucune ne couvre seule tous les chemins.
+La troisieme est la seule qui aurait tenu les deux fois : **l'attribut
+lecture seule** pose sur les documents d'entree au lancement d'une campagne.
+Elle ne suppose rien de l'outil qui ecrit, y compris un outil auquel
+personne n'a encore pense — ce qui est exactement le defaut auquel on vient
+de se heurter deux fois. Verifiee sur la campagne en cours : `write_text`
+leve `PermissionError`, `read_text` rend 1136 lignes.
+
+Trouve au passage en auditant le module : `copy` ne verifiait aucune de ses
+deux extremites la ou `move` verifiait les siennes.

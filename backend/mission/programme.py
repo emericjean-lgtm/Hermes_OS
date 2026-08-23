@@ -220,6 +220,32 @@ def lire_plan(chemin) -> Optional[set[int]]:
             if m.group(1).lower() == "x"}
 
 
+def en_lecture_seule(chemin) -> bool:
+    """Poser l'attribut lecture seule, et dire si on a réussi.
+
+    La seule protection qui ne suppose rien de l'outil qui écrit. Les deux
+    autres — le hook de l'agent, la frontière ACP — gardent un chemin
+    nommé ; celle-ci garde le fichier.
+
+    Ne lève jamais : un cahier qu'on n'a pas pu verrouiller reste un cahier
+    lisible, et faire échouer une campagne pour un attribut de fichier
+    serait un remède pire que le mal. L'échec est rendu, pour que
+    l'appelant puisse le dire plutôt que le supposer.
+    """
+    import stat as _stat
+    from pathlib import Path as _Path
+
+    try:
+        cible = _Path(chemin)
+        if not cible.is_file():
+            return False
+        cible.chmod(_stat.S_IREAD)
+        return True
+    except OSError:
+        logger.debug("lecture seule impossible sur %s", chemin, exc_info=True)
+        return False
+
+
 def ecrire_proteges(chemin_workspace, documents: list[str]) -> str:
     """Déclarer les documents que le travail ne doit pas réécrire (HOS-129).
 
@@ -232,8 +258,26 @@ def ecrire_proteges(chemin_workspace, documents: list[str]) -> str:
     modification : la règle existait, rien ne la faisait respecter.
 
     La liste est écrite à côté du plan, en clair, un chemin par ligne —
-    elle se relit et se corrige comme lui. `file_tools` la consulte à
-    chaque écriture, quel que soit l'outil appelant.
+    elle se relit et se corrige comme lui.
+
+    **La phrase qui suivait ici était fausse.** Elle affirmait que
+    « `file_tools` la consulte à chaque écriture, quel que soit l'outil
+    appelant ». `file_tools` la consulte bien — mais ce sont les outils de
+    Hermes OS, et Hermes Agent n'écrit pas avec eux. Mesuré le 2026-08-23 :
+    **zéro `session/request_permission` sur deux campagnes complètes**.
+    L'agent écrit par son propre `write_file`, sans rien demander, et le
+    cahier a été détruit deux nuits de suite.
+
+    Trois défenses désormais, parce qu'aucune ne couvre seule tous les
+    chemins :
+
+    * le hook `config/hooks/garde_workspace.py`, étendu à `write_file` et
+      `patch` en plus du terminal ;
+    * la frontière du client ACP, pour le jour où l'agent demandera une
+      permission ;
+    * l'attribut **lecture seule** posé ici, qui ne dépend d'aucun chemin
+      d'appel. C'est la seule qui aurait tenu les deux fois, parce qu'elle
+      ne suppose rien de la façon dont l'écriture arrive.
     """
     from pathlib import Path
 
@@ -248,6 +292,11 @@ def ecrire_proteges(chemin_workspace, documents: list[str]) -> str:
         "# Un chemin relatif par ligne ; relu a chaque ecriture.",
     ]
     texte = "\n".join(entete + list(documents)) + "\n"
+    from pathlib import Path as _P
+
+    verrouilles = [d for d in documents
+                   if en_lecture_seule(_P(chemin_workspace) / d)]
+    logger.info("%d document(s) d'entree en lecture seule", len(verrouilles))
     cible.write_text(texte, encoding="utf-8")
     return texte
 
