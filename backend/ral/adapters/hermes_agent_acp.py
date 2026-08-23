@@ -500,6 +500,66 @@ class HermesAgentACP:
                 return f"chemin non résoluble : {recu!r}"
         return ""
 
+    @staticmethod
+    def _touche_un_protege(params: dict) -> str:
+        """La demande vise-t-elle un document qui definit le travail ?
+
+        ## L'incident
+
+        Campagne du 2026-08-23. `PROJECT_SPEC.md` faisait **1136 lignes** au
+        lancement ; §1 l'a remplace par trois :
+
+            # Documentation related to IDENTITE DU PROJET
+
+            - docs/identite_du_projet.md
+
+        Toutes les sections suivantes ont travaille sur un cahier vide. §6 a
+        passe — le derouleur tient les sections en memoire — mais l'agent,
+        lui, relisait un fichier de trois lignes.
+
+        ## Pourquoi la protection existante n'a rien vu
+
+        `backend/tools/file_tools.py` refuse d'ecrire sur un fichier
+        protege depuis HOS-129, ou une mission avait deja detruit un cahier
+        de 342 lignes. Cette protection garde les outils **de Hermes OS**.
+
+        Or Hermes Agent n'ecrit pas avec eux : il a son propre `write_file`,
+        son `patch` et son terminal. La liste `proteges.txt` etait donc
+        posee, correcte, relue a chaque appel — et jamais consultee sur le
+        chemin qu'empruntait reellement l'ecriture.
+
+        C'est la meme lecon que le garde-fou de workspace : une protection
+        qui n'est pas sur le chemin du travail est une protection verte
+        au-dessus de rien.
+
+        ## Ce que ce controle ne couvre toujours pas
+
+        Le terminal de l'agent ne demande aucune permission. Un
+        `echo ... > PROJECT_SPEC.md` passe encore, et seul
+        `config/hooks/garde_workspace.py` peut l'attraper. Dit ici plutot
+        que tu, pour que la prochaine mesure sache ou chercher.
+        """
+        from backend.tools.file_tools import _est_protege
+
+        appel = params.get("toolCall") or {}
+        vises: list[str] = []
+        for bloc in (appel.get("content") or []):
+            if isinstance(bloc, dict) and bloc.get("path"):
+                vises.append(str(bloc["path"]))
+        valeur = appel.get("path")
+        if isinstance(valeur, str) and valeur:
+            vises.append(valeur)
+
+        for recu in vises:
+            chemin = _depuis_msys(recu)
+            try:
+                if _est_protege(chemin):
+                    return chemin
+            except Exception:  # noqa: BLE001 - une protection ne casse rien
+                logger.debug("protection illisible pour %r", recu,
+                             exc_info=True)
+        return ""
+
     async def _repondre(self, session: SessionAgent, requete: dict) -> None:
         """Répondre aux requêtes que l'agent adresse au client.
 
@@ -554,8 +614,10 @@ class HermesAgentACP:
         if methode.endswith("request_permission"):
             params = requete.get("params") or {}
             dehors = self._hors_workspace(session, params)
-            if dehors:
-                logger.warning("permission refusée : %s", dehors)
+            protege = "" if dehors else self._touche_un_protege(params)
+            if dehors or protege:
+                logger.warning("permission refusée : %s",
+                               dehors or f"{protege} definit le travail")
                 resultat = {"outcome": {"outcome": "cancelled"}}
             else:
                 choix = ""

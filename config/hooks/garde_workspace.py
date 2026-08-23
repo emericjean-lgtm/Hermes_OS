@@ -167,6 +167,72 @@ def _arguments(charge: dict):
     return None
 
 
+#: Les formes shell qui **ecrivent** sur un fichier nomme juste apres.
+#: `cat`, `grep`, `head` n'y sont pas : lire un cahier des charges est le
+#: comportement attendu, et le refuser serait le faux refus type.
+_ECRITURES = re.compile(
+    r"(?:>>?|\btee\b|\bsed\s+-i\b|\bmv\b|\bcp\b"
+    r"|\bSet-Content\b|\bOut-File\b|\bAdd-Content\b)",
+    re.IGNORECASE)
+
+
+def _documents_d_entree(racine: str) -> list[str]:
+    """Les noms declares dans `.hermes/proteges.txt`, ou une liste vide."""
+    try:
+        lignes = io.open(os.path.join(racine, ".hermes", "proteges.txt"),
+                         encoding="utf-8").read().splitlines()
+    except OSError:
+        return []
+    return [ligne.strip() for ligne in lignes
+            if ligne.strip() and not ligne.strip().startswith("#")]
+
+
+def ecrase_un_document_d_entree(texte: str, racine: str) -> str:
+    """Le nom du cahier que cette commande ecraserait, ou "".
+
+    ## L'incident
+
+    Campagne du 2026-08-23 : `PROJECT_SPEC.md` faisait 1136 lignes au
+    lancement, trois a l'arrivee. Vingt et une sections ont travaille sur un
+    cahier vide sans que rien ne le signale.
+
+    La liste `proteges.txt` etait posee et correcte. Elle etait appliquee
+    dans `backend/tools/file_tools.py`, c'est-a-dire sur les outils de
+    Hermes OS — que l'agent n'utilise pas pour ecrire. Le client ACP couvre
+    desormais son `write_file` ; le terminal, lui, ne demande aucune
+    permission et ne passe que par ici.
+
+    ## Pourquoi une heuristique, et assumee comme telle
+
+    Un hook recoit une ligne de commande, pas un chemin de destination. On
+    ne peut donc pas savoir avec certitude ce qu'une commande ecrira. Le
+    compromis retenu : refuser quand un document declare est nomme **et**
+    qu'une forme d'ecriture apparait dans la meme commande. Lire reste
+    libre — c'est meme ce qu'on attend d'un agent devant un cahier des
+    charges.
+
+    Un contournement reste possible (un script intermediaire, un chemin
+    construit). Ce garde attrape la faute franche, celle qui s'est produite ;
+    il ne pretend pas etre une frontiere.
+    """
+    if not _ECRITURES.search(texte):
+        return ""
+    # La **destination**, pas la source : `cp PROJECT_SPEC.md copie.md`
+    # sauvegarde le cahier, il ne le detruit pas, et le refuser serait un
+    # faux refus. Toutes les formes qui ecrasent nomment leur cible en
+    # dernier jeton — `> cible`, `tee cible`, `sed -i ... cible`,
+    # `mv source cible`. On ne regarde donc que celui-la.
+    jetons = texte.replace("'", " ").replace('"', " ").split()
+    if not jetons:
+        return ""
+    cible = ntpath.basename(jetons[-1].replace("/", os.sep))
+    for document in _documents_d_entree(racine):
+        if cible and cible == ntpath.basename(
+                document.replace("/", os.sep)):
+            return document
+    return ""
+
+
 def verdict(charge: dict, racine: str) -> dict | None:
     """`{"action": "block", ...}` s'il faut refuser, sinon `None`."""
     if not racine:
@@ -184,6 +250,19 @@ def verdict(charge: dict, racine: str) -> dict | None:
     for valeur in args.values():
         if isinstance(valeur, str):
             suspects.extend(chemins_suspects(valeur, racine))
+            ecrase = ecrase_un_document_d_entree(valeur, racine)
+            if ecrase:
+                return {
+                    "action": "block",
+                    "message": (
+                        f"Refuse par Hermes OS : {ecrase} definit le travail "
+                        f"a faire, il n'en fait pas partie. Une campagne a "
+                        f"deja remplace un cahier des charges de 1136 lignes "
+                        f"par trois, et les vingt sections suivantes ont "
+                        f"travaille sur du vide. Lis-le autant que tu veux ; "
+                        f"ecris tes livrables ailleurs."
+                    ),
+                }
     if not suspects:
         return None
     return {

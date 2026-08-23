@@ -7723,3 +7723,36 @@ Le chat lisait le seul role `standard` du catalogue et ignorait
 tournaient a 3600. Un meme reglage produisait deux comportements sans que
 rien ne l'explique. Assistant, Mission et Autonomous partagent desormais la
 table de modeles, le budget de tour et le rappel des competences.
+
+### Le cahier des charges detruit, une seconde fois
+
+Trouve en preparant la relance, pas pendant la campagne : `PROJECT_SPEC.md`
+faisait **1136 lignes** au lancement et trois a l'arrivee.
+
+    # Documentation related to IDENTITE DU PROJET
+
+    - docs/identite_du_projet.md
+
+§1 l'a remplace a 00:57. Les vingt et une sections suivantes ont travaille
+sur un cahier vide — dont §7, dont les quatre heures perdues prennent ici un
+autre eclairage. Rien ne l'a signale : §1 s'est declaree « faite », §6
+« verifiee », et aucun controle ne regarde la taille des documents d'entree.
+
+La liste `.hermes/proteges.txt` etait posee, correcte, relue a chaque appel.
+Elle etait appliquee dans `backend/tools/file_tools.py`, c'est-a-dire sur
+les outils **de Hermes OS** — que l'agent n'utilise pas pour ecrire. Il a
+son propre `write_file`, son `patch` et son terminal. La protection etait
+donc verte au-dessus de rien, exactement comme les tests du garde-fou de
+workspace l'etaient il y a deux jours.
+
+Les deux chemins reels sont fermes : la demande de permission ACP couvre
+`write_file`, et le hook `garde_workspace.py` couvre le terminal. Ce dernier
+ne regarde que le **dernier jeton** de la commande — la destination :
+`cp PROJECT_SPEC.md sauvegarde.md` sauvegarde le cahier et doit passer,
+`mv brouillon.md PROJECT_SPEC.md` le detruit et doit etre refuse. Onze
+commandes de controle, dont cinq lectures qui doivent rester libres.
+
+C'est une heuristique et elle est assumee comme telle : un hook recoit une
+ligne de commande, pas un chemin de destination. Elle attrape la faute
+franche, celle qui s'est produite deux fois ; elle ne pretend pas etre une
+frontiere.
