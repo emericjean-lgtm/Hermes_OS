@@ -165,6 +165,21 @@ class SessionAgent:
         return " | ".join(list(self.journal)[-n:])
 
 
+def _dossier_des_competences() -> Optional[Path]:
+    """Ou l'agent range ses competences, ou None si on ne sait pas.
+
+    Hors de tout workspace de mission, par nature : une competence sert
+    toutes les missions, elle n'appartient a aucune.
+    """
+    base = os.environ.get("LOCALAPPDATA", "")
+    if not base:
+        return None
+    try:
+        return (Path(base) / "hermes" / "hermes-agent" / "skills").resolve()
+    except (OSError, ValueError):
+        return None
+
+
 class HermesAgentACP:
     """Client ACP minimal : ouvrir, envoyer des tours, fermer.
 
@@ -463,6 +478,23 @@ class HermesAgentACP:
                 else:
                     resolu = (racine / candidat).resolve()
                 if not resolu.is_relative_to(racine):
+                    # HOS-153 : une seule exception, et elle est nommee.
+                    # Une competence (`skill_manage`) s'ecrit sous le dossier
+                    # `skills` de l'agent — hors de tout workspace, par
+                    # nature : elle sert toutes les missions et n'appartient
+                    # a aucune. Sans cette exception, la seule facon pour
+                    # l'agent de capitaliser sur une tache reussie se heurte
+                    # a un refus, et il apprend qu'il ne peut pas.
+                    #
+                    # L'exception ne fragilise pas la frontiere qu'elle
+                    # perce : ce dossier est designe en absolu, il ne
+                    # contient rien d'executable par Hermes OS, et rien
+                    # d'autre du profil utilisateur ne devient accessible.
+                    competences = _dossier_des_competences()
+                    if competences and resolu.is_relative_to(competences):
+                        logger.info("competence autorisee hors workspace : %s",
+                                    resolu)
+                        continue
                     return f"{recu!r} -> {resolu} hors de {racine}"
             except (OSError, ValueError):
                 return f"chemin non résoluble : {recu!r}"

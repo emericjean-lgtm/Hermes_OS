@@ -1,0 +1,6 @@
+{
+  "modele": "ornith-1.5-35b-128k",
+  "num_ctx": 65536,
+  "raisonnement": "4/4",
+  "vision": "0/6"
+}

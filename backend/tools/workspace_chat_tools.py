@@ -37,7 +37,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from backend.tools import syntaxe
-from backend.mission import faux_paquets, imports_relatifs, symboles
+from backend.mission import (faux_paquets, imports_relatifs,
+                             symboles, tests_tautologiques)
 
 if TYPE_CHECKING:  # pragma: no cover - annotation seulement
     from backend.tools.file_tools import FileOpResult
@@ -444,7 +445,13 @@ async def execute_workspace_tool(
                     # cher qu'elle est decouverte tard — le projet se
                     # construit par-dessus. Dite a l'ecriture du
                     # `__init__.py`, elle ne coute qu'un tour.
-                    + faux_paquets.message_du_fichier(resolved, project_root))
+                    + faux_paquets.message_du_fichier(resolved, project_root)
+                    # HOS-153 : quatrieme controle, meme logique. Une
+                    # assertion constante compile, ne reference aucun symbole
+                    # absent, n'importe rien de travers — les trois gardes
+                    # ci-dessus la laissent passer, et la suite verte qu'elle
+                    # produit sert ensuite de preuve a la verification.
+                    + tests_tautologiques.message_du_fichier(resolved, content))
 
         if name == "workspace_search":
             motif = str(arguments.get("pattern", "")).strip()

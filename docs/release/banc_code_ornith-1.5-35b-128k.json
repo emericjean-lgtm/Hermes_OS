@@ -1,0 +1,75 @@
+{
+  "modele": "ornith-1.5-35b-128k",
+  "num_ctx": 131072,
+  "note": 3,
+  "total": 9,
+  "tronquees": 0,
+  "resultats": [
+    {
+      "tache": "compter_mots",
+      "niveau": "simple",
+      "reussi": false,
+      "detail": "SyntaxError: invalid syntax",
+      "tronquee": false,
+      "jetons_pensee": 130,
+      "jetons_reponse": 51
+    },
+    {
+      "tache": "fusion_intervalles",
+      "niveau": "moyen",
+      "reussi": true,
+      "detail": "assertions passées",
+      "tronquee": false,
+      "jetons_pensee": 101,
+      "jetons_reponse": 115
+    },
+    {
+      "tache": "banque_transactions",
+      "niveau": "complexe",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    },
+    {
+      "tache": "parseur_expressions",
+      "niveau": "expert",
+      "reussi": true,
+      "detail": "assertions passées",
+      "tronquee": false,
+      "jetons_pensee": 3953,
+      "jetons_reponse": 677
+    },
+    {
+      "tache": "cache_lru_ttl",
+      "niveau": "maitre",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    },
+    {
+      "tache": "planificateur_taches",
+      "niveau": "extreme",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    },
+    {
+      "tache": "moteur_motifs",
+      "niveau": "legende",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    },
+    {
+      "tache": "top_k_efficace",
+      "niveau": "titan",
+      "reussi": true,
+      "detail": "assertions passées",
+      "tronquee": false,
+      "jetons_pensee": 1636,
+      "jetons_reponse": 66
+    },
+    {
+      "tache": "compteur_concurrent",
+      "niveau": "mythique",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    }
+  ]
+}

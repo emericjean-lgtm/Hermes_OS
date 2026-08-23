@@ -1,0 +1,105 @@
+﻿python.exe : INFO: Showing help with the command 'cli.py -- --help'.
+Au caractère Ligne:1 : 1
++ & "C:\Users\emeri\AppData\Local\hermes\hermes-agent\venv\Scripts\pyth ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO: Showing h....py -- --help'.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+NAME
+    cli.py - Hermes Agent CLI - Interactive AI Assistant
+
+SYNOPSIS
+    cli.py <flags>
+
+DESCRIPTION
+    Hermes Agent CLI - Interactive AI Assistant
+
+FLAGS
+    --query=QUERY
+        Type: Optional[str]
+        Default: None
+        Single query to execute (then exit). Alias: -q
+    --q=Q
+        Type: Optional[str]
+        Default: None
+        Shorthand for --query
+    --image=IMAGE
+        Type: Optional[str]
+        Default: None
+        Optional local image path to attach to a single query
+    -t, --toolsets=TOOLSETS
+        Type: Optional[str]
+        Default: None
+        Comma-separated list of toolsets to enable (e.g., "web,terminal")
+    -s, --skills=SKILLS
+        Type: Optional[str |...
+        Default: None
+        Comma-separated or repeated list of skills to preload for the session
+    --model=MODEL
+        Type: Optional[str]
+        Default: None
+        Model to use (default: anthropic/claude-opus-4-20250514)
+    --provider=PROVIDER
+        Type: Optional[str]
+        Default: None
+        Inference provider ("auto", "openrouter", "nous", "openai-codex", "zai", "kimi-coding", "minimax", 
+"minimax-cn")
+    -a, --api_key=API_KEY
+        Type: Optional[str]
+        Default: None
+        API key for authentication
+    -b, --base_url=BASE_URL
+        Type: Optional[str]
+        Default: None
+        Base URL for the API
+    --max_turns=MAX_TURNS
+        Type: Optional[int]
+        Default: None
+        Maximum tool-calling iterations (default: 60)
+    -v, --verbose=VERBOSE
+        Type: Optional[Optional]
+        Default: None
+        Enable verbose logging
+    --quiet=QUIET
+        Type: bool
+        Default: False
+    --compact=COMPACT
+        Type: bool
+        Default: False
+        Use compact display mode
+    --list_tools=LIST_TOOLS
+        Type: bool
+        Default: False
+        List available tools and exit
+    --list_toolsets=LIST_TOOLSETS
+        Type: bool
+        Default: False
+        List available toolsets and exit
+    -g, --gateway=GATEWAY
+        Type: bool
+        Default: False
+    -r, --resume=RESUME
+        Type: Optional[str]
+        Default: None
+        Resume a previous session by its ID (e.g., 20260225_143052_a1b2c3)
+    --worktree=WORKTREE
+        Type: bool
+        Default: False
+        Run in an isolated git worktree (for parallel agents). Alias: -w
+    --w=W
+        Type: bool
+        Default: False
+        Shorthand for --worktree
+    --checkpoints=CHECKPOINTS
+        Type: bool
+        Default: False
+    --pass_session_id=PASS_SESSION_ID
+        Type: bool
+        Default: False
+    --ignore_user_config=IGNORE_USER_CONFIG
+        Type: bool
+        Default: False
+    --ignore_rules=IGNORE_RULES
+        Type: bool
+        Default: False

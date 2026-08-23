@@ -201,6 +201,26 @@ class MissionVerification:
     #: modele pour satisfaire ses propres imports (HOS-148).
     faux_paquet: Optional[dict] = None
 
+    #: Une assertion de test dont la valeur est ecrite d'avance (HOS-153).
+    test_tautologique: Optional[dict] = None
+
+    @property
+    def test_ne_peut_pas_echouer(self) -> bool:
+        """Une suite verte obtenue avec un test qui ne peut pas rougir.
+
+        C'est le seul defaut de cette liste que l'assistant a lui-meme
+        commis : les tests du garde-fou de workspace passaient `args=...` a
+        un hook qui lit `tool_input`. Six tests verts au-dessus d'une
+        protection inerte.
+
+        Contredit un succes annonce sans reserve, et pour la raison la plus
+        directe : la verification s'appuie sur « les tests passent » pour
+        conclure qu'une section est faite. Si les tests ne peuvent pas
+        echouer, cette preuve n'en est pas une, et tout ce qui en decoule
+        s'effondre avec elle.
+        """
+        return self.test_tautologique is not None
+
     @property
     def import_hors_paquet(self) -> bool:
         """Un import relatif que Python refusera, quoi qu'il arrive.
@@ -364,7 +384,8 @@ class MissionVerification:
         # existe pour attraper.
         if (self.tests_echouent or self.manifeste_manque
                 or self.imports_boucles or self.import_hors_paquet
-                or self.dependance_fabriquee):
+                or self.dependance_fabriquee
+                or self.test_ne_peut_pas_echouer):
             return True
         # Reste la seule question ouverte : un workspace intact. C'est un
         # mensonge, sauf quand une reparation n'avait rien a reparer.
@@ -391,6 +412,7 @@ class MissionVerification:
             "imports_remontent": self.imports_remontent,
             "travail_deja_fait": self.travail_deja_fait,
             "faux_paquet": self.faux_paquet,
+            "test_tautologique": self.test_tautologique,
             "tests_echouent": self.tests_echouent,
         }
 
@@ -460,6 +482,7 @@ def verify(
     from backend.mission import imports_locaux as _imports
     from backend.mission import faux_paquets as _faux
     from backend.mission import imports_relatifs as _relatifs
+    from backend.mission import tests_tautologiques as _tauto
     from backend.mission import manifeste as _manifeste
 
     result = MissionVerification(
@@ -471,6 +494,7 @@ def verify(
         imports=_imports.verdict(workspace),
         imports_remontent=_relatifs.verdict(workspace),
         faux_paquet=_faux.verdict(workspace),
+        test_tautologique=_tauto.verdict(workspace),
     )
     if result.contradicted:
         logger.warning(

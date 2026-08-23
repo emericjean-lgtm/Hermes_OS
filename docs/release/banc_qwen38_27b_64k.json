@@ -1,0 +1,23 @@
+{
+ "modele": "qwen38-27b-64k",
+ "num_ctx": 65536,
+ "empreinte": {
+  "name": "qwen38-27b-64k:latest",
+  "size_bytes": 18712373490,
+  "size_vram_bytes": 14977891040,
+  "cpu_offload_bytes": 3734482450,
+  "cpu_offload_ratio": 0.19957288967087627,
+  "context_length": 65536
+ },
+ "gpu_dedicated_bytes": 14062678016,
+ "debit": {
+  "prompt_tokens": 73,
+  "prompt_tokens_per_s": 56.1,
+  "output_tokens": 468,
+  "output_tokens_per_s": 9.4,
+  "total_s": 71.0
+ },
+ "duree_s": 73.0,
+ "done_reason": "stop",
+ "reponse": "```python\ndef fusionner(intervalles):\n    if not intervalles:\n        return []\n\n    triés = sorted(intervalles, key=lambda x: (x[0], x[1]))\n    fusionnés = [triés[0]]\n\n    for debut, fin in triés[1:]:\n        dernier_debut, dernier_fin = fusionnés[-1]\n        if debut <= dernier_fin:\n            fusionnés[-1] = (dernier_debut, max(dernier_fin, fin))\n        else:\n            fusionnés.append((debut, fin))\n\n    return fusionnés\n```"
+}

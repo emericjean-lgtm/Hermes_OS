@@ -41,6 +41,7 @@ class _RegistreFactice:
         self._disponible = disponible
         self.appels: list[tuple] = []
         self.fermetures: list[str] = []
+        self.tours_perdus = 0
 
     async def disponible_pour(self, cle):
         return self._disponible
@@ -54,6 +55,17 @@ class _RegistreFactice:
 
     def tours_de(self, cle):
         return len(self.appels)
+
+    # HOS-153 : le double suit l'interface reelle du registre. Rendre
+    # `_apres_des_tours_perdus` tolerant a un double incomplet aurait cache
+    # la derive au lieu de la signaler — c'est precisement ce que ce fichier
+    # de tests existe pour attraper.
+    def tours_perdus_de(self, cle):
+        return self.tours_perdus
+
+    def noter(self, cle, abouti):
+        self.tours_perdus = 0 if abouti else self.tours_perdus + 1
+        return self.tours_perdus
 
     async def fermer(self, cle):
         self.fermetures.append(cle)

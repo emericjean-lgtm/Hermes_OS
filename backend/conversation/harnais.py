@@ -121,7 +121,7 @@ def disponible(project_root: str) -> tuple[bool, str]:
 async def repondre(
     message: str, *, project_id: str, project_root: str,
     modele: str = "", amorce: str = "",
-    delai: float = 900.0,
+    delai: float = 0.0,
 ) -> tuple[AsyncIterator[Morceau], Verdict]:
     """Sert un tour de conversation par la session du projet.
 
@@ -133,6 +133,14 @@ async def repondre(
     from backend.ral.adapters.sessions_de_mission import registre
 
     pont = _Pont()
+    if delai <= 0:
+        # Le defaut n'est plus une constante locale : 900 s en dur ici
+        # coupait une conversation au quart quand l'operateur avait porte
+        # `HERMES_AGENT_TIMEOUT_S` a 3600 pour ses missions.
+        from backend.execution.task_executor import budget_du_tour
+
+        delai = budget_du_tour()
+
     verdict = Verdict(model=modele)
     cle = f"projet:{project_id}"
     fini = object()

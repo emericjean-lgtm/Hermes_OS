@@ -1,0 +1,34 @@
+=== 7 fichiers produits ===
+  __pycache__\identity_model.cpython-311.pyc   2706 o
+  __pycache__\test_identity_model.cpython-311-pytest-8.3.2.pyc  15728 o
+  identity_documentation.md                  3760 o
+  identity_model.py                          1559 o
+  identity_model_documentation.md            3172 o
+  test_identity_model.py                     3691 o
+  tests\test_identity_model.py               2443 o
+
+=== tests du livrable, lances pour de vrai ===
+code de sortie : 2
+
+=================================== ERRORS ====================================
+________________ ERROR collecting tests/test_identity_model.py ________________
+import file mismatch:
+imported module 'test_identity_model' has this __file__ attribute:
+  C:\Users\emeri\AppData\Local\Temp\skills360_966k8hs_\test_identity_model.py
+which is not the same as the test file we want to collect:
+  C:\Users\emeri\AppData\Local\Temp\skills360_966k8hs_\tests\test_identity_model.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+=========================== short test summary info ===========================
+ERROR tests/test_identity_model.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.13s
+
+
+=== fidelite au cahier (§4 : ne pas inventer ; §37 : A DECIDER) ===
+  identity_documentation.md                A DECIDER x3   notions ouvertes: ['cardinalit']
+  identity_model_documentation.md          A DECIDER x2   notions ouvertes: ['cardinalit', 'suppression', 'désactivation']
+
+  total 'A DECIDER' : 5
+
+=== ce que chaque module definit ===
+  identity_model.py                        ['Auth', '__repr__', 'User', '__repr__', 'Employee', '__repr__']

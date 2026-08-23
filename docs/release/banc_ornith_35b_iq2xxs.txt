@@ -1,0 +1,10 @@
+=== ornith-1.5-35b-128k ===
+paliers : 32k, 64k, 128k, 256k — un a la fois
+
+    32768 : 10.99 Gio reels | resident 10.07 Gio | debordement  0.0 % |  102.6 tok/s | charge 11.0 s
+    65536 : 11.55 Gio reels | resident 10.62 Gio | debordement  0.0 % |  102.3 tok/s | charge 10.1 s
+   131072 : 12.87 Gio reels | resident 11.94 Gio | debordement  0.0 % |  102.0 tok/s | charge 10.3 s
+   262144 : 12.56 Gio reels | resident 13.46 Gio | debordement 13.3 % |   52.3 tok/s | charge 15.1 s
+
+dure : 91 s
+palier retenu : None

@@ -229,6 +229,10 @@ def _runtime_demande(brut: str) -> str:
     return "hermes-agent" if nom in _NON_CHOISI else brut.strip()
 
 
+#: Importe au niveau module : `_apres_des_tours_perdus` est une fonction
+#: de module, pas une methode, et le registre n'importe pas l'executeur.
+from backend.ral.adapters.sessions_de_mission import PLAFOND_TOURS_PERDUS
+
 def modele_impose(task_type: str = "") -> str:
     """Le modele que l'operateur impose, pour ce type de tache ou pour tous.
 
@@ -296,6 +300,70 @@ def modele_impose(task_type: str = "") -> str:
         if cle and cle in table:
             return table[cle]
     return ""
+
+
+def modele_de_secours() -> str:
+    """Le modele vers lequel rétrograder quand un autre n'aboutit pas.
+
+    C'est l'entrée `*` de la table : celui que l'opérateur a désigné pour
+    « tout le reste », donc celui qu'il juge capable partout. Sans table,
+    rien — et la règle ci-dessous ne s'applique pas.
+    """
+    return modele_impose("")
+
+
+def _apres_des_tours_perdus(model: str, cle: str, sessions: Any) -> str:
+    """Rétrograder vers le modèle rapide quand le modèle imposé s'enlise.
+
+    ## L'incident
+
+    Campagne Skill360 du 2026-08-23, §7. Qwen3.8-27B tenait le code, avec un
+    budget de 3600 s par tour. Il a perdu **quatre tours consécutifs**, à la
+    seconde près, sans jamais rendre la main :
+
+        03:47:59 / 04:47:59 / 05:47:59 / 06:47:59  tour non abouti (stop='')
+
+    Quatre heures — 59 % de la nuit — pour zéro livrable. La seule tâche que
+    ce modèle a menée à terme dans la campagne avait pris **2999 s pour 423
+    tokens**, soit 0,14 tok/s là où le banc de code en mesurait 8,7.
+
+    ## Pourquoi le banc ne l'avait pas vu
+
+    Le banc soumet des exercices courts et autosuffisants. Une tâche de
+    mission arrive avec un transcript long, et le modèle déborde de 20 % sur
+    CPU : le traitement du prompt domine, et une tâche coûte cinquante
+    minutes au lieu de trente secondes. Le banc mesurait bien quelque chose,
+    mais pas ce que la campagne demande.
+
+    ## Ce que fait cette règle, et ce qu'elle ne fait pas
+
+    Elle ne prolonge pas le budget — l'allonger rendrait le blocage plus
+    coûteux, pas plus rare. Elle ne renonce pas non plus à la section : elle
+    la confie au modèle que l'opérateur a désigné pour « tout le reste ».
+    §7 aurait coûté deux heures puis serait passée, au lieu de quatre heures
+    puis d'un échec.
+
+    La substitution est bruyante. Un modèle qui se fait retirer le travail
+    pour lequel on l'avait choisi est un fait de campagne, pas un détail
+    d'exécution : c'est la mesure qui dira, au dépouillement, que le pari
+    sur ce modèle n'a pas tenu.
+    """
+    if not cle:
+        return model
+    perdus = sessions.tours_perdus_de(cle)
+    if perdus < PLAFOND_TOURS_PERDUS:
+        return model
+    secours = modele_de_secours()
+    if not secours or secours == model:
+        # Rien vers quoi rétrograder : le dire plutôt que de faire croire
+        # qu'une règle a joué.
+        logger.warning("harnais : %d tours perdus d'affilée sur %s et aucun "
+                       "modèle de secours — le même est réengagé",
+                       perdus, cle)
+        return model
+    logger.warning("harnais : %d tours perdus d'affilée sur %s avec %s — "
+                   "la suite passe à %s", perdus, cle, model, secours)
+    return secours
 
 
 class RuntimeUnavailableError(RuntimeError):
@@ -873,6 +941,8 @@ class RealTaskExecutor:
             logger.info("harnais écarté pour %s : %s", cle, raison)
             return None
 
+        model = _apres_des_tours_perdus(model, cle, sessions)
+
         try:
             tour = await sessions.tour(
                 cle, workspace, _messages_to_prompt(messages),
@@ -883,13 +953,16 @@ class RealTaskExecutor:
             await sessions.fermer(cle)
             return None
 
+        perdus = sessions.noter(cle, tour.abouti)
+
         if not tour.abouti:
             # Un tour qui n'aboutit pas n'est pas une réponse. Le rendre
             # quand même ferait passer une session bloquée pour un modèle
             # laconique — « ni un échec sur parole », mais pas un succès sur
             # parole non plus.
-            logger.warning("harnais : tour non abouti sur %s (stop=%r) %s",
-                           cle, tour.stop, tour.erreur)
+            logger.warning("harnais : tour non abouti sur %s (stop=%r) "
+                           "[%d d'affilée] %s",
+                           cle, tour.stop, perdus, tour.erreur)
             return None
 
         return ChatResponse(

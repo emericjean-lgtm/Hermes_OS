@@ -1,0 +1,70 @@
+{
+  "model": "qwen3.8-27b-iq4xs",
+  "tiers": [
+    {
+      "num_ctx": 8192,
+      "load_and_answer_s": 14.1,
+      "name": "qwen3.8-27b-iq4xs:latest",
+      "size_bytes": 13500866885,
+      "size_vram_bytes": 13500866885,
+      "cpu_offload_bytes": 0,
+      "cpu_offload_ratio": 0.0,
+      "context_length": 8192,
+      "gpu_dedicated_bytes": 13612797952,
+      "prompt_tokens": 61,
+      "prompt_tokens_per_s": 68.5,
+      "output_tokens": 45,
+      "output_tokens_per_s": 22.4,
+      "total_s": 12.1
+    },
+    {
+      "num_ctx": 32768,
+      "load_and_answer_s": 15.5,
+      "name": "qwen3.8-27b-iq4xs:latest",
+      "size_bytes": 15893339830,
+      "size_vram_bytes": 14963661864,
+      "cpu_offload_bytes": 929677966,
+      "cpu_offload_ratio": 0.0584948145540282,
+      "context_length": 32768,
+      "gpu_dedicated_bytes": 15131029504,
+      "prompt_tokens": 61,
+      "prompt_tokens_per_s": 57.8,
+      "output_tokens": 45,
+      "output_tokens_per_s": 19.4,
+      "total_s": 13.5
+    },
+    {
+      "num_ctx": 65536,
+      "load_and_answer_s": 21.1,
+      "name": "qwen3.8-27b-iq4xs:latest",
+      "size_bytes": 18449726174,
+      "size_vram_bytes": 14662049463,
+      "cpu_offload_bytes": 3787676711,
+      "cpu_offload_ratio": 0.20529717759918445,
+      "context_length": 65536,
+      "gpu_dedicated_bytes": 14818246656,
+      "prompt_tokens": 61,
+      "prompt_tokens_per_s": 27.7,
+      "output_tokens": 45,
+      "output_tokens_per_s": 8.8,
+      "total_s": 19.0
+    },
+    {
+      "num_ctx": 131072,
+      "load_and_answer_s": 26.1,
+      "name": "qwen3.8-27b-iq4xs:latest",
+      "size_bytes": 23281585354,
+      "size_vram_bytes": 14803617709,
+      "cpu_offload_bytes": 8477967645,
+      "cpu_offload_ratio": 0.36414906957972276,
+      "context_length": 131072,
+      "gpu_dedicated_bytes": 14947995648,
+      "prompt_tokens": 61,
+      "prompt_tokens_per_s": 17.2,
+      "output_tokens": 45,
+      "output_tokens_per_s": 5.6,
+      "total_s": 24.1
+    }
+  ],
+  "retained_num_ctx": 8192
+}

@@ -285,6 +285,14 @@ def bloquant(verification: Optional[dict]) -> tuple[bool, str]:
     if tests.get("ran") and tests.get("passed") is False:
         return True, "les tests du livrable échouent"
 
+    # HOS-153 : avant les autres, parce que ce defaut-la invalide la preuve
+    # sur laquelle tous les suivants s'appuient. Une suite verte obtenue avec
+    # un test qui ne peut pas rougir ne dit rien de la section.
+    tauto = verification.get("test_tautologique") or {}
+    if tauto:
+        return True, (f"test qui ne peut pas echouer — {tauto.get('fichier')}:"
+                      f"{tauto.get('ligne')} ({tauto.get('raison')})")
+
     fatals = (verification.get("imports") or {}).get("fatals") or []
     if fatals:
         return True, f"boucle d'import fatale : {'; '.join(map(str, fatals))}"
@@ -358,6 +366,17 @@ def brief_de_section(section: Section, *, nom_du_cahier: str,
         "Écris réellement les fichiers sur le disque, puis relis-les pour "
         "confirmer qu'ils existent avant de conclure.",
     ]
+    # HOS-153 : l'agent porte 81 competences et n'en ouvrait jamais une.
+    # `skills_list` fait partie de son toolset ACP — mesure du 2026-08-23,
+    # 30 outils dont les trois de competences — mais un modele n'appelle
+    # pas un outil dont rien ne lui rappelle l'existence. Les domaines
+    # sont nommes ici, pas les competences : quatre-vingts lignes par
+    # section se feraient ignorer autant que le silence.
+    from backend.skills import registre as _competences
+
+    rappel = _competences.rappel_pour_brief()
+    if rappel:
+        morceaux.append(rappel)
     return "\n".join(morceaux)
 
 
@@ -387,6 +406,15 @@ def diagnostic(verification, raison: str) -> str:
     if fatals:
         morceaux.append("Boucle d'import fatale : " + "; ".join(map(str, fatals))
                         + ". Casse-la.")
+    tauto = v.get("test_tautologique") or {}
+    if tauto:
+        morceaux.append(
+            f"Test qui ne peut pas echouer : {tauto.get('fichier')}:"
+            f"{tauto.get('ligne')}, dans {tauto.get('fonction')}() — "
+            f"{tauto.get('raison')}. Fais porter l'assertion sur le resultat "
+            f"reel de la fonction testee, puis casse volontairement cette "
+            f"fonction et verifie que le test rougit. Une suite verte est la "
+            f"preuve qu'on te demande ; celle-ci n'en est pas une.")
     # Mesure du 2026-08-21 : §9 a echoue **deux fois** sur le meme
     # `from ..models import Atelier`. La sortie des tests le disait, mais
     # noyee dans une trace de collecte pytest ou l'essentiel — le fichier,

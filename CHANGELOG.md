@@ -7643,3 +7643,83 @@ init → db → api → auth → deploy
 - Projet Hermes OS initial
 - Structure SDS legacy
 - 48 tests de base
+
+## HOS-153 — quatre heures a rejouer la meme experience
+
+Campagne Skill360 du 2026-08-23, avec Qwen3.8-27B sur le code. Deux
+sections faites — dont **§6, verifiee des la premiere passe alors qu'elle
+avait bloque les trois campagnes precedentes** — puis §7 a consomme
+14 598 s, 59 % de la nuit, pour zero livrable.
+
+Le journal donne quatre tours a la seconde pres, 03:47:59, 04:47:59,
+05:47:59, 06:47:59 : quatre fois le budget de 3600 s, quatre fois
+`flux ferme par l'agent`. La seule tache que ce modele a menee a terme dans
+la campagne avait pris **2999 s pour 423 tokens** — 0,14 tok/s la ou le banc
+de code en mesurait 8,7.
+
+**Le banc mesurait autre chose que ce que la campagne demande.** Il soumet
+des exercices courts et autosuffisants ; une tache de mission arrive avec un
+transcript long, et le modele deborde de 20 % sur CPU. Le traitement du
+prompt domine, et une tache coute cinquante minutes au lieu de trente
+secondes. Le banc n'avait pas tort — il ne repondait pas a la question.
+
+Le defaut reparable n'est pas la lenteur : c'est que rien ne comptait les
+repetitions. Le registre de sessions compte desormais les tours perdus
+consecutifs, et au deuxieme la section passe au modele que l'operateur a
+designe par `*`. §7 aurait coute deux heures puis serait passee. Deux et non
+un : l'agent a bien vu des `APIConnectionError` cette nuit-la, et punir le
+reseau au premier accroc serait le faux echec type.
+
+Mesure d'ordonnancement au passage : `OLLAMA_MAX_LOADED_MODELS=1`, quinze
+demarrages de runner dans la nuit, ~22 s chacun, cinq abandonnes en cours de
+chargement parce que le client avait lache. L'alternance entre deux modeles
+de 13 a 14 Gio sur 16 Go n'est pas gratuite ; elle ne suffit pas a expliquer
+les quatre heures, mais elle s'y ajoute.
+
+### Un test qui ne peut pas echouer n'est pas une preuve
+
+Le seul defaut de cette liste que l'assistant a commis lui-meme : les tests
+du garde-fou de workspace passaient `args=...` a un hook qui lit
+`tool_input`. Six tests verts au-dessus d'une protection inerte.
+
+`backend/mission/tests_tautologiques.py` signale les assertions dont la
+valeur se calcule sans executer le programme. Volontairement etroit : un
+test sans assertion n'est pas signale, parce que `def test_import(): import
+monmodule` est legitime. Verifie sur les 148 fichiers de test du depot —
+**0 signalement**. La verification s'appuie sur « les tests passent » pour
+conclure qu'une section est faite ; si les tests ne peuvent pas rougir,
+cette preuve n'en est pas une, et le defaut est donc evalue avant les
+autres.
+
+### Les 81 competences que Hermes OS ignorait
+
+L'agent porte 81 `SKILL.md` en quatorze domaines. Aucune ligne du depot ne
+citait ce dossier.
+
+**Correction d'un constat rapporte la veille** : `skill_manage` n'etait pas
+absent du toolset. Le constat portait sur le chemin CLI
+(`_HERMES_AGENT_TOOLSETS = ("coding",)`), que le harnais n'emprunte pas.
+L'adaptateur ACP force `enabled_toolsets=["hermes-acp"]` avec
+`platform: "acp"` — mesure du 2026-08-23 dans le venv de l'agent : **30
+outils resolus, dont `skills_list`, `skill_view` et `skill_manage`**. Le
+nudge de creation est configure a 15 et n'est pas supprime.
+
+Restaient deux vrais manques, corriges ici :
+
+* un modele n'appelle pas un outil dont rien ne lui rappelle l'existence.
+  `backend/skills/registre.py` lit les en-tetes et glisse un rappel des
+  **domaines** — pas des 81 competences, quatre-vingts lignes par section se
+  feraient ignorer autant que le silence ;
+* une competence s'ecrit sous le dossier `skills` de l'agent, hors de tout
+  workspace **par nature** : elle sert toutes les missions et n'appartient a
+  aucune. Le garde-fou de permission la refusait. L'exception est nommee,
+  designee en absolu, et ne perce rien d'autre — un test tient le voisin
+  immediat `config.yaml` du mauvais cote de la frontiere.
+
+### Les trois modes
+
+Le chat lisait le seul role `standard` du catalogue et ignorait
+`HERMES_MISSION_MODEL`, avec 900 s en dur pendant que les missions
+tournaient a 3600. Un meme reglage produisait deux comportements sans que
+rien ne l'explique. Assistant, Mission et Autonomous partagent desormais la
+table de modeles, le budget de tour et le rappel des competences.

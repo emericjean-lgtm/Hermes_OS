@@ -1,0 +1,70 @@
+{
+  "model": "ornith-1.5-35b-128k",
+  "tiers": [
+    {
+      "num_ctx": 32768,
+      "load_and_answer_s": 11.0,
+      "name": "ornith-1.5-35b-128k:latest",
+      "size_bytes": 10809266666,
+      "size_vram_bytes": 10809266666,
+      "cpu_offload_bytes": 0,
+      "cpu_offload_ratio": 0.0,
+      "context_length": 32768,
+      "gpu_dedicated_bytes": 11805556736,
+      "prompt_tokens": 19,
+      "prompt_tokens_per_s": 58.5,
+      "output_tokens": 50,
+      "output_tokens_per_s": 102.6,
+      "total_s": 9.0
+    },
+    {
+      "num_ctx": 65536,
+      "load_and_answer_s": 10.1,
+      "name": "ornith-1.5-35b-128k:latest",
+      "size_bytes": 11407993076,
+      "size_vram_bytes": 11407993076,
+      "cpu_offload_bytes": 0,
+      "cpu_offload_ratio": 0.0,
+      "context_length": 65536,
+      "gpu_dedicated_bytes": 12406603776,
+      "prompt_tokens": 19,
+      "prompt_tokens_per_s": 136.6,
+      "output_tokens": 50,
+      "output_tokens_per_s": 102.3,
+      "total_s": 8.0
+    },
+    {
+      "num_ctx": 131072,
+      "load_and_answer_s": 10.3,
+      "name": "ornith-1.5-35b-128k:latest",
+      "size_bytes": 12817279220,
+      "size_vram_bytes": 12817279220,
+      "cpu_offload_bytes": 0,
+      "cpu_offload_ratio": 0.0,
+      "context_length": 131072,
+      "gpu_dedicated_bytes": 13821661184,
+      "prompt_tokens": 19,
+      "prompt_tokens_per_s": 135.6,
+      "output_tokens": 50,
+      "output_tokens_per_s": 102.0,
+      "total_s": 8.2
+    },
+    {
+      "num_ctx": 262144,
+      "load_and_answer_s": 15.1,
+      "name": "ornith-1.5-35b-128k:latest",
+      "size_bytes": 16673432261,
+      "size_vram_bytes": 14450216138,
+      "cpu_offload_bytes": 2223216123,
+      "cpu_offload_ratio": 0.13333884038982272,
+      "context_length": 262144,
+      "gpu_dedicated_bytes": 13484929024,
+      "prompt_tokens": 19,
+      "prompt_tokens_per_s": 79.7,
+      "output_tokens": 50,
+      "output_tokens_per_s": 52.3,
+      "total_s": 13.1
+    }
+  ],
+  "retained_num_ctx": 131072
+}

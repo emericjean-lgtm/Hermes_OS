@@ -1,0 +1,75 @@
+{
+  "modele": "ornith-35b-borne",
+  "num_ctx": 131072,
+  "note": 2,
+  "total": 9,
+  "tronquees": 0,
+  "resultats": [
+    {
+      "tache": "compter_mots",
+      "niveau": "simple",
+      "reussi": true,
+      "detail": "assertions passées",
+      "tronquee": false,
+      "jetons_pensee": 56,
+      "jetons_reponse": 44
+    },
+    {
+      "tache": "fusion_intervalles",
+      "niveau": "moyen",
+      "reussi": true,
+      "detail": "assertions passées",
+      "tronquee": false,
+      "jetons_pensee": 71,
+      "jetons_reponse": 110
+    },
+    {
+      "tache": "banque_transactions",
+      "niveau": "complexe",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    },
+    {
+      "tache": "parseur_expressions",
+      "niveau": "expert",
+      "reussi": false,
+      "detail": "ValueError: could not convert string to float: '2+3*4'",
+      "tronquee": false,
+      "jetons_pensee": 1380,
+      "jetons_reponse": 313
+    },
+    {
+      "tache": "cache_lru_ttl",
+      "niveau": "maitre",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    },
+    {
+      "tache": "planificateur_taches",
+      "niveau": "extreme",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    },
+    {
+      "tache": "moteur_motifs",
+      "niveau": "legende",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    },
+    {
+      "tache": "top_k_efficace",
+      "niveau": "titan",
+      "reussi": false,
+      "detail": "AttributeError: module 'heapq' has no attribute 'heappushreplace'. Did you mean: 'heapreplace'?",
+      "tronquee": false,
+      "jetons_pensee": 572,
+      "jetons_reponse": 91
+    },
+    {
+      "tache": "compteur_concurrent",
+      "niveau": "mythique",
+      "reussi": false,
+      "detail": "ReadTimeout: HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=900.0)"
+    }
+  ]
+}

@@ -365,10 +365,11 @@ async def _repondre_par_le_harnais(
     """
     from backend.conversation import harnais as _harnais
 
-    modele = _modele_du_role_standard()
+    modele = _modele_du_chat()
     flux, verdict = await _harnais.repondre(
         message, project_id=project_id, project_root=project_root,
-        modele=modele)
+        modele=modele, amorce=_amorce_du_chat(),
+        delai=_budget_du_tour())
 
     async def _corps() -> AsyncIterator[str]:
         recu: list[str] = []
@@ -409,6 +410,49 @@ async def _repondre_par_le_harnais(
     return StreamingResponse(_corps(), media_type="application/x-ndjson",
                              headers={"Cache-Control": "no-cache",
                                       "X-Hermes-Runtime": "hermes-agent-acp"})
+
+
+def _modele_du_chat() -> str:
+    """Le modele du chat, table de l'operateur comprise (HOS-153).
+
+    Le chat lisait uniquement le role `standard` du catalogue et ignorait
+    `HERMES_MISSION_MODEL`. Un operateur qui imposait un modele voyait donc
+    ses missions changer de cerveau et sa conversation garder l'ancien, sans
+    que rien ne l'explique — deux comportements pour un meme reglage.
+
+    Le type demande est `general` : une conversation n'est ni de la
+    generation de code ni une relecture, et la table doit pouvoir la traiter
+    a part si l'operateur le veut. A defaut d'entree, `*` prend le relais,
+    puis le role `standard` du catalogue.
+    """
+    from backend.execution.task_executor import modele_impose
+
+    return modele_impose("general") or _modele_du_role_standard()
+
+
+def _budget_du_tour() -> float:
+    """Le meme budget que les missions, pas une constante a part.
+
+    Le harnais du chat portait 900 s en dur. Un operateur qui portait
+    `HERMES_AGENT_TIMEOUT_S` a 3600 pour un modele lent voyait ses missions
+    lui laisser le temps et sa conversation le couper au quart.
+    """
+    from backend.execution.task_executor import budget_du_tour
+
+    return budget_du_tour()
+
+
+def _amorce_du_chat() -> str:
+    """Ce que la session apprend a son premier tour.
+
+    Les missions recoivent le rappel des competences par leur brief de
+    section. Une conversation n'a pas de brief : sans cette amorce, le mode
+    Assistant serait le seul des trois a ignorer que l'agent porte quatre-
+    vingts competences deja ecrites.
+    """
+    from backend.skills import registre as _competences
+
+    return _competences.rappel_pour_brief().strip()
 
 
 def _modele_du_role_standard() -> str:

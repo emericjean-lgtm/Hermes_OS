@@ -74,6 +74,27 @@ logger = logging.getLogger("hermes_os.ral.sessions")
 #: D'où six et non davantage : la mesure autorise plus, l'éviction non.
 PLAFOND_SESSIONS = 6
 
+#: Combien de tours consecutifs sans aboutir avant de cesser de refaire la
+#: meme experience.
+#:
+#: Mesure du 2026-08-23, campagne Skill360 §7. Le budget d'un tour etait a
+#: 3600 s et Qwen3.8-27B, sur une boucle agentique a contexte long, ne rend
+#: pas la main dedans. Le journal montre quatre tours a la seconde pres :
+#:
+#:     03:47:59  harnais : tour non abouti (stop='')
+#:     04:47:59  harnais : tour non abouti (stop='')
+#:     05:47:59  harnais : tour non abouti (stop='')
+#:     06:47:59  harnais : tour non abouti (stop='')
+#:
+#: Quatre heures — 59 % de la nuit — pour zero livrable, a rejouer une
+#: experience dont le resultat etait connu des la deuxieme. Le defaut n'est
+#: pas la lenteur du modele : c'est que personne ne comptait les repetitions.
+#:
+#: Deux, et pas un : un premier tour perdu peut etre une coupure reseau
+#: (l'agent a bien vu des `APIConnectionError` cette nuit-la). Un second, sur
+#: la meme session et le meme modele, est une reproduction.
+PLAFOND_TOURS_PERDUS = 2
+
 #: Une mission qui ne s'est pas manifestée depuis une demi-heure a
 #: probablement échoué sans le dire. Sans cette purge, son processus agent
 #: survivrait au serveur qui l'a lancé.
@@ -122,6 +143,9 @@ class _Entree:
     client: HermesAgentACP
     workspace: str
     tours: int = 0
+    #: Tours consecutifs qui n'ont pas abouti. Remis a zero des qu'un tour
+    #: aboutit : ce qui compte est la repetition, pas le total.
+    tours_perdus: int = 0
     derniere_activite: float = 0.0
 
 
@@ -161,6 +185,29 @@ class SessionsDeMission:
     def tours_de(self, cle: str) -> int:
         entree = self._entrees.get(cle)
         return entree.tours if entree else 0
+
+    def tours_perdus_de(self, cle: str) -> int:
+        """Combien de tours consecutifs cette session vient de perdre.
+
+        Lu par l'executeur avant d'engager un tour : une session qui a deja
+        perdu `PLAFOND_TOURS_PERDUS` tours ne merite pas qu'on lui confie le
+        meme budget avec le meme modele une fois de plus.
+        """
+        entree = self._entrees.get(cle)
+        return entree.tours_perdus if entree else 0
+
+    def noter(self, cle: str, abouti: bool) -> int:
+        """Enregistrer l'issue d'un tour, et rendre le compte des echecs.
+
+        Le registre ne peut pas la deduire seul : `tour()` rend un `Tour`
+        non abouti sans lever, exactement comme il rend un tour normal. La
+        difference est dans le champ `abouti`, que seul l'appelant regarde.
+        """
+        entree = self._entrees.get(cle)
+        if entree is None:
+            return 0
+        entree.tours_perdus = 0 if abouti else entree.tours_perdus + 1
+        return entree.tours_perdus
 
     # -- cycle de vie -------------------------------------------------
 
