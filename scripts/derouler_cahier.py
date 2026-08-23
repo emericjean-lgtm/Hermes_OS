@@ -18,6 +18,7 @@ Compter environ dix minutes par section cochee.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import sys
@@ -105,10 +106,99 @@ def verifier_le_harnais(*, accepte_le_mode_jetable: bool) -> bool:
     return False
 
 
+#: Le releve durable des sections menees a bien.
+ACQUIS = "faites.txt"
+
+
+def sections_deja_faites(dossier_hermes) -> set[int]:
+    """Les numeros de section deja menees a bien, lus dans le journal.
+
+    ## Pourquoi lire le journal plutot que tenir un fichier d'etat
+
+    Une campagne dure quinze heures. Elle traverse forcement un besoin de
+    la machine — liberer la carte graphique, redemarrer, simplement
+    dormir — et jusqu'ici la seule facon d'arreter etait de tout perdre :
+    le plan coche les sections **a traiter**, il ne dit pas lesquelles sont
+    faites, et une relance repartait de §1.
+
+    Le journal, lui, est deja ecrit au fil de l'eau, une ligne par section
+    et par verdict. Le lire plutot que d'inventer un fichier d'etat a une
+    consequence qui vaut la contrainte de format : **la reprise fonctionne
+    sur les campagnes lancees avant qu'elle n'existe**, y compris celle qui
+    tourne au moment ou ces lignes sont ecrites. Un fichier d'etat aurait
+    demande d'avoir prevu.
+
+    Seul `faite` est retenu. Une section `bloquee` doit etre rejouee : elle
+    a consomme ses deux passes sans aboutir, et la sauter reviendrait a
+    faire passer un echec pour un travail fini — ce que ce projet passe son
+    temps a empecher ailleurs.
+    """
+    import re
+    from pathlib import Path
+
+    dossier = Path(dossier_hermes)
+    faites: set[int] = set()
+
+    # 1. Le releve durable, quand il existe.
+    try:
+        for ligne in io.open(dossier / ACQUIS, encoding="utf-8").read().split():
+            if ligne.isdigit():
+                faites.add(int(ligne))
+    except OSError:
+        pass
+
+    # 2. Le journal, qui porte la meme information sous une autre forme.
+    #    Les deux sont unis plutot que l'un prefere a l'autre : une relance
+    #    qui redirige sa sortie vers `nuit.log` le **tronque**, et une
+    #    reprise qui ne lirait que lui perdrait tout a la seconde pause.
+    try:
+        texte = io.open(dossier / "nuit.log", encoding="utf-8",
+                        errors="replace").read()
+    except OSError:
+        texte = ""
+
+    courante = None
+    for ligne in texte.splitlines():
+        entete = re.match(r"===\s*.(\d+)\s", ligne)
+        if entete:
+            courante = int(entete.group(1))
+            continue
+        if courante is not None and ligne.strip().startswith("-> faite"):
+            faites.add(courante)
+            courante = None
+    return faites
+
+
+def noter_les_acquis(dossier_hermes, faites: set[int]) -> None:
+    """Figer ce qui est fait, pour que la prochaine pause ne le reperde pas.
+
+    Ecrit avant de relancer, donc avant que la sortie ne recouvre le
+    journal. Ne leve pas : perdre le releve coute une reprise depuis un
+    journal plus court, pas la campagne.
+    """
+    from pathlib import Path
+
+    try:
+        cible = Path(dossier_hermes)
+        cible.mkdir(parents=True, exist_ok=True)
+        io.open(cible / ACQUIS, "w", encoding="utf-8").write(
+            "# Sections menees a bien. Relu par --reprendre.\n"
+            + "\n".join(str(n) for n in sorted(faites)) + "\n")
+    except (OSError, ValueError):
+        # `ValueError` et pas seulement `OSError` : un chemin contenant
+        # un octet nul leve la premiere sous Windows. Un releve qu'on ne
+        # peut pas ecrire ne doit pas emporter une campagne qui marche.
+        pass
+
+
 def main() -> int:
     analyseur = argparse.ArgumentParser(description=__doc__)
     analyseur.add_argument("projet", help="dossier du projet")
     analyseur.add_argument("--cahier", default="PROJECT_SPEC.md")
+    analyseur.add_argument(
+        "--reprendre", action="store_true",
+        help="sauter les sections deja faites, lues dans "
+             ".hermes/nuit.log")
     analyseur.add_argument("--sans-harnais", action="store_true",
                            help="accepter de tourner en mode jetable, un "
                                 "agent amnesique par tache")
@@ -146,6 +236,17 @@ def main() -> int:
 
     a_faire = [s for s in sections if s.numero in cochees]
     hors_plan = [s for s in sections if s.numero not in cochees]
+
+    if args.reprendre:
+        # Les regles permanentes ne sont **pas** filtrees : elles ne sont pas
+        # "faites", elles sont transmises a chaque mission. Les sauter
+        # priverait la reprise de la moitie du cahier.
+        faites = sections_deja_faites(projet / ".hermes")
+        noter_les_acquis(projet / ".hermes", faites)
+        restantes = [s for s in a_faire if s.numero not in faites]
+        print(f"reprise : {len(faites)} section(s) deja faite(s), "
+              f"{len(restantes)} a traiter")
+        a_faire = restantes
     bloc = bloc_de_regles(hors_plan)
     print(f"plan relu : {len(a_faire)} sections a construire, "
           f"{len(hors_plan)} en regles permanentes")
