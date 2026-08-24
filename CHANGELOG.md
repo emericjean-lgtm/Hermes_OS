@@ -7904,3 +7904,39 @@ que la mission a crees ou modifies, pris du diff deja calcule.
 Un garde qui reproche a une mission le travail d'une autre produit un faux
 echec, et ce projet a mesure que cinq de ses huit defauts d'instrumentation
 en produisaient plutot que des faux succes.
+
+## HOS-159 — trois arborescences dans le meme projet
+
+Trois sections d'affilee declarees `signalee (contredite)` pour la meme
+raison — un livrable annonce a un chemin, ecrit a un autre :
+
+    §11  annonce tests/test_position_models.py     absent
+    §12  annonce backend/models/position_skill.py  absent
+    §13  annonce docs/required_level.md            absent
+
+Ce n'etait pas un defaut de nommage. Releve sur le disque :
+
+    8  models/          2  backend/api/     1  api/
+    7  a la racine      1  backend/         1  migrations/
+    7  tests/           2  skills/          1  tests/models/
+
+§12 a annonce `backend/models/position_skill.py` alors que §11 avait cree
+`models/position_skill.py` deux minutes plus tot. §13 a ecrit
+`tests/docs/required_level.md` — un dossier `docs` **dans** `tests` — et
+invente au passage `sitecustomize.py` et un dossier `skills/`.
+
+Chaque section reconstruisait une structure. Le resultat aurait ete
+inutilisable quelle que soit la qualite de chaque fichier pris isolement,
+et aucune section ne pouvait plus atteindre le verdict `verifiee`.
+
+C'est le defaut de `pile.py` un cran plus haut. La memoire des fichiers
+produits ne transmet pas la **decision** qu'ils incarnent : une section
+savait qu'`employee.ts` existait et ecrivait quand meme `position.py` ;
+elle sait maintenant que `models/` existe et n'inventera plus
+`backend/models/`.
+
+Detection mecanique, comme pour la pile : on liste les dossiers qui
+contiennent reellement du code, sans jamais demander a un modele ou il
+croit qu'ils vivent. Et sur un projet vide on ne dit rien — imposer une
+arborescence que personne n'a choisie serait la supposition que le §5 du
+cahier interdit.

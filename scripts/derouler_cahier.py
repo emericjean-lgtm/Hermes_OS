@@ -217,6 +217,8 @@ def main() -> int:
         decouper, derouler, ecrire_plan, ecrire_proteges, lire_plan,
     )
     from backend.mission.pile import contrainte as contrainte_de_pile
+    from backend.mission.arborescence import (
+        contrainte as contrainte_d_arborescence)
 
     sections = decouper(cahier.read_text(encoding="utf-8"))
     proposees, regles = classer(sections)
@@ -280,7 +282,9 @@ def main() -> int:
         # troisieme section et doit contraindre la quatrieme.
         objectif = brief_de_section(section, nom_du_cahier=args.cahier,
                                     regles=bloc, racine=str(projet),
-                                    pile=contrainte_de_pile(str(projet)))
+                                    pile=contrainte_de_pile(str(projet))
+                                         + contrainte_d_arborescence(
+                                             str(projet)))
         goal = moteur.start_goal(objectif, {"local_path": str(projet)})
         rapport = moteur.get_report(goal.get("goal_id", "")) or {}
         # Le statut de l'objectif voyage avec le rapport : un objectif qui
@@ -296,7 +300,9 @@ def main() -> int:
         print(f"  ... reparation de §{section.numero}", flush=True)
         objectif = brief_de_section(section, nom_du_cahier=args.cahier,
                                     regles=bloc, racine=str(projet),
-                                    pile=contrainte_de_pile(str(projet)))
+                                    pile=contrainte_de_pile(str(projet))
+                                         + contrainte_d_arborescence(
+                                             str(projet)))
         objectif += "\n\n" + diagnostic
         goal = moteur.start_goal(objectif, {"local_path": str(projet)})
         rapport = moteur.get_report(goal.get("goal_id", "")) or {}
