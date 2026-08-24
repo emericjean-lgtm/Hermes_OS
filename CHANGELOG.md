@@ -7940,3 +7940,32 @@ contiennent reellement du code, sans jamais demander a un modele ou il
 croit qu'ils vivent. Et sur un projet vide on ne dit rien — imposer une
 arborescence que personne n'a choisie serait la supposition que le §5 du
 cahier interdit.
+
+## HOS-160 — le tampon de lecture ACP tenait 64 Kio
+
+Campagne Skill360, §12 :
+
+    harnais : tour non abouti [1 d'affilee] ValueError: Separator is found,
+    but chunk is longer than limit
+    dernier signe : API call #284 ... in=43141 out=29 total=43170
+
+`asyncio` donne 65536 octets de tampon par defaut a ses `StreamReader`, et
+`readline()` leve des qu'une ligne depasse cette taille. Le protocole ACP
+transporte **une notification JSON-RPC par ligne**, et ces notifications
+portent le contenu des fichiers lus, les resultats d'outils et les reponses
+du modele : quarante mille jetons de contexte produisent sans peine une
+ligne plus longue.
+
+Le tour etait perdu alors que le contenu etait la, entier, de l'autre cote
+du tube. Rien dans le message ne le disait — « chunk is longer than limit »
+se lit comme un defaut de l'agent, pas comme un reglage du client.
+
+Porte a huit mebioctets : trois ordres de grandeur au-dessus de ce qui a
+echoue, et negligeable face aux 220 Mio qu'une session d'agent occupe deja.
+C'est un plafond, pas une reservation.
+
+Le test tient la **cause** autant que le remede : il verifie qu'une ligne
+de 200 Ko echoue a 64 Kio et passe a 8 Mio, puis que la constante atteint
+reellement `create_subprocess_exec`. Un reglage invisible dont l'absence ne
+casse rien tant que les lignes sont courtes se serait perdu au premier
+refactoring.

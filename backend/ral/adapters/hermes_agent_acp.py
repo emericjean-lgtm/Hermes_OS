@@ -169,6 +169,31 @@ class SessionAgent:
     journal_fichier: Any = None
 
 
+#: Taille du tampon de lecture des flux de l'agent.
+#:
+#: `asyncio` en donne 65536 par defaut, et `readline()` leve alors
+#: `ValueError: Separator is found, but chunk is longer than limit` des
+#: qu'une ligne depasse cette taille. Le tour est perdu, sans que rien
+#: n'indique que le contenu etait la, entier, de l'autre cote du tube.
+#:
+#: Mesure du 2026-08-24, campagne Skill360 §12 :
+#:
+#:     harnais : tour non abouti [1 d'affilee] ValueError: Separator is
+#:     found, but chunk is longer than limit
+#:     dernier signe : API call #284 ... in=43141 out=29 total=43170
+#:
+#: Le protocole ACP transporte **une notification JSON-RPC par ligne**, et
+#: ces notifications portent le contenu des fichiers lus, les resultats
+#: d'outils et les reponses du modele. Quarante mille jetons de contexte
+#: produisent sans peine une ligne de plus de 64 Kio.
+#:
+#: Huit mebioctets : trois ordres de grandeur au-dessus de ce qui a echoue,
+#: et negligeable en memoire face aux 220 Mio qu'une session d'agent
+#: occupe deja. Ce tampon n'est pas alloue d'avance — c'est un plafond,
+#: pas une reservation.
+TAMPON_FLUX = 8 * 1024 * 1024
+
+
 def _dossier_des_competences() -> Optional[Path]:
     """Ou l'agent range ses competences, ou None si on ne sait pas.
 
@@ -292,6 +317,9 @@ class HermesAgentACP:
             # demande aucune permission : sans cette référence, le hook n'a
             # rien à quoi comparer et se tait.
             env={**os.environ, "HERMES_OS_WORKSPACE": str(Path(cwd).resolve())},
+            # Sans quoi une notification JSON-RPC de plus de
+            # 64 Kio fait perdre le tour. Voir `TAMPON_FLUX`.
+            limit=TAMPON_FLUX,
         )
         session = SessionAgent(cwd=cwd, proc=proc)
         session.journal_fichier = _fichier_de_journal(cwd)
