@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 _TOLERES = {"__init__.py", "conftest.py", "setup.py"}
 
@@ -79,12 +79,31 @@ def est_un_placeholder(source: str) -> bool:
     return not any(isinstance(n, _CONTENU) for n in arbre.body)
 
 
-def verdict(racine: str) -> Optional[dict]:
-    """Le premier module livre et vide, ou None."""
+def verdict(racine: str,
+            touches: Optional[Iterable[str]] = None) -> Optional[dict]:
+    """Le premier module livre et vide, ou None.
+
+    `touches` restreint l'examen aux fichiers que **cette** mission a crees
+    ou modifies. Sans lui le garde inspectait tout le workspace, et une
+    section pouvait donc etre bloquee pour un jalon laisse par une autre —
+    sans aucun moyen de s'en sortir, puisqu'elle n'y touche pas.
+
+    Le defaut n'a pas mordu la premiere fois (§9 avait bien reecrit le
+    fichier qu'on lui reprochait) mais il attendait la premiere section
+    innocente. Un garde qui reproche a une mission le travail d'une autre
+    produit un faux echec, et ce projet a mesure que cinq de ses huit
+    defauts d'instrumentation en produisaient.
+    """
     base = Path(racine)
     if not base.is_dir():
         return None
-    for fichier in sorted(base.rglob("*.py")):
+    if touches is not None:
+        candidats = sorted(
+            c for c in (base / str(r).replace("\\", "/") for r in touches)
+            if c.suffix == ".py" and c.is_file())
+    else:
+        candidats = sorted(base.rglob("*.py"))
+    for fichier in candidats:
         if any(p in _IGNORES for p in fichier.parts):
             continue
         if fichier.name in _TOLERES:
@@ -111,8 +130,12 @@ def message(racine: str) -> str:
         f"Ce module ne contient ni classe, ni fonction, ni affectation : "
         f"« {faute['apercu']} ». Un fichier qui annonce un modele sans le "
         f"definir n'est pas un livrable, et les tests qui se contentent de "
-        f"l'importer ne prouvent rien. Ecris ce que la section demande, ou "
-        f"n'annonce pas le fichier."
+        f"l'importer ne prouvent rien.\n"
+        f"Deux issues, et une seule est un jalon : soit tu ecris ce "
+        f"que la section demande, soit tu **supprimes le fichier**. "
+        f"Si l'implementation vit ailleurs, ce module ne doit pas "
+        f"exister : un stub qui annonce « rien ici » est pire que son "
+        f"absence, parce qu'un import le trouvera."
     )
 
 
@@ -126,6 +149,8 @@ def message_du_fichier(chemin: str, source: str) -> str:
     return (
         f"\n\nATTENTION — {nom} ne contient ni classe, ni fonction, ni "
         f"affectation. Un module qui annonce une entite sans la definir ne "
-        f"vaut pas livrable : la section sera comptee comme non faite. "
-        f"Ecris-le maintenant plutot que de laisser un jalon."
+        f"vaut pas livrable : la section sera comptee comme non "
+        f"faite. Ecris-le maintenant, ou supprime le fichier si "
+        f"l'implementation vit ailleurs : un stub qui annonce "
+        f"« rien ici » est pire que son absence."
     )

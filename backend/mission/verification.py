@@ -506,9 +506,10 @@ def verify(
     from backend.mission import tests_tautologiques as _tauto
     from backend.mission import manifeste as _manifeste
 
+    _touche = diff(before, after)
     result = MissionVerification(
         mission_id=mission_id, reported_success=reported_success,
-        workspace=workspace, changes=diff(before, after),
+        workspace=workspace, changes=_touche,
         tests=_verdict_des_tests(workspace, reported_success),
         manifeste=_manifeste.verdict(mission, workspace) if mission is not None
                   else None,
@@ -516,7 +517,11 @@ def verify(
         imports_remontent=_relatifs.verdict(workspace),
         faux_paquet=_faux.verdict(workspace),
         test_tautologique=_tauto.verdict(workspace),
-        livrable_vide=_vides.verdict(workspace),
+        livrable_vide=_vides.verdict(
+            workspace,
+            # Restreint a ce que cette mission a touche :
+            # voir `verdict` pour le faux echec evite.
+            touches=_touche.created + _touche.modified),
     )
     if result.contradicted:
         logger.warning(

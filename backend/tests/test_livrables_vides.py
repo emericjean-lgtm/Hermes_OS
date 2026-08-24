@@ -131,3 +131,61 @@ def test_le_depot_lui_meme_ne_declenche_rien() -> None:
     ]
 
     assert fautes == []
+
+
+# -- la portee du garde (HOS-158) -------------------------------------
+
+def test_une_section_n_est_pas_bloquee_pour_le_jalon_d_une_autre(tmp_path) -> None:
+    """Un garde qui reproche a une mission le travail d'une autre.
+
+    Sans portee, le garde inspectait tout le workspace. Une section qui ne
+    touche pas au placeholder du voisin serait bloquee sans aucun moyen de
+    s'en sortir — le faux echec type, et ce projet a mesure que cinq de ses
+    huit defauts d'instrumentation en produisaient.
+    """
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "voisin.py").write_text(
+        "# jalon laisse par une autre section\n", encoding="utf-8")
+    (tmp_path / "models" / "mien.py").write_text(
+        "class Atelier:\n    pass\n", encoding="utf-8")
+
+    assert vides.verdict(str(tmp_path), touches=["models/mien.py"]) is None
+
+
+def test_le_jalon_de_la_section_elle_meme_est_bien_signale(tmp_path) -> None:
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "mien.py").write_text(
+        "# Placeholder for the Employee domain model.\n", encoding="utf-8")
+
+    faute = vides.verdict(str(tmp_path), touches=["models/mien.py"])
+
+    assert faute is not None and faute["fichier"].endswith("mien.py")
+
+
+def test_un_fichier_annonce_mais_absent_ne_leve_pas(tmp_path) -> None:
+    """Le manifeste signale l'absence ; ce garde n'a rien a en dire."""
+    assert vides.verdict(str(tmp_path), touches=["models/jamais_ecrit.py"]) is None
+
+
+def test_les_chemins_windows_du_diff_sont_acceptes(tmp_path) -> None:
+    """Le diff du workspace rend `models\employe.py`, pas `models/employe.py`."""
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "employe.py").write_text("# vide\n", encoding="utf-8")
+
+    assert vides.verdict(str(tmp_path), touches=[r"models\employe.py"])
+
+
+def test_la_suppression_est_nommee_comme_issue(tmp_path) -> None:
+    """L'agent avait argumente son placeholder ; le message ne repondait pas.
+
+    §9 a ecrit « The concrete implementation resides in employees_api.py.
+    No concrete class is defined here to avoid duplication. » L'argument se
+    defend — mais la bonne action etait de supprimer le fichier, et le
+    message ne le disait pas.
+    """
+    (tmp_path / "x.py").write_text("# rien ici\n", encoding="utf-8")
+
+    m = vides.message(str(tmp_path))
+
+    assert "supprimes le fichier" in m
+    assert "import le trouvera" in m

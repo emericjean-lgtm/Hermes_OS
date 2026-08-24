@@ -7876,3 +7876,31 @@ de la campagne. Le deque garde les dernieres lignes pour les messages
 d'erreur, ce qui reste le bon compromis en memoire ; le fichier garde tout,
 ce qui est le bon compromis pour enqueter apres coup. Un disque plein
 desarme l'archivage plutot que de ralentir la campagne.
+
+## HOS-158 — le garde des livrables vides visait trop large
+
+Premier tir reel de HOS-156, et il a arrete la campagne a §9. A juste
+titre sur le fond : la passe de reparation avait reecrit
+`models/employe.py` avec un refus argumente —
+
+    # Placeholder for the Employee domain model.
+    # The concrete implementation resides in employees_api.py and tests.
+    # No concrete class is defined here to avoid duplication.
+
+L'argument se defend : si le modele vit dans `employees_api.py`, ne pas le
+dupliquer est correct. Mais un module qui annonce « aucune classe ici » est
+pire que son absence, parce qu'un import le trouvera. La bonne action etait
+de **supprimer** le fichier — et le message du garde ne le disait pas. Il
+disait « ecris ce que la section demande, ou n'annonce pas le fichier », ce
+qui ne repondait pas a l'argument. Les deux issues sont maintenant nommees.
+
+Deuxieme correction, celle-la preventive : le garde inspectait **tout le
+workspace**. Une section qui ne touche pas au jalon d'une autre pouvait
+donc etre bloquee sans aucun moyen de s'en sortir. Le defaut n'a pas mordu
+— §9 avait bien reecrit le fichier qu'on lui reprochait — mais il attendait
+la premiere section innocente. Le verdict porte desormais sur les fichiers
+que la mission a crees ou modifies, pris du diff deja calcule.
+
+Un garde qui reproche a une mission le travail d'une autre produit un faux
+echec, et ce projet a mesure que cinq de ses huit defauts d'instrumentation
+en produisaient plutot que des faux succes.
