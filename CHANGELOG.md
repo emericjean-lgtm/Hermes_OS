@@ -7793,3 +7793,39 @@ leve `PermissionError`, `read_text` rend 1136 lignes.
 
 Trouve au passage en auditant le module : `copy` ne verifiait aucune de ses
 deux extremites la ou `move` verifiait les siennes.
+
+## HOS-155 — le decompositeur demandait un troisieme modele
+
+Campagne du 2026-08-24 : la decomposition d'une section expirait au bout de
+ses 90 s, et **deux sections sur trois** etaient donc construites sur un
+decoupage par regles — generique, identique pour toutes, aveugle a ce que la
+section demande. C'est nommement l'un des cinq defauts que `CLAUDE.md`
+recense comme ayant produit des missions `success: True` au-dessus d'un
+workspace vide : « l'objectif perdu a la decomposition ».
+
+Deux hypotheses ont ete posees puis abandonnees, faute de mesure : un budget
+trop court, un modele trop lent. La vraie cause est ailleurs.
+
+    decision = self._router.select_model("planning")
+
+Le decompositeur interrogeait le **routeur**, qui ignore
+`HERMES_MISSION_MODEL` et proposait invariablement `lfm2.5-2.6b-125k` — un
+troisieme modele, sur une carte qui n'en tient qu'un
+(`OLLAMA_MAX_LOADED_MODELS=1`). Le journal d'Ollama montre sept bascules en
+quatorze minutes :
+
+    05:28:40  lfm2.5     05:34:33  qwen38
+    05:28:43  qwen38     05:36:56  gpt-oss
+    05:30:56  gpt-oss    05:40:06  qwen38
+                         05:42:42  gpt-oss
+
+Les 90 s ne partaient pas en raisonnement : elles partaient a evincer et
+recharger treize gigaoctets, deux fois par decomposition. Allonger le budget
+aurait rendu le blocage plus cher sans le rendre plus rare ; refuser de
+continuer aurait bloque des sections que ce materiel sait traiter.
+
+Le decompositeur reutilise desormais le modele deja chaud. C'etait aussi le
+dernier endroit qui ignorait la table de l'operateur : HOS-153 avait aligne
+le chat, les missions et le mode autonome, et le planificateur etait reste
+en dehors. Sans table imposee, le routeur garde la main — la correction
+retire une cause de bascule, pas un role.

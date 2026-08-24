@@ -171,6 +171,51 @@ def _extract_json_array(text: str) -> Optional[list[Any]]:
     return parsed if isinstance(parsed, list) else None
 
 
+def _modele_deja_charge() -> str:
+    """Le modele que l'operateur impose aux missions, ou "" s'il n'impose rien.
+
+    ## Ce que la mesure a montre
+
+    Campagne du 2026-08-24. La decomposition d'une section expirait au bout
+    de ses 90 s, et deux sections sur trois etaient donc construites sur un
+    decoupage **par regles** — generique, identique pour toutes, aveugle a
+    ce que la section demande. C'est nommement l'un des cinq defauts qui ont
+    produit des missions `success: True` au-dessus d'un workspace vide :
+    « l'objectif perdu a la decomposition ».
+
+    L'explication n'etait ni un modele lent ni un budget trop court. Le
+    decompositeur interrogeait le routeur, qui ignore `HERMES_MISSION_MODEL`
+    et proposait invariablement `lfm2.5-2.6b-125k` — un **troisieme** modele,
+    sur une carte qui n'en tient qu'un (`OLLAMA_MAX_LOADED_MODELS=1`). Le
+    journal d'Ollama montre sept bascules en quatorze minutes :
+
+        05:28:40  lfm2.5     05:34:33  qwen38
+        05:28:43  qwen38     05:36:56  gpt-oss
+        05:30:56  gpt-oss    05:40:06  qwen38
+                             05:42:42  gpt-oss
+
+    Les 90 s ne partaient pas en raisonnement : elles partaient a evincer et
+    recharger treize gigaoctets, deux fois par decomposition.
+
+    ## Pourquoi c'est la bonne correction
+
+    Allonger le budget aurait rendu le blocage plus cher sans le rendre plus
+    rare, et refuser de continuer aurait bloque des sections que le materiel
+    peut traiter. Reutiliser le modele deja chaud supprime la cause.
+
+    C'est aussi le dernier endroit qui ignorait la table de l'operateur :
+    HOS-153 avait aligne le chat, les missions et le mode autonome dessus,
+    et le planificateur etait reste en dehors. Un meme reglage produisait
+    donc encore deux comportements.
+
+    Le type demande est `planning` : un operateur qui veut un modele
+    particulier pour decouper peut le nommer, et `*` sert de defaut.
+    """
+    from backend.execution.task_executor import modele_impose
+
+    return modele_impose("planning")
+
+
 class TaskDecomposer:
     """Decomposes user requests into fine-grained task breakdowns."""
 
@@ -436,9 +481,10 @@ class TaskDecomposer:
         ]
         try:
             decision = self._router.select_model("planning")
+            modele = _modele_deja_charge() or decision.model
             content = self._run_coro(
                 self._chat_once(
-                    decision.model, messages,
+                    modele, messages,
                     gen.get("temperature"), gen.get("top_p"), decision.thinking,
                     decision.num_ctx,
                 ),
