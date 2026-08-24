@@ -106,6 +106,14 @@ def verifier_le_harnais(*, accepte_le_mode_jetable: bool) -> bool:
     return False
 
 
+#: Les verdicts qui valent « cette section est derriere nous ».
+#:
+#: `reparee` manquait : §11 avait ete declaree `reparee (passe 2)
+#: (verifiee)` avec vingt-cinq tests verts, et la reprise suivante l'a
+#: relancee de zero. C'est le cas le plus couteux a perdre, puisque c'est
+#: le seul ou la file a du s'y reprendre a deux fois pour aboutir.
+ABOUTIS = ("-> faite", "-> reparee")
+
 #: Le releve durable des sections menees a bien.
 ACQUIS = "faites.txt"
 
@@ -128,10 +136,17 @@ def sections_deja_faites(dossier_hermes) -> set[int]:
     tourne au moment ou ces lignes sont ecrites. Un fichier d'etat aurait
     demande d'avoir prevu.
 
-    Seul `faite` est retenu. Une section `bloquee` doit etre rejouee : elle
-    a consomme ses deux passes sans aboutir, et la sauter reviendrait a
-    faire passer un echec pour un travail fini — ce que ce projet passe son
-    temps a empecher ailleurs.
+    Deux verdicts sont retenus, `faite` et `reparee`. Le second manquait, et
+    §11 en a fait les frais : declaree `reparee (passe 2) (verifiee)` avec
+    vingt-cinq tests verts, elle est repartie de zero a la reprise suivante.
+    Une section reparee **est** une section faite — c'est meme le seul cas
+    ou la file a fourni un effort supplementaire pour y arriver, et le
+    perdre est le plus couteux de tous.
+
+    `bloquee` et `signalee` sont rejouees. La premiere a consomme ses deux
+    passes sans aboutir ; la seconde a rendu un travail que la mesure
+    contredit. Les sauter reviendrait a faire passer un echec pour un
+    travail fini, ce que ce projet passe son temps a empecher ailleurs.
     """
     import re
     from pathlib import Path
@@ -163,7 +178,7 @@ def sections_deja_faites(dossier_hermes) -> set[int]:
         if entete:
             courante = int(entete.group(1))
             continue
-        if courante is not None and ligne.strip().startswith("-> faite"):
+        if courante is not None and ligne.strip().startswith(ABOUTIS):
             faites.add(courante)
             courante = None
     return faites

@@ -7969,3 +7969,21 @@ de 200 Ko echoue a 64 Kio et passe a 8 Mio, puis que la constante atteint
 reellement `create_subprocess_exec`. Un reglage invisible dont l'absence ne
 casse rien tant que les lignes sont courtes se serait perdu au premier
 refactoring.
+
+## HOS-161 — la reprise oubliait les sections reparees
+
+§11 avait ete declaree `reparee (passe 2) (verifiee)` avec vingt-cinq tests
+verts, apres une premiere passe bloquee sur des tests en echec. La reprise
+suivante l'a relancee de zero : `sections_deja_faites` ne reconnaissait que
+`-> faite`.
+
+C'est le cas le plus couteux a reperdre. Une section reparee est la seule ou
+la file a fourni deux passes pour aboutir — celle qu'on voudrait le moins
+recommencer est precisement celle que la reprise jetait.
+
+`bloquee` et `signalee` restent rejouees : la premiere a consomme ses deux
+passes sans aboutir, la seconde a rendu un travail que la mesure contredit.
+
+Defaut trouve en regardant la sortie d'une relance plutot qu'en relisant le
+code : la ligne « === §11 POSITIONS === » apres « 6 sections deja faites »
+n'avait pas de sens, puisque §11 venait d'etre verifiee.

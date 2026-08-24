@@ -97,3 +97,45 @@ def test_les_deux_sources_sont_unies_pas_choisies(tmp_path) -> None:
 def test_noter_les_acquis_ne_leve_pas_sur_un_chemin_impossible() -> None:
     """Perdre le releve coute une reprise plus longue, pas la campagne."""
     runner.noter_les_acquis(Path("Z:/inexistant/\0"), {1})
+
+
+# -- les sections reparees (HOS-161) ----------------------------------
+
+JOURNAL_REPARE = """=== §11 POSITIONS ===
+  -> bloquee (passe 1)  (contredite)  les tests du livrable echouent
+  ... reparation de §11
+  -> reparee (passe 2)  (verifiee)
+
+=== §12 POSITIONS ET COMPETENCES ===
+  -> bloquee (passe 2)  (contredite)  aucun fichier ecrit
+"""
+
+
+def test_une_section_reparee_est_derriere_nous(tmp_path) -> None:
+    """Le cas le plus couteux a reperdre.
+
+    §11 avait ete declaree `reparee (passe 2) (verifiee)` avec vingt-cinq
+    tests verts, apres une premiere passe bloquee. La reprise suivante l'a
+    relancee de zero, parce qu'elle ne reconnaissait que `faite`.
+
+    Une section reparee **est** une section faite — c'est meme la seule ou
+    la file a du s'y reprendre a deux fois pour aboutir.
+    """
+    dossier = _hermes(tmp_path, JOURNAL_REPARE)
+
+    assert 11 in runner.sections_deja_faites(dossier)
+
+
+def test_une_section_bloquee_apres_reparation_est_rejouee(tmp_path) -> None:
+    """§12 a consomme ses deux passes sans rien ecrire."""
+    dossier = _hermes(tmp_path, JOURNAL_REPARE)
+
+    assert 12 not in runner.sections_deja_faites(dossier)
+
+
+def test_la_ligne_de_reparation_ne_vaut_pas_verdict(tmp_path) -> None:
+    """`... reparation de §11` annonce un travail, il ne le conclut pas."""
+    dossier = _hermes(tmp_path,
+                      "=== §11 POSITIONS ===\n  ... reparation de §11\n")
+
+    assert runner.sections_deja_faites(dossier) == set()
