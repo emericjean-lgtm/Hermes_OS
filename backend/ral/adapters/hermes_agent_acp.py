@@ -46,6 +46,7 @@ de dépendances de Hermes OS.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -163,6 +164,9 @@ class SessionAgent:
     def derniers_signes(self, n: int = 4) -> str:
         """Ce que l'agent disait juste avant de se taire."""
         return " | ".join(list(self.journal)[-n:])
+    #: Ou la sortie de l'agent est archivee, ou None quand on ne
+    #: peut pas ecrire. Voir `_archiver` pour la mesure.
+    journal_fichier: Any = None
 
 
 def _dossier_des_competences() -> Optional[Path]:
@@ -178,6 +182,59 @@ def _dossier_des_competences() -> Optional[Path]:
         return (Path(base) / "hermes" / "hermes-agent" / "skills").resolve()
     except (OSError, ValueError):
         return None
+
+
+def _fichier_de_journal(cwd: str):
+    """Ou archiver la sortie de l'agent, ou None si on ne peut pas.
+
+    A cote des journaux de la campagne, dans le `.hermes` du workspace :
+    c'est la que quelqu'un qui enquete regarde deja.
+    """
+    try:
+        dossier = Path(cwd).resolve() / ".hermes"
+        dossier.mkdir(parents=True, exist_ok=True)
+        return dossier / "agent.log"
+    except (OSError, ValueError):
+        # `ValueError` aussi : un octet nul dans le chemin la leve, et cette
+        # fonction est appelee a **l'ouverture d'une session**. Laisser
+        # remonter empecherait d'ouvrir la session au motif qu'on ne sait pas
+        # ou ecrire son journal — le confort d'enquete ferait tomber le
+        # travail qu'il sert a observer.
+        return None
+
+
+def _archiver(session: SessionAgent, texte: str) -> None:
+    """Ecrire une ligne du journal de l'agent, au mieux et sans lever.
+
+    ## Pourquoi ce fichier existe
+
+    La sortie d'erreur de l'agent partait dans un `deque` borne et un
+    `logger.debug` que personne n'active. Mesure du 2026-08-24, sur une
+    campagne de quinze heures : **une seule ligne de l'agent** dans tout le
+    journal de la campagne.
+
+    Consequence concrete : impossible de savoir si l'agent avait consulte
+    une competence, quel outil avait ecrit un fichier, ou pourquoi un tour
+    n'aboutissait pas. Trois diagnostics de cette nuit-la ont du se faire
+    par deduction sur des traces indirectes — et l'un d'eux etait faux.
+
+    Le deque garde les dernieres lignes pour les messages d'erreur, ce qui
+    reste le bon compromis en memoire. Ce fichier garde tout, ce qui est le
+    bon compromis pour enqueter apres coup.
+
+    N'echoue jamais : un disque plein doit couter un diagnostic, pas une
+    campagne.
+    """
+    chemin = session.journal_fichier
+    if chemin is None:
+        return
+    try:
+        with io.open(chemin, "a", encoding="utf-8", errors="replace") as f:
+            f.write(texte + "\n")
+    except OSError:
+        # Une fois suffit : reessayer a chaque ligne d'un disque plein
+        # transformerait une gene en ralentissement.
+        session.journal_fichier = None
 
 
 class HermesAgentACP:
@@ -237,6 +294,7 @@ class HermesAgentACP:
             env={**os.environ, "HERMES_OS_WORKSPACE": str(Path(cwd).resolve())},
         )
         session = SessionAgent(cwd=cwd, proc=proc)
+        session.journal_fichier = _fichier_de_journal(cwd)
         session.verrou = asyncio.Lock()
         session._lecteur = asyncio.create_task(self._suivre_journal(session))
         self._session = session
@@ -365,6 +423,7 @@ class HermesAgentACP:
             if texte:
                 session.journal.append(texte)
                 logger.debug("agent: %s", texte)
+                _archiver(session, texte)
 
     async def _echanger(self, session: SessionAgent, methode: str,
                         params: dict, delai: float, collecte: list, *,

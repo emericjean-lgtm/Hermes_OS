@@ -7829,3 +7829,50 @@ dernier endroit qui ignorait la table de l'operateur : HOS-153 avait aligne
 le chat, les missions et le mode autonome, et le planificateur etait reste
 en dehors. Sans table imposee, le routeur garde la main — la correction
 retire une cause de bascule, pas un role.
+
+## HOS-156 — un module livre qui ne contient rien
+
+§8 ORGANISATION a ete declaree **verifiee** au-dessus de quatre fichiers
+d'une ligne :
+
+    models/atelier.py       # Atelier model placeholder
+    models/responsable.py   # Responsable model placeholder
+
+et de deux tests qui produisaient le vert — l'un important un fichier ne
+contenant qu'un commentaire, l'autre verifiant que le fichier qu'on venait
+de creer existait. Le document de conception de la section le disait
+pourtant : « aucune implementation technique n'est encore ecrite ».
+
+Trois sections successives ont ensuite laisse `responsable.py` a l'etat de
+commentaire, alors que la relation responsable <-> ateliers etait la seule
+contrainte que le cahier tenait a ne pas voir figee. Chaque section se
+construisait sur le jalon de la precedente.
+
+Le garde des tests tautologiques ne pouvait pas l'attraper : il exclut
+deliberement les tests sans assertion, parce que `def test_import(): import
+monmodule` est legitime. §8 utilisait exactement cette forme legitime.
+Celui-ci prend l'autre bout — le fichier, pas le test.
+
+Est signale un `.py` dont le corps de module ne contient aucune definition,
+aucune affectation et aucun import. Demontrable a l'AST. Ne sont pas
+signales `__init__.py` (un paquet vide est la forme normale), un module de
+re-export, un module de constantes, ni un fichier vide — celui-la ne s'est
+jamais donne pour un livrable. Verifie sur les **549 modules du depot :
+zero signalement**.
+
+## HOS-157 — quinze heures de campagne, une ligne de l'agent
+
+La sortie d'erreur de Hermes Agent partait dans un `deque` borne et un
+`logger.debug` que personne n'active. Sur une campagne de quinze heures,
+**une seule ligne** de l'agent figurait au journal.
+
+Consequence mesurable : impossible de savoir si l'agent avait consulte une
+competence, quel outil avait ecrit un fichier, ou pourquoi un tour
+n'aboutissait pas. Trois diagnostics de cette nuit-la ont du se faire par
+deduction sur des traces indirectes — et l'un d'eux etait faux.
+
+Le journal est desormais archive sous `.hermes/agent.log`, a cote de ceux
+de la campagne. Le deque garde les dernieres lignes pour les messages
+d'erreur, ce qui reste le bon compromis en memoire ; le fichier garde tout,
+ce qui est le bon compromis pour enqueter apres coup. Un disque plein
+desarme l'archivage plutot que de ralentir la campagne.

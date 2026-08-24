@@ -204,6 +204,24 @@ class MissionVerification:
     #: Une assertion de test dont la valeur est ecrite d'avance (HOS-153).
     test_tautologique: Optional[dict] = None
 
+    #: Un module livre qui ne definit rien (HOS-156).
+    livrable_vide: Optional[dict] = None
+
+    @property
+    def livrable_sans_contenu(self) -> bool:
+        """Un module annonce comme livrable et qui ne definit rien.
+
+        §8 d'un cahier a ete declaree **verifiee** au-dessus de quatre
+        fichiers d'une ligne — `# Atelier model placeholder` — parce que
+        des fichiers avaient ete ecrits et que deux tests, qui se
+        contentaient de les importer, etaient passes.
+
+        Contredit un succes annonce sans reserve : la verification compte
+        les fichiers touches, pas ce qu'ils contiennent. Un jalon n'est pas
+        une implementation, et la section suivante se construira dessus.
+        """
+        return self.livrable_vide is not None
+
     @property
     def test_ne_peut_pas_echouer(self) -> bool:
         """Une suite verte obtenue avec un test qui ne peut pas rougir.
@@ -385,7 +403,8 @@ class MissionVerification:
         if (self.tests_echouent or self.manifeste_manque
                 or self.imports_boucles or self.import_hors_paquet
                 or self.dependance_fabriquee
-                or self.test_ne_peut_pas_echouer):
+                or self.test_ne_peut_pas_echouer
+                or self.livrable_sans_contenu):
             return True
         # Reste la seule question ouverte : un workspace intact. C'est un
         # mensonge, sauf quand une reparation n'avait rien a reparer.
@@ -413,6 +432,7 @@ class MissionVerification:
             "travail_deja_fait": self.travail_deja_fait,
             "faux_paquet": self.faux_paquet,
             "test_tautologique": self.test_tautologique,
+            "livrable_vide": self.livrable_vide,
             "tests_echouent": self.tests_echouent,
         }
 
@@ -482,6 +502,7 @@ def verify(
     from backend.mission import imports_locaux as _imports
     from backend.mission import faux_paquets as _faux
     from backend.mission import imports_relatifs as _relatifs
+    from backend.mission import livrables_vides as _vides
     from backend.mission import tests_tautologiques as _tauto
     from backend.mission import manifeste as _manifeste
 
@@ -495,6 +516,7 @@ def verify(
         imports_remontent=_relatifs.verdict(workspace),
         faux_paquet=_faux.verdict(workspace),
         test_tautologique=_tauto.verdict(workspace),
+        livrable_vide=_vides.verdict(workspace),
     )
     if result.contradicted:
         logger.warning(

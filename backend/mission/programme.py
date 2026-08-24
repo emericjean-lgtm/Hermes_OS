@@ -337,6 +337,11 @@ def bloquant(verification: Optional[dict]) -> tuple[bool, str]:
     # HOS-153 : avant les autres, parce que ce defaut-la invalide la preuve
     # sur laquelle tous les suivants s'appuient. Une suite verte obtenue avec
     # un test qui ne peut pas rougir ne dit rien de la section.
+    vide = verification.get("livrable_vide") or {}
+    if vide:
+        return True, (f"livrable vide — {vide.get('fichier')} ne definit "
+                      f"ni classe ni fonction")
+
     tauto = verification.get("test_tautologique") or {}
     if tauto:
         return True, (f"test qui ne peut pas echouer — {tauto.get('fichier')}:"
@@ -455,6 +460,14 @@ def diagnostic(verification, raison: str) -> str:
     if fatals:
         morceaux.append("Boucle d'import fatale : " + "; ".join(map(str, fatals))
                         + ". Casse-la.")
+    vide = v.get("livrable_vide") or {}
+    if vide:
+        morceaux.append(
+            f"Livrable vide : {vide.get('fichier')} ne contient ni classe, "
+            f"ni fonction, ni affectation — seulement "
+            f"« {vide.get('apercu')} ». Ecris ce que la section demande. Un "
+            f"test qui se contente d'importer ce fichier ne prouve rien.")
+
     tauto = v.get("test_tautologique") or {}
     if tauto:
         morceaux.append(

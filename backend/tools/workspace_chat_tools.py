@@ -38,7 +38,8 @@ from typing import TYPE_CHECKING, Any
 
 from backend.tools import syntaxe
 from backend.mission import (faux_paquets, imports_relatifs,
-                             symboles, tests_tautologiques)
+                             livrables_vides, symboles,
+                             tests_tautologiques)
 
 if TYPE_CHECKING:  # pragma: no cover - annotation seulement
     from backend.tools.file_tools import FileOpResult
@@ -451,7 +452,10 @@ async def execute_workspace_tool(
                     # absent, n'importe rien de travers — les trois gardes
                     # ci-dessus la laissent passer, et la suite verte qu'elle
                     # produit sert ensuite de preuve a la verification.
-                    + tests_tautologiques.message_du_fichier(resolved, content))
+                    + tests_tautologiques.message_du_fichier(resolved, content)
+                    # HOS-156 : cinquieme controle. Dit ici, il coute un
+                    # tour ; dit a la verification, il coute la section.
+                    + livrables_vides.message_du_fichier(resolved, content))
 
         if name == "workspace_search":
             motif = str(arguments.get("pattern", "")).strip()
