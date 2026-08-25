@@ -49,3 +49,36 @@ def test_un_nom_seul_vaut_pour_la_decomposition_aussi(monkeypatch) -> None:
     monkeypatch.setenv("HERMES_MISSION_MODEL", "gpt-oss-20b-64k")
 
     assert _modele_deja_charge() == "gpt-oss-20b-64k"
+
+
+# -- le budget de decoupage (HOS-162) ---------------------------------
+
+def test_le_budget_couvre_un_demarrage_a_froid() -> None:
+    """La premiere section d'une campagne paie le chargement du modele.
+
+    Mesure du 2026-08-25 : Ollama a mis 19,3 s a monter gpt-oss, et la
+    decomposition a expire exactement 90 s apres le lancement. Vingt
+    secondes prelevees sur quatre-vingt-dix, plus le traitement du prompt
+    sur un modele qui vient de monter — la section repartait sur un
+    decoupage par regles.
+
+    Le seuil tient le **rapport**, pas la valeur : un budget qui ne
+    laisserait pas au moins deux minutes de generation apres le pire
+    chargement releve (38 s) reproduirait l'incident.
+    """
+    from backend.mission.planner.task_decomposer import BUDGET_DECOUPAGE_S
+
+    PIRE_CHARGEMENT_S = 38.0
+    assert BUDGET_DECOUPAGE_S - PIRE_CHARGEMENT_S >= 120.0
+
+
+def test_le_budget_est_bien_celui_du_decompositeur() -> None:
+    """La constante doit atteindre le constructeur, pas seulement exister."""
+    import inspect
+
+    from backend.mission.planner.task_decomposer import TaskDecomposer
+
+    defaut = inspect.signature(TaskDecomposer.__init__).parameters["timeout_s"]
+    from backend.mission.planner.task_decomposer import BUDGET_DECOUPAGE_S
+
+    assert defaut.default == BUDGET_DECOUPAGE_S

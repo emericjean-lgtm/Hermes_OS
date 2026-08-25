@@ -171,6 +171,34 @@ def _extract_json_array(text: str) -> Optional[list[Any]]:
     return parsed if isinstance(parsed, list) else None
 
 
+#: Combien de temps on laisse au modele pour decouper une section.
+#:
+#: Quatre-vingt-dix secondes jusqu'au 2026-08-25. HOS-155 avait retire de ce
+#: budget le cout d'une bascule de modele ; il restait celui d'un **demarrage
+#: a froid**, que la premiere section d'une campagne paie toujours :
+#:
+#:     10:33:25  Ollama charge gpt-oss (19,3 s mesurees)
+#:     10:34:53  decomposition failed — exactement 90 s apres le lancement
+#:
+#: Vingt secondes de chargement prelevees sur quatre-vingt-dix, plus le
+#: traitement d'un prompt de decoupage sur un modele qui vient de monter :
+#: la marge ne suffisait pas. La section repartait alors sur un decoupage
+#: **par regles**, generique et aveugle a ce que le cahier demande — l'un
+#: des cinq defauts que `CLAUDE.md` recense comme ayant produit des missions
+#: `success: True` au-dessus d'un workspace vide.
+#:
+#: Trois minutes : le chargement mesure (19,3 s median, 38 s au pire releve)
+#: laisse alors plus de deux minutes de generation, contre soixante-dix
+#: secondes auparavant. Ce n'est pas une marge confortable posee au hasard,
+#: c'est le cout mesure de ce qui echouait, double.
+#:
+#: Allonger un budget ne rend pas un blocage plus rare quand la cause est
+#: ailleurs — c'est precisement pour cela qu'on ne l'avait pas fait en
+#: HOS-155, ou la cause etait la contention memoire. Ici la cause est
+#: identifiee, chiffree, et c'est bien un budget.
+BUDGET_DECOUPAGE_S = 180.0
+
+
 def _modele_deja_charge() -> str:
     """Le modele que l'operateur impose aux missions, ou "" s'il n'impose rien.
 
@@ -316,7 +344,7 @@ class TaskDecomposer:
         ollama_client: Any = None,
         router: Any = None,
         models_config: Optional[dict] = None,
-        timeout_s: float = 90.0,
+        timeout_s: float = BUDGET_DECOUPAGE_S,
         cloud_client: Any = None,
     ) -> None:
         """``ollama_client``/``router`` are optional on purpose: with none

@@ -7987,3 +7987,28 @@ passes sans aboutir, la seconde a rendu un travail que la mesure contredit.
 Defaut trouve en regardant la sortie d'une relance plutot qu'en relisant le
 code : la ligne « === §11 POSITIONS === » apres « 6 sections deja faites »
 n'avait pas de sens, puisque §11 venait d'etre verifiee.
+
+## HOS-162 — le budget de decoupage ne couvrait pas un demarrage a froid
+
+HOS-155 avait retire du budget de decoupage le cout d'une bascule de
+modele. Il restait celui d'un **demarrage a froid**, que la premiere
+section de chaque campagne paie toujours :
+
+    10:33:25  Ollama charge gpt-oss (19,3 s mesurees)
+    10:34:53  decomposition failed — exactement 90 s apres le lancement
+
+Vingt secondes de chargement prelevees sur quatre-vingt-dix, plus le
+traitement d'un prompt de decoupage sur un modele qui vient de monter. La
+section repartait sur un decoupage **par regles**, generique et aveugle a
+ce que le cahier demande.
+
+C'est l'hypothese ecartee en HOS-155 — « allonger le budget rendrait le
+blocage plus cher sans le rendre plus rare » — et elle etait juste **a ce
+moment-la** : la cause etait alors la contention memoire, et un budget plus
+large n'y aurait rien changé. Une fois cette cause retiree, il restait un
+vrai probleme de budget. Les deux diagnostics sont compatibles ; c'est
+l'ordre qui compte.
+
+Porte a trois minutes : le chargement mesure (19,3 s median, 38 s au pire
+releve) laisse alors plus de deux minutes de generation, contre soixante-dix
+secondes auparavant. Le test tient ce rapport plutot que la valeur.
