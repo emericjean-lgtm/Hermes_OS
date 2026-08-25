@@ -8095,3 +8095,34 @@ est un cout qu'on ne paie qu'au bord de la panne.
 deliberement a la fermeture, pour qu'un agent mort en campagne reprenne son
 contexte ; la reouverture aurait fait `session/resume` sur la meme session
 saturee. `repartir_a_neuf` retire aussi l'identifiant.
+
+## HOS-166 — instrumenter le decoupage plutot que continuer a supposer
+
+Cinq decoupages sur vingt-neuf ont expire, chacun consommant exactement son
+budget — 90 s, puis 180 s une fois celui-ci porte. Le budget est ce qui
+**termine** l'attente, jamais ce qui la cause : le porter a deplace le
+symptome de trois minutes sans rien regler.
+
+Quatre hypotheses posees, trois eliminees par la mesure : la bascule de
+modele (supprimee en HOS-155, le routeur propose desormais le bon modele
+avec le bon `num_ctx`), la serialisation avec l'agent (il ne generait pas),
+une boucle asyncio morte (`close` remet la reference a zero), un client lie
+a la mauvaise boucle (vingt-quatre decoupages sur vingt-huit reussissent).
+
+Une affirmation a corriger au passage : « Ollama n'a rien recu, la requete
+n'est jamais partie » etait fausse. Ollama ne journalise **aucune** requete
+servie — zero sur toute la campagne. Son journal ne contient que les
+chargements, et conclure de ce silence etait exactement le raisonnement que
+ce depot interdit.
+
+Reste une piste non eliminee : le routeur demande `thinking: True` pour le
+role `planning`. Or decouper une section est une extraction structuree —
+rendre un tableau JSON — pas un probleme de raisonnement. Un modele qui
+reflechit seize mille jetons avant sa premiere accolade consommerait le
+budget sans qu'aucun journal ne le dise. Ce depot a deja paye cette
+confusion : `/api/generate` fusionnait raisonnement et reponse et comptait
+316 mots la ou le modele en avait ecrit sept.
+
+Trois chiffres sont donc journalises a chaque decoupage — temps total,
+temps avant le premier caractere de reponse, part de raisonnement. Ils
+trancheront a la prochaine occurrence, au lieu d'une sixieme hypothese.

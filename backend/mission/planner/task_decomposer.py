@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import re
 import threading
 from typing import Any, Optional
@@ -435,12 +436,46 @@ class TaskDecomposer:
         num_ctx: Optional[int] = None,
     ) -> str:
         content_parts: list[str] = []
+        # HOS-166 : compter separement raisonnement et reponse.
+        #
+        # Cinq decoupages sur vingt-neuf ont expire, chacun consommant
+        # exactement son budget — 90 s puis 180 s quand on l'a porte. Quatre
+        # hypotheses ont ete posees et trois eliminees par la mesure ; la
+        # quatrieme ne l'est pas, faute de savoir ou part le temps.
+        #
+        # Le routeur demande `thinking: True` pour le role `planning`. Or
+        # decouper une section est une extraction structuree — rendre un
+        # tableau JSON — pas un probleme de raisonnement. Un modele qui
+        # reflechit seize mille jetons avant d'ecrire sa premiere accolade
+        # consommerait le budget sans qu'aucun journal ne le dise, et ce
+        # depot a deja paye cette confusion : `/api/generate` fusionnait
+        # raisonnement et reponse et comptait 316 mots la ou le modele en
+        # avait ecrit sept.
+        #
+        # Trois chiffres suffisent a trancher : le temps jusqu'au premier
+        # caractere de reponse, la part de raisonnement, le total.
+        _debut = time.monotonic()
+        _pensee = 0
+        _premier_contenu: Optional[float] = None
         async for chunk in self._ollama.chat_events(
             model, messages, temperature=temperature, top_p=top_p, think=think,
             num_ctx=num_ctx,
         ):
             if chunk.kind == "content":
+                if _premier_contenu is None:
+                    _premier_contenu = time.monotonic() - _debut
                 content_parts.append(chunk.text)
+            elif chunk.kind == "thinking":
+                _pensee += len(chunk.text)
+
+        _total = time.monotonic() - _debut
+        logger.info(
+            "decoupage : %.1f s au total, %s avant la reponse, "
+            "%d caracteres de raisonnement pour %d de reponse",
+            _total,
+            f"{_premier_contenu:.1f} s" if _premier_contenu is not None
+            else "aucune reponse",
+            _pensee, sum(len(p) for p in content_parts))
         return "".join(content_parts)
 
     async def _chat_once_cloud(
