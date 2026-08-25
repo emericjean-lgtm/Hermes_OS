@@ -8012,3 +8012,52 @@ l'ordre qui compte.
 Porte a trois minutes : le chargement mesure (19,3 s median, 38 s au pire
 releve) laisse alors plus de deux minutes de generation, contre soixante-dix
 secondes auparavant. Le test tient ce rapport plutot que la valeur.
+
+## HOS-163 — la revue de fond coutait sans rien rendre
+
+Mesure sur trois jours de campagne :
+
+    revues de fond declenchees   117
+    competences proposees          0
+    outils refuses a l'agent       2   (write_file, search_files)
+
+La revue de fond applique sa liste blanche — memoire et competences
+seulement — au **tool executor partage**. Un `write_file` de l'agent
+principal se fait donc refuser parce qu'une revue tourne en parallele. Les
+deux refus ont precede de quatre minutes la chute de connexion qui a arrete
+§21 ; le lien n'est **pas** demontre, un seul incident ne le prouve pas.
+
+`creation_nudge_interval` passe de 15 a 200. Pas a zero : la proposition de
+competence est une fonctionnalite demandee, et elle vient seulement de
+devenir accessible (HOS-153). A 200 elle reste possible et son exposition
+baisse d'un ordre de grandeur. Sur cette machine un seul modele tient en
+memoire, et la revue en reclame un second.
+
+## HOS-164 — le harnais n'etait verifie qu'au demarrage
+
+Le 2026-08-24 a 22:00, le backend de Hermes OS s'est arrete au milieu d'un
+cahier. L'agent tire ses outils de Hermes OS par MCP : sans backend, il
+demarre avec zero outil. Le journal l'a dit a chaque tache suivante —
+
+    harnais indisponible : le backend de Hermes OS ne repond pas
+    harnais ecarte
+
+— et la file a continue. §21 a consomme ses deux passes avec un agent jete
+apres usage, donc amnesique, puis s'est declaree bloquee sur des tests en
+echec. Le diagnostic evident etait « le code de RiskModel est faux » ; le
+vrai etait « le cerveau avait disparu depuis quatre heures ». J'ai moi-meme
+rapporte le mauvais diagnostic avant de lire le journal.
+
+`verifier_le_harnais` refusait bien de **partir** sans harnais depuis
+HOS-128, et ce refus a joue le lendemain — la relance s'est arretee net.
+Mais il ne s'executait qu'une fois, et un cahier de quinze heures traverse
+forcement une coupure.
+
+Le harnais est desormais verifie avant chaque passe, reparations comprises :
+c'est precisement pendant une reparation que §21 a brule son dernier credit.
+La section est marquee `bloquee` avec l'erreur exacte, la file s'arrete, et
+la reprise la rejouera une fois le backend revenu.
+
+C'est la regle de `test_hermes_agent_is_the_brain` appliquee a la duree
+d'une campagne : une section sans l'agent n'est pas une section ratee, c'est
+une section qui n'a pas eu lieu.

@@ -63,6 +63,40 @@ def ouvrir_le_journal() -> None:
         logging.getLogger(bruyant).setLevel(logging.WARNING)
 
 
+class HarnaisPerdu(RuntimeError):
+    """Le harnais a disparu **pendant** la campagne.
+
+    ## L'incident
+
+    Le 2026-08-24 a 22:00, le backend de Hermes OS s'est arrete au milieu
+    d'un cahier. L'agent tire ses outils de Hermes OS par MCP : sans
+    backend, il demarre avec zero outil. Le journal l'a dit a chaque tache
+    qui a suivi —
+
+        harnais indisponible : le backend de Hermes OS ne repond pas
+        harnais ecarte
+
+    — et **la file a continue**. §21 a consomme ses deux passes avec un
+    agent jete apres usage, donc amnesique, puis s'est declaree bloquee sur
+    des tests en echec. Le diagnostic evident etait « le code de RiskModel
+    est faux » ; le vrai etait « le cerveau avait disparu depuis quatre
+    heures ».
+
+    ## Pourquoi le controle de demarrage ne suffisait pas
+
+    `verifier_le_harnais` refuse de partir sans harnais depuis HOS-128, et
+    ce refus a bien joue : la relance du lendemain s'est arretee net. Mais
+    il ne s'execute qu'une fois. Un cahier de quinze heures traverse
+    forcement un redemarrage, une mise a jour ou une coupure, et il n'avait
+    aucun moyen de s'en apercevoir.
+
+    C'est la meme regle que `test_hermes_agent_is_the_brain` garde dans le
+    code, appliquee cette fois a la duree d'une campagne : Hermes Agent est
+    le cerveau des missions, et une section sans lui n'est pas une section
+    ratee — c'est une section qui n'a pas eu lieu.
+    """
+
+
 def verifier_le_harnais(*, accepte_le_mode_jetable: bool) -> bool:
     """Refuse de partir si le harnais ne servira pas — sauf accord explicite.
 
@@ -291,8 +325,29 @@ def main() -> int:
     moteur = boot.container.get("autonomous_engine")
     depart = time.monotonic()
 
+    def harnais_toujours_la() -> None:
+        """Lever si le harnais a disparu depuis le demarrage.
+
+        Appelee avant chaque passe, y compris les reparations : c'est
+        precisement pendant une reparation que §21 a brule son dernier
+        credit sans cerveau.
+
+        `derouler` attrape ce qui leve, marque la section `bloquee` et
+        arrete la file — ce qui est exactement le comportement voulu. La
+        section sera rejouee a la reprise, une fois le backend revenu,
+        parce que `bloquee` n'est pas un verdict acquis.
+        """
+        if args.sans_harnais:
+            return
+        from backend.ral.adapters.prerequis_harnais import verifier
+
+        etat = verifier()
+        if not etat.pret:
+            raise HarnaisPerdu(etat.explication())
+
     def lancer(section):
         print(f"\n=== §{section.numero} {section.titre} ===", flush=True)
+        harnais_toujours_la()
         # Relue a chaque section : la pile du projet peut naitre a la
         # troisieme section et doit contraindre la quatrieme.
         objectif = brief_de_section(section, nom_du_cahier=args.cahier,
@@ -313,6 +368,7 @@ def main() -> int:
         # livrables manquants et les boucles d'import — sans quoi la passe
         # repart aussi aveugle que la premiere (HOS-136).
         print(f"  ... reparation de §{section.numero}", flush=True)
+        harnais_toujours_la()
         objectif = brief_de_section(section, nom_du_cahier=args.cahier,
                                     regles=bloc, racine=str(projet),
                                     pile=contrainte_de_pile(str(projet))
