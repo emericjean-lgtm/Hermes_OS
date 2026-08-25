@@ -42,6 +42,7 @@ class _RegistreFactice:
         self.appels: list[tuple] = []
         self.fermetures: list[str] = []
         self.tours_perdus = 0
+        self.reparties: list[str] = []
 
     async def disponible_pour(self, cle):
         return self._disponible
@@ -69,6 +70,13 @@ class _RegistreFactice:
 
     async def fermer(self, cle):
         self.fermetures.append(cle)
+
+    # HOS-165 : le double suit l'interface reelle du registre. Rendre
+    # l'executeur tolerant a un double incomplet cacherait la derive au
+    # lieu de la signaler.
+    async def repartir_a_neuf(self, cle):
+        self.reparties.append(cle)
+        self.tours_perdus = 0
 
 
 @pytest.fixture
