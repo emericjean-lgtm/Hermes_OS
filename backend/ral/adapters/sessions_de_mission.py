@@ -254,6 +254,24 @@ class SessionsDeMission:
         except Exception:  # noqa: BLE001 - une fermeture ne casse rien
             logger.debug("fermeture de la session %s", cle, exc_info=True)
 
+    async def repartir_a_neuf(self, cle: str) -> None:
+        """Fermer la session **et oublier son identifiant**.
+
+        `fermer` seul ne suffit pas : les identifiants survivent
+        deliberement a la fermeture, pour qu'un agent mort en pleine
+        campagne reprenne son contexte au lieu de tout perdre. C'est le bon
+        comportement dans le cas general, et exactement le mauvais ici — la
+        reouverture ferait `session/resume` sur la meme session saturee.
+
+        Ce que cette methode fait donc en plus : elle retire l'identifiant,
+        pour que la prochaine ouverture soit une session **neuve**.
+        """
+        async with self._verrou:
+            await self._fermer_sans_verrou(cle)
+            self._identifiants.pop(cle, None)
+        self._tours_perdus.pop(cle, None)
+        logger.info("session %s repartie a neuf (contexte sature)", cle)
+
     async def fermer(self, cle: str) -> None:
         """À appeler quand une mission se termine, quelle qu'en soit l'issue."""
         async with self._verrou:

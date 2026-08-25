@@ -8061,3 +8061,37 @@ la reprise la rejouera une fois le backend revenu.
 C'est la regle de `test_hermes_agent_is_the_brain` appliquee a la duree
 d'une campagne : une section sans l'agent n'est pas une section ratee, c'est
 une section qui n'a pas eu lieu.
+
+## HOS-165 — l'agent envoyait plus que ce que le modele sert
+
+§21 a echoue **quatre fois de suite, sur trois lancements differents**,
+toujours sur `APIConnectionError` vers Ollama. Le journal de l'agent —
+conserve depuis HOS-157, sans quoi rien de ceci n'aurait ete visible —
+donne la mesure :
+
+    modele servi a num_ctx = 65536
+
+    in=59940  total=61623   passe
+    in=64696  total=65465   passe (98,7 %)
+    in=68753  total=70431   ECHEC, 5 000 jetons au-dela de la fenetre
+
+La compression de l'agent tournait — trente fois — mais **huit de ces
+trente ont echoue**, et elle ne rattrapait plus l'accumulation d'une
+session tenue ouverte sur vingt sections. C'est la contrepartie exacte de
+ce que le harnais apporte : la continuite qui evite a chaque section de
+redecouvrir le workspace finit par saturer la fenetre.
+
+Elargir la fenetre n'etait pas une option, et c'est mesure : gpt-oss-20b a
+131072 demande **22,46 Gio et deborde a 100 % sur CPU**, sur une carte qui
+en offre seize. La requete d'essai a expire a 240 s.
+
+Hermes OS coupe donc au bord : au-dela de 90 % de la fenetre servie, la
+session repart a neuf apres le tour — celui-ci a abouti, on garde son
+resultat, c'est le suivant qui aurait deborde. Quatre-vingt-dix et non
+quatre-vingt : les tours a 98 % passaient encore, et couper la continuite
+est un cout qu'on ne paie qu'au bord de la panne.
+
+`fermer` seul n'aurait rien regle. Les identifiants de session survivent
+deliberement a la fermeture, pour qu'un agent mort en campagne reprenne son
+contexte ; la reouverture aurait fait `session/resume` sur la meme session
+saturee. `repartir_a_neuf` retire aussi l'identifiant.
