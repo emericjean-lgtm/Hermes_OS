@@ -351,7 +351,8 @@ export function Button({
       {...rest}
       className={`sweep clip-corner-sm num inline-flex items-center justify-center gap-1.5 border
         uppercase tracking-[0.1em] font-medium
-        transition-all duration-200 active:translate-y-[1px] active:scale-[0.99]
+        transition-all duration-200
+        hover:-translate-y-[0.5px] active:translate-y-[1px] active:scale-[0.985]
         disabled:opacity-35 disabled:pointer-events-none
         ${size === "sm" ? "px-2.5 py-1 text-[9.5px]" : "px-3.5 py-1.5 text-[10.5px]"}
         ${buttonVariants[variant]} ${className}`}

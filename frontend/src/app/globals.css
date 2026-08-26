@@ -499,6 +499,59 @@ body::after {
   background: linear-gradient(90deg, var(--hermes-border-bright), transparent);
 }
 
+
+/* ── Bascule d'onglet ────────────────────────────────────────────────
+   Un Center qui apparaît ne doit pas *glisser* : il doit **s'allumer**,
+   comme une plaque d'instrument qu'on met sous tension. La bascule
+   précédente était un fondu plus une translation verticale — la
+   transition par défaut de toute application React, qui ne dit rien de
+   ce produit.
+
+   Un seul moment orchestré plutôt que des effets dispersés : une ligne
+   de balayage traverse la zone une fois, et le contenu se stabilise
+   derrière elle. Le `blur` de départ est ce qui fait la différence entre
+   « ça bouge » et « ça prend le foyer ». */
+.center-enter {
+  animation: center-power 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes center-power {
+  0%   { opacity: 0; filter: blur(6px); transform: translateY(8px) scale(0.994); }
+  55%  { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; filter: blur(0); transform: none; }
+}
+
+/* Le balayage : une seule passe, jamais en boucle. Une ligne qui
+   repasserait sans fin cesserait de signifier « quelque chose vient de
+   changer » — c'est la même règle que le glow, réservé au vivant. */
+.center-enter::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--hermes-sodium) 55%, transparent),
+    transparent
+  );
+  animation: scan-sweep 620ms cubic-bezier(0.4, 0, 0.2, 1) 1 both;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* ── Focus clavier ───────────────────────────────────────────────────
+   Le contour du navigateur est un anneau bleu système, qui n'appartient
+   à aucun des trois plans de couleur de ce cockpit. Il est remplacé, pas
+   supprimé : un focus invisible rend l'application inutilisable au
+   clavier. */
+:where(button, a, select, input, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 1px var(--hermes-bg),
+    0 0 0 2px color-mix(in srgb, var(--hermes-sodium) 75%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -506,6 +559,9 @@ body::after {
     transition-duration: 0.01ms !important;
   }
   .room-grain { opacity: 0.32; }
+  /* Un balayage de 0,01 ms reste un clignotement :
+     celui-ci est retire, pas accelere. */
+  .center-enter::before { display: none; }
 }
 
 /* ── Chat markdown + syntax highlighting ─────────────────────────────

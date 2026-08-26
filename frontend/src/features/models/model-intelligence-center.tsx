@@ -15,6 +15,7 @@ import {
 } from "@/hooks/use-api";
 import { CenterHeader } from "@/components/center-scaffold";
 import { Badge, Card } from "@/components/ui/card";
+import { ComparaisonRadar } from "./comparaison-radar";
 import type { BenchAxisDTO } from "@/services/client";
 import type { ResourceStatus } from "@/types/hermes";
 import { formatGio, formatGioPair } from "@/lib/format";
@@ -426,6 +427,10 @@ export default function ModelIntelligenceCenter() {
             différents. Une case vide signifie <em>non mesuré</em> — ce n&apos;est
             pas un zéro.
           </p>
+
+          {/* Le profil, avant la table (HOS-179). Une table donne des
+              valeurs ; c'est la forme qui départage deux candidats. */}
+          {!catalogue.isLoading && <ComparaisonRadar catalogue={catalogue.data} />}
 
           {catalogue.isLoading && (
             <div className="text-hermes-muted text-sm py-2">Chargement du catalogue…</div>

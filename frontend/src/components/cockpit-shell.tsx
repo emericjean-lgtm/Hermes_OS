@@ -129,11 +129,12 @@ export default function CockpitShell() {
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeView}
-                  className="h-full"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  /* `center-enter` porte l'allumage et le balayage ; framer
+                     ne garde que la sortie, qu'une animation CSS ne sait pas
+                     faire sans démonter l'élément trop tôt. */
+                  className="h-full relative overflow-hidden center-enter"
                   exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+                  transition={{ duration: 0.18, ease: [0.4, 0, 1, 1] }}
                 >
                   <View />
                 </motion.div>
