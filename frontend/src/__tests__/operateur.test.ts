@@ -153,7 +153,7 @@ describe("Table des signaux", () => {
     }
   });
 
-  it("n'invente pas de posture pour vérification ni tests", () => {
+  it("n'invente pas de posture pour la voix", () => {
     // Aucun des 125 topics du backend ne décrit une vérification en cours
     // ni une campagne de tests. Les câbler sur une approximation serait le
     // genre de vraisemblance que ce projet refuse : elles ne s'atteignent
@@ -162,10 +162,19 @@ describe("Table des signaux", () => {
     //
     // `filesystem.verification_failed` existe bien, mais il décrit un
     // échec constaté — il produit « défaut », pas « vérification ».
-    expect(ETATS_DEDUITS.has("verification")).toBe(false);
-    expect(ETATS_DEDUITS.has("tests")).toBe(false);
     expect(ETATS_DEDUITS.has("ecoute")).toBe(false);
     expect(ETATS_DEDUITS.has("parole")).toBe(false);
+  });
+
+  it("vérification et tests sont désormais déduits d'un vrai signal", () => {
+    // Elles ne l'étaient pas : dessinées, testées, inatteignables. Plutôt
+    // que de les câbler sur une approximation, le signal manquant a été
+    // ajouté côté backend (HOS-184) — `verification.py` publie six topics
+    // et sépare une suite de tests d'un passage de linter.
+    expect(ETATS_DEDUITS.has("verification")).toBe(true);
+    expect(ETATS_DEDUITS.has("tests")).toBe(true);
+    expect(TOPICS_SUIVIS).toContain("verification.test.started");
+    expect(TOPICS_SUIVIS).toContain("verification.check.started");
   });
 
   it("toute posture déduite d'un événement est dessinable", () => {

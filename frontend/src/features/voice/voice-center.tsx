@@ -8,7 +8,7 @@ import { Card, Badge } from "@/components/ui/card";
 import { CenterHeader } from "@/components/center-scaffold";
 import { useDictee, useSynthese, useVoixFiltrees, LANGUES } from "./use-voice";
 import { useCockpitStore } from "@/hooks/use-store";
-import { voiceClient } from "@/services/client";
+import { voiceClient, type VoiceCapability, type VoicePreferences } from "@/services/client";
 
 /**
  * Voice Center (HOS-173).
@@ -29,18 +29,21 @@ import { voiceClient } from "@/services/client";
  *  3. **régler**, et rendre les bornes visibles.
  */
 
-type Capacite = {
-  nom: string; genre: string; ou: string; disponible: boolean; detail: string;
-};
-
-type Preferences = {
-  langue: string; voix: string; debit: number; hauteur: number;
-  lecture_automatique: boolean; mains_libres: boolean;
-};
+/* Les deux formes viennent du client et ne sont plus recopiees ici.
+   Cette copie locale avait la meme forme au caractere pres, et c'est
+   precisement ce qui casse : ajouter `moteur` cote client laissait le
+   Center sur l'ancienne definition, avec huit erreurs de typage pour un
+   seul champ. Une forme, une declaration. */
+type Capacite = VoiceCapability;
+type Preferences = VoicePreferences;
 
 const DEFAUTS: Preferences = {
   langue: "fr-FR", voix: "", debit: 1, hauteur: 1,
   lecture_automatique: false, mains_libres: false,
+  // Les modèles locaux par défaut : ils sont installés, ils rendent mieux
+  // qu'une voix système, et ils tournent sur CPU — donc sans rien coûter
+  // au modèle qui porte les missions.
+  moteur: "serveur",
 };
 
 export function VoiceCenter() {
@@ -84,8 +87,8 @@ export function VoiceCenter() {
     });
   }, []);
 
-  const dictee = useDictee(prefs.langue);
-  const synthese = useSynthese(prefs.voix, prefs.debit, prefs.hauteur);
+  const dictee = useDictee(prefs.langue, undefined, prefs.moteur);
+  const synthese = useSynthese(prefs.voix, prefs.debit, prefs.hauteur, prefs.moteur);
 
   // Les deux postures vocales de l'operateur (HOS-182). Elles n'ont aucun
   // topic correspondant sur le bus — la dictee et la synthese vivent
@@ -183,7 +186,11 @@ function Dictaphone({
 
         <div className="min-w-0 flex-1">
           <div className="tech-label text-hermes-dim mb-1.5">
-            {dictee.ecoute ? "à l'écoute" : "au repos"}
+            {dictee.transcrit
+              ? "transcription…"
+              : dictee.ecoute
+                ? (dictee.moteurEffectif === "serveur" ? "enregistrement" : "à l'écoute")
+                : "au repos"}
           </div>
           <div
             className="min-h-[5.5rem] rounded-lg border border-hermes-border bg-hermes-bg px-3.5 py-3 text-sm leading-relaxed text-hermes-text"
@@ -247,7 +254,7 @@ function Essai({
       <Card title="Synthèse" subtitle="Lecture des réponses">
         <Absent
           quoi="La synthèse vocale"
-          pourquoi="Ce navigateur n'expose pas speechSynthesis."
+          pourquoi="Ni voix locale sur le serveur, ni speechSynthesis dans ce navigateur."
         />
       </Card>
     );
@@ -286,7 +293,15 @@ function Essai({
             <Radio size={12} className="animate-pulse" /> en cours
           </span>
         )}
+        <span className="tech-label ml-auto !text-[8.5px]">
+          {synthese.moteurEffectif === "serveur" ? "PIPER LOCAL" : "NAVIGATEUR"}
+        </span>
       </div>
+
+      {/* Un repli silencieux ferait croire que la voix locale a parlé. */}
+      {synthese.repli && (
+        <p className="mt-2 text-[11px] text-hermes-amber">{synthese.repli}</p>
+      )}
     </Card>
   );
 }
@@ -319,6 +334,39 @@ function Reglages({
       }
     >
       <div className="flex flex-col gap-4">
+        <Champ label="Moteur">
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              ["serveur", "Modèles locaux", "Piper + faster-whisper, sur CPU"],
+              ["navigateur", "Navigateur", "API Web Speech de Chrome"],
+            ] as const).map(([id, titre, detail]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => onChange({ moteur: id })}
+                aria-pressed={prefs.moteur === id}
+                className={`clip-corner-sm border px-3 py-2 text-left transition-colors ${
+                  prefs.moteur === id
+                    ? "border-hermes-sodium/60 bg-hermes-sodium/10"
+                    : "border-hermes-border hover:border-hermes-border-bright"
+                }`}
+              >
+                <span className={`block text-xs ${prefs.moteur === id ? "text-hermes-sodium" : "text-hermes-text"}`}>
+                  {titre}
+                </span>
+                <span className="tech-label mt-1 block !text-[8.5px] normal-case tracking-normal">
+                  {detail}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-hermes-dim">
+            Le navigateur reste le repli automatique : si le serveur ne répond
+            pas, la voix système prend le relais et l&apos;écran le dit plutôt
+            que de laisser croire que Piper a parlé.
+          </p>
+        </Champ>
+
         <Champ label="Langue de dictée">
           <select
             value={prefs.langue}

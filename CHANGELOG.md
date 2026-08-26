@@ -1,3 +1,80 @@
+## HOS-183/184/185 — La voix locale, la verification muette, le catalogue qui ne s'execute pas (2026-08-26)
+
+### La voix locale etait installee et personne ne l'appelait
+
+`POST /voice/speak` rend **70 188 octets** de WAV depuis `fr_FR-siwis-medium`,
+et `/voice/state` declare faster-whisper et Piper disponibles cote serveur.
+Pendant ce temps `use-voice.ts` appelait `window.speechSynthesis` et
+`webkitSpeechRecognition` : l'interface parlait avec les voix de Windows.
+
+Le module portait la raison de ce choix, et elle etait **fausse** :
+
+> un Whisper local disputerait les 16 Gio de VRAM au modele qui porte les
+> missions
+
+`backend/voice/locale.py` fait tourner faster-whisper en
+`device="cpu", compute_type="int8"`, et Piper sur CPU egalement. Ni l'un ni
+l'autre ne touche la VRAM. Le raisonnement etait juste, la premisse ne
+l'etait pas — le commentaire est amende sur place plutot que reecrit.
+
+Reglage `moteur` : `serveur` par defaut, `navigateur` en repli **declare**.
+Un repli silencieux ferait croire que Piper a parle ; l'ecran affiche
+desormais `PIPER LOCAL` ou `NAVIGATEUR`, et la raison du repli quand il y en
+a une.
+
+Eprouve dans le navigateur : le clic sur « Ecouter » produit un `blob:`,
+`play()` est appele, l'ecran affiche `PIPER LOCAL`, aucun repli.
+
+Une copie locale du type `Preferences` vivait dans `voice-center.tsx`, a
+l'identique de `VoicePreferences`. Ajouter un champ d'un cote a produit huit
+erreurs de typage de l'autre. Une forme, une declaration.
+
+### La verification ne disait rien de ce qu'elle faisait
+
+Le Cockpit portait deux postures d'operateur — « verification » et
+« tests » — **sans aucun signal pour les declencher**. Dessinees, testees,
+inatteignables. Les cabler sur une approximation aurait ete la vraisemblance
+que ce projet refuse ; le signal manquant a ete ajoute la ou le travail a
+lieu.
+
+`backend/tools/verification.py` publie six topics et separe une suite de
+tests d'un passage de linter — la distinction existe deja dans le `kind` de
+chaque runner (`test` contre `lint`/`typecheck`/`build`). L'annonce
+**enveloppe** `run()` au lieu d'etre semee dans son corps : sept points de
+sortie, dont le refus Aegis, le binaire absent et le depassement de delai.
+Une publication par branche en aurait manque au moins une.
+
+Tenues bornees : 180 s pour une suite de tests — 170 s mesurees sur celle du
+backend — parce qu'un processus tue ne renverra jamais son « passed ».
+
+### Un catalogue de seize outils dont aucun ne s'execute
+
+`POST /tools/execute` rend `No executor registered for tool` pour **les
+seize**, sans exception. `register_executor()` est defini et appele nulle
+part dans tout le backend.
+
+Ce n'est pas une panne mais une confusion de surfaces : l'agent n'est jamais
+passe par ce registre. Il appelle les **71 outils** du serveur MCP — 12 de
+fichiers, 9 de git, 7 de memoire, 7 de workflows, 6 de projets, 6 de
+competences, 2 de verification — et ceux-la fonctionnent.
+
+Le Tools Center le dit desormais en tete d'ecran, avec la date de la mesure.
+Le hook `useExecuteTool` qu'il instanciait sans jamais s'en servir est
+retire.
+
+### La maquette contredisait le code
+
+La planche des treize postures nommait `mission.started`, `files_read` et
+`mission/verification` sous ses figures : les noms d'avant la lecture du
+backend. Corriges pour les treize.
+
+### Verified
+
+Suites : backend **2 052 passes, 2 ignores** ; frontend **107 passes** ;
+`tsc --noEmit` propre.
+
+---
+
 ## HOS-181/182 — Trente-cinq evenements jetes en silence, et l'operateur (2026-08-26)
 
 ### Le defaut trouve en voulant brancher autre chose

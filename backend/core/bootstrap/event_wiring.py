@@ -159,6 +159,7 @@ def collect_known_topics() -> set[str]:
         # disque, ni une mission demarrer. Le garde est
         # `backend/tests/test_topics_publies_sont_autorises.py`.
         ("backend.tools.file_tools", "FILESYSTEM_EVENTS"),
+        ("backend.tools.verification", "VERIFICATION_EVENTS"),
         ("backend.execution.mission_executor", "EXECUTION_EVENTS"),
         ("backend.projects.project_manager", "PROJECT_EVENTS"),
         ("backend.integrations.alexandrie.hermes_alexandrie_adapter", "ALEXANDRIE_EVENTS"),

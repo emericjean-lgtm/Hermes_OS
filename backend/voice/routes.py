@@ -1,12 +1,21 @@
-"""Les routes de la voix (HOS-173).
+"""Les routes de la voix (HOS-173, étendu HOS-183).
 
-Deux verbes et rien de plus : lire l'état, l'écrire. La reconnaissance et la
-synthèse vivent dans le navigateur — les faire transiter par le serveur
-ajouterait un aller-retour, un format audio à négocier et une latence, pour
-une capacité que le client possède déjà.
+Quatre verbes : lire l'état, l'écrire, parler, transcrire.
 
-Ce que le serveur apporte : la persistance des réglages, et un rapport de
-capacités qui ne ment pas.
+Le préambule d'origine n'en annonçait que deux et justifiait l'absence des
+autres — « les faire transiter par le serveur ajouterait un aller-retour,
+un format audio à négocier et une latence, pour une capacité que le client
+possède déjà ». L'aller-retour et le format sont réels ; la conclusion ne
+tient plus, parce que la capacité du client n'est pas la même capacité :
+`fr_FR-siwis-medium` et faster-whisper ne rendent pas ce que rend une voix
+système de Windows.
+
+Les deux tournent sur CPU (`backend/voice/locale.py`) et ne disputent donc
+rien au modèle qui porte les missions — c'était l'objection de fond, et
+elle reposait sur une prémisse fausse.
+
+Le choix reste à l'opérateur : la préférence `moteur` tranche, et le
+navigateur demeure le repli quand le serveur ne répond pas.
 """
 from __future__ import annotations
 

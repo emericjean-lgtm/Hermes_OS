@@ -89,10 +89,12 @@
           <div class="lab" style="color: #5eb8e8; margin-bottom: 6px;">Une boucle qui n&#39;a jamais tourné</div>
           <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #8695a6;">
             <span class="num" style="color: #dfe6ee;">Décision attendue</span> guette
-            <span class="num" style="color: #dfe6ee;">session/request_permission</span>. Sur deux
-            campagnes complètes, l&#39;agent ne l&#39;a envoyé aucune fois — il écrit sans
-            demander. La posture reste : le jour où elle apparaîtra, elle vous
-            apprendra quelque chose.
+            <span class="num" style="color: #dfe6ee;">execution.waiting_approval</span>, que
+            l&#39;exécuteur de mission publie quand une tâche attend un accord humain.
+            Elle n&#39;a jamais eu à se déclencher : sur deux campagnes complètes,
+            Hermes Agent n&#39;a pas envoyé un seul <span class="num" style="color: #dfe6ee;">session/request_permission</span> —
+            il écrit sans demander. La posture reste, parce que le jour où elle
+            paraîtra, elle vous apprendra quelque chose. Deux autres — <em>à l&#39;écoute</em> et <em>synthèse vocale</em> — vivent dans le Cockpit sans figurer ici : elles se déclenchent depuis le Voice Center, pas depuis le bus.
           </p>
         </div>
       </div>
@@ -109,19 +111,19 @@ class Component extends DCLogic {
     // enfant ne rend rien à son parent, et un chiffre faux se verrait
     // immédiatement — le ruban et le geste se désynchroniseraient.
     const p = [
-      ['repos',        'Au repos',          'aucune mission active',       '#8695a6', '7,6 s',  '7.6s'],
-      ['lancement',    'Tâche lancée',      'mission.started',             '#ff9436', '2,6 s',  '2.6s'],
-      ['reflexion',    'Réflexion',         'session/prompt · en attente', '#ff9436', '1,7 s',  '1.7s'],
-      ['lecture',      'Lecture',           'files_read · list_directory', '#5eb8e8', '2,4 s',  '2.4s'],
-      ['ecriture',     'Écriture',          'write appliqué sur disque',   '#ff9436', '3,6 s',  '3.6s'],
-      ['verification', 'Vérification',      'mission/verification',        '#ffc93d', '3,2 s',  '3.2s'],
-      ['tests',        'Tests',             'pytest · vitest en cours',    '#ff9436', '3,6 s',  '3.6s'],
-      ['reussite',     'Section vérifiée',  'verdict « vérifiée »',        '#9ede3a', '1,35 s', '1.35s'],
-      ['chargement',   'Chargement modèle', 'poids montés en VRAM',        '#ff9436', '4 s',    '4s'],
-      ['debordement',  'Débordement',       'cpu_offload_bytes > 0',       '#ff5347', '2,6 s',  '2.6s'],
-      ['defaut',       'Défaut relevé',     'une garde signale',           '#ffc93d', '1,6 s',  '1.6s'],
-      ['alerte',       'Alerte',            'deux tours perdus',           '#ff5347', '0,62 s', '0.62s'],
-      ['decision',     'Décision attendue', 'session/request_permission',  '#5eb8e8', '2,4 s',  '2.4s'],
+      ['repos',        'Au repos',          'aucune activité signalée',       '#8695a6', '7,6 s',  '7.6s'],
+      ['lancement',    'Tâche lancée',      'execution.task_started',             '#ff9436', '2,6 s',  '2.6s'],
+      ['reflexion',    'Réflexion',         'execution.planning', '#ff9436', '1,7 s',  '1.7s'],
+      ['lecture',      'Lecture',           'filesystem.read', '#5eb8e8', '2,4 s',  '2.4s'],
+      ['ecriture',     'Écriture',          'filesystem.write',   '#ff9436', '3,6 s',  '3.6s'],
+      ['verification', 'Vérification',      'verification.check.started',        '#ffc93d', '3,2 s',  '3.2s'],
+      ['tests',        'Tests',             'verification.test.started',    '#ff9436', '3,6 s',  '3.6s'],
+      ['reussite',     'Section vérifiée',  'execution.task_completed',        '#9ede3a', '1,35 s', '1.35s'],
+      ['chargement',   'Chargement modèle', 'model.switch_started',        '#ff9436', '4 s',    '4s'],
+      ['debordement',  'Débordement',       'vram.limit_reached',       '#ff5347', '2,6 s',  '2.6s'],
+      ['defaut',       'Défaut relevé',     'filesystem.verification_failed',           '#ffc93d', '1,6 s',  '1.6s'],
+      ['alerte',       'Alerte',            'execution.failed',           '#ff5347', '0,62 s', '0.62s'],
+      ['decision',     'Décision attendue', 'execution.waiting_approval',  '#5eb8e8', '2,4 s',  '2.4s'],
     ];
 
     return {

@@ -130,6 +130,11 @@ export interface VoicePreferences {
   hauteur: number;
   lecture_automatique: boolean;
   mains_libres: boolean;
+  /** `serveur` = les modèles locaux (Piper, faster-whisper) ; `navigateur`
+   *  = les API Web Speech. Le serveur est le défaut : c'est la meilleure
+   *  qualité, elle est installée, et elle ne coûte rien à la VRAM — les
+   *  deux modèles tournent sur CPU. */
+  moteur: "serveur" | "navigateur";
 }
 
 export interface VoiceCapability {
@@ -141,6 +146,35 @@ export interface VoiceCapability {
 }
 
 export const voiceClient = {
+  /** POST /voice/speak — un WAV synthétisé par la voix locale.
+   *
+   *  Rend un `Blob` et non du JSON : `fetchJSON` ne convient pas ici, la
+   *  réponse est de l'audio. Lève si le serveur n'a pas de voix locale,
+   *  pour que l'appelant puisse retomber sur le navigateur au lieu de
+   *  rester muet. */
+  speak: async (texte: string, voix?: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/voice/speak`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texte, ...(voix ? { voix } : {}) }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res.blob();
+  },
+
+  /** POST /voice/transcribe — le texte d'un audio téléversé.
+   *
+   *  `multipart/form-data` sans en-tête explicite : le navigateur doit
+   *  poser lui-même la frontière du multipart, et la fixer à la main
+   *  produit un corps que le serveur ne sait pas relire. */
+  transcribe: async (audio: Blob, nom = "dictee.webm"): Promise<{ texte: string; fournisseur: string }> => {
+    const corps = new FormData();
+    corps.append("fichier", audio, nom);
+    const res = await fetch(`${API_BASE}/voice/transcribe`, { method: "POST", body: corps });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res.json();
+  },
+
   state: () =>
     fetchJSON<{ preferences: VoicePreferences; capacites: VoiceCapability[] }>(
       "/voice/state",

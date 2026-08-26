@@ -38,11 +38,16 @@ import { POSTURES, type EtatOperateur } from "@/components/operateur";
  *
  * ## Deux postures sans signal
  *
- * `verification` et `tests` n'ont aucun topic correspondant dans les 125 que
- * le backend déclare. Elles restent atteignables par `signalerOperateur()`,
- * qu'un Center appelle quand il sait ce qu'il déclenche, et ne sont jamais
- * inférées d'un événement. Les câbler sur une approximation serait
- * exactement le genre de vraisemblance que ce projet refuse.
+ * `verification` et `tests` n'avaient aucun topic correspondant : elles
+ * étaient dessinées, testées, et inatteignables. Plutôt que de les câbler
+ * sur une approximation — le genre de vraisemblance que ce projet refuse —
+ * le signal manquant a été ajouté là où le travail a lieu :
+ * `backend/tools/verification.py` publie désormais six topics (HOS-184),
+ * séparant une suite de tests d'un passage de linter.
+ *
+ * Reste `ecoute` et `parole`, qui n'en auront jamais : la dictée et la
+ * synthèse vivent dans le navigateur ou dans une requête ponctuelle, pas
+ * sur le bus. Le Voice Center les déclare par `signalerOperateur()`.
  */
 
 interface Regle {
@@ -83,6 +88,18 @@ const TABLE: Record<string, Regle> = {
   "workflow.started": { etat: "lancement", tenue: 3000 },
   "workflow.completed": { etat: "reussite", tenue: 5000 },
   "workflow.failed": { etat: "alerte", tenue: 10000 },
+
+  // ── Vérification (HOS-184). Les deux postures qui n'avaient aucun
+  //    signal en ont un : `verification.py` enveloppe désormais ses sept
+  //    points de sortie. Les tenues des « started » sont longues parce
+  //    qu'une suite dure — 170 s mesurées sur celle du backend — et bornées
+  //    parce qu'un processus tué ne renverra jamais son « passed ». ──
+  "verification.test.started": { etat: "tests", tenue: 180000 },
+  "verification.test.passed": { etat: "reussite", tenue: 5000 },
+  "verification.test.failed": { etat: "alerte", tenue: 12000 },
+  "verification.check.started": { etat: "verification", tenue: 60000 },
+  "verification.check.passed": { etat: "reussite", tenue: 4000 },
+  "verification.check.failed": { etat: "defaut", tenue: 10000 },
 
   // ── Accord humain attendu. Tenue longue : ça attend vraiment. ──
   "security.validation.requested": { etat: "decision", tenue: 120000 },

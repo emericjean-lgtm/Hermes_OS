@@ -20,15 +20,27 @@ réglage ne la gouvernait.
 
 ## Ce que ce module fait, et ce qu'il refuse de faire
 
-Il garde les préférences et **dit la vérité sur les fournisseurs**. Il ne
-prétend pas transcrire : sur cette machine, un Whisper local disputerait les
-16 Gio de VRAM au modèle qui porte les missions, et ce projet a mesuré ce
-que coûte un second modèle qui réclame sa place.
+Il garde les préférences et **dit la vérité sur les fournisseurs**.
 
-La reconnaissance et la synthèse vivent donc dans le navigateur, qui les
-offre sans rien coûter au GPU. Le rôle du serveur est de retenir les
-réglages et de ne jamais annoncer une capacité qu'il n'a pas — la règle
-appliquée partout ailleurs dans cette application.
+## Amendement (HOS-183)
+
+Le paragraphe qui suivait ici affirmait que la reconnaissance et la synthèse
+devaient rester dans le navigateur, au motif qu'« un Whisper local
+disputerait les 16 Gio de VRAM au modèle qui porte les missions ».
+
+Le raisonnement était juste et la prémisse fausse. `backend/voice/locale.py`
+fait tourner faster-whisper en `device="cpu", compute_type="int8"` et Piper
+sur CPU également : **ni l'un ni l'autre ne touche la VRAM**. Le coût
+redouté n'existe pas, et l'argument tombe avec lui.
+
+Mesuré le 2026-08-26 : `POST /voice/speak` rend 70 188 octets de WAV depuis
+`fr_FR-siwis-medium`, et `/voice/state` déclare les deux fournisseurs
+serveur disponibles. La capacité était donc réelle, installée, exposée — et
+l'interface continuait d'appeler `window.speechSynthesis`.
+
+Le réglage `moteur` ci-dessous tranche désormais explicitement, et le repli
+navigateur reste offert : une voix système imparfaite vaut mieux qu'un
+silence si le serveur ne répond pas.
 """
 from __future__ import annotations
 
@@ -74,6 +86,10 @@ class Preferences:
     lecture_automatique: bool = False
     #: Envoyer la dictée dès qu'un silence est détecté, sans clic.
     mains_libres: bool = False
+    #: Qui parle et qui écoute : les modèles locaux du serveur, ou les API
+    #: du navigateur. Défaut au serveur — c'est la qualité supérieure, elle
+    #: est installée, et le navigateur reste le repli quand elle échoue.
+    moteur: str = "serveur"
 
     def valide(self) -> "Preferences":
         """Ramener chaque valeur dans ses bornes plutôt que refuser.
@@ -88,6 +104,11 @@ class Preferences:
         self.voix = (self.voix or "").strip()[:120]
         self.lecture_automatique = bool(self.lecture_automatique)
         self.mains_libres = bool(self.mains_libres)
+        # Deux valeurs et pas d'autre. Un moteur inconnu ferait taire
+        # l'interface sans rien dire ; le repli navigateur, lui, parle
+        # toujours.
+        if self.moteur not in ("serveur", "navigateur"):
+            self.moteur = "serveur"
         return self
 
 
