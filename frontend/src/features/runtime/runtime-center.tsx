@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { useRuntimes, useResourceStatus, useLoadedModels, useUnloadModel } from "@/hooks/use-api";
 import { Card, Badge, ProgressBar, Beacon, Button } from "@/components/ui/card";
+import { TelemetryTrace } from "@/components/telemetry-trace";
 import { CenterHeader, PanelLoading } from "@/components/center-scaffold";
 import type { RuntimeInfo, RuntimeStatus } from "@/types/hermes";
 import { Cpu, HardDrive, Thermometer, Layers, Gauge, Brain, Power } from "lucide-react";
@@ -187,6 +188,25 @@ export function RuntimeCenter({ imbrique = false }: { imbrique?: boolean }) {
 
 /* ── Jauge ──────────────────────────────────────────────────────── */
 
+/** Une mesure matérielle, dessinée comme un instrument la dessine (HOS-178).
+ *
+ *  Trois écarts au contrat SODIUM corrigés ici :
+ *
+ *  * `rounded-xl` remplacé par `clip-corner`. Le contrat proscrit
+ *    explicitement l'arrondi uniforme, qui est la géométrie par défaut de
+ *    tout tableau de bord et ne dit rien de ce produit.
+ *  * `hover:shadow-glow-cyan` retiré. Le glow est réservé à ce qui est
+ *    réellement **vivant** ; l'accrocher à chaque survol le vide de sens,
+ *    et c'est nommément ce que le contrat désigne comme la marque du
+ *    tableau de bord générique.
+ *  * `TelemetryTrace` ajouté. Le système le décrit comme « le motif
+ *    signature pour toute métrique vivante » — et il ne servait que dans
+ *    la barre d'instruments, **dans zéro Center sur vingt-trois**.
+ *
+ *  La trace tient une ligne plate quand la mesure manque, au lieu
+ *  d'inventer un mouvement : c'est la même règle que partout ailleurs ici,
+ *  une valeur affichée est une valeur mesurée.
+ */
 function ResourceMeter({
   label, icon, value, unit, detail, max = 100, rawValue, unavailableLabel,
 }: {
@@ -215,8 +235,8 @@ function ResourceMeter({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-      className="group relative rounded-xl glass neon-edge bracket p-4 overflow-hidden
-        transition-all duration-300 hover:-translate-y-0.5 hover:shadow-glow-cyan"
+      className="group relative clip-corner glass neon-edge bracket p-4 overflow-hidden
+        transition-transform duration-300 hover:-translate-y-0.5"
     >
       <div className="flex items-center justify-between mb-2">
         <span className="text-[10px] text-hermes-muted font-mono uppercase tracking-[0.12em]">
@@ -249,6 +269,22 @@ function ResourceMeter({
       {detail && (
         <div className="text-[10px] text-hermes-muted mt-1.5 font-mono truncate">{detail}</div>
       )}
+      {/* La trace tient une ligne plate quand la mesure manque :
+          inventer un mouvement ferait une plus jolie image et un
+          mensonge. */}
+      <div className="mt-2 -mx-1 opacity-80">
+        <TelemetryTrace
+          value={has ? value : null}
+          width={168}
+          height={22}
+          color={
+            !has ? "#56616f"
+            : pct > 90 ? "#ff5347"
+            : pct > 70 ? "#ffc93d"
+            : "#9ede3a"
+          }
+        />
+      </div>
     </motion.div>
   );
 }
