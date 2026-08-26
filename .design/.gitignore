@@ -1,0 +1,4 @@
+# La toile assemblee est une sortie de build : ~2,3 Mo regeneres a chaque
+# fois depuis les .dc.html et canvas.json voisins, par le script de la
+# competence `design`. Les sources sont versionnees, pas le produit.
+cockpit-hermes-directions.html

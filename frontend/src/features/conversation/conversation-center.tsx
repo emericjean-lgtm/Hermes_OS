@@ -9,6 +9,8 @@ import {
 import { conversationClient } from "@/services/client";
 import { streamConversation, type ContextUsage, type StreamRouting } from "@/services/conversation-stream";
 import { useMonitoringResources, useSystemModelRoles } from "@/hooks/use-api";
+import { useCockpitStore } from "@/hooks/use-store";
+import type { EtatOperateur } from "@/components/operateur";
 import type { ResourceStatus } from "@/types/hermes";
 import { formatGioPair } from "@/lib/format";
 import { MarkdownMessage } from "./markdown-message";
@@ -91,10 +93,29 @@ const QUICK_ACTIONS = [
 
 const uid = () => `m_${Math.random().toString(36).slice(2, 10)}`;
 
+
+/** Quelle posture pour quel outil.
+ *
+ *  Les noms viennent de `backend/mcp_server/server.py`. Un outil inconnu
+ *  vaut « réflexion » plutôt qu'une posture inventée : on sait qu'il se
+ *  passe quelque chose, on ne sait pas quoi, et c'est exactement ce que
+ *  cette posture dit. */
+function postureDOutil(nom: string): EtatOperateur {
+  if (nom.includes("read") || nom.includes("list") || nom.includes("search")
+      || nom.includes("stat") || nom.includes("exists")) return "lecture";
+  if (nom.includes("write") || nom.includes("apply") || nom.includes("mkdir")
+      || nom.includes("append") || nom.includes("copy") || nom.includes("move")
+      || nom.includes("delete")) return "ecriture";
+  if (nom.includes("diff") || nom.includes("verify")) return "verification";
+  return "reflexion";
+}
+
 export default function ConversationCenter() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const signalerOperateur = useCockpitStore((s) => s.signalerOperateur);
+  const tairelOperateur = useCockpitStore((s) => s.tairelOperateur);
   const [sessionId, setSessionId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
@@ -259,6 +280,11 @@ export default function ConversationCenter() {
     setError(null);
     setStreaming(true);
     pinnedRef.current = true;
+    // L'opérateur n'a pas à attendre le bus pour savoir : le flux est
+    // ouvert maintenant, et `chat.token` n'arrivera qu'après. La tenue
+    // est courte et renouvelée à chaque signal, si bien qu'un flux
+    // interrompu sans prévenir rend la main de lui-même.
+    signalerOperateur("reflexion", "flux ouvert", 8000);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -275,9 +301,20 @@ export default function ConversationCenter() {
         },
         {
           onRouting: (routing) => patch((m) => ({ ...m, routing })),
-          onThinking: (t) => patch((m) => ({ ...m, thinking: (m.thinking ?? "") + t })),
-          onContent: (t) => patch((m) => ({ ...m, content: m.content + t })),
-          onToolCall: (calls) => patch((m) => {
+          onThinking: (t) => {
+            signalerOperateur("reflexion", "raisonnement en cours", 6000);
+            patch((m) => ({ ...m, thinking: (m.thinking ?? "") + t }));
+          },
+          onContent: (t) => {
+            signalerOperateur("ecriture", "réponse en cours", 6000);
+            patch((m) => ({ ...m, content: m.content + t }));
+          },
+          onToolCall: (calls) => {
+            // Le nom de l'outil dit la posture mieux que n'importe quel
+            // événement : `workspace_read` est une lecture, point.
+            const nom = calls.find((c) => c.function?.name)?.function?.name ?? "";
+            if (nom) signalerOperateur(postureDOutil(nom), nom, 10000);
+            return patch((m) => {
             const searchAdditions = calls
               .filter((c) => c.function?.name === "web_search")
               .map((c) => ({ query: String(c.function?.arguments?.query ?? "") }));
@@ -295,7 +332,8 @@ export default function ConversationCenter() {
               next = { ...next, toolCalls: [...(next.toolCalls ?? []), ...toolAdditions] };
             }
             return next;
-          }),
+            });
+          },
           onToolResult: (results) => patch((m) => {
             let next = m;
             if (next.searches?.length) {
@@ -325,13 +363,17 @@ export default function ConversationCenter() {
     } catch (e) {
       const message = e instanceof Error ? e.message : "Hermes est injoignable";
       patch((m) => ({ ...m, error: message }));
+      signalerOperateur("alerte", "flux interrompu", 8000);
       setError(message);
     } finally {
       if (controller.signal.aborted) patch((m) => ({ ...m, interrupted: true }));
+      // Rendre la main tout de suite plutôt que laisser la tenue expirer :
+      // le flux est fini, l'affirmer six secondes de plus serait faux.
+      tairelOperateur();
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [sessionId, streaming, selection, attachments]);
+  }, [sessionId, streaming, selection, attachments, signalerOperateur, tairelOperateur]);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
 

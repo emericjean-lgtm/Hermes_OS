@@ -1,3 +1,113 @@
+## HOS-181/182 — Trente-cinq evenements jetes en silence, et l'operateur (2026-08-26)
+
+### Le defaut trouve en voulant brancher autre chose
+
+Le Cockpit devait recevoir une figure animee dont la posture suit ce que
+fait le systeme : elle lit quand un fichier est lu, elle ecrit quand un
+fichier est ecrit. Restait a savoir sur quoi la brancher.
+
+`collect_known_topics()` porte depuis HOS-066B un commentaire affirmant que
+la liste blanche de l'EventHub « ne peut plus deriver de ses producteurs ».
+Un scan de l'arbre syntaxique du backend a rendu :
+
+    35 topics publies et jetes, dans 8 modules
+
+Dont **la totalite de `filesystem.*`** et **la totalite de `execution.*`** :
+
+    filesystem.read / write / create / copy / move / delete
+    filesystem.permission_denied / verification_failed
+    execution.planning / started / task_started / task_completed
+    execution.waiting_approval / retry / optimized / completed / failed
+
+Consequence, et elle etait la depuis longtemps : aucune ecriture sur disque
+n'atteignait le Cockpit, aucune mission ne pouvait s'y voir demarrer. Une
+interface branchee sur ce flux serait restee muette pendant qu'une mission
+tournait — c'est-a-dire aurait affirme que rien ne se passait.
+
+Le commentaire ne suffisait pas : il decrivait une intention, pas une
+verification.
+
+### Ce que le premier relevé ne voyait pas
+
+Un premier scan n'a trouve que 29 topics. Il ne lisait que les constantes,
+et `file_tools` publie six de ses huit topics par un ternaire :
+
+    _publish("filesystem.write" if verified else "filesystem.verification_failed", ...)
+
+Six topics de plus, dans le module le plus concerne. Le scan qui les
+manquait aurait rendu le garde vert en ne regardant pas la ou etait le
+defaut — le pire des deux mondes. `test_le_scan_voit_bien_les_topics_en_
+expression_conditionnelle` existe pour cela.
+
+### La reparation
+
+Un catalogue declare aupres de chaque producteur, selon la doctrine du
+module lui-meme — huit dicts `<DOMAINE>_EVENTS`, lus par
+`collect_known_topics()`. **90 topics autorises avant, 125 apres.**
+
+Le garde est `test_topics_publies_sont_autorises.py` : il relit l'arbre
+syntaxique et exige que tout litteral pointe passe a une publication soit
+dans la liste blanche. Ajouter un topic sans le declarer echoue desormais
+avec le nom du topic et son fichier.
+
+### L'operateur
+
+Quinze postures, chacune declenchee par un topic reel — jamais par une
+minuterie. La table vit dans `frontend/src/hooks/use-operateur.ts` et a ete
+ecrite en lisant `collect_known_topics()` sur le backend en marche : la
+premiere redaction guettait `mission.started`, `files_read` et
+`mission/verification`, trois noms qui n'existent nulle part ici.
+`test_table_operateur_pointe_sur_de_vrais_topics.py` franchit la frontiere
+des deux langages pour que cela ne se reproduise pas.
+
+Deux postures restent sans signal. Aucun des 125 topics ne decrit une
+verification en cours ni une campagne de tests : `verification` et `tests`
+ne s'atteignent que par `signalerOperateur()`, depuis un Center qui sait ce
+qu'il declenche. Les cabler sur une approximation aurait ete exactement la
+vraisemblance que ce projet refuse.
+
+Quand rien n'est signale, la posture est `repos` — y compris si une mission
+tourne. Ce repos **est** alors l'information : le systeme ne rapporte rien
+de ce qu'il fait.
+
+### Deux surfaces mortes reveillees au passage
+
+`addLiveEvent` n'etait appele que par les tests. Le store portait
+`liveEvents` et `wsConnected` depuis le debut sans que rien ne les
+alimente : le compteur `EVT` de la barre d'etat affichait `0` en
+permanence, et sa ligne d'evenement disait « Aucun evenement recu » quoi
+qu'il arrive. Le Dashboard, lui, ouvrait sa propre socket dans son coin.
+
+Une seule souscription desormais (`components/flux-evenements.tsx`), montee
+par le shell hors de l'arbre des Centers. Trois surfaces s'en servent —
+barre d'etat, Dashboard, operateur — pour une connexion au lieu de deux.
+
+### L'operateur vit dans le shell, et c'est structurel
+
+Une animation CSS repart de zero quand son element est demonte. Le shell
+demonte le Center actif a chaque bascule d'onglet ; place a l'interieur,
+l'operateur recommencerait son geste chaque fois qu'on change de vue — ce
+qui reviendrait a dire que le systeme vient de recommencer sa tache. Pose
+dans le shell, il traverse les bascules sans s'interrompre.
+
+### Verified
+
+Chaine complete eprouvee sur le systeme en marche : une lecture reelle de
+`README.md` via `/api/v1/files/content`, un `filesystem.read` publie, admis
+par la liste blanche corrigee, transmis par la socket, et l'operateur passe
+de `repos` (gris) a `Lecture` (glacier) en 400 ms, avec le topic nomme sous
+la figure. Retour au repos a l'expiration de la tenue de 5 s.
+
+    avant      Au repos   #8695a6
+    +400 ms    Lecture    #5eb8e8
+    +3 000 ms  Lecture    #5eb8e8
+    +7 000 ms  Au repos   #8695a6
+
+Suites : backend **2 052 passes, 2 ignores** ; frontend **106 passes**
+(92 avant, 14 ajoutes) ; `tsc --noEmit` propre.
+
+---
+
 ## HOS-152 — Le filet de securite coupait avant le budget qu'il couvrait (2026-08-22)
 
 ### La compression de contexte, enfin observee

@@ -21,6 +21,12 @@ from backend.memory.db import init_db, make_engine, make_session_factory
 from backend.tasks import task_manager
 from backend.tasks.task_manager import Task, TaskPriority, TaskStatus
 
+# --------------------------------------------------------------------
+"""L'avancement d'une tâche rapporté par Kronos (HOS-181)."""
+KRONOS_EVENTS: dict[str, str] = {
+    "update": "task.update",
+}
+
 
 
 def _announce(task: Task | None, change: str) -> None:

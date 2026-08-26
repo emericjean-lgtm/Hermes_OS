@@ -2,6 +2,7 @@
 
 import { useHarnais, useSystemStatistics } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
+import { ONGLETS_AVEC_OPERATEUR } from "@/components/operateur-de-garde";
 
 /** The footer readout.
  *
@@ -15,7 +16,8 @@ import { useCockpitStore } from "@/hooks/use-store";
 export function StatusBar() {
   const { data: stats } = useSystemStatistics();
   const { data: harnais } = useHarnais();
-  const { liveEvents } = useCockpitStore();
+  const { liveEvents, wsConnected, operateurVisible, basculerOperateur, activeView } =
+    useCockpitStore();
 
   const n = (v: unknown) => (typeof v === "number" ? v : null);
   const pair = (a: unknown, b: unknown) => {
@@ -30,6 +32,7 @@ export function StatusBar() {
     { label: "RT", pair: pair(stats?.runtimes_healthy, stats?.runtimes_total) },
     { label: "MEM", single: n(stats?.memory_entries)?.toLocaleString("fr-FR") ?? "––" },
     { label: "EVT", single: liveEvents.length.toString() },
+    { label: "WS", single: wsConnected ? "ON" : "OFF" },
   ];
 
   const last = liveEvents[0];
@@ -108,6 +111,28 @@ export function StatusBar() {
           <span className="text-[10px] text-hermes-dim/70">Aucun événement reçu</span>
         )}
       </div>
+
+      {/* L'interrupteur de l'opérateur. Ici parce que c'est la bande la
+          plus discrète de l'écran, et qu'un réglage d'affichage n'a pas à
+          se disputer la place avec les commandes de mission. Absent des
+          onglets où l'opérateur ne paraît pas : un bouton qui ne fait rien
+          de visible est pire qu'un bouton manquant. */}
+      {ONGLETS_AVEC_OPERATEUR.has(activeView) && (
+        <button
+          onClick={basculerOperateur}
+          title={operateurVisible ? "Masquer l'opérateur" : "Afficher l'opérateur"}
+          aria-pressed={operateurVisible}
+          className="flex items-center gap-1.5 px-3.5 h-full shrink-0 border-l border-hermes-border/60
+            transition-colors hover:bg-hermes-elevated/60"
+        >
+          <span className="tech-label !text-[8.5px]">OPR</span>
+          <span
+            className={`num text-[10.5px] ${operateurVisible ? "text-hermes-sodium" : "text-hermes-dim"}`}
+          >
+            {operateurVisible ? "ON" : "OFF"}
+          </span>
+        </button>
+      )}
 
       <div className="flex items-center gap-2 px-5 shrink-0 border-l border-hermes-border/60 h-full">
         <span className="tech-label !text-[8.5px]">HERMES OS</span>

@@ -1,0 +1,279 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+  <style>
+    body { margin: 0; background: #080a0d; color: #dfe6ee;
+           font-family: 'Barlow', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #ff9436; } a:hover { color: #ffc93d; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .disp { font-family: 'Chakra Petch', 'Barlow', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.015em; }
+    .lab { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9.5px;
+           letter-spacing: 0.19em; text-transform: uppercase; color: #56616f; }
+    .clip { clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+    .clips { clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px)); }
+    .glass { background: linear-gradient(168deg, rgba(24,32,41,0.86) 0%, rgba(13,17,22,0.94) 100%);
+             box-shadow: 0 1px 0 rgba(255,255,255,0.035) inset, 0 18px 40px -12px rgba(3,6,12,0.9); }
+
+    /* La pièce : le halo suit le curseur au lieu d'être cloué en bas à
+       gauche. Les deux sources gardent leur opposition — la sodium
+       accompagne la souris, la glacier fuit dans la diagonale opposée. */
+    .piece {
+      --mx: 22%; --my: 78%;
+      position: absolute; inset: 0; pointer-events: none;
+      background:
+        radial-gradient(66% 52% at var(--mx) var(--my), rgba(255,148,54,0.15), transparent 62%),
+        radial-gradient(58% 44% at calc(100% - var(--mx)) calc(100% - var(--my)), rgba(94,184,232,0.055), transparent 60%),
+        linear-gradient(0deg, rgba(255,148,54,0.03), transparent 42%);
+      transition: background 220ms linear;
+    }
+    /* La grille se révèle sous le halo : le masque suit la même position,
+       si bien que le quadrillage n'existe que là où la lumière tombe. */
+    .grille {
+      position: absolute; inset: 0; pointer-events: none;
+      background-image:
+        linear-gradient(rgba(133,149,166,0.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(133,149,166,0.055) 1px, transparent 1px),
+        linear-gradient(rgba(133,149,166,0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(133,149,166,0.022) 1px, transparent 1px);
+      background-size: 96px 96px, 96px 96px, 8px 8px, 8px 8px;
+      -webkit-mask-image: radial-gradient(ellipse 78% 70% at var(--mx) var(--my), #000 4%, transparent 70%);
+      mask-image: radial-gradient(ellipse 78% 70% at var(--mx) var(--my), #000 4%, transparent 70%);
+      transition: -webkit-mask-image 220ms linear, mask-image 220ms linear;
+    }
+    .bar { position: relative; height: 3px; background: #212a35; overflow: hidden; }
+    .bar > i { position: absolute; inset: 0 auto 0 0; display: block; }
+
+    /* L'opérateur n'a pas de cadre : il se tient dans la pièce, posé sur
+       le bord inférieur, et la seule chose qui l'y rattache est une flaque
+       de lumière au sol — la même que celle du halo. */
+    .flaque {
+      position: absolute; bottom: 6px; right: 34px; width: 168px; height: 26px;
+      pointer-events: none;
+      background: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--teinte) 26%, transparent), transparent 70%);
+    }
+    .etiquette { animation: parait 460ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+    @keyframes parait { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1000px; height: 700px; background: #080a0d; overflow: hidden;"
+     onMouseMove="{{ suivre }}">
+
+  <div class="piece" style="--mx: {{ mx }}; --my: {{ my }};"></div>
+  <div class="grille" style="--mx: {{ mx }}; --my: {{ my }};"></div>
+
+  <div style="position: relative; display: flex; flex-direction: column; height: 100%;">
+
+    <!-- Barre d'instruments -->
+    <div style="display: flex; align-items: center; gap: 20px; height: 52px; padding: 0 22px;
+                border-bottom: 1px solid #212a35; background: rgba(8,10,13,0.72);">
+      <div style="display: flex; align-items: center; gap: 9px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff9436" stroke-width="1.6">
+          <path d="M12 2 21 7v10l-9 5-9-5V7z"></path><path d="M12 12v10M12 12 3 7M12 12l9-5"></path>
+        </svg>
+        <span class="disp" style="font-size: 13px; letter-spacing: 0.05em; color: #ffffff;">HERMES OS</span>
+      </div>
+      <div style="display: flex; gap: 26px; margin-left: 12px;">
+        <div><div class="lab">Débit</div><div class="num" style="font-size: 13px; color: #ff9436;">92.7<span style="font-size: 9px; color: #56616f;"> tok/s</span></div></div>
+        <div><div class="lab">Vram détenue</div><div class="num" style="font-size: 13px; color: #ff9436;">13.21<span style="font-size: 9px; color: #56616f;"> Gio</span></div></div>
+        <div><div class="lab">Contexte</div><div class="num" style="font-size: 13px; color: #ff9436;">64<span style="font-size: 9px; color: #56616f;"> k</span></div></div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <!-- Le badge suit l'opérateur : une seule couleur pour un seul état,
+           partout où il est lisible. -->
+      <div class="clips" style="display: flex; align-items: center; gap: 7px; padding: 5px 11px;
+                  border: 1px solid {{ bordureEtat }}; background: {{ fondEtat }};">
+        <span style="width: 5px; height: 5px; background: {{ teinte }}; box-shadow: 0 0 8px {{ teinte }};"></span>
+        <span class="num" style="font-size: 10px; color: {{ teinte }}; letter-spacing: 0.08em;">{{ badge }}</span>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; padding: 22px; flex-grow: 1; min-height: 0;">
+
+      <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0;">
+        <div>
+          <div class="lab" style="margin-bottom: 5px;">Mission Center · cahier des charges</div>
+          <h1 class="disp" style="margin: 0; font-size: 26px; color: #ffffff; letter-spacing: -0.02em;">Section 14 · couche vocale</h1>
+        </div>
+
+        <div class="clip glass" style="padding: 16px; border: 1px solid #212a35;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 13px;">
+            <span class="lab">Ressources · RX 6800</span>
+            <span class="num" style="font-size: 9.5px; color: #56616f;">RELEVÉ 12:04:31</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;">
+            <sc-for list="{{ mesures }}" as="m" hint-placeholder-count="3">
+              <div>
+                <div class="lab" style="margin-bottom: 4px;">{{ m.nom }}</div>
+                <div style="display: flex; align-items: baseline; gap: 4px; margin-bottom: 7px;">
+                  <span class="num" style="font-size: 21px; color: #ffffff;">{{ m.valeur }}</span>
+                  <span class="num" style="font-size: 10px; color: #56616f;">{{ m.unite }}</span>
+                </div>
+                <div class="bar"><i style="width: {{ m.pct }}; background: {{ m.teinte }};"></i></div>
+                <div class="num" style="margin-top: 6px; font-size: 9.5px; color: #56616f;">{{ m.detail }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div class="clip glass" style="padding: 16px; border: 1px solid #212a35; flex-grow: 1;">
+          <div class="lab" style="margin-bottom: 11px;">Cahier des charges · 22 sections</div>
+          <div style="display: flex; gap: 3px; margin-bottom: 13px;">
+            <sc-for list="{{ sections }}" as="s" hint-placeholder-count="22">
+              <span style="flex-grow: 1; height: 26px; background: {{ s.teinte }};"></span>
+            </sc-for>
+          </div>
+          <div style="display: flex; gap: 22px; margin-bottom: 14px;">
+            <div><span class="num" style="font-size: 19px; color: #ff9436;">20</span><span class="lab" style="margin-left: 6px;">Vérifiées</span></div>
+            <div><span class="num" style="font-size: 19px; color: #56616f;">2</span><span class="lab" style="margin-left: 6px;">Signalées</span></div>
+            <div><span class="num" style="font-size: 19px; color: #56616f;">124</span><span class="lab" style="margin-left: 6px;">Fichiers</span></div>
+          </div>
+          <div style="border-top: 1px solid #212a35; padding-top: 11px;">
+            <sc-for list="{{ journal }}" as="e" hint-placeholder-count="3">
+              <div style="display: flex; gap: 11px; font-size: 11px; line-height: 1.95;">
+                <span class="num" style="color: #56616f; flex-shrink: 0;">{{ e.heure }}</span>
+                <span class="num" style="color: {{ e.teinte }}; width: 76px; flex-shrink: 0;">{{ e.type }}</span>
+                <span class="num" style="color: #8695a6;">{{ e.texte }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="clip glass" style="padding: 15px; border: 1px solid #212a35;">
+          <div class="lab" style="margin-bottom: 11px;">Modèle actif</div>
+          <div class="disp" style="font-size: 15px; color: #ffffff; margin-bottom: 3px;">gpt-oss-20b-64k</div>
+          <div class="num" style="font-size: 10px; color: #8695a6; margin-bottom: 13px;">MoE · 3 Md actifs / token</div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <sc-for list="{{ axes }}" as="a" hint-placeholder-count="4">
+              <div style="display: flex; align-items: center; gap: 9px;">
+                <span class="lab" style="width: 74px; flex-shrink: 0;">{{ a.nom }}</span>
+                <span class="bar" style="flex-grow: 1;"><i style="width: {{ a.pct }}; background: #ff9436;"></i></span>
+                <span class="num" style="font-size: 10px; color: #dfe6ee; width: 20px; text-align: right;">{{ a.note }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <!-- L'espace sous ce panneau est laissé libre : c'est là que se
+             tient l'opérateur, à même la pièce. -->
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── L'opérateur ──────────────────────────────────────────────────
+       Sans cadre, sans boutons. Il change de posture parce que le système
+       change d'état, et c'est la seule chose qu'il a à dire. -->
+  <div class="flaque" style="--teinte: {{ teinte }};"></div>
+  <div style="position: absolute; bottom: 4px; right: 26px; width: 184px; pointer-events: none;">
+    <dc-import name="Operateur" etat="{{ etat }}" hint-size="100%,251px"></dc-import>
+  </div>
+  <div class="etiquette" key="{{ etat }}"
+       style="position: absolute; bottom: 14px; right: 226px; text-align: right; pointer-events: none;">
+    <div class="num" style="font-size: 11.5px; color: {{ teinte }}; letter-spacing: 0.04em;">{{ libelle }}</div>
+    <div class="lab" style="margin-top: 4px;">{{ signal }}</div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"etatFixe":{"editor":"enum","default":"cycle","options":["cycle","repos","lancement","reflexion","lecture","ecriture","verification","tests","reussite","chargement","debordement","defaut","alerte","decision"],"section":"Opérateur"}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mx: '22%', my: '78%', pas: 0 };
+    this.minuteur = null;
+  }
+
+  // La maquette rejoue une séquence de mission réelle pour montrer que la
+  // posture suit l'état — en production c'est le flux d'événements qui la
+  // pilote, pas une horloge.
+  componentDidMount() {
+    this.minuteur = setInterval(() => {
+      this.setState((s) => ({ pas: s.pas + 1 }));
+    }, 3400);
+  }
+
+  componentWillUnmount() {
+    if (this.minuteur) clearInterval(this.minuteur);
+  }
+
+  renderVals() {
+    const FICHES = {
+      repos:        ['Au repos',              'aucune mission active',       '#8695a6'],
+      lancement:    ['Tâche lancée',          'mission.started',             '#ff9436'],
+      reflexion:    ['Réflexion',             'session/prompt · en attente', '#ff9436'],
+      lecture:      ['Lecture du workspace',  'files_read',                  '#5eb8e8'],
+      ecriture:     ['Écriture sur disque',   'write appliqué',              '#ff9436'],
+      verification: ['Vérification',          'mission/verification',        '#ffc93d'],
+      tests:        ['Tests en cours',        'pytest · 2046 tests',         '#ff9436'],
+      reussite:     ['Section vérifiée',      'verdict « vérifiée »',        '#9ede3a'],
+      chargement:   ['Chargement du modèle',  'poids montés en VRAM',        '#ff9436'],
+      debordement:  ['Débordement',           'cpu_offload_bytes > 0',       '#ff5347'],
+      defaut:       ['Défaut relevé',         'une garde signale',           '#ffc93d'],
+      alerte:       ['Alerte',                'deux tours perdus',           '#ff5347'],
+      decision:     ['Décision attendue',     'session/request_permission',  '#5eb8e8'],
+    };
+
+    const sequence = ['lancement', 'reflexion', 'lecture', 'ecriture', 'tests', 'verification', 'reussite', 'repos'];
+    const fixe = this.props.etatFixe ?? 'cycle';
+    const etat = fixe === 'cycle' ? sequence[this.state.pas % sequence.length] : fixe;
+    const f = FICHES[etat] ?? FICHES.repos;
+
+    const teinte = f[2];
+    const melange = (pct) => 'color-mix(in srgb, ' + teinte + ' ' + pct + '%, transparent)';
+
+    return {
+      mx: this.state.mx,
+      my: this.state.my,
+      suivre: (e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        this.setState({
+          mx: Math.round(((e.clientX - r.left) / r.width) * 100) + '%',
+          my: Math.round(((e.clientY - r.top) / r.height) * 100) + '%',
+        });
+      },
+
+      etat: etat,
+      libelle: f[0],
+      signal: f[1],
+      teinte: teinte,
+      badge: f[0].toUpperCase(),
+      bordureEtat: melange(34),
+      fondEtat: melange(8),
+
+      mesures: [
+        { nom: 'Mémoire vive', valeur: '45.8', unite: '%', pct: '45.8%', teinte: '#ff9436', detail: '14.6 / 31.9 Gio' },
+        { nom: 'VRAM détenue', valeur: '13.21', unite: 'Gio', pct: '82.5%', teinte: '#ff9436', detail: '/api/ps en annonce 9.55' },
+        { nom: 'Débordement', valeur: '0', unite: '%', pct: '2%', teinte: '#56616f', detail: 'tout en VRAM' },
+      ],
+
+      sections: Array.from({ length: 22 }, (_, i) => ({
+        teinte: i < 20 ? 'rgba(255,148,54,' + (0.30 + 0.55 * (i / 22)).toFixed(2) + ')' : '#212a35',
+      })),
+
+      journal: [
+        { heure: '12:04:38', type: 'écriture', teinte: '#ff9436', texte: 'backend/voice/locale.py — 214 lignes' },
+        { heure: '12:04:39', type: 'garde',    teinte: '#c2701f', texte: 'livrables vides — aucun défaut' },
+        { heure: '12:05:11', type: 'vérifié',  teinte: '#9ede3a', texte: 'section 14 — 6 fichiers sur disque' },
+      ],
+
+      axes: [
+        { nom: 'Agentique', note: 92, pct: '92%' },
+        { nom: 'Code', note: 84, pct: '84%' },
+        { nom: 'Long ctx', note: 78, pct: '78%' },
+        { nom: 'Extraction', note: 71, pct: '71%' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

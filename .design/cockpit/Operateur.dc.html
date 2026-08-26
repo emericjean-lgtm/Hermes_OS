@@ -1,0 +1,615 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; background: transparent; }
+    a { color: #ff9436; } a:hover { color: #ffc93d; }
+
+    /* ── L'opérateur ──────────────────────────────────────────────────
+       Aplats pleins, contours épais : le registre de la réclame
+       américaine des années 50, pas le fil de fer technique.
+
+       Trois règles apprises en le dessinant, chacune après l'avoir vu
+       rater à l'écran :
+
+       * Les membres sont des tubes tracés deux fois — une passe sombre
+         large qui fait le contour, une passe claire plus fine par-dessus.
+         Ils doivent sortir de la silhouette du torse, sinon ils s'y
+         fondent et le personnage n'a plus de bras.
+       * La tête fait un tiers de la hauteur. En dessous, le registre
+         bascule vers la figurine technique.
+       * Les objets tenus sont en négatif — fond sombre, contour clair —
+         l'inverse du corps. Dessinés comme lui, ils se lisaient comme un
+         motif de vêtement. Et ils se tiennent à l'écart de la tête : une
+         loupe à hauteur d'oreille se confondait avec la coque du casque.
+
+       L'identité est d'Hermès et non d'ailleurs : le casque d'opérateur
+       porte les petites ailes du pétase, l'attribut du messager. */
+
+    .o-tr { fill: none; stroke: var(--ombre); stroke-width: 27; stroke-linecap: round; stroke-linejoin: round; }
+    .o-tp { fill: none; stroke: var(--corps); stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+    .o-f  { fill: var(--corps); stroke: var(--ombre); stroke-width: 4.5; stroke-linejoin: round; }
+    .o-d  { fill: var(--ombre); }
+    .o-l  { fill: none; stroke: var(--ombre); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+    .o-lf { fill: none; stroke: var(--ombre); stroke-width: 2.6; stroke-linecap: round; }
+
+    /* Les objets tenus, en négatif du corps. */
+    .o-p  { fill: var(--ombre); stroke: var(--corps); stroke-width: 4.5; stroke-linejoin: round; }
+    .o-pl { fill: none; stroke: var(--corps); stroke-width: 3; stroke-linecap: round; opacity: 0.72; }
+
+    /* Le phosphore : une lueur portée par le personnage lui-même, pas par
+       un cadre. C'est ce qui lui permet de tenir sur le fond sans boîte. */
+    .o-svg { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--corps) 40%, transparent)); }
+
+    /* ══ BOUCLES ══════════════════════════════════════════════════════
+       Chaque posture est une boucle complète : un geste qui commence, se
+       déroule et revient exactement à son point de départ, de sorte
+       qu'elle puisse tourner aussi longtemps que la tâche dure sans
+       jamais montrer de couture.
+
+       Deux contraintes ont façonné ce qui suit :
+
+       * Une seule animation par élément. Deux règles qui animent toutes
+         deux `transform` sur le même nœud s'écrasent — le tremblement et
+         l'affaissement de « débordement » sont donc écrits dans une seule
+         image-clé, pas superposés.
+       * Rien de nerveux, sauf l'alerte. Ceci se regarde du coin de l'œil
+         pendant des heures ; un mouvement qui appelle sans cesse le
+         regard finit par être masqué du regard. L'alerte, elle, doit
+         justement le voler. */
+
+    /* Repos — respiration lente et report du poids d'un pied sur l'autre.
+       Un système à l'arrêt doit avoir l'air à l'arrêt. */
+    .a-repos { animation: repos 7.6s ease-in-out infinite; transform-origin: 105px 272px; }
+    @keyframes repos {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      25%      { transform: translateY(-2px) rotate(0deg); }
+      50%      { transform: translateY(0) rotate(1.3deg); }
+      75%      { transform: translateY(-2px) rotate(1.3deg); }
+    }
+
+    .a-souffle { animation: souffle 3.8s ease-in-out infinite; transform-origin: 105px 272px; }
+    @keyframes souffle { 0%, 100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-2px) scaleY(1.007); } }
+
+    /* Lancement — le pouce monte, le corps rebondit à l'instant où il
+       arrive. Les deux boucles font 2,6 s pour rester en phase. */
+    .a-pouce { animation: pouce 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite; transform-origin: 138px 152px; }
+    @keyframes pouce { 0%, 12% { transform: rotate(32deg); } 26%, 78% { transform: rotate(0deg); } 92%, 100% { transform: rotate(32deg); } }
+
+    .a-rebond { animation: rebond 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite; transform-origin: 105px 272px; }
+    @keyframes rebond {
+      0%, 14%   { transform: translateY(0); }
+      26%       { transform: translateY(-6px); }
+      36%       { transform: translateY(0); }
+      41%       { transform: translateY(-2px); }
+      48%, 100% { transform: translateY(0); }
+    }
+
+    /* Réflexion — le doigt tapote le menton, les engrenages tournent. */
+    .a-tapote { animation: tapote 1.7s ease-in-out infinite; transform-origin: 138px 152px; }
+    @keyframes tapote { 0%, 58%, 100% { transform: rotate(0deg); } 70% { transform: rotate(-4deg); } 82% { transform: rotate(0deg); } }
+
+    .a-rouages   { animation: tourne 4.6s linear infinite; transform-origin: 168px 34px; }
+    .a-rouages-b { animation: tourne-inv 3.1s linear infinite; transform-origin: 199px 12px; }
+    @keyframes tourne { to { transform: rotate(360deg); } }
+    @keyframes tourne-inv { to { transform: rotate(-360deg); } }
+
+    /* Lecture — la ligne descend, la tête suit le texte, la page vacille
+       une fois en fin de course : elle vient d'être lue. */
+    .a-balaye { animation: balaye 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    @keyframes balaye { 0% { opacity: 0; transform: translateY(0); } 12%, 82% { opacity: 1; } 100% { opacity: 0; transform: translateY(56px); } }
+
+    .a-lit { animation: lit 2.4s ease-in-out infinite; transform-origin: 105px 129px; }
+    @keyframes lit { 0%, 100% { transform: rotate(-2.4deg); } 50% { transform: rotate(2.4deg); } }
+
+    .a-page { animation: page 2.4s linear infinite; }
+    @keyframes page { 0%, 86% { opacity: 1; } 90% { opacity: 0.3; } 95%, 100% { opacity: 1; } }
+
+    /* Écriture — trois lignes se tracent l'une après l'autre puis la
+       feuille se vide d'un coup. C'est la boucle la plus proche d'un gif :
+       elle raconte quelque chose et recommence.
+
+       Les trois décalages sont écrits dans les images-clés et non par
+       `animation-delay` : avec un délai, chaque ligne tournerait sur son
+       propre cycle et elles ne se videraient jamais ensemble. */
+    .a-ecrit { animation: ecrit 1.2s ease-in-out infinite; transform-origin: 138px 152px; }
+    @keyframes ecrit { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(7deg); } }
+
+    .a-ligne-1, .a-ligne-2, .a-ligne-3 { stroke-dasharray: 64; }
+    .a-ligne-1 { animation: ligne1 3.6s linear infinite; }
+    .a-ligne-2 { animation: ligne2 3.6s linear infinite; }
+    .a-ligne-3 { animation: ligne3 3.6s linear infinite; }
+    @keyframes ligne1 { 0% { stroke-dashoffset: 64; } 22%, 88% { stroke-dashoffset: 0; } 91%, 100% { stroke-dashoffset: 64; } }
+    @keyframes ligne2 { 0%, 26% { stroke-dashoffset: 64; } 48%, 88% { stroke-dashoffset: 0; } 91%, 100% { stroke-dashoffset: 64; } }
+    @keyframes ligne3 { 0%, 52% { stroke-dashoffset: 64; } 74%, 88% { stroke-dashoffset: 0; } 91%, 100% { stroke-dashoffset: 64; } }
+
+    /* Vérification — la loupe balaie, et un reflet la traverse à chaque
+       arrêt : c'est ce reflet qui dit qu'elle regarde. */
+    .a-fouille { animation: fouille 3.2s ease-in-out infinite; transform-origin: 138px 152px; }
+    @keyframes fouille { 0%, 100% { transform: rotate(0deg); } 30% { transform: rotate(-16deg); } 65% { transform: rotate(11deg); } }
+
+    .a-reflet { animation: reflet 3.2s ease-in-out infinite; }
+    @keyframes reflet {
+      0%, 22%   { opacity: 0; transform: translateX(-13px); }
+      34%       { opacity: 0.9; transform: translateX(0); }
+      46%, 58%  { opacity: 0; transform: translateX(13px); }
+      59%       { opacity: 0; transform: translateX(-13px); }
+      72%       { opacity: 0.9; transform: translateX(0); }
+      84%, 100% { opacity: 0; transform: translateX(13px); }
+    }
+
+    /* Tests — les coches tombent une à une, puis la liste se vide. */
+    .a-coche-1 { animation: coche1 3.6s steps(1) infinite; }
+    .a-coche-2 { animation: coche2 3.6s steps(1) infinite; }
+    .a-coche-3 { animation: coche3 3.6s steps(1) infinite; }
+    @keyframes coche1 { 0%, 17% { opacity: 0; } 18%, 88% { opacity: 1; } 89%, 100% { opacity: 0; } }
+    @keyframes coche2 { 0%, 41% { opacity: 0; } 42%, 88% { opacity: 1; } 89%, 100% { opacity: 0; } }
+    @keyframes coche3 { 0%, 65% { opacity: 0; } 66%, 88% { opacity: 1; } 89%, 100% { opacity: 0; } }
+
+    .a-aiguille { animation: tourne 3.6s linear infinite; transform-origin: 0px -28px; }
+
+    /* Réussite — un saut, franc et court. */
+    .a-saute { animation: saute 1.35s cubic-bezier(0.3, 0, 0.2, 1) infinite; }
+    @keyframes saute { 0%, 58%, 100% { transform: translateY(0); } 22% { transform: translateY(-17px); } 38% { transform: translateY(-4px); } }
+
+    /* Chargement — les poids montent dans la caisse, puis elle se vide et
+       ça recommence. La barre est la progression, pas un ornement. */
+    .a-porte { animation: porte 4s ease-in-out infinite; }
+    @keyframes porte { 0%, 100% { transform: translateY(0); } 46% { transform: translateY(5px); } }
+
+    .a-remplit { animation: remplit 4s cubic-bezier(0.35, 0, 0.65, 1) infinite; transform-origin: 105px 228px; }
+    @keyframes remplit { 0% { transform: scaleY(0); } 84%, 92% { transform: scaleY(1); } 94%, 100% { transform: scaleY(0); } }
+
+    /* Débordement — il s'enfonce sous la charge, se reprend d'un sursaut,
+       s'enfonce de nouveau. */
+    .a-effort { animation: effort 2.6s ease-in-out infinite; }
+    @keyframes effort {
+      0%   { transform: translate(0, 0); }
+      9%   { transform: translate(-1.7px, 2px); }
+      18%  { transform: translate(1.7px, 3.5px); }
+      27%  { transform: translate(-1.5px, 5px); }
+      36%  { transform: translate(1.5px, 6.5px); }
+      45%  { transform: translate(-1.7px, 8px); }
+      52%  { transform: translate(0, 9px); }
+      60%  { transform: translate(0, -2px); }
+      68%  { transform: translate(-1.6px, 1px); }
+      77%  { transform: translate(1.6px, 2.5px); }
+      88%  { transform: translate(-1.5px, 1.5px); }
+      100% { transform: translate(0, 0); }
+    }
+
+    .a-goutte { animation: goutte 2.6s ease-in infinite; }
+    @keyframes goutte { 0%, 10% { opacity: 0; transform: translate(0, -8px); } 26% { opacity: 1; } 62%, 100% { opacity: 0; transform: translate(-7px, 32px); } }
+
+    /* Défaut — le bras désigne le panneau par petits coups. */
+    .a-jab { animation: jab 1.6s ease-in-out infinite; transform-origin: 138px 152px; }
+    @keyframes jab { 0%, 46%, 100% { transform: rotate(0deg); } 60% { transform: rotate(-8deg); } 74% { transform: rotate(0deg); } }
+
+    .a-battement { animation: battement 1.6s ease-in-out infinite; transform-origin: 184px 96px; }
+    @keyframes battement { 0%, 100% { opacity: 0.4; transform: scale(0.95); } 55% { opacity: 1; transform: scale(1.08); } }
+
+    /* Alerte — la seule boucle qui a le droit de voler le regard. */
+    .a-agite { animation: agite 0.62s ease-in-out infinite; transform-origin: 105px 268px; }
+    @keyframes agite { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+
+    .a-vague-d { animation: vague 0.62s ease-in-out infinite; transform-origin: 138px 152px; }
+    .a-vague-g { animation: vague 0.62s ease-in-out infinite reverse; transform-origin: 72px 152px; }
+    @keyframes vague { 0%, 100% { transform: rotate(-11deg); } 50% { transform: rotate(11deg); } }
+
+    .a-eclat { animation: eclat 0.62s steps(1) infinite; }
+    @keyframes eclat { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.12; } }
+
+    /* Décision — il tend la planchette, la retient, la retend. */
+    .a-tend { animation: tend 2.4s ease-in-out infinite; transform-origin: 105px 240px; }
+    @keyframes tend { 0%, 100% { transform: scale(1) translateY(0); } 50% { transform: scale(1.055) translateY(-4px); } }
+
+    .a-cligne { animation: cligne 5.4s steps(1) infinite; transform-origin: 105px 80px; }
+    @keyframes cligne { 0%, 95% { transform: scaleY(1); } 96%, 98% { transform: scaleY(0.1); } 99%, 100% { transform: scaleY(1); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .o-svg * { animation: none !important; }
+    }
+  </style>
+</helmet>
+
+<svg class="o-svg" viewBox="0 0 220 300" width="100%" height="100%"
+     style="--corps: {{ teinte }}; --ombre: #080a0d; display: block; overflow: visible;"
+     role="img" aria-label="Opérateur Hermes — {{ libelle }}">
+
+  <g class="{{ classeCorps }}">
+
+    <!-- ── Jambes et bottes ─────────────────────────────────────────── -->
+    <g>
+      <path class="o-tr" d="M88,214 L85,254"></path>
+      <path class="o-tr" d="M122,214 L125,254"></path>
+      <path class="o-tp" d="M88,214 L85,254"></path>
+      <path class="o-tp" d="M122,214 L125,254"></path>
+      <path class="o-f" d="M66,251 h22 a4,4 0 0 1 4,4 v13 a4,4 0 0 1 -4,4 H66 a5,5 0 0 1 -5,-5 v-11 a5,5 0 0 1 5,-5 z"></path>
+      <path class="o-f" d="M132,251 h22 a5,5 0 0 1 5,5 v11 a5,5 0 0 1 -5,5 h-22 a4,4 0 0 1 -4,-4 v-13 a4,4 0 0 1 4,-4 z"></path>
+    </g>
+
+    <!-- ── Cou et torse ─────────────────────────────────────────────── -->
+    <g>
+      <path class="o-f" d="M92,116 h26 v28 h-26 z"></path>
+      <path class="o-f" d="M105,136 C117,136 127,139 134,145 C142,152 146,163 146,177 L146,205 C146,213 140,219 132,219 L78,219 C70,219 64,213 64,205 L64,177 C64,163 68,152 76,145 C83,139 93,136 105,136 Z"></path>
+      <path class="o-l" d="M90,139 L105,158 L120,139"></path>
+      <path class="o-f" d="M62,200 h86 v17 h-86 z"></path>
+      <path class="o-d" d="M97,204 h16 v10 h-16 z"></path>
+      <path class="o-l" d="M131,164 l9,5 v10 l-9,5 l-9,-5 v-10 z" stroke-width="3"></path>
+    </g>
+
+    <!-- ── Objets tenus, en négatif ─────────────────────────────────── -->
+    <sc-if value="{{ aFeuille }}" hint-placeholder-val="{{ false }}">
+      <g class="a-page">
+        <path class="o-p" d="M52,158 h106 v72 h-106 z"></path>
+        <path class="o-pl" d="M64,176 h82 M64,190 h82 M64,204 h58 M64,218 h70"></path>
+        <path class="a-balaye" d="M54,168 h102" fill="none" stroke="var(--corps)" stroke-width="4.5" opacity="0.9"></path>
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ aPlanchette }}" hint-placeholder-val="{{ false }}">
+      <g>
+        <path class="o-p" d="M38,166 h84 v86 h-84 z"></path>
+        <path class="o-f" d="M66,158 h28 v15 h-28 z"></path>
+        <path class="o-pl a-ligne-1" d="M50,192 h64"></path>
+        <path class="o-pl a-ligne-2" d="M50,210 h64"></path>
+        <path class="o-pl a-ligne-3" d="M50,228 h64"></path>
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ aListe }}" hint-placeholder-val="{{ false }}">
+      <g>
+        <path class="o-p" d="M36,164 h84 v88 h-84 z"></path>
+        <path class="o-f" d="M64,156 h28 v15 h-28 z"></path>
+        <path class="o-pl" d="M48,186 h12 v12 h-12 z M48,208 h12 v12 h-12 z M48,230 h12 v12 h-12 z"></path>
+        <path class="o-pl" d="M70,192 h38 M70,214 h38 M70,236 h24" opacity="0.45"></path>
+        <path class="a-coche-1" d="M49,192 l4,5 l7,-9" fill="none" stroke="var(--corps)" stroke-width="3.4" stroke-linecap="round"></path>
+        <path class="a-coche-2" d="M49,214 l4,5 l7,-9" fill="none" stroke="var(--corps)" stroke-width="3.4" stroke-linecap="round"></path>
+        <path class="a-coche-3" d="M49,236 l4,5 l7,-9" fill="none" stroke="var(--corps)" stroke-width="3.4" stroke-linecap="round"></path>
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ aCaisse }}" hint-placeholder-val="{{ false }}">
+      <g>
+        <path class="o-p" d="M56,162 h98 v68 h-98 z"></path>
+        <path class="a-remplit" d="M58,164 h94 v64 h-94 z" fill="var(--corps)" opacity="0.26"></path>
+        <path class="o-pl" d="M56,178 h98 M56,214 h98 M84,162 v68 M126,162 v68"></path>
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ aGrosseCaisse }}" hint-placeholder-val="{{ false }}">
+      <g>
+        <path class="o-p" d="M30,152 h150 v100 h-150 z"></path>
+        <path class="o-pl" d="M30,174 h150 M30,230 h150 M72,152 v100 M138,152 v100"></path>
+        <path class="o-pl" d="M76,204 h58" opacity="1"></path>
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ aTendu }}" hint-placeholder-val="{{ false }}">
+      <g>
+        <path class="o-p" d="M48,150 h114 v88 h-114 z"></path>
+        <path class="o-f" d="M92,142 h30 v15 h-30 z"></path>
+        <path class="o-pl" d="M62,176 h86 M62,194 h86 M62,212 h50"></path>
+        <path class="o-pl" d="M110,220 h38" opacity="1"></path>
+      </g>
+    </sc-if>
+
+    <!-- ── Tête ─────────────────────────────────────────────────────── -->
+    <g class="{{ classeTete }}">
+      <!-- Ailes du pétase : l'attribut d'Hermès, et ce qui distingue cet
+           opérateur de toute autre mascotte. Posées haut, aux tempes, pour
+           qu'elles se lisent comme des ailes et non comme des moustaches. -->
+      <path class="o-f" d="M52,62 C38,48 20,41 8,43 C17,55 28,61 40,64 C29,65 19,68 14,74 C25,81 40,81 52,75 Z" opacity="0.5"></path>
+      <path class="o-f" d="M158,60 C172,44 192,36 206,38 C196,50 184,58 171,62 C183,62 194,66 199,72 C187,80 171,80 158,74 Z"></path>
+
+      <ellipse class="o-f" cx="50" cy="88" rx="9" ry="12"></ellipse>
+      <path class="o-f" d="M105,26 C136,26 160,48 160,78 C160,102 146,120 127,126 C120,128 112,129 105,129 C98,129 90,128 83,126 C64,120 50,102 50,78 C50,48 74,26 105,26 Z"></path>
+
+      <!-- Casque -->
+      <path class="o-tr" d="M58,60 C66,18 144,18 152,60" stroke-width="14"></path>
+      <path class="o-tp" d="M58,60 C66,18 144,18 152,60" stroke-width="6.5"></path>
+      <path class="o-f" d="M150,66 h16 a10,10 0 0 1 10,10 v20 a10,10 0 0 1 -10,10 h-16 z"></path>
+      <path class="o-tr" d="M162,106 C160,124 145,131 131,125" stroke-width="10"></path>
+      <path class="o-tp" d="M162,106 C160,124 145,131 131,125" stroke-width="4"></path>
+      <circle class="o-f" cx="130" cy="125" r="6.5"></circle>
+
+      <!-- ── Visage ─────────────────────────────────────────────────── -->
+      <sc-if value="{{ vNormal }}" hint-placeholder-val="{{ false }}">
+        <g>
+          <g class="a-cligne">
+            <ellipse class="o-d" cx="88" cy="80" rx="5.4" ry="7.4"></ellipse>
+            <ellipse class="o-d" cx="122" cy="80" rx="5.4" ry="7.4"></ellipse>
+          </g>
+          <path class="o-l" d="M76,63 Q88,57 98,62 M112,62 Q122,57 134,63"></path>
+          <path class="o-l" d="M105,86 Q111,100 99,100"></path>
+          <path class="o-l" d="M80,106 Q105,126 130,106"></path>
+        </g>
+      </sc-if>
+
+      <sc-if value="{{ vClin }}" hint-placeholder-val="{{ true }}">
+        <g>
+          <ellipse class="o-d" cx="88" cy="80" rx="5.4" ry="7.4"></ellipse>
+          <path class="o-l" d="M113,82 Q122,73 131,82" stroke-width="4.6"></path>
+          <path class="o-l" d="M76,63 Q88,57 98,62 M111,59 Q122,53 134,60"></path>
+          <path class="o-l" d="M105,86 Q111,100 99,100"></path>
+          <path class="o-l" d="M78,104 Q105,128 131,103"></path>
+          <path class="o-lf" d="M128,111 Q135,109 138,103"></path>
+        </g>
+      </sc-if>
+
+      <sc-if value="{{ vHeureux }}" hint-placeholder-val="{{ false }}">
+        <g>
+          <path class="o-l" d="M79,82 Q88,70 97,82 M113,82 Q122,70 131,82" stroke-width="4.8"></path>
+          <path class="o-l" d="M105,88 Q111,100 99,100"></path>
+          <path class="o-f" d="M78,104 Q105,134 132,104 Z"></path>
+        </g>
+      </sc-if>
+
+      <sc-if value="{{ vConcentre }}" hint-placeholder-val="{{ false }}">
+        <g>
+          <ellipse class="o-d" cx="87" cy="82" rx="5" ry="5.2"></ellipse>
+          <ellipse class="o-d" cx="121" cy="82" rx="5" ry="5.2"></ellipse>
+          <path class="o-l" d="M75,68 Q87,62 98,68 M110,68 Q121,62 133,68"></path>
+          <path class="o-l" d="M105,88 Q111,101 99,101"></path>
+          <path class="o-l" d="M86,112 Q105,119 124,111"></path>
+        </g>
+      </sc-if>
+
+      <sc-if value="{{ vPense }}" hint-placeholder-val="{{ false }}">
+        <g>
+          <ellipse class="o-d" cx="92" cy="75" rx="5.2" ry="6.6"></ellipse>
+          <ellipse class="o-d" cx="126" cy="75" rx="5.2" ry="6.6"></ellipse>
+          <path class="o-l" d="M78,60 Q90,53 100,59 M113,59 Q124,53 136,60"></path>
+          <path class="o-l" d="M105,86 Q111,100 99,100"></path>
+          <path class="o-l" d="M89,113 Q105,107 121,114"></path>
+        </g>
+      </sc-if>
+
+      <sc-if value="{{ vEffort }}" hint-placeholder-val="{{ false }}">
+        <g>
+          <path class="o-l" d="M79,73 l9,8 l-9,8 M131,73 l-9,8 l9,8" stroke-width="4.6"></path>
+          <path class="o-l" d="M105,88 Q111,100 99,100"></path>
+          <path class="o-f" d="M86,106 h38 a6,6 0 0 1 6,6 v4 a6,6 0 0 1 -6,6 h-38 a6,6 0 0 1 -6,-6 v-4 a6,6 0 0 1 6,-6 z"></path>
+          <path class="o-lf" d="M95,106 v16 M115,106 v16"></path>
+        </g>
+      </sc-if>
+
+      <sc-if value="{{ vInquiet }}" hint-placeholder-val="{{ false }}">
+        <g>
+          <circle class="o-d" cx="88" cy="80" r="7.4"></circle>
+          <circle class="o-d" cx="124" cy="80" r="7.4"></circle>
+          <path class="o-l" d="M74,60 Q86,55 97,64 M114,64 Q125,55 137,60"></path>
+          <path class="o-l" d="M105,88 Q111,101 99,101"></path>
+          <ellipse class="o-d" cx="105" cy="114" rx="10" ry="11"></ellipse>
+        </g>
+      </sc-if>
+    </g>
+
+    <!-- ── Bras ─────────────────────────────────────────────────────────
+         Tracés après la tête : une loupe ou une main au menton passaient
+         sinon derrière elle. -->
+    <g class="{{ classeBrasG }}">
+      <path class="o-tr" d="{{ brasG }}"></path>
+      <path class="o-tp" d="{{ brasG }}"></path>
+      <g transform="translate({{ mainGX }}, {{ mainGY }}) rotate({{ mainGR }})">
+        <circle class="o-f" cx="0" cy="0" r="12.5"></circle>
+        <path class="o-lf" d="M-7,-4 h14 M-6,2.5 h12"></path>
+      </g>
+    </g>
+
+    <g class="{{ classeBrasD }}">
+      <path class="o-tr" d="{{ brasD }}"></path>
+      <path class="o-tp" d="{{ brasD }}"></path>
+      <g transform="translate({{ mainDX }}, {{ mainDY }}) rotate({{ mainDR }})">
+        <sc-if value="{{ aLoupe }}" hint-placeholder-val="{{ false }}">
+          <g>
+            <path class="o-tr" d="M0,-14 L0,2" stroke-width="13"></path>
+            <path class="o-tp" d="M0,-14 L0,2" stroke-width="7"></path>
+            <circle class="o-f" cx="0" cy="-34" r="20"></circle>
+            <circle fill="var(--ombre)" stroke="none" cx="0" cy="-34" r="12"></circle>
+            <path class="a-reflet" d="M-4,-42 L2,-26" fill="none" stroke="var(--corps)" stroke-width="3.6" stroke-linecap="round"></path>
+          </g>
+        </sc-if>
+        <sc-if value="{{ aChrono }}" hint-placeholder-val="{{ false }}">
+          <g>
+            <path class="o-f" d="M-6,-50 h12 v8 h-12 z"></path>
+            <circle class="o-f" cx="0" cy="-28" r="18"></circle>
+            <path class="o-l a-aiguille" d="M0,-28 L0,-40" stroke-width="3.4"></path>
+            <circle class="o-d" cx="0" cy="-28" r="2.6"></circle>
+          </g>
+        </sc-if>
+        <sc-if value="{{ pouceD }}" hint-placeholder-val="{{ true }}">
+          <path class="o-f" d="M-3,-9 C-11,-14 -11,-28 -2,-29 C7,-30 10,-19 7,-9 Z"></path>
+        </sc-if>
+        <circle class="o-f" cx="0" cy="0" r="12.5"></circle>
+        <path class="o-lf" d="M-7,-4 h14 M-6,2.5 h12"></path>
+      </g>
+    </g>
+
+    <!-- ── Signes ───────────────────────────────────────────────────── -->
+    <sc-if value="{{ aRouages }}" hint-placeholder-val="{{ false }}">
+      <g>
+        <g class="a-rouages">
+          <path class="o-f" d="{{ engrenageA }}"></path>
+          <circle class="o-d" cx="168" cy="34" r="5"></circle>
+        </g>
+        <g class="a-rouages-b">
+          <path class="o-f" d="{{ engrenageB }}"></path>
+        </g>
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ aGouttes }}" hint-placeholder-val="{{ false }}">
+      <g>
+        <g class="a-goutte"><path class="o-f" d="M42,84 C36,92 33,98 37,102 C41,106 47,103 47,97 C47,93 45,89 42,84 Z"></path></g>
+        <g class="a-goutte" style="animation-delay: 1.3s;"><path class="o-f" d="M170,88 C164,96 161,102 165,106 C169,110 175,107 175,101 C175,97 173,93 170,88 Z"></path></g>
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ aPanneau }}" hint-placeholder-val="{{ false }}">
+      <g class="a-battement">
+        <path class="o-f" d="M184,66 L210,110 L158,110 Z"></path>
+        <path class="o-d" d="M181,82 h6 v14 h-6 z M181,100 h6 v6 h-6 z"></path>
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ aEclats }}" hint-placeholder-val="{{ false }}">
+      <g class="a-eclat">
+        <path class="o-l" d="M105,4 v13 M62,12 l6,12 M148,12 l-6,12 M28,38 l11,7 M182,38 l-11,7" stroke-width="6"></path>
+      </g>
+    </sc-if>
+
+  </g>
+</svg>
+</x-dc>
+
+<script data-dc-script data-props='{"etat":{"editor":"enum","default":"lancement","options":["repos","lancement","reflexion","lecture","ecriture","verification","tests","reussite","chargement","debordement","defaut","alerte","decision"]},"$preview":{"width":220,"height":300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const etat = this.props.etat ?? 'lancement';
+
+    // Chaque état est une posture complète : deux bras, un visage, une
+    // boucle et éventuellement un objet. Le tout déclaré ici plutôt que
+    // dispersé dans le gabarit — on lit une posture d'un coup.
+    //
+    // `boucle` est la durée d'un tour complet. Elle est exposée pour que
+    // la planche puisse l'afficher : c'est ce chiffre qu'on ajuste quand
+    // un geste paraît nerveux ou mou, et il vaut mieux le voir écrit.
+    const P = {
+      repos: {
+        libelle: 'Au repos', teinte: '#8695a6', visage: 'normal', corps: 'a-repos', boucle: '7,6 s',
+        bg: 'M72,152 C56,162 50,182 52,196', mg: [52, 202, 0],
+        bd: 'M138,152 C154,162 160,182 158,196', md: [158, 202, 0],
+      },
+      lancement: {
+        libelle: 'Tâche lancée', teinte: '#ff9436', visage: 'clin', corps: 'a-rebond', boucle: '2,6 s',
+        bg: 'M72,152 C54,160 46,180 58,192', mg: [62, 198, 0],
+        bd: 'M138,152 C162,156 172,138 166,118', md: [166, 112, 8], pouceD: true, brasD: 'a-pouce',
+      },
+      reflexion: {
+        libelle: 'Réflexion', teinte: '#ff9436', visage: 'pense', corps: 'a-souffle', boucle: '1,7 s',
+        bg: 'M72,152 C54,160 46,180 58,192', mg: [62, 198, 0],
+        bd: 'M138,152 C164,162 162,134 140,122', md: [134, 118, -36], brasD: 'a-tapote',
+        rouages: true,
+      },
+      lecture: {
+        libelle: 'Lecture du workspace', teinte: '#5eb8e8', visage: 'concentre', corps: 'a-souffle', boucle: '2,4 s',
+        bg: 'M72,152 C62,164 56,180 56,190', mg: [56, 196, 0],
+        bd: 'M138,152 C148,164 154,180 154,190', md: [154, 196, 0],
+        feuille: true, tete: 'a-lit',
+      },
+      ecriture: {
+        libelle: 'Écriture sur disque', teinte: '#ff9436', visage: 'concentre', corps: 'a-souffle', boucle: '3,6 s',
+        bg: 'M72,152 C58,166 48,190 48,206', mg: [48, 212, 0],
+        bd: 'M138,152 C160,164 148,196 118,202', md: [112, 206, 34], brasD: 'a-ecrit',
+        planchette: true,
+      },
+      verification: {
+        libelle: 'Vérification sur disque', teinte: '#ffc93d', visage: 'concentre', corps: 'a-souffle', boucle: '3,2 s',
+        bg: 'M72,152 C56,162 50,182 54,196', mg: [56, 202, 0],
+        bd: 'M138,152 C158,154 172,146 178,134', md: [180, 130, -6], loupe: true, brasD: 'a-fouille',
+      },
+      tests: {
+        libelle: 'Tests en cours', teinte: '#ff9436', visage: 'concentre', corps: 'a-souffle', boucle: '3,6 s',
+        bg: 'M72,152 C56,166 46,192 46,208', mg: [46, 214, 0],
+        bd: 'M138,152 C160,152 176,144 184,136', md: [186, 134, 10], chrono: true,
+        liste: true,
+      },
+      reussite: {
+        libelle: 'Section vérifiée', teinte: '#9ede3a', visage: 'heureux', corps: 'a-saute', boucle: '1,35 s',
+        bg: 'M72,152 C52,136 40,110 36,88', mg: [34, 82, -28],
+        bd: 'M138,152 C158,136 170,110 174,88', md: [176, 82, 28],
+      },
+      chargement: {
+        libelle: 'Chargement du modèle', teinte: '#ff9436', visage: 'concentre', corps: 'a-porte', boucle: '4 s',
+        bg: 'M72,152 C60,162 54,178 56,188', mg: [56, 194, 0],
+        bd: 'M138,152 C150,162 156,178 154,188', md: [154, 194, 0],
+        caisse: true,
+      },
+      debordement: {
+        libelle: 'Débordement — chemin CPU', teinte: '#ff5347', visage: 'effort', corps: 'a-effort', boucle: '2,6 s',
+        bg: 'M72,152 C54,166 42,192 42,204', mg: [42, 210, 0],
+        bd: 'M138,152 C156,166 168,192 168,204', md: [168, 210, 0],
+        grosseCaisse: true, gouttes: true,
+      },
+      defaut: {
+        libelle: 'Défaut relevé', teinte: '#ffc93d', visage: 'inquiet', corps: 'a-souffle', boucle: '1,6 s',
+        bg: 'M72,152 C54,160 46,180 58,192', mg: [62, 198, 0],
+        bd: 'M138,152 C166,156 180,144 184,126', md: [186, 120, 14], brasD: 'a-jab',
+        panneau: true,
+      },
+      alerte: {
+        libelle: 'Alerte — session relancée', teinte: '#ff5347', visage: 'inquiet', corps: 'a-agite', boucle: '0,62 s',
+        bg: 'M72,152 C50,148 40,124 50,104', mg: [52, 98, -20], brasG: 'a-vague-g',
+        bd: 'M138,152 C160,148 170,124 160,104', md: [158, 98, 20], brasD: 'a-vague-d',
+        eclats: true,
+      },
+      decision: {
+        libelle: 'Décision attendue', teinte: '#5eb8e8', visage: 'normal', corps: 'a-tend', boucle: '2,4 s',
+        bg: 'M72,152 C60,162 54,176 56,186', mg: [56, 192, 0],
+        bd: 'M138,152 C150,162 156,176 154,186', md: [154, 192, 0],
+        tendu: true,
+      },
+    };
+
+    const p = P[etat] ?? P.repos;
+
+    // Un engrenage se calcule ; écrit à la main il devient une étoile.
+    const engrenage = (cx, cy, rExt, rInt, dents) => {
+      const n = dents * 2;
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const r = i % 2 === 0 ? rExt : rInt;
+        const a = (Math.PI * 2 * i) / n;
+        pts.push((cx + r * Math.cos(a)).toFixed(1) + ',' + (cy + r * Math.sin(a)).toFixed(1));
+      }
+      return 'M' + pts.join(' L') + ' Z';
+    };
+
+    return {
+      libelle: p.libelle,
+      teinte: p.teinte,
+      boucle: p.boucle,
+      classeCorps: p.corps ?? '',
+      classeTete: p.tete ?? '',
+      classeBrasG: p.brasG ?? '',
+      classeBrasD: p.brasD ?? '',
+
+      brasG: p.bg, mainGX: p.mg[0], mainGY: p.mg[1], mainGR: p.mg[2],
+      brasD: p.bd, mainDX: p.md[0], mainDY: p.md[1], mainDR: p.md[2], pouceD: p.pouceD === true,
+
+      vNormal: p.visage === 'normal',
+      vClin: p.visage === 'clin',
+      vHeureux: p.visage === 'heureux',
+      vConcentre: p.visage === 'concentre',
+      vPense: p.visage === 'pense',
+      vEffort: p.visage === 'effort',
+      vInquiet: p.visage === 'inquiet',
+
+      aFeuille: p.feuille === true,
+      aPlanchette: p.planchette === true,
+      aListe: p.liste === true,
+      aCaisse: p.caisse === true,
+      aGrosseCaisse: p.grosseCaisse === true,
+      aTendu: p.tendu === true,
+      aLoupe: p.loupe === true,
+      aChrono: p.chrono === true,
+      aRouages: p.rouages === true,
+      aGouttes: p.gouttes === true,
+      aPanneau: p.panneau === true,
+      aEclats: p.eclats === true,
+
+      engrenageA: engrenage(168, 34, 18, 12.5, 8),
+      engrenageB: engrenage(199, 12, 12, 8, 6),
+    };
+  }
+}
+</script>
+</body>
+</html>

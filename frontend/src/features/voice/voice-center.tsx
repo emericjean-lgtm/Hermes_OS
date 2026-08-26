@@ -7,6 +7,7 @@ import {
 import { Card, Badge } from "@/components/ui/card";
 import { CenterHeader } from "@/components/center-scaffold";
 import { useDictee, useSynthese, useVoixFiltrees, LANGUES } from "./use-voice";
+import { useCockpitStore } from "@/hooks/use-store";
 import { voiceClient } from "@/services/client";
 
 /**
@@ -85,6 +86,20 @@ export function VoiceCenter() {
 
   const dictee = useDictee(prefs.langue);
   const synthese = useSynthese(prefs.voix, prefs.debit, prefs.hauteur);
+
+  // Les deux postures vocales de l'operateur (HOS-182). Elles n'ont aucun
+  // topic correspondant sur le bus — la dictee et la synthese vivent
+  // entierement dans le navigateur — et sont donc declarees ici, la ou l'on
+  // sait. La tenue est longue et renouvelee tant que l'etat dure : ni la
+  // dictee ni la synthese n'emettent de battement.
+  const signalerOperateur = useCockpitStore((s) => s.signalerOperateur);
+  const tairelOperateur = useCockpitStore((s) => s.tairelOperateur);
+  useEffect(() => {
+    if (dictee.ecoute) signalerOperateur("ecoute", "micro ouvert", 3600_000);
+    else if (synthese.parle) signalerOperateur("parole", "synthese en cours", 3600_000);
+    else tairelOperateur();
+    return () => tairelOperateur();
+  }, [dictee.ecoute, synthese.parle, signalerOperateur, tairelOperateur]);
   const voixListe = useVoixFiltrees(synthese.voix, prefs.langue);
 
   const transcription = useMemo(

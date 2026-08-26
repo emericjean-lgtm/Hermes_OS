@@ -21,6 +21,12 @@ from backend.core.audit_log import AuditEntry, Timer
 from backend.core.event_hub import get_event_hub
 from backend.core.router import UnknownTaskTypeError
 
+# --------------------------------------------------------------------
+"""Le flux de jetons du chat, publié jeton par jeton (HOS-181)."""
+CHAT_EVENTS: dict[str, str] = {
+    "token": "chat.token",
+}
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()

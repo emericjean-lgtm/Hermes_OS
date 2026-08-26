@@ -552,6 +552,217 @@ body::after {
     0 0 0 2px color-mix(in srgb, var(--hermes-sodium) 75%, transparent);
 }
 
+
+/* ══ L'OPÉRATEUR ═══════════════════════════════════════════════════════
+   La figure du coin bas-droit, et ses quinze boucles. Le composant est
+   `components/operateur.tsx`, l'état lui vient de `hooks/use-operateur.ts`.
+
+   Le style vit ici et non dans le composant parce que ces règles sont des
+   variantes d'une même grammaire — deux passes de tracé, un négatif pour
+   les objets tenus — et qu'un tableau de classes est la seule forme où on
+   les voit toutes d'un coup.
+
+   Trois règles, chacune apprise après l'avoir vue rater à l'écran :
+
+   * Les membres sont des tubes tracés deux fois. Le contour sombre doit
+     peser plus que le cœur clair, sinon un bras posé contre le torse
+     disparaît dans la même couleur et le personnage n'a plus de bras.
+   * Les objets tenus sont en négatif du corps. Dessinés comme lui, ils se
+     lisaient comme un motif de vêtement.
+   * Une seule animation par élément : deux règles animant `transform` sur
+     le même nœud s'écrasent. Le tremblement et l'affaissement du
+     débordement sont donc dans une seule image-clé, pas superposés. */
+
+.o-tr { fill: none; stroke: var(--ombre); stroke-width: 27; stroke-linecap: round; stroke-linejoin: round; }
+.o-tp { fill: none; stroke: var(--corps); stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; }
+.o-f  { fill: var(--corps); stroke: var(--ombre); stroke-width: 4.5; stroke-linejoin: round; }
+.o-d  { fill: var(--ombre); }
+.o-l  { fill: none; stroke: var(--ombre); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.o-lf { fill: none; stroke: var(--ombre); stroke-width: 2.6; stroke-linecap: round; }
+.o-p  { fill: var(--ombre); stroke: var(--corps); stroke-width: 4.5; stroke-linejoin: round; }
+.o-pl { fill: none; stroke: var(--corps); stroke-width: 3; stroke-linecap: round; opacity: 0.72; }
+
+/* Le phosphore est porté par la figure elle-même et non par un cadre :
+   c'est ce qui lui permet de tenir sur le fond sans boîte. */
+.o-svg { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--corps) 40%, transparent)); }
+
+/* ── Repos : respiration lente et report du poids d'un pied sur l'autre.
+      Un système à l'arrêt doit avoir l'air à l'arrêt. ── */
+.a-repos { animation: op-repos 7.6s ease-in-out infinite; transform-origin: 105px 272px; }
+@keyframes op-repos {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25%      { transform: translateY(-2px) rotate(0deg); }
+  50%      { transform: translateY(0) rotate(1.3deg); }
+  75%      { transform: translateY(-2px) rotate(1.3deg); }
+}
+
+.a-souffle { animation: op-souffle 3.8s ease-in-out infinite; transform-origin: 105px 272px; }
+@keyframes op-souffle { 0%, 100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-2px) scaleY(1.007); } }
+
+/* ── Lancement : le pouce monte, le corps rebondit à l'instant où il
+      arrive. Les deux boucles font 2,6 s pour rester en phase. ── */
+.a-pouce { animation: op-pouce 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite; transform-origin: 138px 152px; }
+@keyframes op-pouce { 0%, 12% { transform: rotate(32deg); } 26%, 78% { transform: rotate(0deg); } 92%, 100% { transform: rotate(32deg); } }
+
+.a-rebond { animation: op-rebond 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite; transform-origin: 105px 272px; }
+@keyframes op-rebond {
+  0%, 14%   { transform: translateY(0); }
+  26%       { transform: translateY(-6px); }
+  36%       { transform: translateY(0); }
+  41%       { transform: translateY(-2px); }
+  48%, 100% { transform: translateY(0); }
+}
+
+/* ── Réflexion ── */
+.a-tapote { animation: op-tapote 1.7s ease-in-out infinite; transform-origin: 138px 152px; }
+@keyframes op-tapote { 0%, 58%, 100% { transform: rotate(0deg); } 70% { transform: rotate(-4deg); } 82% { transform: rotate(0deg); } }
+
+.a-rouages   { animation: op-tourne 4.6s linear infinite; transform-origin: 168px 34px; }
+.a-rouages-b { animation: op-tourne-inv 3.1s linear infinite; transform-origin: 199px 12px; }
+@keyframes op-tourne { to { transform: rotate(360deg); } }
+@keyframes op-tourne-inv { to { transform: rotate(-360deg); } }
+
+/* ── Lecture : la ligne descend, la tête suit le texte, la page vacille
+      une fois en fin de course — elle vient d'être lue. ── */
+.a-balaye { animation: op-balaye 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+@keyframes op-balaye { 0% { opacity: 0; transform: translateY(0); } 12%, 82% { opacity: 1; } 100% { opacity: 0; transform: translateY(56px); } }
+
+.a-lit { animation: op-lit 2.4s ease-in-out infinite; transform-origin: 105px 129px; }
+@keyframes op-lit { 0%, 100% { transform: rotate(-2.4deg); } 50% { transform: rotate(2.4deg); } }
+
+.a-page { animation: op-page 2.4s linear infinite; }
+@keyframes op-page { 0%, 86% { opacity: 1; } 90% { opacity: 0.3; } 95%, 100% { opacity: 1; } }
+
+/* ── Écriture : trois lignes se tracent l'une après l'autre puis la
+      feuille se vide d'un coup.
+
+      Les décalages sont dans les images-clés et non en `animation-delay` :
+      avec un délai, chaque ligne tournerait sur son propre cycle et elles
+      ne se videraient jamais ensemble. ── */
+.a-ecrit { animation: op-ecrit 1.2s ease-in-out infinite; transform-origin: 138px 152px; }
+@keyframes op-ecrit { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(7deg); } }
+
+.a-ligne-1, .a-ligne-2, .a-ligne-3 { stroke-dasharray: 64; }
+.a-ligne-1 { animation: op-ligne1 3.6s linear infinite; }
+.a-ligne-2 { animation: op-ligne2 3.6s linear infinite; }
+.a-ligne-3 { animation: op-ligne3 3.6s linear infinite; }
+@keyframes op-ligne1 { 0% { stroke-dashoffset: 64; } 22%, 88% { stroke-dashoffset: 0; } 91%, 100% { stroke-dashoffset: 64; } }
+@keyframes op-ligne2 { 0%, 26% { stroke-dashoffset: 64; } 48%, 88% { stroke-dashoffset: 0; } 91%, 100% { stroke-dashoffset: 64; } }
+@keyframes op-ligne3 { 0%, 52% { stroke-dashoffset: 64; } 74%, 88% { stroke-dashoffset: 0; } 91%, 100% { stroke-dashoffset: 64; } }
+
+/* ── Vérification : la loupe balaie, un reflet la traverse à chaque arrêt.
+      C'est le reflet qui dit qu'elle regarde. ── */
+.a-fouille { animation: op-fouille 3.2s ease-in-out infinite; transform-origin: 138px 152px; }
+@keyframes op-fouille { 0%, 100% { transform: rotate(0deg); } 30% { transform: rotate(-16deg); } 65% { transform: rotate(11deg); } }
+
+.a-reflet { animation: op-reflet 3.2s ease-in-out infinite; }
+@keyframes op-reflet {
+  0%, 22%   { opacity: 0; transform: translateX(-13px); }
+  34%       { opacity: 0.9; transform: translateX(0); }
+  46%, 58%  { opacity: 0; transform: translateX(13px); }
+  59%       { opacity: 0; transform: translateX(-13px); }
+  72%       { opacity: 0.9; transform: translateX(0); }
+  84%, 100% { opacity: 0; transform: translateX(13px); }
+}
+
+/* ── Tests : les coches tombent une à une, puis la liste se vide. ── */
+.a-coche-1 { animation: op-coche1 3.6s steps(1) infinite; }
+.a-coche-2 { animation: op-coche2 3.6s steps(1) infinite; }
+.a-coche-3 { animation: op-coche3 3.6s steps(1) infinite; }
+@keyframes op-coche1 { 0%, 17% { opacity: 0; } 18%, 88% { opacity: 1; } 89%, 100% { opacity: 0; } }
+@keyframes op-coche2 { 0%, 41% { opacity: 0; } 42%, 88% { opacity: 1; } 89%, 100% { opacity: 0; } }
+@keyframes op-coche3 { 0%, 65% { opacity: 0; } 66%, 88% { opacity: 1; } 89%, 100% { opacity: 0; } }
+
+.a-aiguille { animation: op-tourne 3.6s linear infinite; transform-origin: 0px -28px; }
+
+/* ── Réussite : un saut, franc et court. ── */
+.a-saute { animation: op-saute 1.35s cubic-bezier(0.3, 0, 0.2, 1) infinite; }
+@keyframes op-saute { 0%, 58%, 100% { transform: translateY(0); } 22% { transform: translateY(-17px); } 38% { transform: translateY(-4px); } }
+
+/* ── Chargement : les poids montent dans la caisse. La barre est la
+      progression, pas un ornement. ── */
+.a-porte { animation: op-porte 4s ease-in-out infinite; }
+@keyframes op-porte { 0%, 100% { transform: translateY(0); } 46% { transform: translateY(5px); } }
+
+.a-remplit { animation: op-remplit 4s cubic-bezier(0.35, 0, 0.65, 1) infinite; transform-origin: 105px 228px; }
+@keyframes op-remplit { 0% { transform: scaleY(0); } 84%, 92% { transform: scaleY(1); } 94%, 100% { transform: scaleY(0); } }
+
+/* ── Débordement : il s'enfonce sous la charge, se reprend d'un sursaut,
+      s'enfonce de nouveau. ── */
+.a-effort { animation: op-effort 2.6s ease-in-out infinite; }
+@keyframes op-effort {
+  0%   { transform: translate(0, 0); }
+  9%   { transform: translate(-1.7px, 2px); }
+  18%  { transform: translate(1.7px, 3.5px); }
+  27%  { transform: translate(-1.5px, 5px); }
+  36%  { transform: translate(1.5px, 6.5px); }
+  45%  { transform: translate(-1.7px, 8px); }
+  52%  { transform: translate(0, 9px); }
+  60%  { transform: translate(0, -2px); }
+  68%  { transform: translate(-1.6px, 1px); }
+  77%  { transform: translate(1.6px, 2.5px); }
+  88%  { transform: translate(-1.5px, 1.5px); }
+  100% { transform: translate(0, 0); }
+}
+
+.a-goutte { animation: op-goutte 2.6s ease-in infinite; }
+@keyframes op-goutte { 0%, 10% { opacity: 0; transform: translate(0, -8px); } 26% { opacity: 1; } 62%, 100% { opacity: 0; transform: translate(-7px, 32px); } }
+
+/* ── Défaut : le bras désigne le panneau par petits coups. ── */
+.a-jab { animation: op-jab 1.6s ease-in-out infinite; transform-origin: 138px 152px; }
+@keyframes op-jab { 0%, 46%, 100% { transform: rotate(0deg); } 60% { transform: rotate(-8deg); } 74% { transform: rotate(0deg); } }
+
+.a-battement { animation: op-battement 1.6s ease-in-out infinite; transform-origin: 184px 96px; }
+@keyframes op-battement { 0%, 100% { opacity: 0.4; transform: scale(0.95); } 55% { opacity: 1; transform: scale(1.08); } }
+
+/* ── Alerte : la seule boucle qui a le droit de voler le regard. Tout le
+      reste se regarde du coin de l'œil pendant des heures, et un mouvement
+      qui appelle sans cesse finit par être masqué du regard. ── */
+.a-agite { animation: op-agite 0.62s ease-in-out infinite; transform-origin: 105px 268px; }
+@keyframes op-agite { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+
+.a-vague-d { animation: op-vague 0.62s ease-in-out infinite; transform-origin: 138px 152px; }
+.a-vague-g { animation: op-vague 0.62s ease-in-out infinite reverse; transform-origin: 72px 152px; }
+@keyframes op-vague { 0%, 100% { transform: rotate(-11deg); } 50% { transform: rotate(11deg); } }
+
+.a-eclat { animation: op-eclat 0.62s steps(1) infinite; }
+@keyframes op-eclat { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.12; } }
+
+/* ── Décision : il tend la planchette, la retient, la retend. ── */
+.a-tend { animation: op-tend 2.4s ease-in-out infinite; transform-origin: 105px 240px; }
+@keyframes op-tend { 0%, 100% { transform: scale(1) translateY(0); } 50% { transform: scale(1.055) translateY(-4px); } }
+
+/* ── Voix. Les ondes entrent vers l'oreille quand l'humain parle, sortent
+      du micro quand c'est le système : le sens du mouvement dit qui parle. ── */
+.a-tend-oreille { animation: op-oreille 1.8s ease-in-out infinite; transform-origin: 105px 129px; }
+@keyframes op-oreille { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(5deg); } }
+
+.a-parle { animation: op-parle 0.62s ease-in-out infinite; transform-origin: 105px 110px; }
+@keyframes op-parle { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+
+.a-onde-1 { animation: op-onde 1.5s ease-out infinite; }
+.a-onde-2 { animation: op-onde 1.5s ease-out infinite; animation-delay: 0.2s; }
+.a-onde-3 { animation: op-onde 1.5s ease-out infinite; animation-delay: 0.4s; }
+@keyframes op-onde { 0% { opacity: 0; } 30% { opacity: 0.85; } 100% { opacity: 0; } }
+
+.a-cligne { animation: op-cligne 5.4s steps(1) infinite; transform-origin: 105px 80px; }
+@keyframes op-cligne { 0%, 95% { transform: scaleY(1); } 96%, 98% { transform: scaleY(0.1); } 99%, 100% { transform: scaleY(1); } }
+
+/* La lueur au sol : ce qui rattache l'opérateur à la pièce, à défaut de
+   cadre. Elle prend la teinte de son état, comme le badge de la barre
+   d'instruments — une couleur, un état, partout où il est lisible. */
+.operateur-flaque {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 118%;
+  height: 26px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: radial-gradient(50% 50% at 50% 50%,
+    color-mix(in srgb, var(--teinte-operateur, var(--hermes-sodium)) 26%, transparent), transparent 70%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -562,6 +773,13 @@ body::after {
   /* Un balayage de 0,01 ms reste un clignotement :
      celui-ci est retire, pas accelere. */
   .center-enter::before { display: none; }
+
+  /* L'opérateur s'immobilise entièrement : un geste accéléré à 0,01 ms
+     reste un clignotement. Il garde sa posture, qui porte déjà
+     l'information — c'est l'animation qui est un supplément, pas
+     l'inverse. */
+  .o-svg *, .o-svg { animation: none !important; }
+
 }
 
 /* ── Chat markdown + syntax highlighting ─────────────────────────────

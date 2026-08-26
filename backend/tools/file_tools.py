@@ -32,6 +32,24 @@ from backend.agents.aegis import AegisAgent
 from backend.core.event_hub import get_event_hub
 from backend.security.aegis_engine import ActionRequest, Verdict
 
+# --------------------------------------------------------------------
+"""Les opérations de fichier annoncées au reste du système.
+
+    Déclarées ici plutôt que dans la liste blanche pour que
+    `collect_known_topics()` les lise à la source : les huit étaient
+    publiées et jetées, si bien qu'aucune écriture sur disque
+    n'atteignait le Cockpit (HOS-181)."""
+FILESYSTEM_EVENTS: dict[str, str] = {
+    "read": "filesystem.read",
+    "write": "filesystem.write",
+    "create": "filesystem.create",
+    "copy": "filesystem.copy",
+    "move": "filesystem.move",
+    "delete": "filesystem.delete",
+    "permission_denied": "filesystem.permission_denied",
+    "verification_failed": "filesystem.verification_failed",
+}
+
 
 #: Les documents qui **definissent** le travail ne sont pas modifiables par
 #: le travail (HOS-129).

@@ -1,0 +1,196 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+  <style>
+    body { margin: 0; background: #080a0d; color: #dfe6ee;
+           font-family: 'Barlow', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #ff9436; } a:hover { color: #ffc93d; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .disp { font-family: 'Chakra Petch', 'Barlow', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.015em; }
+    .lab { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9.5px;
+           letter-spacing: 0.19em; text-transform: uppercase; color: #56616f; }
+    .clip { clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+    .clips { clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px)); }
+    .glass { background: linear-gradient(168deg, rgba(24,32,41,0.86) 0%, rgba(13,17,22,0.94) 100%);
+             box-shadow: 0 1px 0 rgba(255,255,255,0.035) inset, 0 18px 40px -12px rgba(3,6,12,0.9); }
+    .bar { position: relative; height: 4px; background: #212a35; overflow: hidden; }
+    .bar > i { position: absolute; inset: 0 auto 0 0; display: block; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1000px; height: 680px; background: #080a0d; padding: 22px;">
+  <div style="position: absolute; inset: 0; pointer-events: none;
+              background: radial-gradient(70% 55% at 12% 88%, rgba(255,148,54,0.085), transparent 62%),
+                          radial-gradient(60% 45% at 88% 4%, rgba(94,184,232,0.045), transparent 60%);"></div>
+
+  <div style="position: relative;">
+    <div class="lab" style="margin-bottom: 5px;">Direction C · Le sodium mène</div>
+    <h1 class="disp" style="margin: 0 0 6px; font-size: 26px; color: #ffffff;">L&#39;échelle de santé passe au bord</h1>
+    <p style="margin: 0 0 18px; font-size: 12.5px; line-height: 1.55; color: #8695a6; max-width: 74ch;">
+      Le sodium est le nom le plus employé du code, et pourtant on ne le voit
+      pas : l&#39;échelle vert/ambre/rouge remplit les valeurs, et comme presque
+      tout va bien, l&#39;écran est vert. Ici la santé quitte le chiffre pour le
+      bord — le sodium porte toutes les mesures, et un rouge redevient une
+      vraie rupture.
+    </p>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px;">
+
+      <!-- ── Aujourd'hui ─────────────────────────────────────────── -->
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 9px;">
+          <span class="lab" style="color: #8695a6;">Aujourd&#39;hui</span>
+          <span style="flex-grow: 1; height: 1px; background: #212a35;"></span>
+        </div>
+
+        <div class="clip glass" style="padding: 15px; border: 1px solid #212a35;">
+          <div style="display: flex; flex-direction: column; gap: 15px;">
+            <sc-for list="{{ mesures }}" as="m" hint-placeholder-count="3">
+              <div>
+                <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px;">
+                  <span class="lab">{{ m.nom }}</span>
+                  <span class="num" style="font-size: 9.5px; color: #56616f;">{{ m.detail }}</span>
+                </div>
+                <div style="display: flex; align-items: baseline; gap: 4px; margin-bottom: 7px;">
+                  <span class="num" style="font-size: 23px; color: {{ m.sante }};">{{ m.valeur }}</span>
+                  <span class="num" style="font-size: 10px; color: #56616f;">{{ m.unite }}</span>
+                </div>
+                <div class="bar"><i style="width: {{ m.pct }}; background: {{ m.sante }};"></i></div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div class="clip glass" style="padding: 15px; border: 1px solid #212a35; flex-grow: 1;">
+          <div class="lab" style="margin-bottom: 11px;">Gardes de mission</div>
+          <div style="display: flex; flex-direction: column; gap: 7px;">
+            <sc-for list="{{ gardes }}" as="g" hint-placeholder-count="5">
+              <div style="display: flex; align-items: center; gap: 9px;">
+                <span class="clips" style="padding: 3px 8px; font-size: 9px; letter-spacing: 0.12em;
+                      font-family: 'IBM Plex Mono', monospace; text-transform: uppercase;
+                      background: {{ g.fond }}; color: {{ g.sante }};">{{ g.etat }}</span>
+                <span style="font-size: 11.5px; color: #8695a6;">{{ g.nom }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Proposé ─────────────────────────────────────────────── -->
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 9px;">
+          <span class="lab" style="color: #ff9436;">Proposé</span>
+          <span style="flex-grow: 1; height: 1px; background: rgba(255,148,54,0.3);"></span>
+        </div>
+
+        <div class="clip glass" style="padding: 15px; border: 1px solid rgba(255,148,54,0.22);">
+          <div style="display: flex; flex-direction: column; gap: 15px;">
+            <sc-for list="{{ mesures }}" as="m" hint-placeholder-count="3">
+              <div style="display: flex; gap: 11px;">
+                <span style="width: 2px; flex-shrink: 0; background: {{ m.sante }};"></span>
+                <div style="flex-grow: 1; min-width: 0;">
+                  <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px;">
+                    <span class="lab">{{ m.nom }}</span>
+                    <span class="num" style="font-size: 9.5px; color: #56616f;">{{ m.detail }}</span>
+                  </div>
+                  <div style="display: flex; align-items: baseline; gap: 4px; margin-bottom: 7px;">
+                    <span class="num" style="font-size: 23px; color: #ff9436;">{{ m.valeur }}</span>
+                    <span class="num" style="font-size: 10px; color: #56616f;">{{ m.unite }}</span>
+                  </div>
+                  <div class="bar">
+                    <i style="width: {{ m.pct }}; background: linear-gradient(90deg, rgba(255,148,54,0.35), #ff9436);"></i>
+                    <i style="left: {{ m.pct }}; width: 2px; background: {{ m.sante }};"></i>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div class="clip glass" style="padding: 15px; border: 1px solid rgba(255,148,54,0.22); flex-grow: 1;">
+          <div class="lab" style="margin-bottom: 11px;">Gardes de mission</div>
+          <div style="display: flex; flex-direction: column; gap: 7px;">
+            <sc-for list="{{ gardes }}" as="g" hint-placeholder-count="5">
+              <div style="display: flex; align-items: center; gap: 9px;">
+                <span style="width: 5px; height: 5px; flex-shrink: 0; background: {{ g.sante }};
+                      clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);"></span>
+                <span class="num" style="font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase;
+                      color: #ff9436; width: 74px; flex-shrink: 0;">{{ g.etat }}</span>
+                <span style="font-size: 11.5px; color: #8695a6;">{{ g.nom }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Le relevé qui motive la bascule -->
+    <div class="clips" style="margin-top: 18px; padding: 13px 16px; border: 1px solid #212a35;
+                background: rgba(13,17,22,0.7); display: flex; align-items: center; gap: 26px;">
+      <div style="flex-shrink: 0;">
+        <div class="lab" style="margin-bottom: 3px;">Relevé du dépôt</div>
+        <div style="font-size: 11px; color: #8695a6;">jetons de couleur, tous fichiers</div>
+      </div>
+      <div style="display: flex; gap: 4px; align-items: flex-end; flex-grow: 1;">
+        <sc-for list="{{ releve }}" as="r" hint-placeholder-count="6">
+          <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;">
+            <span class="num" style="font-size: 10px; color: {{ r.teinte }};">{{ r.n }}</span>
+            <span style="width: 100%; height: {{ r.h }}; background: {{ r.teinte }}; opacity: 0.85;"></span>
+            <span class="lab" style="font-size: 8.5px; letter-spacing: 0.1em;">{{ r.nom }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin: 0; flex-shrink: 0; width: 30ch; font-size: 11px; line-height: 1.5; color: #56616f;">
+        L&#39;échelle de santé pèse <span style="color: #8695a6;">321</span> contre
+        <span style="color: #ff9436;">235</span> pour l&#39;accent — et elle occupe
+        les grands éléments.
+      </p>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"anomalie":{"editor":"boolean","default":false,"section":"Démonstration"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const chaud = this.props.anomalie === true;
+
+    return {
+      mesures: [
+        { nom: 'Mémoire vive', valeur: '45.8', unite: '%', pct: '46%', detail: '14.6 / 31.9 Gio', sante: '#9ede3a' },
+        { nom: 'VRAM détenue', valeur: chaud ? '15.4' : '13.21', unite: 'Gio', pct: chaud ? '96%' : '82%',
+          detail: chaud ? 'débordement CPU' : '/api/ps annonce 9.55', sante: chaud ? '#ff5347' : '#ffc93d' },
+        { nom: 'Débit', valeur: chaud ? '16.4' : '92.7', unite: 'tok/s', pct: chaud ? '18%' : '93%',
+          detail: chaud ? 'chemin CPU' : 'Vulkan RADV', sante: chaud ? '#ff5347' : '#9ede3a' },
+      ],
+
+      gardes: [
+        { nom: 'Tests tautologiques', etat: 'vérifié', sante: '#9ede3a', fond: 'rgba(158,222,58,0.12)' },
+        { nom: 'Livrables vides',     etat: 'vérifié', sante: '#9ede3a', fond: 'rgba(158,222,58,0.12)' },
+        { nom: 'SQL livré',           etat: '2 fautes', sante: '#ffc93d', fond: 'rgba(255,201,61,0.12)' },
+        { nom: 'Assemblage FastAPI',  etat: '8 apps',  sante: '#ff5347', fond: 'rgba(255,83,71,0.12)' },
+        { nom: 'Arborescence',        etat: 'vérifié', sante: '#9ede3a', fond: 'rgba(158,222,58,0.12)' },
+      ],
+
+      releve: [
+        { nom: 'cyan*',  n: 170, h: '34px', teinte: '#ff9436' },
+        { nom: 'red',    n: 138, h: '28px', teinte: '#ff5347' },
+        { nom: 'amber',  n: 121, h: '24px', teinte: '#ffc93d' },
+        { nom: 'sodium', n: 65,  h: '13px', teinte: '#ff9436' },
+        { nom: 'green',  n: 62,  h: '12px', teinte: '#9ede3a' },
+        { nom: 'alarm',  n: 31,  h: '6px',  teinte: '#ff5347' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

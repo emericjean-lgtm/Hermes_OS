@@ -153,6 +153,19 @@ def collect_known_topics() -> set[str]:
         ("backend.agents.specialized.code_intelligence.capabilities", "CI_EVENTS"),
         ("backend.agents.specialized.klaatcode.klaatcode_agent", "KLATCODE_EVENTS"),
         ("backend.agents.specialized.ohmypi.ohmypi_agent", "OHMYPI_EVENTS"),
+        # HOS-181. Ces huit-la publiaient sans etre declares : 35 topics
+        # partaient a la poubelle, dont la totalite de `filesystem.*` et de
+        # `execution.*`. Le Cockpit ne pouvait donc voir ni une ecriture sur
+        # disque, ni une mission demarrer. Le garde est
+        # `backend/tests/test_topics_publies_sont_autorises.py`.
+        ("backend.tools.file_tools", "FILESYSTEM_EVENTS"),
+        ("backend.execution.mission_executor", "EXECUTION_EVENTS"),
+        ("backend.projects.project_manager", "PROJECT_EVENTS"),
+        ("backend.integrations.alexandrie.hermes_alexandrie_adapter", "ALEXANDRIE_EVENTS"),
+        ("backend.runtime.ktransformers.integrations.resources", "KT_EVENTS"),
+        ("backend.security.approvals", "APPROVAL_EVENTS"),
+        ("backend.agents.kronos", "KRONOS_EVENTS"),
+        ("backend.api.routes.chat", "CHAT_EVENTS"),
     )
     for module_path, attr in catalogues:
         try:

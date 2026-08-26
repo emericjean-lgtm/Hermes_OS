@@ -51,6 +51,12 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from backend.memory.db import Base
 from backend.core.event_hub import get_event_hub
 
+# --------------------------------------------------------------------
+"""La demande d'accord humain déposée dans la file (HOS-181)."""
+APPROVAL_EVENTS: dict[str, str] = {
+    "request": "validation.request",
+}
+
 DEFAULT_TTL_MINUTES = 15
 
 

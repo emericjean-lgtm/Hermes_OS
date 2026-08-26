@@ -45,6 +45,13 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from backend.core.event_hub import get_event_hub
 from backend.memory.db import Base
 
+# --------------------------------------------------------------------
+"""L'enregistrement et la validation d'un workspace autorisé (HOS-181)."""
+PROJECT_EVENTS: dict[str, str] = {
+    "registered": "project.registered",
+    "validated": "project.validated",
+}
+
 
 def _publish(event_type: str, payload: dict) -> None:
     """Best-effort notification, same never-fail contract as

@@ -1,0 +1,300 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+  <style>
+    body { margin: 0; background: #080a0d; color: #dfe6ee;
+           font-family: 'Barlow', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #ff9436; } a:hover { color: #ffc93d; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .disp { font-family: 'Chakra Petch', 'Barlow', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.015em; }
+    .lab { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9.5px;
+           letter-spacing: 0.19em; text-transform: uppercase; color: #56616f; }
+    .clip { clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+    .clips { clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px)); }
+    .glass { background: linear-gradient(168deg, rgba(24,32,41,0.86) 0%, rgba(13,17,22,0.94) 100%);
+             box-shadow: 0 1px 0 rgba(255,255,255,0.035) inset, 0 18px 40px -12px rgba(3,6,12,0.9); }
+
+    /* ── Boutons ──
+       Le remplissage entre par la gauche, dans le sens de lecture, au lieu
+       d'un simple changement d'opacité. Le clic enfonce de 1px : un bouton
+       d'instrument s'enfonce, il ne rétrécit pas. */
+    .btn { position: relative; overflow: hidden; cursor: pointer; border: 1px solid;
+           padding: 9px 17px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;
+           letter-spacing: 0.13em; text-transform: uppercase; background: transparent;
+           transition: color 200ms ease, border-color 200ms ease, transform 90ms ease; }
+    .btn::before { content: ""; position: absolute; inset: 0; transform: scaleX(0);
+                   transform-origin: left; transition: transform 280ms cubic-bezier(0.16,1,0.3,1); z-index: 0; }
+    .btn:hover::before { transform: scaleX(1); }
+    .btn > span { position: relative; z-index: 1; }
+    .btn:active { transform: translateY(1px); }
+
+    .btn-p { border-color: #ff9436; color: #ff9436; }
+    .btn-p::before { background: #ff9436; }
+    .btn-p:hover { color: #080a0d; }
+
+    .btn-s { border-color: #33404f; color: #8695a6; }
+    .btn-s::before { background: rgba(255,148,54,0.12); }
+    .btn-s:hover { color: #ff9436; border-color: rgba(255,148,54,0.5); }
+
+    .btn-d { border-color: rgba(255,83,71,0.5); color: #ff5347; }
+    .btn-d::before { background: #ff5347; }
+    .btn-d:hover { color: #080a0d; }
+
+    .btn-off { border-color: #212a35; color: #56616f; cursor: not-allowed; opacity: 0.55; }
+
+    /* ── Onglets ──
+       Le trait de sélection glisse d'un onglet à l'autre. C'est ce
+       mouvement qui dit « le même écran change de vue » plutôt que « un
+       écran remplace un autre ». */
+    .ong { position: relative; cursor: pointer; background: transparent; border: none;
+           padding: 9px 15px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;
+           letter-spacing: 0.13em; text-transform: uppercase; color: #56616f;
+           transition: color 200ms ease; }
+    .ong:hover { color: #8695a6; }
+    .ong-on { color: #ff9436; }
+    .trait { position: absolute; bottom: 0; height: 2px; background: #ff9436;
+             box-shadow: 0 0 10px rgba(255,148,54,0.6);
+             transition: left 340ms cubic-bezier(0.16,1,0.3,1), width 340ms cubic-bezier(0.16,1,0.3,1); }
+
+    .allume { animation: allume 420ms cubic-bezier(0.16,1,0.3,1) both; }
+    @keyframes allume {
+      0%   { opacity: 0; filter: blur(6px); transform: translateY(8px) scale(0.994); }
+      55%  { opacity: 1; filter: blur(0); }
+      100% { opacity: 1; filter: blur(0); transform: none; }
+    }
+  </style>
+</helmet>
+
+<div style="width: 1000px; height: 640px; background: #080a0d; padding: 22px;
+            display: flex; flex-direction: column; gap: 16px;">
+
+  <div>
+    <div class="lab" style="margin-bottom: 5px;">Planche de pièces · à composer</div>
+    <h1 class="disp" style="margin: 0; font-size: 24px; color: #ffffff;">Boutons, bascules, tracés</h1>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 18px; flex-grow: 1; min-height: 0;">
+
+    <!-- Colonne gauche : contrôles -->
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+
+      <div class="clip glass" style="padding: 15px; border: 1px solid #212a35;">
+        <div class="lab" style="margin-bottom: 12px;">Boutons · survolez</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 9px;">
+          <button class="btn btn-p clips"><span>Lancer</span></button>
+          <button class="btn btn-s clips"><span>Détails</span></button>
+          <button class="btn btn-d clips"><span>Interrompre</span></button>
+          <button class="btn btn-off clips"><span>Indisponible</span></button>
+        </div>
+        <p style="margin: 12px 0 0; font-size: 11px; line-height: 1.5; color: #56616f;">
+          Le remplissage entre par la gauche, dans le sens de lecture. Le clic
+          enfonce d&#39;un pixel — un bouton d&#39;instrument s&#39;enfonce, il ne
+          rétrécit pas.
+        </p>
+      </div>
+
+      <div class="clip glass" style="padding: 15px; border: 1px solid #212a35; flex-grow: 1;">
+        <div class="lab" style="margin-bottom: 12px;">Bascule d&#39;onglet · cliquez</div>
+        <div style="position: relative; display: flex; border-bottom: 1px solid #212a35;">
+          <sc-for list="{{ onglets }}" as="o" hint-placeholder-count="3">
+            <button class="ong {{ o.classe }}" onClick="{{ o.choisir }}">{{ o.nom }}</button>
+          </sc-for>
+          <span class="trait" style="left: {{ traitX }}; width: {{ traitL }};"></span>
+        </div>
+
+        <div class="allume" key="{{ vue }}" style="padding-top: 14px;">
+          <div class="disp" style="font-size: 15px; color: #ffffff; margin-bottom: 4px;">{{ titreVue }}</div>
+          <p style="margin: 0 0 12px; font-size: 11.5px; line-height: 1.5; color: #8695a6;">{{ texteVue }}</p>
+          <div style="display: flex; gap: 16px;">
+            <sc-for list="{{ chiffresVue }}" as="c" hint-placeholder-count="3">
+              <div>
+                <div class="num" style="font-size: 19px; color: #ff9436;">{{ c.n }}</div>
+                <div class="lab" style="margin-top: 2px;">{{ c.nom }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <p style="margin: 14px 0 0; font-size: 11px; line-height: 1.5; color: #56616f;">
+          Le contenu ne glisse pas : il <em style="color: #8695a6;">s&#39;allume</em>, du flou vers
+          le net. Un glissement vertical est la transition par défaut de
+          toute application React et ne dit rien de ce produit.
+        </p>
+      </div>
+    </div>
+
+    <!-- Colonne droite : tracés -->
+    <div style="display: flex; flex-direction: column; gap: 14px; min-width: 0;">
+
+      <div class="clip glass" style="padding: 15px; border: 1px solid #212a35;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px;">
+          <span class="lab">Débit d&#39;inférence · 40 relevés</span>
+          <span class="num" style="font-size: 10px; color: #ff9436;">92.7 tok/s</span>
+        </div>
+        <p style="margin: 0 0 10px; font-size: 10.5px; color: #56616f;">
+          La chute est réelle : Vulkan non enregistré, tout est passé sur CPU.
+        </p>
+        <svg viewBox="0 0 560 148" style="width: 100%; height: auto; display: block;">
+          <defs>
+            <linearGradient id="remp" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ff9436" stop-opacity="0.30"></stop>
+              <stop offset="100%" stop-color="#ff9436" stop-opacity="0.02"></stop>
+            </linearGradient>
+          </defs>
+          <sc-for list="{{ regles }}" as="r" hint-placeholder-count="4">
+            <g>
+              <line x1="34" y1="{{ r.y }}" x2="556" y2="{{ r.y }}" stroke="#212a35" stroke-width="1" stroke-dasharray="2 4"></line>
+              <text x="28" y="{{ r.yt }}" text-anchor="end" font-size="8.5" fill="#56616f"
+                    font-family="'IBM Plex Mono', monospace">{{ r.v }}</text>
+            </g>
+          </sc-for>
+          <path d="{{ aire }}" fill="url(#remp)"></path>
+          <path d="{{ ligne }}" fill="none" stroke="#ff9436" stroke-width="1.6"
+                stroke-linejoin="round" stroke-linecap="round"></path>
+          <!-- La zone CPU, marquée au bord et non en remplissant la courbe -->
+          <rect x="{{ zoneX }}" y="8" width="{{ zoneL }}" height="122" fill="rgba(255,83,71,0.05)"></rect>
+          <line x1="{{ zoneX }}" y1="8" x2="{{ zoneX }}" y2="130" stroke="#ff5347" stroke-width="1"></line>
+          <text x="{{ zoneT }}" y="21" font-size="8.5" fill="#ff5347"
+                font-family="'IBM Plex Mono', monospace" letter-spacing="0.12em">CHEMIN CPU</text>
+          <circle cx="{{ finX }}" cy="{{ finY }}" r="7" fill="rgba(255,148,54,0.14)"></circle>
+          <circle cx="{{ finX }}" cy="{{ finY }}" r="2.8" fill="#ff9436"></circle>
+        </svg>
+      </div>
+
+      <div class="clip glass" style="padding: 15px; border: 1px solid #212a35; flex-grow: 1;
+                  display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 16px; align-items: center;">
+        <svg viewBox="0 0 168 168" style="width: 100%; height: auto;">
+          <defs>
+            <radialGradient id="rad" cx="50%" cy="50%">
+              <stop offset="0%" stop-color="#ff9436" stop-opacity="0.30"></stop>
+              <stop offset="100%" stop-color="#ff9436" stop-opacity="0.06"></stop>
+            </radialGradient>
+          </defs>
+          <sc-for list="{{ anneaux }}" as="a" hint-placeholder-count="4">
+            <polygon points="{{ a.pts }}" fill="none" stroke="#212a35" stroke-width="{{ a.ep }}" opacity="{{ a.op }}"></polygon>
+          </sc-for>
+          <sc-for list="{{ rayons }}" as="r" hint-placeholder-count="7">
+            <line x1="84" y1="84" x2="{{ r.x }}" y2="{{ r.y }}" stroke="#212a35" stroke-width="0.5" opacity="0.4"></line>
+          </sc-for>
+          <polygon points="{{ profil }}" fill="url(#rad)" stroke="#ff9436" stroke-width="1.4"></polygon>
+          <sc-for list="{{ sommets }}" as="s" hint-placeholder-count="7">
+            <circle cx="{{ s.x }}" cy="{{ s.y }}" r="2.1" fill="#ff9436"></circle>
+          </sc-for>
+        </svg>
+        <div>
+          <div class="lab" style="margin-bottom: 6px;">Profil mesuré · 7 axes</div>
+          <div class="disp" style="font-size: 15px; color: #ffffff; margin-bottom: 8px;">gpt-oss-20b-64k</div>
+          <p style="margin: 0 0 10px; font-size: 11.5px; line-height: 1.5; color: #8695a6;">
+            Anneaux <em style="color: #dfe6ee;">polygonaux</em>, comme les chanfreins des
+            cartes — pas les cercles que rendrait n&#39;importe quelle
+            bibliothèque de graphiques.
+          </p>
+          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+            <sc-for list="{{ etiquettes }}" as="e" hint-placeholder-count="7">
+              <span class="clips" style="padding: 3px 7px; border: 1px solid #212a35;
+                    font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.1em;
+                    text-transform: uppercase; color: {{ e.teinte }};">{{ e.nom }} {{ e.note }}</span>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { vue: 0 };
+  }
+
+  renderVals() {
+    const vues = [
+      { nom: 'Ressources', x: '0px', l: '112px', titre: 'Ressources',
+        texte: 'Mémoire, VRAM détenue et débordement, relevés sur le processus d’inférence.',
+        chiffres: [{ n: '45.8%', nom: 'RAM' }, { n: '13.2', nom: 'Gio VRAM' }, { n: '0%', nom: 'Déb.' }] },
+      { nom: 'Flux', x: '112px', l: '68px', titre: 'Flux temps réel',
+        texte: 'Le journal du runtime et les allocations, au fil de leur arrivée.',
+        chiffres: [{ n: '412', nom: 'Événem.' }, { n: '6', nom: 'Sources' }, { n: '2.1s', nom: 'Latence' }] },
+      { nom: 'Mémoire', x: '180px', l: '96px', titre: 'Mémoire & GPU',
+        texte: 'RX 6800, 16 Gio. Le compteur du processus, pas celui de /api/ps.',
+        chiffres: [{ n: '31.9', nom: 'Gio tot.' }, { n: '16', nom: 'Gio VRAM' }, { n: '1', nom: 'Modèle' }] },
+    ];
+    const i = this.state.vue;
+
+    // La courbe : 40 relevés, avec l'effondrement CPU au milieu. Les valeurs
+    // sont celles qu'on a réellement mesurées ce jour-là.
+    const vals = [];
+    for (let k = 0; k < 40; k++) {
+      if (k < 12) vals.push(90 + Math.sin(k * 0.9) * 3.4);
+      else if (k < 15) vals.push(90 - (k - 11) * 24);
+      else if (k < 30) vals.push(16.4 + Math.sin(k * 1.3) * 2.1);
+      else if (k < 33) vals.push(16.4 + (k - 29) * 25);
+      else vals.push(92.7 + Math.sin(k * 0.8) * 2.6);
+    }
+    const X = (k) => 34 + (k / 39) * 522;
+    const Y = (v) => 130 - (Math.max(0, Math.min(100, v)) / 100) * 118;
+    const pts = vals.map((v, k) => X(k).toFixed(1) + ',' + Y(v).toFixed(1));
+
+    // Le radar : sept axes, anneaux polygonaux.
+    const notes = [92, 84, 78, 71, 66, 88, 74];
+    const P = (r, k) => {
+      const a = (Math.PI * 2 * k) / 7 - Math.PI / 2;
+      return [84 + r * Math.cos(a), 84 + r * Math.sin(a)];
+    };
+    const poly = (r) => Array.from({ length: 7 }, (_, k) => P(r, k).map((n) => n.toFixed(1)).join(',')).join(' ');
+    const noms = ['Agent', 'Capac', 'Code', 'Vision', 'Extr', 'Long', 'Raison'];
+
+    return {
+      vue: i,
+      onglets: vues.map((v, k) => ({
+        nom: v.nom,
+        classe: k === i ? 'ong-on' : '',
+        choisir: () => this.setState({ vue: k }),
+      })),
+      traitX: vues[i].x,
+      traitL: vues[i].l,
+      titreVue: vues[i].titre,
+      texteVue: vues[i].texte,
+      chiffresVue: vues[i].chiffres,
+
+      regles: [100, 75, 50, 25].map((v) => ({ v: v, y: Y(v).toFixed(1), yt: (Y(v) + 3).toFixed(1) })),
+      ligne: 'M' + pts.join(' L'),
+      aire: 'M' + X(0).toFixed(1) + ',130 L' + pts.join(' L') + ' L' + X(39).toFixed(1) + ',130 Z',
+      zoneX: X(13).toFixed(1),
+      zoneL: (X(31) - X(13)).toFixed(1),
+      zoneT: (X(13) + 6).toFixed(1),
+      finX: X(39).toFixed(1),
+      finY: Y(vals[39]).toFixed(1),
+
+      anneaux: [25, 50, 75, 100].map((p) => ({
+        pts: poly((p / 100) * 62), ep: p === 100 ? 1 : 0.5, op: p === 100 ? 0.9 : 0.45,
+      })),
+      rayons: Array.from({ length: 7 }, (_, k) => {
+        const [x, y] = P(62, k);
+        return { x: x.toFixed(1), y: y.toFixed(1) };
+      }),
+      profil: notes.map((n, k) => P((n / 100) * 62, k).map((v) => v.toFixed(1)).join(',')).join(' '),
+      sommets: notes.map((n, k) => {
+        const [x, y] = P((n / 100) * 62, k);
+        return { x: x.toFixed(1), y: y.toFixed(1) };
+      }),
+      etiquettes: noms.map((nom, k) => ({
+        nom: nom, note: notes[k],
+        teinte: notes[k] >= 80 ? '#ff9436' : '#8695a6',
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

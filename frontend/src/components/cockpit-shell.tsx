@@ -8,6 +8,8 @@ import { StatusBar } from "@/components/statusbar";
 import { CommandPalette } from "@/components/command-palette";
 import { useCockpitStore } from "@/hooks/use-store";
 import { CenterBoundary } from "@/components/center-boundary";
+import { FluxEvenements } from "@/components/flux-evenements";
+import { OperateurDeGarde } from "@/components/operateur-de-garde";
 import { DashboardView } from "@/features/dashboard/dashboard-view";
 import { MissionCenter } from "@/features/missions/mission-center";
 import { AgentCenter } from "@/features/agents/agent-center";
@@ -145,6 +147,14 @@ export default function CockpitShell() {
       </main>
 
       <StatusBar />
+      {/* Hors de l'AnimatePresence ci-dessus, et c'est tout l'intérêt : le
+          shell démonte le Center actif à chaque bascule d'onglet, et une
+          animation CSS repart de zéro quand son élément est démonté.
+          L'opérateur placé ici traverse les bascules sans recommencer son
+          geste — ce qui est exact, puisque le système ne s'est pas
+          interrompu parce qu'on a regardé ailleurs. */}
+      <FluxEvenements />
+      <OperateurDeGarde />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );

@@ -1,0 +1,57 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Direction retenue" },
+    { "id": "page-2", "name": "Autres pistes" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html",       "page": "page-1", "title": "Cockpit · direction A",   "x": 0,    "y": 0,   "w": 1000, "h": 700 },
+    { "file": "Planche.dc.html",    "page": "page-1", "title": "Opérateur · 13 postures", "x": 1080, "y": 0,   "w": 1180, "h": 1100 },
+    { "file": "Operateur.dc.html",  "page": "page-1", "title": "Opérateur · la pièce",    "x": 0,    "y": 800, "w": 260,  "h": 360 },
+
+    { "file": "Sodium.dc.html",     "page": "page-2", "title": "C · Le sodium mène",      "x": 0,    "y": 0,   "w": 1000, "h": 680 },
+    { "file": "Composants.dc.html", "page": "page-2", "title": "Planche de pièces",       "x": 1080, "y": 0,   "w": 1000, "h": 640 }
+  ],
+  "annotations": [
+    {
+      "id": "lecture",
+      "page": "page-1",
+      "x": -430,
+      "y": 0,
+      "w": 350,
+      "text": "Direction A, avec l'opérateur.\n\nPassez la souris sur le cockpit : le halo suit, et la grille n'existe que là où il tombe.\n\nL'opérateur rejoue une séquence de mission réelle — lancement, réflexion, lecture, écriture, tests, vérification, section vérifiée, repos. Pas de boutons : c'est l'état du système qui le fait changer de posture."
+    },
+    {
+      "id": "sans-cadre",
+      "page": "page-1",
+      "x": -430,
+      "y": 320,
+      "w": 350,
+      "text": "Sans encadré, comme demandé.\n\nCe qui le rattache à la pièce, c'est une flaque de lumière au sol, de la teinte de son état — le badge de la barre d'instruments prend la même. Une couleur, un état, partout où il est lisible.\n\nLa petite étiquette à sa gauche est optionnelle : dites-moi si vous la voulez, l'animation se suffit peut-être."
+    },
+    {
+      "id": "identite",
+      "page": "page-1",
+      "x": -430,
+      "y": 640,
+      "w": 350,
+      "text": "Sur le personnage.\n\nJe n'ai pas repris Vault Boy : c'est un personnage déposé de Bethesda, et le copier dans votre produit vous exposerait.\n\nCe qui est repris, c'est son idiome — aplats pleins, contours épais, proportions de réclame des années 50. L'identité vient d'Hermès : le casque d'opérateur porte les petites ailes du pétase, l'attribut du messager."
+    },
+    {
+      "id": "postures",
+      "page": "page-1",
+      "x": 2320,
+      "y": 0,
+      "w": 350,
+      "text": "Treize postures, treize signaux que Hermes OS émet déjà.\n\nLa ligne sous chaque figure nomme le déclencheur réel. Aucune n'est décorative : si l'opérateur écrit, c'est qu'un fichier s'écrit — et s'il reste au repos pendant qu'une mission tourne, vous venez de voir le défaut à l'œil nu.\n\nDites-moi lesquelles vous gardez, et j'implémente."
+    },
+    {
+      "id": "pistes",
+      "page": "page-2",
+      "x": -430,
+      "y": 0,
+      "w": 350,
+      "text": "Ces deux planches restent ouvertes.\n\nC (l'échelle de santé au bord) répond à votre remarque sur l'orange sous-exploité — c'est un axe indépendant de A, les deux se combinent.\n\nLa planche de pièces — boutons, bascule d'onglet, courbe, radar — s'adopte morceau par morceau."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

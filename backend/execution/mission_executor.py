@@ -28,6 +28,23 @@ from .feedback_loop import FeedbackLoop
 from .optimization_engine import OptimizationEngine
 from .task_executor import RuntimeUnavailableError
 
+# --------------------------------------------------------------------
+"""Le déroulé d'une exécution de mission, tel qu'il est annoncé.
+
+    Les neuf étaient publiés et jetés par la liste blanche : le
+    Cockpit ne voyait donc jamais une mission démarrer (HOS-181)."""
+EXECUTION_EVENTS: dict[str, str] = {
+    "planning": "execution.planning",
+    "started": "execution.started",
+    "task_started": "execution.task_started",
+    "task_completed": "execution.task_completed",
+    "waiting_approval": "execution.waiting_approval",
+    "retry": "execution.retry",
+    "optimized": "execution.optimized",
+    "completed": "execution.completed",
+    "failed": "execution.failed",
+}
+
 logger = logging.getLogger("hermes_os.execution.mission")
 
 

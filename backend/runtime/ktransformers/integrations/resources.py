@@ -14,6 +14,17 @@ from typing import Any
 from backend.runtime.ktransformers.hermes_adapter import HermesKTAdapter
 from backend.runtime.ktransformers.kt_models import KTBackend, KTModelInfo
 
+# --------------------------------------------------------------------
+"""Le cycle de vie ktransformers : découverte, chargement, repli (HOS-181)."""
+KT_EVENTS: dict[str, str] = {
+    "model_discovered": "kt.model.discovered",
+    "model_loaded": "kt.model.loaded",
+    "model_unloaded": "kt.model.unloaded",
+    "inference_completed": "kt.inference.completed",
+    "benchmark_completed": "kt.benchmark.completed",
+    "fallback_triggered": "kt.fallback.triggered",
+}
+
 
 class KTResourceIntegration:
     """Bridge: Resource Manager (HOS-035) → KT optimization.

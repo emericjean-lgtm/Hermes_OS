@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import type { SystemEvent } from "@/types/hermes";
+import type { EtatOperateur } from "@/components/operateur";
 
 interface CockpitStore {
   // Navigation
@@ -44,6 +45,29 @@ interface CockpitStore {
    *  selectedMissionId above for exactly this reason. */
   selectedGoalId: string | null;
   selectGoal: (id: string | null) => void;
+
+  /** Ce que l'onglet actif sait faire à l'instant, et que le bus
+   *  d'événements ne dira qu'après coup — l'Assistant sait qu'il streame
+   *  avant que le moindre `chat.token` ne revienne.
+   *
+   *  Porté par le store et non par un contexte React parce que l'opérateur
+   *  vit dans le shell, hors de l'arbre des Centers : un Center démonté à
+   *  la bascule d'onglet emporterait son contexte avec lui.
+   *
+   *  `expire` est une date absolue plutôt qu'une durée : le shell ne
+   *  cadence rien, il compare. */
+  /** L'opérateur est-il affiché. Certains préfèrent un écran muet, et une
+   *  figure qu'on ne peut pas éteindre finit par être subie plutôt que lue.
+   *  Session seulement : rien à restaurer, rien à migrer. */
+  operateurVisible: boolean;
+  basculerOperateur: () => void;
+  operateurLocal: { etat: EtatOperateur; signal: string; expire: number } | null;
+  /** Déclare ce que cet onglet fait maintenant. `ttlMs` borne l'affirmation :
+   *  passé ce délai, l'opérateur retombe sur ce que disent les événements.
+   *  Un onglet qui oublie de se taire ne peut donc pas mentir longtemps. */
+  signalerOperateur: (etat: EtatOperateur, signal: string, ttlMs?: number) => void;
+  /** Rend la main aux événements immédiatement (fin de flux, par exemple). */
+  tairelOperateur: () => void;
 }
 
 export const useCockpitStore = create<CockpitStore>((set) => ({
@@ -76,4 +100,11 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   selectAgent: (id) => set({ selectedAgentId: id }),
   selectedGoalId: null,
   selectGoal: (id) => set({ selectedGoalId: id }),
+
+  operateurVisible: true,
+  basculerOperateur: () => set((s) => ({ operateurVisible: !s.operateurVisible })),
+  operateurLocal: null,
+  signalerOperateur: (etat, signal, ttlMs = 6000) =>
+    set({ operateurLocal: { etat, signal, expire: Date.now() + ttlMs } }),
+  tairelOperateur: () => set({ operateurLocal: null }),
 }));

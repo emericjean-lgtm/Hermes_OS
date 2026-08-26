@@ -1,0 +1,273 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Barlow:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+  <style>
+    body { margin: 0; background: #050609; color: #dfe6ee;
+           font-family: 'Barlow', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #ff9436; } a:hover { color: #ffc93d; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .disp { font-family: 'Chakra Petch', 'Barlow', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.015em; }
+    .lab { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9.5px;
+           letter-spacing: 0.19em; text-transform: uppercase; }
+    .clips { clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px)); }
+
+    /* Le tube. Le seul arrondi uniforme admis dans ce système : c'est un
+       biseau physique, pas une carte. */
+    .tube {
+      position: relative; overflow: hidden; border-radius: 18px;
+      background: radial-gradient(120% 110% at 50% 40%, #0d1116 0%, #070a0e 70%, #04060a 100%);
+      box-shadow: inset 0 0 90px rgba(0,0,0,0.95), inset 0 0 22px rgba(255,148,54,0.05),
+                  0 0 0 1px #212a35, 0 0 44px rgba(255,148,54,0.07);
+    }
+    /* Lignes de balayage. 2px, très faibles : une trame qu'on sent avant
+       de la voir, sinon le texte devient illisible à 12px. */
+    .tube::before {
+      content: ""; position: absolute; inset: 0; z-index: 6; pointer-events: none;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.30) 0 1px, transparent 1px 3px);
+      mix-blend-mode: multiply;
+    }
+    /* La barre de retour ligne : une seule passe lente, comme un tube qui
+       n'est pas tout à fait synchronisé. */
+    .tube::after {
+      content: ""; position: absolute; left: 0; right: 0; height: 90px; z-index: 7;
+      pointer-events: none;
+      background: linear-gradient(180deg, transparent, rgba(255,148,54,0.045), transparent);
+      animation: roule 7.5s linear infinite;
+    }
+    @keyframes roule { 0% { top: -90px; } 100% { top: 100%; } }
+
+    .phos { color: #ff9436; text-shadow: 0 0 5px rgba(255,148,54,0.55), 0 0 16px rgba(255,148,54,0.22); }
+    .phos-faible { color: #c2701f; text-shadow: 0 0 4px rgba(255,148,54,0.28); }
+
+    /* Séquence d'allumage : chaque ligne apparaît à son tour, une fois. */
+    .boot { animation: boot 300ms steps(3) both; }
+    @keyframes boot { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+
+    .ope { animation: souffle 3.6s ease-in-out infinite; transform-origin: 60px 96px; }
+    @keyframes souffle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+    .bras-ecrit { animation: ecrit 0.9s ease-in-out infinite; transform-origin: 44px 62px; }
+    @keyframes ecrit { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(9deg); } }
+    .loupe { animation: fouille 2.8s ease-in-out infinite; }
+    @keyframes fouille { 0%, 100% { transform: translate(0, 0); } 33% { transform: translate(9px, -5px); } 66% { transform: translate(-6px, 4px); } }
+    .balaye { animation: balaye 2s linear infinite; }
+    @keyframes balaye { 0% { opacity: 0; transform: translateY(0); } 15%, 85% { opacity: 1; } 100% { opacity: 0; transform: translateY(26px); } }
+    .clignote { animation: clignote 0.85s steps(1) infinite; }
+    @keyframes clignote { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.25; } }
+
+    .etat-btn { cursor: pointer; border: 1px solid #212a35; background: transparent;
+                padding: 7px 10px; color: #56616f; font-family: 'IBM Plex Mono', monospace;
+                font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+                transition: all 160ms ease; text-align: left; }
+    .etat-btn:hover { border-color: #33404f; color: #8695a6; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1000px; height: 720px; background: #050609; padding: 20px;">
+
+  <div style="display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px;">
+    <span class="lab" style="color: #56616f;">Direction B · Phosphore</span>
+    <span style="flex-grow: 1; height: 1px; background: #212a35;"></span>
+    <span class="lab" style="color: #56616f;">Ambre, pas vert — voir la note</span>
+  </div>
+
+  <div class="tube" style="height: 604px; padding: 26px;">
+
+    <div style="position: relative; z-index: 5; display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 24px; height: 100%;">
+
+      <!-- Colonne opérateur -->
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div class="lab phos-faible">Opérateur</div>
+
+        <div style="position: relative; height: 190px; border: 1px solid rgba(255,148,54,0.18);
+                    background: rgba(255,148,54,0.025); display: flex; align-items: center; justify-content: center;">
+          <svg width="120" height="150" viewBox="0 0 120 150" fill="none"
+               stroke="{{ teinteOpe }}" stroke-width="2.4" stroke-linecap="square" stroke-linejoin="miter">
+            <g class="ope">
+              <!-- Tête : hexagone, la géométrie de la maison, pas un cercle -->
+              <path d="M60 14 74 22v16L60 46 46 38V22z"></path>
+              <path d="M53 28h5M62 28h5" stroke-width="2"></path>
+              <!-- Torse -->
+              <path d="M60 46v40"></path>
+              <path d="M44 62h32"></path>
+              <!-- Jambes -->
+              <path d="M60 86 48 118v18M60 86l12 32v18"></path>
+
+              <sc-if value="{{ estRepos }}" hint-placeholder-val="{{ true }}">
+                <g><path d="M44 62 38 92M76 62l6 30"></path></g>
+              </sc-if>
+
+              <sc-if value="{{ estLecture }}" hint-placeholder-val="{{ false }}">
+                <g>
+                  <path d="M44 62 32 76M76 62l12 14"></path>
+                  <rect x="30" y="74" width="60" height="34" stroke-width="2"></rect>
+                  <path class="balaye" d="M32 80h56" stroke-width="1.6" opacity="0.9"></path>
+                </g>
+              </sc-if>
+
+              <sc-if value="{{ estEcriture }}" hint-placeholder-val="{{ false }}">
+                <g>
+                  <path class="bras-ecrit" d="M44 62 26 82l10 6"></path>
+                  <path d="M76 62l10 28"></path>
+                  <path d="M18 96h34" stroke-width="1.6"></path>
+                  <path d="M22 104h26" stroke-width="1.6" opacity="0.55"></path>
+                </g>
+              </sc-if>
+
+              <sc-if value="{{ estVerif }}" hint-placeholder-val="{{ false }}">
+                <g>
+                  <path d="M76 62l14 10"></path><path d="M44 62 36 90"></path>
+                  <g class="loupe">
+                    <path d="M88 66m-11 0a11 11 0 1 0 22 0a11 11 0 1 0 -22 0"></path>
+                    <path d="M96 74 106 84" stroke-width="2.6"></path>
+                  </g>
+                </g>
+              </sc-if>
+
+              <sc-if value="{{ estAlerte }}" hint-placeholder-val="{{ false }}">
+                <g>
+                  <path d="M44 62 30 40M76 62l14-22"></path>
+                  <path class="clignote" d="M60 4v6M40 10l3 5M80 10l-3 5" stroke-width="2.6"></path>
+                </g>
+              </sc-if>
+            </g>
+          </svg>
+        </div>
+
+        <div class="num phos" style="font-size: 12.5px; letter-spacing: 0.06em;">{{ libelleEtat }}</div>
+        <div class="num" style="font-size: 10px; line-height: 1.55; color: #8695a6;">{{ detailEtat }}</div>
+
+        <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 4px;">
+          <sc-for list="{{ etats }}" as="e" hint-placeholder-count="5">
+            <button class="etat-btn clips" style="{{ e.style }}" onClick="{{ e.choisir }}">{{ e.nom }}</button>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- Colonne écran -->
+      <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0;">
+
+        <div style="border-bottom: 1px solid rgba(255,148,54,0.22); padding-bottom: 12px;">
+          <div class="num phos-faible" style="font-size: 10px; margin-bottom: 8px;">SÉQUENCE D&#39;ALLUMAGE</div>
+          <sc-for list="{{ amorce }}" as="l" hint-placeholder-count="5">
+            <div class="boot num" style="font-size: 11px; line-height: 1.65; color: {{ l.teinte }}; animation-delay: {{ l.retard }};">
+              {{ l.texte }}
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;">
+          <sc-for list="{{ jauges }}" as="j" hint-placeholder-count="3">
+            <div style="border: 1px solid rgba(255,148,54,0.16); padding: 11px; background: rgba(255,148,54,0.02);">
+              <div class="lab phos-faible" style="margin-bottom: 6px;">{{ j.nom }}</div>
+              <div class="num phos" style="font-size: 23px; line-height: 1;">{{ j.valeur }}</div>
+              <div style="display: flex; gap: 2px; margin-top: 9px;">
+                <sc-for list="{{ j.segments }}" as="s" hint-placeholder-count="14">
+                  <span style="flex-grow: 1; height: 9px; background: {{ s.teinte }};"></span>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="border: 1px solid rgba(255,148,54,0.16); padding: 13px; flex-grow: 1; background: rgba(255,148,54,0.02);">
+          <div class="lab phos-faible" style="margin-bottom: 10px;">Journal de mission</div>
+          <sc-for list="{{ journal }}" as="e" hint-placeholder-count="6">
+            <div style="display: flex; gap: 11px; font-size: 11px; line-height: 1.9;">
+              <span class="num" style="color: #56616f; flex-shrink: 0;">{{ e.heure }}</span>
+              <span class="num" style="color: {{ e.teinte }}; width: 82px; flex-shrink: 0;">{{ e.type }}</span>
+              <span class="num" style="color: #8695a6;">{{ e.texte }}</span>
+            </div>
+          </sc-for>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <p style="margin: 12px 2px 0; font-size: 11.5px; line-height: 1.55; color: #56616f; max-width: 92ch;">
+    Le Pip-Boy est vert parce que son tube l&#39;était. Les terminaux à
+    phosphore <em style="color: #8695a6;">ambre</em> existaient aussi, et c&#39;est exactement la
+    teinte sodium d&#39;Hermes — reprendre la grammaire (tube, trame, allumage,
+    personnage) sans changer de couleur sert vos trois demandes d&#39;un coup.
+  </p>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"etat":{"editor":"enum","default":"ecriture","options":["repos","lecture","ecriture","verification","alerte"],"section":"Opérateur"},"trame":{"editor":"boolean","default":true,"section":"Tube"}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { etat: null };
+  }
+
+  renderVals() {
+    const etat = this.state.etat ?? this.props.etat ?? 'ecriture';
+
+    const fiches = {
+      repos:        { nom: 'Au repos',      teinte: '#56616f', detail: 'Aucune tâche assignée. Le modèle reste chargé, la fenêtre de contexte est tenue.' },
+      lecture:      { nom: 'Lecture',       teinte: '#5eb8e8', detail: 'Parcourt le workspace. Le balayage indique un fichier ouvert en ce moment.' },
+      ecriture:     { nom: 'Écriture',      teinte: '#ff9436', detail: 'Écrit sur le disque. Chaque livrable sera relu avant que la tâche ne soit dite faite.' },
+      verification: { nom: 'Vérification',  teinte: '#ffc93d', detail: 'Compare le workspace avant/après. Un succès annoncé sans trace disque devient mission.unverified.' },
+      alerte:       { nom: 'Alerte',        teinte: '#ff5347', detail: 'Deux tours perdus. La session repart à neuf plutôt que de continuer à vide.' },
+    };
+
+    const noms = { repos: 'Repos', lecture: 'Lecture', ecriture: 'Écriture', verification: 'Vérification', alerte: 'Alerte' };
+    const f = fiches[etat];
+
+    const jauge = (n, teinte) => Array.from({ length: 14 }, (_, i) => ({
+      teinte: i < n ? teinte : 'rgba(255,148,54,0.10)',
+    }));
+
+    return {
+      teinteOpe: f.teinte,
+      libelleEtat: f.nom.toUpperCase(),
+      detailEtat: f.detail,
+      estRepos: etat === 'repos',
+      estLecture: etat === 'lecture',
+      estEcriture: etat === 'ecriture',
+      estVerif: etat === 'verification',
+      estAlerte: etat === 'alerte',
+
+      etats: Object.keys(noms).map((k) => ({
+        nom: noms[k],
+        style: k === etat
+          ? 'border-color: rgba(255,148,54,0.55); color: #ff9436; background: rgba(255,148,54,0.09);'
+          : '',
+        choisir: () => this.setState({ etat: k }),
+      })),
+
+      amorce: [
+        { texte: '> hermes-os  runtime  ..............  PRÊT',        teinte: '#c2701f', retard: '0ms' },
+        { texte: '> vulkan  ICD  RADV/RX 6800  ........  ENREGISTRÉ', teinte: '#c2701f', retard: '90ms' },
+        { texte: '> contexte servi  65536  ............  VÉRIFIÉ',    teinte: '#c2701f', retard: '180ms' },
+        { texte: '> hermes-agent  session  ACP  .......  OUVERTE',    teinte: '#ff9436', retard: '270ms' },
+        { texte: '> garde  workspace  ................  ARMÉ',        teinte: '#ff9436', retard: '360ms' },
+      ],
+
+      jauges: [
+        { nom: 'Débit',    valeur: '92.7', segments: jauge(12, '#ff9436') },
+        { nom: 'VRAM',     valeur: '13.2', segments: jauge(11, '#ff9436') },
+        { nom: 'Sections', valeur: '20/22', segments: jauge(13, '#ff9436') },
+      ],
+
+      journal: [
+        { heure: '12:04:31', type: 'session', teinte: '#c2701f', texte: 'prompt envoyé — 4 812 jetons' },
+        { heure: '12:04:38', type: 'écriture', teinte: '#ff9436', texte: 'backend/voice/locale.py — 214 lignes' },
+        { heure: '12:04:39', type: 'garde',   teinte: '#c2701f', texte: 'livrables vides — aucun défaut' },
+        { heure: '12:05:02', type: 'écriture', teinte: '#ff9436', texte: 'backend/tests/test_voice_locale.py' },
+        { heure: '12:05:11', type: 'vérifié',  teinte: '#ff9436', texte: 'section 14 — 6 fichiers sur disque' },
+        { heure: '12:05:11', type: 'mission',  teinte: '#c2701f', texte: 'section 15 — décomposition' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

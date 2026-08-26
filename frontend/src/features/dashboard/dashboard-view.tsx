@@ -34,7 +34,13 @@ export function DashboardView() {
   const { data: runtimes } = useRuntimes();
   const { data: approvals } = useApprovals();
   const { data: res } = useResourceStatus();
-  const { events: liveEvents, connected } = useWebSocket({ maxEvents: 18 });
+  // Le flux vient du store, alimenté par l'unique souscription du shell
+  // (`components/flux-evenements.tsx`). Le Dashboard ouvrait sa propre
+  // socket : deux connexions pour le même flux, dont une seule alimentait
+  // quoi que ce soit — le compteur EVT de la barre d'état est resté à zéro
+  // tout ce temps parce que personne ne poussait dans le store (HOS-182).
+  const liveEvents = useCockpitStore((s) => s.liveEvents).slice(0, 18);
+  const connected = useCockpitStore((s) => s.wsConnected);
   const setActiveView = useCockpitStore((s) => s.setActiveView);
 
   const activeMissions =

@@ -34,6 +34,18 @@ from backend.integrations.alexandrie.alexandrie_models import (
 )
 from backend.integrations.alexandrie.document_cache import DocumentCache
 
+# --------------------------------------------------------------------
+"""La synchronisation documentaire et l'ouverture du disjoncteur (HOS-181)."""
+ALEXANDRIE_EVENTS: dict[str, str] = {
+    "sync_started": "alexandrie.sync.started",
+    "sync_completed": "alexandrie.sync.completed",
+    "sync_failed": "alexandrie.sync.failed",
+    "document_created": "alexandrie.document.created",
+    "document_updated": "alexandrie.document.updated",
+    "document_deleted": "alexandrie.document.deleted",
+    "circuit_opened": "alexandrie.circuit.opened",
+}
+
 
 class HermesAlexandrieAdapter:
     """Production bridge between Hermes memory and Alexandrie documents.
