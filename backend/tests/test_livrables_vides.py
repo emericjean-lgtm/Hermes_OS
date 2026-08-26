@@ -189,3 +189,69 @@ def test_la_suppression_est_nommee_comme_issue(tmp_path) -> None:
 
     assert "supprimes le fichier" in m
     assert "import le trouvera" in m
+
+
+# -- les livrables non-Python (HOS-171) -------------------------------
+
+def test_un_javascript_qui_s_avoue_jalon_est_signale() -> None:
+    """§27 FRONTEND declaree verifiee au-dessus de deux lignes.
+
+        frontend/app.js   // Frontend JS placeholder
+                          console.log('Frontend loaded');
+
+    Cinq livrables annonces, cinq presents, tests passes. Le garde de
+    HOS-156 l'aurait vu sans hesiter s'il avait regarde ailleurs que dans
+    les `.py`.
+    """
+    assert vides.est_un_jalon_hors_python(
+        "app.js", "// Frontend JS placeholder\nconsole.log('Frontend loaded');\n")
+
+
+def test_un_fichier_qui_n_a_que_des_commentaires_est_signale() -> None:
+    assert vides.est_un_jalon_hors_python("style.css", "/* a completer */\n")
+
+
+def test_du_vrai_javascript_est_laisse_tranquille() -> None:
+    src = "export function charger(){ return fetch('/api/kpi').then(r=>r.json()); }\n"
+    assert not vides.est_un_jalon_hors_python("api.js", src)
+
+
+def test_un_css_court_mais_reel_est_laisse_tranquille() -> None:
+    """Un fichier court n'est pas un jalon : il faut qu'il s'avoue tel."""
+    assert not vides.est_un_jalon_hors_python("style.css", "body { margin: 0; }\n")
+
+
+def test_un_html_minimal_est_laisse_tranquille() -> None:
+    src = "<!DOCTYPE html><html><body><h1>Skills360</h1></body></html>"
+    assert not vides.est_un_jalon_hors_python("index.html", src)
+
+
+def test_un_fichier_vide_n_a_rien_pretendu_hors_python() -> None:
+    assert not vides.est_un_jalon_hors_python("x.js", "")
+
+
+def test_le_verdict_voit_le_frontend(tmp_path) -> None:
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "frontend" / "app.js").write_text(
+        "// Frontend JS placeholder\nconsole.log('ok');\n", encoding="utf-8")
+
+    faute = vides.verdict(str(tmp_path), touches=["frontend/app.js"])
+
+    assert faute is not None and faute["fichier"].endswith("app.js")
+
+
+def test_le_frontend_de_hermes_os_ne_declenche_rien() -> None:
+    """Un garde qui signale du code legitime coute plus qu'il ne rapporte."""
+    from pathlib import Path
+
+    src = Path("frontend/src")
+    if not src.is_dir():
+        return
+    fautes = [
+        p for p in src.rglob("*")
+        if p.is_file() and p.suffix.lower() in vides._EXTENSIONS_SURVEILLEES
+        and vides.est_un_jalon_hors_python(
+            p.name, p.read_text(encoding="utf-8", errors="replace"))
+    ]
+
+    assert fautes == []

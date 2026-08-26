@@ -337,6 +337,11 @@ def bloquant(verification: Optional[dict]) -> tuple[bool, str]:
     # HOS-153 : avant les autres, parce que ce defaut-la invalide la preuve
     # sur laquelle tous les suivants s'appuient. Une suite verte obtenue avec
     # un test qui ne peut pas rougir ne dit rien de la section.
+    casse = verification.get("sql_casse") or {}
+    if casse:
+        return True, (f"SQL qui ne s'execute pas — {casse.get('fichier')} : "
+                      f"{casse.get('motif')}")
+
     vide = verification.get("livrable_vide") or {}
     if vide:
         return True, (f"livrable vide — {vide.get('fichier')} ne definit "
@@ -460,6 +465,14 @@ def diagnostic(verification, raison: str) -> str:
     if fatals:
         morceaux.append("Boucle d'import fatale : " + "; ".join(map(str, fatals))
                         + ". Casse-la.")
+    casse = v.get("sql_casse") or {}
+    if casse:
+        morceaux.append(
+            f"SQL refuse par le moteur : {casse.get('fichier')} — "
+            f"{casse.get('motif')}. Un schema qui ne se cree pas n'est pas "
+            f"un livrable. Corrige-le, puis execute-le pour de bon : aucun "
+            f"test de ce projet ne lance les migrations.")
+
     vide = v.get("livrable_vide") or {}
     if vide:
         morceaux.append(

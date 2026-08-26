@@ -207,6 +207,22 @@ class MissionVerification:
     #: Un module livre qui ne definit rien (HOS-156).
     livrable_vide: Optional[dict] = None
 
+    #: Une migration livree que le moteur refuse (HOS-170).
+    sql_casse: Optional[dict] = None
+
+    @property
+    def sql_ne_s_execute_pas(self) -> bool:
+        """Une migration livree que le moteur refuse.
+
+        Deux des six migrations du projet Skill360 ne s'executaient pas, et
+        aucun des 74 tests verts ne les lancait. La section a donc ete
+        declaree verifiee au-dessus d'un schema qui ne se cree pas.
+
+        Contredit un succes annonce : un schema est un livrable comme un
+        autre, et celui-la ne se verrait qu'au premier deploiement.
+        """
+        return self.sql_casse is not None
+
     @property
     def livrable_sans_contenu(self) -> bool:
         """Un module annonce comme livrable et qui ne definit rien.
@@ -404,7 +420,8 @@ class MissionVerification:
                 or self.imports_boucles or self.import_hors_paquet
                 or self.dependance_fabriquee
                 or self.test_ne_peut_pas_echouer
-                or self.livrable_sans_contenu):
+                or self.livrable_sans_contenu
+                or self.sql_ne_s_execute_pas):
             return True
         # Reste la seule question ouverte : un workspace intact. C'est un
         # mensonge, sauf quand une reparation n'avait rien a reparer.
@@ -433,6 +450,7 @@ class MissionVerification:
             "faux_paquet": self.faux_paquet,
             "test_tautologique": self.test_tautologique,
             "livrable_vide": self.livrable_vide,
+            "sql_casse": self.sql_casse,
             "tests_echouent": self.tests_echouent,
         }
 
@@ -503,6 +521,7 @@ def verify(
     from backend.mission import faux_paquets as _faux
     from backend.mission import imports_relatifs as _relatifs
     from backend.mission import livrables_vides as _vides
+    from backend.mission import sql_livre as _sql
     from backend.mission import tests_tautologiques as _tauto
     from backend.mission import manifeste as _manifeste
 
@@ -521,6 +540,9 @@ def verify(
             workspace,
             # Restreint a ce que cette mission a touche :
             # voir `verdict` pour le faux echec evite.
+            touches=_touche.created + _touche.modified),
+        sql_casse=_sql.verdict(
+            workspace,
             touches=_touche.created + _touche.modified),
     )
     if result.contradicted:

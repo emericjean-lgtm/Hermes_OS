@@ -194,6 +194,49 @@ class SessionAgent:
 TAMPON_FLUX = 8 * 1024 * 1024
 
 
+async def _pourquoi_ferme(session: SessionAgent) -> str:
+    """Ce qu'on peut dire de plus qu'« il est parti ».
+
+    ## Ce qui manquait
+
+    Mesuré sur la campagne du 2026-08-25 : **3 tours perdus sur 40 tâches**,
+    toujours la même signature. Le journal de l'agent montrait un tour
+    terminé proprement —
+
+        Turn ended: reason=text_response(finish_reason=stop) api_calls=12/90
+
+    — puis plus rien, dans la même seconde. Hermes OS constatait « flux
+    fermé par l'agent » et n'en savait pas davantage. Impossible de
+    distinguer un processus tué faute de mémoire, un plantage, ou une sortie
+    volontaire : trois causes, trois remèdes, aucun moyen de trancher.
+
+    Le journal de l'agent (HOS-157) donne ce qu'il a **dit** ; il ne donne
+    pas comment il est **mort**. Le code de sortie le dit, et il ne coûte
+    qu'une attente bornée.
+
+    ## Ce que le code de sortie apprend
+
+    `0` — l'agent a décidé de s'arrêter, et c'est alors un défaut de
+    protocole : il devait rendre son résultat avant. `-9` / `137` sur un
+    Unix, ou un code élevé sous Windows, désignent une terminaison
+    extérieure — mémoire, superviseur. Autre chose est un plantage, et la
+    trace vit dans `.hermes/agent.log`.
+
+    N'attend qu'une seconde : le tour est déjà perdu, et faire patienter
+    l'appelant pour un diagnostic serait payer deux fois.
+    """
+    try:
+        code = await asyncio.wait_for(session.proc.wait(), timeout=1.0)
+    except (asyncio.TimeoutError, ProcessLookupError):
+        return " — le processus vit encore, il a fermé sa sortie seul"
+    except Exception:  # noqa: BLE001 - un diagnostic ne casse rien
+        return ""
+
+    lecture = {0: "sortie volontaire, sans avoir rendu son résultat",
+               1: "erreur non rattrapée"}.get(code, "terminaison extérieure")
+    return f" — processus terminé (code {code} : {lecture})"
+
+
 def _dossier_des_competences() -> Optional[Path]:
     """Ou l'agent range ses competences, ou None si on ne sait pas.
 
@@ -473,7 +516,9 @@ class HermesAgentACP:
             ligne = await asyncio.wait_for(
                 session.proc.stdout.readline(), timeout=restant)
             if not ligne:
-                raise RuntimeError(f"{methode} : flux fermé par l'agent")
+                raise RuntimeError(
+                    f"{methode} : flux fermé par l'agent"
+                    f"{await _pourquoi_ferme(session)}")
             try:
                 recu = json.loads(ligne.decode("utf-8", "replace"))
             except json.JSONDecodeError:

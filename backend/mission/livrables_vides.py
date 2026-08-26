@@ -79,6 +79,59 @@ def est_un_placeholder(source: str) -> bool:
     return not any(isinstance(n, _CONTENU) for n in arbre.body)
 
 
+#: Ce qui, hors Python, trahit un livrable qui n'en est pas un.
+#:
+#: §27 FRONTEND a ete declaree **verifiee** — cinq livrables annonces, cinq
+#: presents, tests passes — au-dessus de ceci :
+#:
+#:     frontend/app.js     // Frontend JS placeholder
+#:                         console.log('Frontend loaded');
+#:
+#: Deux lignes, dont une qui se declare elle-meme comme un jalon. Le garde
+#: de HOS-156 l'aurait signale sans hesiter s'il avait regarde ailleurs que
+#: dans les `.py`.
+#:
+#: Le critere hors Python ne peut pas etre l'AST. On retient donc deux
+#: signes qui ne trompent pas : un fichier dont **tout** le contenu utile
+#: tient en commentaires, ou qui se declare placeholder dans ses premieres
+#: lignes tout en tenant en moins de cinq lignes utiles.
+_AVEUX = ("placeholder", "to be implemented", "a implementer",
+          "coming soon", "tbd", "todo: implement")
+
+_COMMENTAIRE = ("//", "/*", "*", "*/", "#", "<!--", "-->")
+
+_EXTENSIONS_SURVEILLEES = {".js", ".jsx", ".ts", ".tsx", ".css", ".scss"}
+
+
+def _lignes_utiles(source: str) -> list[str]:
+    """Les lignes qui ne sont ni vides ni des commentaires."""
+    utiles = []
+    for brute in source.splitlines():
+        ligne = brute.strip()
+        if not ligne or ligne.startswith(_COMMENTAIRE):
+            continue
+        utiles.append(ligne)
+    return utiles
+
+
+def est_un_jalon_hors_python(nom: str, source: str) -> bool:
+    """Ce livrable non-Python se donne-t-il pour fait sans l'etre ?
+
+    Deliberement etroit, comme son homologue Python. Un fichier court mais
+    reel — un `index.css` de dix regles — n'est pas signale : il faut qu'il
+    **s'avoue** jalon, ou qu'il ne contienne rien d'autre que des
+    commentaires.
+    """
+    if not source.strip():
+        return False
+    utiles = _lignes_utiles(source)
+    if not utiles:
+        # Rien que des commentaires : le fichier existe et ne fait rien.
+        return True
+    tete = " ".join(source.splitlines()[:4]).lower()
+    return len(utiles) < 5 and any(aveu in tete for aveu in _AVEUX)
+
+
 def verdict(racine: str,
             touches: Optional[Iterable[str]] = None) -> Optional[dict]:
     """Le premier module livre et vide, ou None.
@@ -100,9 +153,15 @@ def verdict(racine: str,
     if touches is not None:
         candidats = sorted(
             c for c in (base / str(r).replace("\\", "/") for r in touches)
-            if c.suffix == ".py" and c.is_file())
+            if (c.suffix == ".py"
+                or c.suffix.lower() in _EXTENSIONS_SURVEILLEES)
+            and c.is_file())
     else:
-        candidats = sorted(base.rglob("*.py"))
+        candidats = sorted(
+            c for c in base.rglob("*")
+            if c.is_file() and (c.suffix == ".py"
+                                or c.suffix.lower()
+                                in _EXTENSIONS_SURVEILLEES))
     for fichier in candidats:
         if any(p in _IGNORES for p in fichier.parts):
             continue
@@ -112,7 +171,9 @@ def verdict(racine: str,
             source = fichier.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if est_un_placeholder(source):
+        vide = (est_un_placeholder(source) if fichier.suffix == ".py"
+                else est_un_jalon_hors_python(fichier.name, source))
+        if vide:
             premiere = next((l.strip() for l in source.splitlines()
                              if l.strip()), "")
             return {"fichier": str(fichier.relative_to(base)),
@@ -142,9 +203,18 @@ def message(racine: str) -> str:
 def message_du_fichier(chemin: str, source: str) -> str:
     """Le meme avertissement, mais **au moment de l'ecriture**."""
     nom = Path(chemin).name
-    if not nom.endswith(".py") or nom in _TOLERES:
+    from pathlib import Path as _P
+
+    suffixe = _P(nom).suffix.lower()
+    if nom in _TOLERES:
         return ""
-    if not est_un_placeholder(source):
+    if suffixe == ".py":
+        if not est_un_placeholder(source):
+            return ""
+    elif suffixe in _EXTENSIONS_SURVEILLEES:
+        if not est_un_jalon_hors_python(nom, source):
+            return ""
+    else:
         return ""
     return (
         f"\n\nATTENTION — {nom} ne contient ni classe, ni fonction, ni "

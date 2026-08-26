@@ -8158,3 +8158,74 @@ heures a §7.
 La saturation que HOS-165 visait etait par ailleurs **causee** par le mode
 CPU, ou huit compressions sur trente echouaient (HOS-168). Avec le GPU, la
 compression suit.
+
+## HOS-169 à 172 — ce que la revue du projet livré a montré
+
+La campagne Skill360 a abouti : 20 sections sur 22, 124 fichiers, 74 tests
+verts. La revue du code livré a trouvé six défauts. Trois sont des lacunes
+du modèle ou du cahier ; **trois étaient détectables mécaniquement**, et
+c'est Hermes OS qui ne les cherchait pas.
+
+### HOS-169 — huit applications, aucun assemblage
+
+    api/atelier.py                      app = FastAPI(title="Atelier API")
+    employees_api.py                    app = FastAPI(title="Employee API")
+    backend/api/kpi.py                  router = FastAPI(tags=["kpi"])
+    backend/api/risk.py                 router = FastAPI(tags=["risk"])
+    … et quatre autres
+
+Le seul `include_router` du projet est celui où un module inclut son propre
+routeur. Le projet ne démarre pas comme un service ; il démarre comme huit
+services qui s'ignorent. Deux d'entre eux vont jusqu'à instancier une
+application en l'appelant `router` — le nom dit l'intention, le code fait
+l'inverse.
+
+C'est le troisième maillon d'une chaîne. `pile.py` transmet la décision de
+**langage**, `arborescence.py` celle d'**emplacement**, il manquait celle
+d'**assemblage**. Chaque fois pour la même raison : la liste des fichiers
+produits ne porte pas la décision qu'ils incarnent. Le modèle n'a pas
+échoué — personne ne lui avait posé la question.
+
+Détection par AST et non par recherche de chaîne : le module contenait
+lui-même « FastAPI( » dans ses motifs et se signalait comme point d'entrée.
+Le test qui inspecte le dépôt l'a attrapé au premier essai.
+
+### HOS-170 — deux migrations sur six ne s'exécutent pas
+
+    0002_create_audit_log.py     AUTOINCREMENT is only allowed on an
+                                 INTEGER PRIMARY KEY
+    20230901_…_position_training AUTOINCREMENT … unrecognized token: "#"
+
+Et **aucun des 74 tests verts ne lance une migration**. La section a été
+déclarée vérifiée au-dessus d'un schéma qui ne se crée pas.
+
+Le piège était le faux positif : du PostgreSQL valide échoue sur SQLite.
+`syntax error` est donc délibérément absent de la liste des fautes retenues
+— `CREATE TABLE t (a TEXT DEFAULT NOW())` est correct et SQLite le refuse.
+Le prix est de laisser passer un `CREATE TABL` mal orthographié, une faute
+plus rare qu'une différence de dialecte.
+
+### HOS-171 — le garde des livrables vides ne regardait que Python
+
+    frontend/app.js   // Frontend JS placeholder
+                      console.log('Frontend loaded');
+
+§27 FRONTEND : cinq livrables annoncés, cinq présents, tests passés,
+verdict **vérifiée**. Le garde de HOS-156 aurait signalé ce fichier sans
+hésiter s'il avait regardé ailleurs que dans les `.py`.
+
+Hors Python il n'y a pas d'AST, donc deux signes seulement : un fichier
+dont tout le contenu utile tient en commentaires, ou qui s'avoue jalon en
+moins de cinq lignes utiles. Un `style.css` de dix règles n'est pas
+signalé. Vérifié sur le frontend de Hermes OS : zéro signalement.
+
+### HOS-172 — « flux fermé par l'agent » ne disait pas comment
+
+Trois tours perdus sur quarante tâches, toujours la même signature : un
+tour terminé proprement — `finish_reason=stop` — puis plus rien dans la
+même seconde. Impossible de distinguer un processus tué faute de mémoire,
+un plantage, ou une sortie volontaire.
+
+Le journal de l'agent (HOS-157) dit ce qu'il a **dit** ; le code de sortie
+dit comment il est **mort**. Attente bornée à une seconde : le tour est
+déjà perdu, faire patienter l'appelant serait payer deux fois.
