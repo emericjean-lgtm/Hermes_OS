@@ -344,9 +344,16 @@ def create_app() -> FastAPI:
     # ── STEP 3 + 4: every subsystem router, one canonical namespace ──
     # SDS is rebased off its baked-in /api/hermes-os prefix rather than
     # duplicated, so there is still one implementation of each handler.
+    # HOS-173 : la voix n'a ni service ni etat en memoire — deux verbes sur
+    # un fichier de preferences. Lui fabriquer un `ServiceSpec` pour le
+    # plaisir de la symetrie ajouterait une dependance a construire au
+    # demarrage pour rien ; elle se monte donc directement.
+    from backend.voice import routes as voice_routes
+
     mount_report = mount_all(
         app,
-        [rebase_router(SDS_ROUTER, LEGACY_SDS_PREFIX), *bootstrap.routers],
+        [rebase_router(SDS_ROUTER, LEGACY_SDS_PREFIX), *bootstrap.routers,
+         voice_routes.router],
         prefix=API_V1,
     )
     add_legacy_redirects(app, legacy=LEGACY_SDS_PREFIX, canonical=API_V1)

@@ -8229,3 +8229,40 @@ un plantage, ou une sortie volontaire.
 Le journal de l'agent (HOS-157) dit ce qu'il a **dit** ; le code de sortie
 dit comment il est **mort**. Attente bornée à une seconde : le tour est
 déjà perdu, faire patienter l'appelant serait payer deux fois.
+
+## HOS-173 — l'onglet vocal
+
+`backend/voice/` portait depuis HOS-064 deux interfaces et quatre classes
+concrètes — `WhisperProvider`, `PiperProvider` et leurs pendants cloud —
+**sans un seul importateur**. Le frontend, lui, dictait déjà :
+`voice-input.tsx` utilise la `SpeechRecognition` du navigateur, qui existe
+et fonctionne. La capacité était donc réelle **et** invisible : aucun
+écran, aucun réglage, aucun moyen de l'éprouver.
+
+### Ce que le serveur fait, et ce qu'il refuse de faire
+
+Il garde les préférences et **interroge** les fournisseurs. Une première
+version de ce module les comptait présents au seul motif que la classe
+existe — exactement la confusion entre « déclaré » et « mesuré » que ce
+dépôt a payée sur la capacité `tools` d'Ollama, annoncée jusque par un
+modèle d'embedding. Le rapport appelle donc `is_available()` :
+
+    navigateur  transcription  oui  Web Speech API
+    navigateur  synthèse       oui  SpeechSynthesis
+    serveur     transcription  non  CloudSTTProvider, WhisperProvider
+    serveur     synthèse       non  CloudTTSProvider, PiperProvider
+
+Il ne transcrit pas lui-même, et c'est un choix de matériel : un Whisper
+local disputerait les 16 Gio de VRAM au modèle qui porte les missions. Le
+navigateur fait ce travail sans rien coûter au GPU.
+
+### Les réglages sont bornés, pas refusés
+
+Un débit de 9 revient à 2, et **le retour porte la valeur bornée** : sans
+cela le client croirait son réglage accepté. Un réglage hors bornes vient
+d'un client qui a mal calculé, pas d'une intention, et une 422 laisserait
+l'interface sans réglages du tout.
+
+Vérifié en conditions réelles : trois voix françaises détectées sur cette
+machine (Hortense, Julie, Paul), dictée fonctionnelle, panneau de capacités
+peuplé depuis le serveur.

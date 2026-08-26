@@ -2,7 +2,7 @@ import {
   LayoutDashboard, MessageSquare, Brain, Target, Users, Zap, Code2,
   Database, Sparkles, Wrench, Scale, Radio, FlaskConical, Dna,
   ShieldCheck, LayoutGrid, Rocket, Play, FolderTree,
-  CheckCircle2, LineChart, HeartPulse,
+  CheckCircle2, LineChart, HeartPulse, AudioLines,
 } from "lucide-react";
 
 /** The one navigation model, shared by the rail and the command palette.
@@ -31,6 +31,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, keywords: "accueil vue générale overview" },
       { id: "conversation", label: "Assistant", icon: MessageSquare, keywords: "chat discussion prompt" },
+      { id: "voice", label: "Voice", icon: AudioLines, keywords: "voix vocal dictee micro synthese parole mains libres" },
       { id: "missions", label: "Missions", icon: Target, keywords: "dag tâches plan" },
       { id: "execution", label: "Execution", icon: Play, keywords: "run exécution tâche" },
       { id: "autonomous", label: "Autonomous", icon: Dna, keywords: "objectif goal autonome" },

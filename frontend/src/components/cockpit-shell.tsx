@@ -26,6 +26,7 @@ import { EvolutionCenter } from "@/features/evolution/evolution-center";
 import { SecurityCenter } from "@/features/security/security-center";
 import { SystemCenter } from "@/features/system/system-center";
 import ConversationCenter from "@/features/conversation/conversation-center";
+import { VoiceCenter } from "@/features/voice/voice-center";
 import DeploymentCenter from "@/features/deployment/deployment-center";
 import ModelIntelligenceCenter from "@/features/models/model-intelligence-center";
 import { HealthCenter } from "@/features/health/health-center";
@@ -44,6 +45,7 @@ import { ValidationCenter } from "@/features/validation/validation-center";
 const views = {
   dashboard: DashboardView,
   conversation: ConversationCenter,
+  voice: VoiceCenter,
   models: ModelIntelligenceCenter,
   missions: MissionCenter,
   agents: AgentCenter,

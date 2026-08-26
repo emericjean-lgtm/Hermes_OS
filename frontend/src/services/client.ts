@@ -116,6 +116,42 @@ const normaliseStatus = (s: string | undefined): SystemHealth["status"] => {
 };
 
 // ── System ──────────────────────────────────────────
+/** Voix (HOS-173).
+ *
+ *  Le serveur ne transcrit ni ne synthétise : le navigateur le fait sans
+ *  rien coûter au GPU, et sur 16 Gio partagés avec le modèle des missions
+ *  cela décide. Ce client ne porte donc que les réglages et le rapport de
+ *  capacités — lequel interroge les fournisseurs plutôt que de les
+ *  déclarer. */
+export interface VoicePreferences {
+  langue: string;
+  voix: string;
+  debit: number;
+  hauteur: number;
+  lecture_automatique: boolean;
+  mains_libres: boolean;
+}
+
+export interface VoiceCapability {
+  nom: string;
+  genre: string;
+  ou: string;
+  disponible: boolean;
+  detail: string;
+}
+
+export const voiceClient = {
+  state: () =>
+    fetchJSON<{ preferences: VoicePreferences; capacites: VoiceCapability[] }>(
+      "/voice/state",
+    ),
+  savePreferences: (p: VoicePreferences) =>
+    fetchJSON<{ preferences: VoicePreferences }>("/voice/preferences", {
+      method: "PUT",
+      body: JSON.stringify(p),
+    }),
+};
+
 export const systemClient = {
   /** Le Cockpit interrogeait GET /health, qui est la sonde de vivacité
    *  héritée : elle renvoie `{"status": "ok", "uptime_seconds": …}` et rien
