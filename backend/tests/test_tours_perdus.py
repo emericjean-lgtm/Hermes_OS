@@ -23,9 +23,16 @@ class _Registre:
 
     def __init__(self, perdus: int) -> None:
         self._perdus = perdus
+        self.renouvellement_demande = False
 
     def tours_perdus_de(self, cle: str) -> int:
         return self._perdus
+
+    def a_repartir_a_neuf(self, cle: str) -> None:
+        self.renouvellement_demande = True
+
+    def doit_repartir_a_neuf(self, cle: str) -> bool:
+        return getattr(self, "renouvellement_demande", False)
 
 
 def test_le_registre_compte_les_tours_perdus_consecutifs() -> None:

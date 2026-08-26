@@ -312,51 +312,6 @@ def modele_de_secours() -> str:
     return modele_impose("")
 
 
-#: A partir de quelle part de la fenetre servie on repart sur une session
-#: neuve, plutot que de continuer a empiler.
-#:
-#: Mesure du 2026-08-25, §21 d'un cahier, modele servi a 65536 :
-#:
-#:     in=59940  total=61623   passe
-#:     in=64696  total=65465   passe (98,7 %)
-#:     in=68753  total=70431   ECHEC — 5 000 jetons au-dela de la fenetre
-#:
-#: L'agent envoyait plus que ce que le modele sert. Sa compression tournait
-#: — trente fois — mais **huit de ces trente ont echoue**, et elle ne
-#: rattrapait plus l'accumulation. Cote Ollama, la requete meurt en
-#: `APIConnectionError` ; cote Hermes OS, le tour est perdu. §21 a echoue
-#: quatre fois de suite sur ce seul motif, sur trois lancements differents.
-#:
-#: Elargir la fenetre n'etait pas une option : mesure du meme jour,
-#: gpt-oss-20b a 131072 demande **22,46 Gio et deborde a 100 % sur CPU**
-#: pour une carte qui en offre seize.
-#:
-#: Quatre-vingt-dix pour cent : les tours a 98 % passaient encore, mais ils
-#: ne laissaient plus la place a la reponse. Couper la continuite est un
-#: cout reel — c'est tout ce que le harnais apporte au-dela du mode jetable
-#: — et on ne le paie donc qu'au bord de la panne, pas par precaution.
-PART_MAXIMALE_DU_CONTEXTE = 0.90
-
-
-def contexte_sature(jetons_entree: int, modele: str) -> bool:
-    """Ce tour a-t-il consomme presque toute la fenetre du modele ?
-
-    Rend `False` des qu'on ne sait pas : sans fenetre connue, on ne coupe
-    pas une continuite sur une supposition.
-    """
-    if jetons_entree <= 0:
-        return False
-    try:
-        from backend.conversation.harnais import fenetre_de
-
-        fenetre = fenetre_de(modele)
-    except Exception:  # noqa: BLE001 - une mesure absente n'est pas un motif
-        return False
-    if fenetre <= 0:
-        return False
-    return jetons_entree >= fenetre * PART_MAXIMALE_DU_CONTEXTE
-
-
 def _apres_des_tours_perdus(model: str, cle: str, sessions: Any) -> str:
     """Rétrograder vers le modèle rapide quand le modèle imposé s'enlise.
 
@@ -400,11 +355,18 @@ def _apres_des_tours_perdus(model: str, cle: str, sessions: Any) -> str:
         return model
     secours = modele_de_secours()
     if not secours or secours == model:
-        # Rien vers quoi rétrograder : le dire plutôt que de faire croire
-        # qu'une règle a joué.
+        # Rien vers quoi rétrograder — mais rejouer à l'identique est ce qui
+        # a coûté quatre heures à §7. Faute d'un autre modèle, on change
+        # l'autre variable : la session.
+        #
+        # C'est le signal qui manquait à HOS-165. Celui-là ne suppose rien
+        # d'un compteur dont on ignore la sémantique : deux tours perdus
+        # d'affilée sur la même clé est un fait observé, pas une grandeur
+        # interprétée.
         logger.warning("harnais : %d tours perdus d'affilée sur %s et aucun "
-                       "modèle de secours — le même est réengagé",
+                       "modèle de secours — la session repart à neuf",
                        perdus, cle)
+        sessions.a_repartir_a_neuf(cle)
         return model
     logger.warning("harnais : %d tours perdus d'affilée sur %s avec %s — "
                    "la suite passe à %s", perdus, cle, model, secours)
@@ -988,6 +950,11 @@ class RealTaskExecutor:
 
         model = _apres_des_tours_perdus(model, cle, sessions)
 
+        if sessions.doit_repartir_a_neuf(cle):
+            # Avant le tour, cette fois : c'est la session qu'on veut neuve
+            # pour l'essai qui vient, pas après lui.
+            await sessions.repartir_a_neuf(cle)
+
         try:
             tour = await sessions.tour(
                 cle, workspace, _messages_to_prompt(messages),
@@ -1000,14 +967,6 @@ class RealTaskExecutor:
 
         perdus = sessions.noter(cle, tour.abouti)
 
-        if tour.abouti and contexte_sature(tour.jetons_entree, model):
-            # Apres le tour, jamais avant : celui-ci a abouti, on garde son
-            # resultat. C'est le suivant qui aurait depasse la fenetre.
-            logger.warning(
-                "harnais : %d jetons d'entree sur %s — session repartie a "
-                "neuf pour ne pas depasser la fenetre servie",
-                tour.jetons_entree, cle)
-            await sessions.repartir_a_neuf(cle)
 
         if not tour.abouti:
             # Un tour qui n'aboutit pas n'est pas une réponse. Le rendre

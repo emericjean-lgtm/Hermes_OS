@@ -29,6 +29,22 @@
       ],
       "port": 3010,
       "autoPort": false
+    },
+    {
+      "name": "skill360-livre",
+      "runtimeExecutable": ".venv\\Scripts\\python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "backend.api.static_routes:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8099",
+        "--app-dir",
+        "C:\\Users\\emeri\\Skill360 Nuit HOS-153"
+      ],
+      "port": 8099
     }
   ]
 }

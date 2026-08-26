@@ -8126,3 +8126,35 @@ confusion : `/api/generate` fusionnait raisonnement et reponse et comptait
 Trois chiffres sont donc journalises a chaque decoupage — temps total,
 temps avant le premier caractere de reponse, part de raisonnement. Ils
 trancheront a la prochaine occurrence, au lieu d'une sixieme hypothese.
+
+## HOS-167 — HOS-165 comparait un cumul a une fenetre par requete
+
+La regle posee la veille se declenchait 74 fois dans une seule campagne.
+Les valeurs qui la declenchaient disent pourquoi :
+
+    37 declenchements
+    min 80 414 · mediane 503 792 · max 2 692 449 jetons
+    seuil : 58 982, soit 90 % de 65 536
+
+Deux millions de jetons d'entree dans une fenetre de 65 536 est impossible.
+`tour.jetons_entree` est un **cumul de session**, tous appels confondus, et
+non l'entree d'une requete. Le chiffre qui avait motive la regle —
+`in=68753` pour une fenetre de 65 536 — venait du journal de l'agent, pas de
+cette variable. Les deux ont ete relies sans verifier qu'ils designaient la
+meme grandeur.
+
+Effet : la session repartait a neuf presque a chaque tour, donc la
+continuite — tout ce que le harnais apporte au-dela du mode jetable —
+n'existait plus. Le CHANGELOG de HOS-165 decrivait une regle qui n'a jamais
+fonctionne comme annonce.
+
+Le declencheur retenu ne suppose rien d'un compteur dont la semantique
+n'est pas etablie : **deux tours perdus d'affilee sur la meme cle**, ce qui
+est un fait observe. Quand un modele de secours existe, on change de modele
+— c'est la variable la plus informative. Quand il n'y en a pas, on change
+de session, parce que rejouer a l'identique est ce qui a coute quatre
+heures a §7.
+
+La saturation que HOS-165 visait etait par ailleurs **causee** par le mode
+CPU, ou huit compressions sur trente echouaient (HOS-168). Avec le GPU, la
+compression suit.

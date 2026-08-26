@@ -43,6 +43,7 @@ class _RegistreFactice:
         self.fermetures: list[str] = []
         self.tours_perdus = 0
         self.reparties: list[str] = []
+        self.renouvellement_demande = False
 
     async def disponible_pour(self, cle):
         return self._disponible
@@ -77,6 +78,14 @@ class _RegistreFactice:
     async def repartir_a_neuf(self, cle):
         self.reparties.append(cle)
         self.tours_perdus = 0
+
+    def a_repartir_a_neuf(self, cle):
+        self.renouvellement_demande = True
+
+    def doit_repartir_a_neuf(self, cle):
+        pose = self.renouvellement_demande
+        self.renouvellement_demande = False
+        return pose
 
 
 @pytest.fixture

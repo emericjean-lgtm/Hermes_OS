@@ -156,6 +156,8 @@ class SessionsDeMission:
         # Indexe par cle de travail, pas par session :
         # voir `noter` pour la mesure qui l'a impose.
         self._tours_perdus: dict[str, int] = {}
+        # Cles dont la session doit repartir neuve au prochain tour.
+        self._a_renouveler: set[str] = set()
         self._plafond = plafond
         self._ttl = ttl_s
         # Injectable pour que les tests n'aient pas à lancer un agent réel.
@@ -254,6 +256,28 @@ class SessionsDeMission:
         except Exception:  # noqa: BLE001 - une fermeture ne casse rien
             logger.debug("fermeture de la session %s", cle, exc_info=True)
 
+    def a_repartir_a_neuf(self, cle: str) -> None:
+        """Demander une session neuve au prochain tour.
+
+        Poser une intention plutot que fermer tout de suite : la decision
+        est prise dans du code synchrone (`_apres_des_tours_perdus`) et la
+        fermeture est asynchrone. Les melanger obligerait l'un des deux a
+        changer de nature pour une raison qui ne lui appartient pas.
+        """
+        if cle:
+            self._a_renouveler.add(cle)
+
+    def doit_repartir_a_neuf(self, cle: str) -> bool:
+        """La demande a-t-elle ete posee ? La consommer en le disant.
+
+        Consommee et non lue : sans cela, la meme demande relancerait une
+        session neuve a chaque tour suivant, et la continuite ne
+        reviendrait jamais — le defaut que HOS-165 avait justement produit.
+        """
+        pose = cle in self._a_renouveler
+        self._a_renouveler.discard(cle)
+        return pose
+
     async def repartir_a_neuf(self, cle: str) -> None:
         """Fermer la session **et oublier son identifiant**.
 
@@ -270,6 +294,7 @@ class SessionsDeMission:
             await self._fermer_sans_verrou(cle)
             self._identifiants.pop(cle, None)
         self._tours_perdus.pop(cle, None)
+        self._a_renouveler.discard(cle)
         logger.info("session %s repartie a neuf (contexte sature)", cle)
 
     async def fermer(self, cle: str) -> None:

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 
-import backend.execution.task_executor as te
 from backend.ral.adapters.sessions_de_mission import SessionsDeMission
 
 
@@ -35,32 +34,6 @@ class _Client:
 
     async def fermer(self):
         return None
-
-
-# -- la mesure ---------------------------------------------------------
-
-def test_un_tour_au_bord_de_la_fenetre_est_signale() -> None:
-    """65042 jetons sur 65536 : le tour passe, le suivant deborde."""
-    assert te.contexte_sature(65042, "gpt-oss-20b-64k")
-
-
-def test_un_tour_confortable_ne_coupe_rien() -> None:
-    """Couper la continuite est un cout : on ne le paie qu'au bord.
-
-    C'est tout ce que le harnais apporte au-dela du mode jetable, et le
-    perdre par precaution serait payer sans rien acheter.
-    """
-    assert not te.contexte_sature(40_000, "gpt-oss-20b-64k")
-
-
-def test_un_modele_sans_fenetre_connue_ne_coupe_rien() -> None:
-    """Sans mesure, on ne coupe pas une continuite sur une supposition."""
-    assert not te.contexte_sature(999_999, "modele-inexistant-42b")
-
-
-def test_un_tour_sans_compteur_ne_coupe_rien() -> None:
-    """`inputTokens` absent rend zero ; zero n'est pas une saturation."""
-    assert not te.contexte_sature(0, "gpt-oss-20b-64k")
 
 
 # -- la remise a neuf --------------------------------------------------
@@ -114,3 +87,66 @@ def test_le_compte_de_tours_perdus_est_remis_a_zero() -> None:
         assert registre.tours_perdus_de("projet:x") == 0
 
     asyncio.run(scenario())
+
+
+# -- le declencheur correct (HOS-167) ---------------------------------
+
+def test_deux_tours_perdus_sans_secours_demandent_une_session_neuve() -> None:
+    """HOS-165 comparait un cumul de session a une fenetre par requete.
+
+    Mesure du 2026-08-25, 37 declenchements : min 80 414, mediane 503 792,
+    max 2 692 449 jetons — contre un seuil de 58 982. Deux millions de
+    jetons d'entree dans une fenetre de 65 536 est impossible :
+    `jetons_entree` est un cumul de session, pas l'entree d'une requete.
+    La regle se declenchait donc presque toujours (74 remises a neuf) et
+    detruisait la continuite qui fait tout l'interet du harnais.
+
+    Le signal retenu ne suppose rien d'un compteur dont on ignore la
+    semantique : deux tours perdus d'affilee sur la meme cle est un fait
+    observe. Et quand aucun modele de secours n'existe, changer de session
+    est la seule variable qui reste — rejouer a l'identique est ce qui a
+    coute quatre heures a §7.
+    """
+    import backend.execution.task_executor as te
+    from backend.ral.adapters.sessions_de_mission import (
+        PLAFOND_TOURS_PERDUS, SessionsDeMission)
+
+    registre = SessionsDeMission()
+    for _ in range(PLAFOND_TOURS_PERDUS):
+        registre.noter("projet:x", abouti=False)
+
+    te._apres_des_tours_perdus("gpt-oss-20b-64k", "projet:x", registre)
+
+    assert registre.doit_repartir_a_neuf("projet:x")
+
+
+def test_avec_un_secours_on_change_de_modele_pas_de_session(monkeypatch) -> None:
+    """Une variable a la fois : le modele d'abord, il est plus informatif."""
+    import backend.execution.task_executor as te
+    from backend.ral.adapters.sessions_de_mission import (
+        PLAFOND_TOURS_PERDUS, SessionsDeMission)
+
+    monkeypatch.setenv("HERMES_MISSION_MODEL",
+                       "code_review=qwen38-27b-64k,*=gpt-oss-20b-64k")
+    registre = SessionsDeMission()
+    for _ in range(PLAFOND_TOURS_PERDUS):
+        registre.noter("projet:x", abouti=False)
+
+    obtenu = te._apres_des_tours_perdus("qwen38-27b-64k", "projet:x", registre)
+
+    assert obtenu == "gpt-oss-20b-64k"
+    assert not registre.doit_repartir_a_neuf("projet:x")
+
+
+def test_la_demande_est_consommee_une_seule_fois() -> None:
+    """Sans cela, chaque tour repartirait a neuf et la continuite mourrait.
+
+    C'est exactement le defaut que HOS-165 avait produit.
+    """
+    from backend.ral.adapters.sessions_de_mission import SessionsDeMission
+
+    registre = SessionsDeMission()
+    registre.a_repartir_a_neuf("projet:x")
+
+    assert registre.doit_repartir_a_neuf("projet:x")
+    assert not registre.doit_repartir_a_neuf("projet:x")
