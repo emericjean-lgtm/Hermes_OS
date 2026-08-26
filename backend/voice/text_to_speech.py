@@ -32,47 +32,15 @@ class TextToSpeechProvider(ABC):
         return ["default", "female", "male"]
 
 
-class PiperProvider(TextToSpeechProvider):
-    """Local Piper TTS provider (interface only)."""
-
-    def __init__(self, model_path: str = ""):
-        self._model_path = model_path
-
-    def synthesize(self, text: str, voice: str = "default",
-                   language: str = "fr") -> bytes:
-        raise NotImplementedError(
-            "Piper provider requires: pip install piper-tts"
-        )
-
-    def is_available(self) -> bool:
-        try:
-            import piper  # type: ignore
-            return True
-        except ImportError:
-            return False
-
-    def get_name(self) -> str:
-        return "piper"
-
-    def get_voices(self) -> list[str]:
-        return ["default"]
-
-
-class CloudTTSProvider(TextToSpeechProvider):
-    """Cloud-based TTS provider (interface only)."""
-
-    def __init__(self, api_key: str = "", provider: str = "google"):
-        self._api_key = api_key
-        self._provider = provider
-
-    def synthesize(self, text: str, voice: str = "default",
-                   language: str = "fr") -> bytes:
-        raise NotImplementedError(
-            f"Cloud TTS ({self._provider}) requires API key configuration"
-        )
-
-    def is_available(self) -> bool:
-        return bool(self._api_key)
-
-    def get_name(self) -> str:
-        return f"cloud_{self._provider}"
+# HOS-175 : `WhisperProvider`, `PiperProvider` et leurs pendants cloud
+# vivaient ici depuis HOS-064. Chacun levait `NotImplementedError` et
+# annoncait sa disponibilite sur un simple `import`.
+#
+# Le defaut est reste latent trois jours : tant que la dependance manquait,
+# `is_available()` rendait False et personne ne s'en apercevait. Installer
+# `piper-tts` l'a revele d'un coup — la classe se declarait disponible et
+# aurait leve au premier appel.
+#
+# Les implementations reelles vivent dans `backend/voice/locale.py`, avec
+# leurs modeles mesures. Garder ces souches a cote aurait laisse deux
+# reponses a une meme question, dont une fausse.

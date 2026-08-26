@@ -3,7 +3,8 @@
 `backend/voice/` portait depuis HOS-064 deux interfaces et quatre classes
 concretes — `WhisperProvider`, `PiperProvider` et leurs pendants cloud —
 **sans un seul importateur**. Aucun ecran ne les presentait, aucun reglage
-ne les gouvernait.
+ne les gouvernait. Elles ont ete retirees en HOS-175, remplacees par des
+implementations reelles adossees a des modeles mesures.
 
 Le piege de ce module est de compter une classe pour une capacite. C'est
 exactement la confusion que ce depot a deja payee sur la capacite `tools`
@@ -99,36 +100,35 @@ def test_le_navigateur_est_annonce_disponible() -> None:
     assert all(c.disponible for c in navigateur)
 
 
-def test_un_fournisseur_serveur_sans_dependance_est_dit_absent() -> None:
-    """Le point du module.
+def test_un_fournisseur_sans_dependance_est_dit_absent(monkeypatch) -> None:
+    """Le point du module, eprouve sur une absence simulee.
 
-    `WhisperProvider` et `PiperProvider` existent comme classes concretes
-    depuis HOS-064 ; toutes deux levent `NotImplementedError` et leur
-    `is_available()` rend False. Les compter comme une capacite serait
-    repeter la confusion `tools` d'Ollama.
+    Ce test affirmait l'absence **reelle** des fournisseurs serveur, ce qui
+    etait vrai jusqu'a l'installation des modeles locaux (HOS-175). Le
+    reecrire sur l'etat aurait fige une verite datee ; il porte donc sur la
+    regle : une classe qui existe sans sa dependance ne compte pas.
+
+    `WhisperProvider` et `PiperProvider` sont dans ce cas depuis HOS-064 —
+    concretes, et levant `NotImplementedError`. Les compter comme une
+    capacite serait repeter la confusion `tools` d'Ollama, annoncee jusque
+    par un modele d'embedding.
     """
+    from backend.voice import locale
+
+    class _SansDependance:
+        def is_available(self): return False
+
+    monkeypatch.setattr(
+        locale, "fournisseurs",
+        lambda: {"transcription": _SansDependance(),
+                 "synthese": _SansDependance()})
+
     serveur = [c for c in vp.capacites() if c.ou == "serveur"]
 
     assert len(serveur) == 2
     for c in serveur:
         assert not c.disponible, f"{c.nom} annonce sans etre installe"
         assert "is_available" in c.detail
-
-
-def test_un_fournisseur_qui_leve_est_traite_comme_absent(monkeypatch) -> None:
-    """Un fournisseur casse est absent, pas une panne du rapport."""
-    from backend.voice import speech_to_text
-
-    class _Explose(speech_to_text.SpeechToTextProvider):
-        def transcribe(self, audio_path, language="fr"): return ""
-        def is_available(self): raise RuntimeError("pilote absent")
-        def get_name(self): return "explose"
-
-    monkeypatch.setattr(speech_to_text, "_Explose", _Explose, raising=False)
-
-    transcription = [c for c in vp.capacites()
-                     if c.ou == "serveur" and c.genre == "transcription"]
-    assert transcription and not transcription[0].disponible
 
 
 def test_le_rapport_porte_les_deux_en_un_appel(tmp_path, monkeypatch) -> None:
@@ -140,3 +140,81 @@ def test_le_rapport_porte_les_deux_en_un_appel(tmp_path, monkeypatch) -> None:
 
     assert "preferences" in r and "capacites" in r
     assert len(r["capacites"]) == 4
+
+
+# -- les modeles locaux (HOS-175) --------------------------------------
+
+def test_les_fournisseurs_locaux_sont_construits_sans_etre_charges() -> None:
+    """Neuf secondes de chargement ne doivent pas etre payees pour un
+    rapport de capacites que personne n'a demande."""
+    from backend.voice import locale
+
+    f = locale.fournisseurs()
+
+    assert set(f) == {"transcription", "synthese"}
+    # `_charge` reste None : construire ne charge rien.
+    assert f["synthese"]._charge is None
+    assert f["transcription"]._charge is None
+
+
+def test_une_voix_absente_rend_le_fournisseur_indisponible(monkeypatch, tmp_path) -> None:
+    """La bibliotheque ne suffit pas.
+
+    Sans le fichier `.onnx`, Piper ne peut rien dire. Annoncer
+    « disponible » sur la seule presence du paquet serait exactement la
+    confusion entre le contrat et la capacite que ce module corrige.
+    """
+    from backend.voice import locale
+
+    monkeypatch.setenv("VOIX_HERMES", str(tmp_path))
+
+    assert not locale.PiperLocal().is_available()
+
+
+def test_le_dossier_des_voix_suit_la_variable(monkeypatch, tmp_path) -> None:
+    from backend.voice import locale
+
+    monkeypatch.setenv("VOIX_HERMES", str(tmp_path))
+
+    assert locale.dossier_des_voix() == tmp_path
+
+
+def test_les_voix_installees_sont_listees_depuis_le_disque(monkeypatch, tmp_path) -> None:
+    from backend.voice import locale
+
+    monkeypatch.setenv("VOIX_HERMES", str(tmp_path))
+    (tmp_path / "fr_FR-siwis-medium.onnx").write_bytes(b"x")
+    (tmp_path / "en_US-amy-low.onnx").write_bytes(b"x")
+
+    assert locale.PiperLocal().get_voices() == [
+        "en_US-amy-low", "fr_FR-siwis-medium"]
+
+
+def test_un_fournisseur_local_disponible_prime_dans_le_rapport(monkeypatch) -> None:
+    """Le rapport doit nommer le modele local, pas la classe de HOS-064."""
+    from backend.voice import locale
+
+    class _Pret:
+        def is_available(self): return True
+        def get_name(self): return "faster-whisper/small"
+
+    monkeypatch.setattr(locale, "fournisseurs",
+                        lambda: {"transcription": _Pret(), "synthese": _Pret()})
+
+    serveur = [c for c in vp.capacites() if c.ou == "serveur"]
+    assert all(c.disponible for c in serveur)
+    assert all("faster-whisper" in c.nom for c in serveur)
+    # Le detail doit dire pourquoi c'est acceptable sur ce materiel.
+    assert all("VRAM" in c.detail for c in serveur)
+
+
+def test_un_fournisseur_local_qui_leve_ne_casse_pas_le_rapport(monkeypatch) -> None:
+    from backend.voice import locale
+
+    class _Explose:
+        def is_available(self): raise RuntimeError("onnx absent")
+
+    monkeypatch.setattr(locale, "fournisseurs",
+                        lambda: {"transcription": _Explose(), "synthese": _Explose()})
+
+    assert len(vp.capacites()) == 4

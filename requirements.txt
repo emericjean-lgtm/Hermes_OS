@@ -65,3 +65,17 @@ Pillow==12.3.0
 pytest==8.3.2
 pytest-asyncio==0.24.0
 pytest-timeout==2.4.0
+
+# ── Voix locale (HOS-175) ──
+# Choisis pour ce matériel, pas pour un classement. La RX 6800 n'est
+# joignable que par Vulkan et `gpt-oss-20b-64k` en occupe 11,92 Gio sur 16 :
+# tout modèle vocal qui toucherait la carte disputerait sa place au cerveau
+# des missions. Ces deux-là tournent sur CPU — mesuré à 356 Mio de RAM et
+# 0 de VRAM.
+#
+# `faster-whisper` plutôt qu'`openai-whisper` que HOS-064 visait : celui-ci
+# tire PyTorch (~2,5 Gio) pour être plus lent sur CPU, CTranslate2 pèse
+# 35 Mo. Aller-retour mesuré le 2026-08-26, Piper prononce et Whisper
+# relit : mot pour mot, 1,5 s.
+faster-whisper==1.2.1
+piper-tts==1.7.0

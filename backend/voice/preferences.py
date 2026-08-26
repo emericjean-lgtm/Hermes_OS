@@ -167,55 +167,40 @@ def capacites() -> list[Capacite]:
 
 
 def _capacite_serveur(genre: str) -> Capacite:
-    """Un fournisseur serveur existe-t-il vraiment pour ce genre ?
+    """Un fournisseur local existe-t-il vraiment pour ce genre ?
 
-    On cherche une **implémentation concrète** de l'interface, pas
-    l'interface elle-même : celle-ci est présente depuis HOS-064 et ne
-    transcrit rien.
+    On **demande**, on ne suppose pas. `is_available()` regarde la
+    bibliotheque et le fichier de modele ; il ne charge rien, si bien que ce
+    rapport ne paie jamais les neuf secondes d'un modele que personne n'a
+    demande.
+
+    Les souches de HOS-064 qui vivaient ici ont ete retirees en HOS-175 :
+    elles annoncaient leur disponibilite sur un simple `import` et
+    l'installation de `piper-tts` les a fait mentir d'un coup.
     """
-    from backend.voice import speech_to_text, text_to_speech
+    from backend.voice import locale
 
-    module = speech_to_text if genre == "transcription" else text_to_speech
-    base = (speech_to_text.SpeechToTextProvider if genre == "transcription"
-            else text_to_speech.TextToSpeechProvider)
-
-    concretes = [
-        objet for nom in dir(module)
-        if isinstance(objet := getattr(module, nom, None), type)
-        and issubclass(objet, base) and objet is not base
-        and not getattr(objet, "__abstractmethods__", None)
-    ]
-
-    # **On demande, on ne suppose pas.** Une classe concrète existe pour
-    # Whisper et pour Piper depuis HOS-064 ; toutes deux lèvent
-    # `NotImplementedError` et leur `is_available()` rend False tant que la
-    # dépendance n'est pas installée. Compter la classe comme une capacité
-    # serait exactement la confusion entre « déclaré » et « mesuré » que ce
-    # dépôt a payée sur la capacité `tools` d'Ollama, annoncée jusque par un
-    # modèle d'embedding.
-    prets = []
-    for classe in concretes:
+    fournisseur = locale.fournisseurs().get(genre)
+    if fournisseur is not None:
         try:
-            if classe().is_available():
-                prets.append(classe.__name__)
-        except Exception:  # noqa: BLE001 - un fournisseur cassé est absent
-            logger.debug("fournisseur %s inutilisable", classe.__name__,
+            if fournisseur.is_available():
+                return Capacite(
+                    nom=fournisseur.get_name(), genre=genre, ou="serveur",
+                    disponible=True,
+                    detail="Modele local sur CPU — 0 de VRAM, donc aucune "
+                           "concurrence avec le modele des missions.")
+        except Exception:  # noqa: BLE001 - un fournisseur casse est absent
+            logger.debug("fournisseur local %s inutilisable", genre,
                          exc_info=True)
 
-    if prets:
-        return Capacite(
-            nom=", ".join(prets), genre=genre, ou="serveur",
-            disponible=True,
-            detail="Fournisseur local installé et interrogé avec succès.")
-
-    declares = ", ".join(c.__name__ for c in concretes) or "aucun"
+    manque = ("le modele Piper (.onnx) n'est pas dans le dossier des voix"
+              if genre == "synthese"
+              else "`faster-whisper` n'est pas installe")
     return Capacite(
-        nom=f"{declares} (non installé)", genre=genre, ou="serveur",
+        nom="aucun fournisseur local", genre=genre, ou="serveur",
         disponible=False,
-        detail="La classe existe depuis HOS-064 mais sa dépendance n'est pas "
-               "là : `is_available()` rend False. Un modèle local "
-               "disputerait de toute façon la VRAM au modèle des missions, "
-               "et le navigateur fait ce travail sans rien coûter au GPU.")
+        detail=f"`is_available()` rend False : {manque}. Le navigateur fait "
+               f"ce travail sans rien coûter au GPU.")
 
 
 def rapport() -> dict[str, Any]:
