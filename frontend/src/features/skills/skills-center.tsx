@@ -1,116 +1,223 @@
 "use client";
 
-import { useState } from "react";
-import { useSkills, useSelectSkills, useSkillCache } from "@/hooks/use-api";
-import { Card, Badge, ProgressBar } from "@/components/ui/card";
-import type { Skill, SkillSelection } from "@/types/hermes";
-import { CenterHeader } from "@/components/center-scaffold";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Sparkles, FolderTree, Search } from "lucide-react";
+import { Badge } from "@/components/ui/card";
+import {
+  AsyncPanel, CenterHeader, CenterTabs, DataTable, StatGrid, Toolbar,
+} from "@/components/center-scaffold";
+import { skillsClient, type AgentSkills } from "@/services/client";
+
+/**
+ * Skills Center (HOS-176).
+ *
+ * Cet écran affichait **zéro compétence**. Il lisait le registre du
+ * `SkillDistributor`, qui est vide — mesuré le 2026-08-26 : `GET /skills`
+ * rend `count: 0`. Pendant ce temps Hermes Agent en porte **quatre-vingt-une**
+ * sur le disque, lues depuis HOS-153 par `backend/skills/registre.py`, et
+ * aucune surface ne les montrait.
+ *
+ * Les deux registres restent distincts, et l'écran le dit : le distributeur
+ * décrit ce que Hermes OS *distribuerait*, l'agent porte ce que le cerveau
+ * des missions *sait déjà faire*. Les fondre ferait croire le distributeur
+ * peuplé — exactement le genre d'illusion que ce projet passe son temps à
+ * défaire.
+ */
+
+type Onglet = "agent" | "distributeur";
 
 export function SkillsCenter() {
-  const { data: skills } = useSkills();
-  const { data: cache } = useSkillCache();
-  const [taskDesc, setTaskDesc] = useState("");
-  const { data: selected } = useSelectSkills(taskDesc);
+  const [onglet, setOnglet] = useState<Onglet>("agent");
+  const [filtre, setFiltre] = useState("");
+
+  const agent = useQuery({
+    queryKey: ["skills", "agent"],
+    queryFn: () => skillsClient.agentSkills(),
+    staleTime: 60_000,
+  });
+
+  const distributeur = useQuery({
+    queryKey: ["skills", "distributeur"],
+    queryFn: () => skillsClient.list(),
+    staleTime: 60_000,
+  });
+
+  const total = agent.data?.total ?? 0;
+  const domaines = agent.data?.domaines ?? [];
+  const distribues = distributeur.data?.length ?? 0;
 
   return (
     <div className="animate-fade-in">
       <CenterHeader
         title="Skills Center"
-        subtitle="Distribution dynamique et sélection intelligente des compétences"
+        subtitle="Ce que le cerveau des missions sait déjà faire, et ce que Hermes OS distribue"
       />
 
-      {/* Skill selection */}
-      <Card title="Sélection automatique" subtitle="Décrivez une tâche pour obtenir des recommandations de compétences" className="mb-6">
-        <input
-          type="text"
-          value={taskDesc}
-          onChange={(e) => setTaskDesc(e.target.value)}
-          placeholder='ex. « Construire une API REST avec authentification »'
-          className="w-full bg-hermes-bg border border-hermes-border rounded-lg px-4 py-2.5 text-sm text-hermes-text font-mono focus:border-hermes-amber outline-none mb-3"
+      <StatGrid
+        columns={4}
+        stats={[
+          { label: "Compétences de l'agent", value: total },
+          { label: "Domaines", value: domaines.length },
+          {
+            label: "Registre du distributeur",
+            value: distribues,
+            tone: distribues === 0 ? "warn" : "ok",
+          },
+          {
+            label: "Le plus fourni",
+            value: domaines.length
+              ? [...domaines].sort(
+                  (a, b) => b.competences.length - a.competences.length,
+                )[0].nom
+              : "—",
+          },
+        ]}
+      />
+
+      <div className="mt-6">
+        <CenterTabs<Onglet>
+          tabs={[
+            { id: "agent", label: "Agent", badge: total || undefined },
+            {
+              id: "distributeur",
+              label: "Distributeur",
+              badge: distribues || undefined,
+            },
+          ]}
+          active={onglet}
+          onChange={setOnglet}
         />
-        {selected && (
-          <div className="flex flex-col gap-2">
-            {selected.map((s) => (
-              <SelectionRow key={s.skill_id} selection={s} />
-            ))}
-            {selected.length === 0 && (
-              <p className="text-xs text-hermes-muted py-2">Aucune compétence correspondante. Essayez une description plus longue.</p>
-            )}
-          </div>
+      </div>
+
+      <div className="mt-4">
+        {onglet === "agent" ? (
+          <OngletAgent
+            requete={agent}
+            filtre={filtre}
+            setFiltre={setFiltre}
+          />
+        ) : (
+          <OngletDistributeur nombre={distribues} requete={distributeur} />
         )}
-      </Card>
-
-      <div className="grid grid-cols-2 gap-4">
-        {/* Skills list */}
-        <Card title="Compétences enregistrées" subtitle={`${skills?.length || 0} compétence(s)`}>
-          <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
-            {skills?.map((skill) => (
-              <SkillCard key={skill.id} skill={skill} />
-            ))}
-          </div>
-        </Card>
-
-        {/* Cache */}
-        <Card title="État du cache" subtitle={cache ? `${Object.keys(cache).length} entrée(s)` : "Chargement…"}>
-          {cache && (
-            <div className="flex flex-col gap-2">
-              {Object.entries(cache).slice(0, 8).map(([key, val]: [string, any]) => (
-                <div key={key} className="flex items-center justify-between p-2 bg-hermes-bg rounded text-xs">
-                  <span className="text-hermes-text font-mono">{key}</span>
-                  <Badge variant={val?.status === "active" ? "success" : "default"}>
-                    {val?.status || "—"}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
       </div>
     </div>
   );
 }
 
-function SelectionRow({ selection }: { selection: SkillSelection }) {
+/* ── Les compétences réelles de l'agent ─────────────────────────────── */
+
+function OngletAgent({
+  requete, filtre, setFiltre,
+}: {
+  requete: ReturnType<typeof useQuery<AgentSkills>>;
+  filtre: string;
+  setFiltre: (v: string) => void;
+}) {
+  const domaines = requete.data?.domaines ?? [];
+
+  const lignes = useMemo(() => {
+    const q = filtre.trim().toLowerCase();
+    return domaines.flatMap((d) =>
+      d.competences
+        .filter(
+          (c) =>
+            !q ||
+            c.nom.toLowerCase().includes(q) ||
+            c.description.toLowerCase().includes(q) ||
+            d.nom.toLowerCase().includes(q),
+        )
+        .map((c) => ({ ...c, domaine: d.nom })),
+    );
+  }, [domaines, filtre]);
+
   return (
-    <div className="bg-hermes-card border border-hermes-border/50 rounded-lg p-3 flex items-center gap-3">
-      <div className="flex items-center gap-2 min-w-[120px]">
-        <span className="text-sm font-medium text-hermes-text font-mono">{selection.skill_name}</span>
-        <Badge variant={selection.score > 0.7 ? "success" : selection.score > 0.4 ? "warning" : "default"}>
-          {(selection.score * 100).toFixed(0)}%
-        </Badge>
-      </div>
-      <span className="text-[11px] text-hermes-muted flex-1">{selection.justification}</span>
-    </div>
+    <AsyncPanel
+      title="Compétences portées par Hermes Agent"
+      subtitle={requete.data?.racine ?? "Lues sur le disque, pas déclarées"}
+      isLoading={requete.isLoading}
+      isError={requete.isError}
+      error={requete.error}
+      isEmpty={lignes.length === 0}
+      emptyLabel={
+        filtre
+          ? `Aucune compétence ne correspond à « ${filtre} ».`
+          : "Aucune compétence trouvée sous le dossier de l'agent."
+      }
+      action={
+        <Toolbar
+          search={filtre}
+          onSearch={setFiltre}
+          placeholder="Filtrer par nom, domaine ou description"
+        />
+      }
+    >
+      <DataTable
+        rows={lignes}
+        rowKey={(r) => `${r.domaine}/${r.nom}`}
+        columns={[
+          {
+            header: "Domaine",
+            cell: (r) => (
+              <span className="inline-flex items-center gap-1.5">
+                <FolderTree size={11} className="text-hermes-dim" />
+                <span className="num text-[11px] text-hermes-muted">
+                  {r.domaine}
+                </span>
+              </span>
+            ),
+          },
+          {
+            header: "Compétence",
+            cell: (r) => (
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles size={11} className="text-hermes-sodium" />
+                <span className="num text-[11px] text-hermes-text">{r.nom}</span>
+              </span>
+            ),
+          },
+          {
+            header: "Ce qu'elle fait",
+            cell: (r) => (
+              <span className="text-[11px] text-hermes-muted">
+                {r.description || <span className="text-hermes-dim">—</span>}
+              </span>
+            ),
+          },
+        ]}
+      />
+    </AsyncPanel>
   );
 }
 
-function SkillCard({ skill }: { skill: Skill }) {
+/* ── Le distributeur, dit tel qu'il est ─────────────────────────────── */
+
+function OngletDistributeur({
+  nombre, requete,
+}: {
+  nombre: number;
+  requete: { isLoading: boolean; isError: boolean; error?: unknown };
+}) {
   return (
-    <div className="bg-hermes-bg rounded-lg p-3 border border-hermes-border/50 hover:border-hermes-border transition-colors">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-sm font-medium text-hermes-text">{skill.name}</span>
-        <Badge variant={skill.status === "ACTIVE" ? "success" : skill.status === "LOADED" ? "info" : "default"}>
-          {skill.status}
-        </Badge>
-      </div>
-      <div className="flex flex-wrap gap-1 mb-2">
-        {skill.tags?.slice(0, 4).map((tag) => (
-          <span key={tag} className="text-[10px] text-hermes-muted font-mono">{tag}</span>
-        ))}
-      </div>
-      {skill.metrics && (
-        <div className="grid grid-cols-3 gap-1 text-[10px] font-mono">
-          <span className="text-hermes-muted">Réussite :</span>
-          <span className="col-span-2 text-hermes-text">{((skill.metrics?.success_rate || 0) * 100).toFixed(0)}%</span>
-          <span className="text-hermes-muted">Mémoire :</span>
-          <span className="col-span-2 text-hermes-text">{skill.metrics?.memory_mb || 0} MB</span>
-        </div>
-      )}
-      {skill.dependencies?.length > 0 && (
-        <div className="mt-1 text-[10px] text-hermes-muted font-mono">
-          Dépendances : {skill.dependencies.join(", ")}
-        </div>
-      )}
-    </div>
+    <AsyncPanel
+      title="Registre du distributeur"
+      subtitle="Ce que Hermes OS distribuerait aux agents"
+      isLoading={requete.isLoading}
+      isError={requete.isError}
+      error={requete.error}
+      isEmpty={nombre === 0}
+      emptyLabel={
+        "Ce registre est vide. Il décrit les compétences que Hermes OS " +
+        "distribuerait lui-même — un mécanisme distinct de celles que " +
+        "l'agent porte déjà, et qui n'a jamais été peuplé. L'onglet Agent " +
+        "montre ce qui existe réellement."
+      }
+    >
+      <p className="text-xs text-hermes-muted">
+        {nombre} compétence(s) enregistrée(s) côté distributeur.
+      </p>
+    </AsyncPanel>
   );
 }
+
+export default SkillsCenter;

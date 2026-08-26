@@ -28,7 +28,9 @@ interface Row {
   detail: string;
 }
 
-export function HealthCenter() {
+/** `imbrique` supprime l'en-tete : ce Center est alors rendu sous celui
+ *  du System Center, qui porte deja le titre et les onglets (HOS-177). */
+export function HealthCenter({ imbrique = false }: { imbrique?: boolean }) {
   const health = useSubsystemHealth();
   const uptime = useSystemHealth();
   const assembly = useSubsystemAssembly();
@@ -62,7 +64,8 @@ export function HealthCenter() {
 
   return (
     <div className="animate-fade-in">
-      <CenterHeader
+      {!imbrique && (
+        <CenterHeader
         title="Health Center"
         subtitle="Santé des sous-systèmes, disponibilité et complétude de l'assemblage"
         right={
@@ -73,6 +76,7 @@ export function HealthCenter() {
           )
         }
       />
+      )}
 
       <StatGrid
         columns={5}

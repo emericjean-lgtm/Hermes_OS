@@ -21,7 +21,9 @@ const statusBadge: Record<RuntimeStatus, "success" | "warning" | "danger" | "def
   stopped: "default",
 };
 
-export function RuntimeCenter() {
+/** `imbrique` supprime l'en-tete : ce Center est alors rendu sous
+ *  celui du Runtime Center, qui porte deja titre et onglets (HOS-177). */
+export function RuntimeCenter({ imbrique = false }: { imbrique?: boolean }) {
   const { data: runtimes, isLoading, isError, error } = useRuntimes();
   const { data: resources, isError: resErr } = useResourceStatus();
   const { data: loaded, isLoading: loadedLoading, isError: loadedErr } = useLoadedModels();
@@ -41,16 +43,18 @@ export function RuntimeCenter() {
 
   return (
     <div>
-      <CenterHeader
-        title="Runtime Center"
-        subtitle="Santé des moteurs d'inférence, ressources matérielles et sélection"
-        right={
-          <Badge variant={active > 0 ? "success" : "default"}>
-            {active > 0 && <Beacon tone="green" />}
-            {active}/{runtimes?.length ?? 0} actif(s)
-          </Badge>
-        }
-      />
+      {!imbrique && (
+        <CenterHeader
+          title="Runtime Center"
+          subtitle="Santé des moteurs d'inférence, ressources matérielles et sélection"
+          right={
+            <Badge variant={active > 0 ? "success" : "default"}>
+              {active > 0 && <Beacon tone="green" />}
+              {active}/{runtimes?.length ?? 0} actif(s)
+            </Badge>
+          }
+        />
+      )}
 
       {/* ── Ressources matérielles ─────────────────────────────────── */}
       <div className="grid grid-cols-4 gap-3 mb-6">

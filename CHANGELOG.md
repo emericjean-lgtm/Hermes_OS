@@ -8266,3 +8266,66 @@ l'interface sans réglages du tout.
 Vérifié en conditions réelles : trois voix françaises détectées sur cette
 machine (Hortense, Julie, Paul), dictée fonctionnelle, panneau de capacités
 peuplé depuis le serveur.
+
+## HOS-174 à 177 — la refonte du Cockpit
+
+Auditée avant d'être dessinée : chaque Center a été confronté à l'endpoint
+qu'il appelle, et chaque endpoint interrogé pour de bon.
+
+### HOS-174 — cinq verdicts sans écran
+
+La vérification produit treize champs. L'écran en montrait **deux** :
+« contredite » ou « vérifiée », et un compte de fichiers. Les cinq défauts
+qu'elle sait nommer — livrable vide, SQL cassé, test qui ne peut pas
+échouer, dépendance fabriquée, import invalide — n'avaient **aucune
+surface**, alors que chacun porte le fichier, la ligne et la raison. Un
+opérateur lisait « le disque contredit ce rapport » sans jamais savoir en
+quoi.
+
+Le rapport les affiche désormais, défauts d'abord : une mission qui a écrit
+quarante fichiers et dont les tests ne peuvent pas rougir n'est pas
+« presque bonne ».
+
+### HOS-176 — le Skills Center affichait zéro
+
+Mesuré : `GET /skills` rend `count: 0` — le registre du `SkillDistributor`
+n'a jamais été peuplé. Pendant ce temps Hermes Agent porte **81
+compétences** en 14 domaines sur le disque, lues depuis HOS-153, et aucune
+surface ne les montrait.
+
+Les deux registres restent distincts et l'écran le dit : le distributeur
+décrit ce que Hermes OS *distribuerait*, l'agent porte ce que le cerveau
+des missions *sait déjà faire*. Les fondre ferait croire le distributeur
+peuplé.
+
+### HOS-177 — vingt-trois onglets, dix-neuf
+
+`system` et `health` décrivaient le même objet par deux écrans. Et quatre
+onglets décrivaient le runtime sous quatre titres :
+
+    runtime      runtimes, modèles chargés, ressources
+    monitoring   flux temps réel, journal, allocations
+    deployment   RAM totale, RAM utilisée, état RAM, GPU
+    events       flux d'événements
+
+« Deployment » n'affichait **aucun déploiement** : quatre cartes de mémoire
+et une de GPU, c'est-à-dire du runtime sous un nom qui promettait autre
+chose. Un opérateur cherchant « combien de VRAM reste-t-il » avait trois
+onglets candidats et aucune raison d'en préférer un.
+
+Aucune vue n'est perdue : elles deviennent des sections. Ce qui disparaît,
+c'est l'obligation de deviner laquelle regarder. Les Centers repliés
+prennent un `imbrique` qui supprime leur en-tête — deux titres empilés
+auraient été pires que deux onglets.
+
+### Un piège de compilation, noté pour la prochaine fois
+
+`({ imbrique = false }: { imbrique?: boolean } = {})` passe `tsc` et casse
+SWC, le compilateur de Next : « Unexpected token `div`. Expected jsx
+identifier », signalé quarante lignes plus loin que la cause. Le défaut par
+défaut est inutile en JSX, où une prop optionnelle suffit.
+
+Et une heure perdue avant cela sur une erreur **en cache** : le serveur de
+dev, lancé hors `preview_start`, avait cessé de recompiler et resservait un
+message qui citait du code déjà supprimé. Restaurer le fichier depuis git
+sans que l'erreur bouge est ce qui l'a démasqué.

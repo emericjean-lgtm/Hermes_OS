@@ -6,7 +6,9 @@ import { Card, Badge, Beacon, Button } from "@/components/ui/card";
 import type { EventSeverity, SystemEvent } from "@/types/hermes";
 import { CenterHeader } from "@/components/center-scaffold";
 
-export function EventsCenter() {
+/** `imbrique` supprime l'en-tete : ce Center est alors rendu sous
+ *  celui du Runtime Center, qui porte deja titre et onglets (HOS-177). */
+export function EventsCenter({ imbrique = false }: { imbrique?: boolean }) {
   const { events, connected, clearEvents } = useWebSocket({});
   const {
     eventSeverityFilter,
@@ -28,19 +30,21 @@ export function EventsCenter() {
 
   return (
     <div className="animate-fade-in">
-      <CenterHeader
-        title="Event Center"
-        subtitle="Bus d'événements temps réel et observabilité"
-        right={
-          <>
-            <Badge variant={connected ? "success" : "danger"}>
-              {connected && <Beacon tone="green" />}
-              {connected ? "LIVE" : "DÉCONNECTÉ"}
-            </Badge>
-            <Button onClick={clearEvents}>Vider</Button>
-          </>
-        }
-      />
+      {!imbrique && (
+        <CenterHeader
+          title="Event Center"
+          subtitle="Bus d'événements temps réel et observabilité"
+          right={
+            <>
+              <Badge variant={connected ? "success" : "danger"}>
+                {connected && <Beacon tone="green" />}
+                {connected ? "LIVE" : "DÉCONNECTÉ"}
+              </Badge>
+              <Button onClick={clearEvents}>Vider</Button>
+            </>
+          }
+        />
+      )}
 
       {/* Filters */}
       <div className="flex gap-4 mb-4">

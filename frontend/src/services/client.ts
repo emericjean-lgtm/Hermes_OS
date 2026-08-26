@@ -431,6 +431,20 @@ export const memoryClient = {
 };
 
 // ── Skills ───────────────────────────────────────────
+/** Les competences que Hermes Agent porte reellement (HOS-176).
+ *
+ *  Distinct de `skillsClient.list()`, qui sert le registre du
+ *  `SkillDistributor` — vide, mesure a `count: 0`. Les fondre ferait croire
+ *  le distributeur peuple. */
+export interface AgentSkills {
+  total: number;
+  racine: string;
+  domaines: {
+    nom: string;
+    competences: { nom: string; description: string }[];
+  }[];
+}
+
 export const skillsClient = {
   list: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params) : "";
@@ -439,6 +453,7 @@ export const skillsClient = {
     return fetchJSON<unknown>(`/skills${qs}`).then((d) => unwrap<Skill>(d, "skills"));
   },
   get: (id: string) => fetchJSON<Skill>(`/skills/${id}`),
+  agentSkills: () => fetchJSON<AgentSkills>("/skills/agent"),
   select: (data: { task_description: string; domain?: string }) =>
     fetchJSON<unknown>("/skills/select", {
       method: "POST",

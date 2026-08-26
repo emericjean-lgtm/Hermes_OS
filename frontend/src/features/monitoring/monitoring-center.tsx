@@ -23,7 +23,9 @@ import { formatGioPair } from "@/lib/format";
 // /runtime/intelligence et /system/statistics. Le flux temps réel est le
 // WebSocket /ws déjà utilisé par le Dashboard (P-001).
 
-export function MonitoringCenter() {
+/** `imbrique` supprime l'en-tete : ce Center est alors rendu sous
+ *  celui du Runtime Center, qui porte deja titre et onglets (HOS-177). */
+export function MonitoringCenter({ imbrique = false }: { imbrique?: boolean }) {
   const resources = useMonitoringResources();
   const allocations = useResourceAllocations();
   const events = useRuntimeEventLog(100);
@@ -52,11 +54,13 @@ export function MonitoringCenter() {
 
   return (
     <div className="animate-fade-in">
-      <CenterHeader
-        title="Monitoring Center"
-        subtitle="Ressources matérielles, allocations et flux d'événements en direct"
-        right={<LiveBadge connected={connected} />}
-      />
+      {!imbrique && (
+        <CenterHeader
+          title="Monitoring Center"
+          subtitle="Ressources matérielles, allocations et flux d'événements en direct"
+          right={<LiveBadge connected={connected} />}
+        />
+      )}
 
       <StatGrid
         columns={5}

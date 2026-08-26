@@ -11,7 +11,7 @@ import { CenterBoundary } from "@/components/center-boundary";
 import { DashboardView } from "@/features/dashboard/dashboard-view";
 import { MissionCenter } from "@/features/missions/mission-center";
 import { AgentCenter } from "@/features/agents/agent-center";
-import { RuntimeCenter } from "@/features/runtime/runtime-center";
+import { RuntimeCenterMerged } from "@/features/runtime/runtime-center-merged";
 import { MemoryCenter } from "@/features/memory/memory-center";
 // KnowledgeGraphCenter et AlexandrieCenter ne sont plus des vues de premier
 // niveau : leur contenu est devenu un onglet du Memory Center, qui affichait
@@ -19,18 +19,14 @@ import { MemoryCenter } from "@/features/memory/memory-center";
 import { SkillsCenter } from "@/features/skills/skills-center";
 import { ToolsCenter } from "@/features/tools/tools-center";
 import { GovernanceCenter } from "@/features/governance/governance-center";
-import { EventsCenter } from "@/features/events/events-center";
 import { AutonomousCenter } from "@/features/autonomous/autonomous-center";
 import { CodeIntelligenceCenter } from "@/features/code-intelligence/code-intelligence-center";
 import { EvolutionCenter } from "@/features/evolution/evolution-center";
 import { SecurityCenter } from "@/features/security/security-center";
-import { SystemCenter } from "@/features/system/system-center";
+import { SystemCenterMerged } from "@/features/system/system-center-merged";
 import ConversationCenter from "@/features/conversation/conversation-center";
 import { VoiceCenter } from "@/features/voice/voice-center";
-import DeploymentCenter from "@/features/deployment/deployment-center";
 import ModelIntelligenceCenter from "@/features/models/model-intelligence-center";
-import { HealthCenter } from "@/features/health/health-center";
-import { MonitoringCenter } from "@/features/monitoring/monitoring-center";
 import { WorkspaceCenter } from "@/features/workspace/workspace-center";
 import { ExecutionCenter } from "@/features/execution/execution-center";
 import { ValidationCenter } from "@/features/validation/validation-center";
@@ -49,21 +45,17 @@ const views = {
   models: ModelIntelligenceCenter,
   missions: MissionCenter,
   agents: AgentCenter,
-  runtime: RuntimeCenter,
+  runtime: RuntimeCenterMerged,
   code_intelligence: CodeIntelligenceCenter,
   memory: MemoryCenter,
   skills: SkillsCenter,
   tools: ToolsCenter,
   governance: GovernanceCenter,
-  events: EventsCenter,
   evolution: EvolutionCenter,
   autonomous: AutonomousCenter,
   security: SecurityCenter,
-  system: SystemCenter,
-  deployment: DeploymentCenter,
+  system: SystemCenterMerged,
   // P-001 : capacités backend qui n'avaient aucun écran.
-  health: HealthCenter,
-  monitoring: MonitoringCenter,
   workspace: WorkspaceCenter,
   execution: ExecutionCenter,
   validation: ValidationCenter,

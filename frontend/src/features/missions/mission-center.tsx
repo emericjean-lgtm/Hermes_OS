@@ -14,6 +14,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Mission, MissionStatus } from "@/types/hermes";
 import { CenterHeader } from "@/components/center-scaffold";
+import { VerificationReport } from "@/components/verification-report";
 import { DecompositionPanel } from "./decomposition-panel";
 import { Play, Pause, XCircle, AlertCircle, ChevronDown, Search } from "lucide-react";
 
@@ -411,28 +412,13 @@ export function MissionCenter() {
                       )}
 
                       {/* Ce que le disque dit, à côté de ce que la mission
-                          rapporte. Trois états distincts, jamais confondus :
-                          absente (rien à comparer), confirmée, contredite.
-                          Traiter l'absence comme un succès recréerait le faux
-                          positif que HOS-092 existe pour détecter. */}
-                      {rep.verification == null ? (
-                        <div className="text-[9px] text-hermes-muted bg-hermes-bg p-2 rounded border border-hermes-border/50">
-                          Aucune vérification disque — cette mission n&apos;a pas de
-                          workspace lié, il n&apos;y a donc rien à comparer.
-                        </div>
-                      ) : rep.verification.contradicted ? (
-                        <div className="text-[9px] text-hermes-danger bg-hermes-danger/10 p-2 rounded border border-hermes-danger/30">
-                          ⚠ Le disque contredit ce rapport : {rep.verification.files_changed ?? 0}{" "}
-                          fichier(s) modifié(s). Un succès annoncé au-dessus d&apos;un
-                          workspace intact n&apos;est pas un succès.
-                        </div>
-                      ) : (
-                        <div className="text-[9px] text-hermes-text bg-hermes-bg p-2 rounded border border-hermes-border/50">
-                          ✓ Vérifié sur disque : {rep.verification.files_changed ?? 0}{" "}
-                          fichier(s) modifié(s)
-                          {rep.verification.workspace ? ` dans ${rep.verification.workspace}` : ""}.
-                        </div>
-                      )}
+                          rapporte. Ce bloc affichait **deux lignes** —
+                          « contredite » ou « vérifiée », et un compte de
+                          fichiers — alors que la vérification produit treize
+                          champs et sait nommer cinq défauts avec leur
+                          fichier, leur ligne et leur raison. Aucun des cinq
+                          n'avait de surface (HOS-174). */}
+                      <VerificationReport v={rep.verification} />
                     </div>
                   )}
 

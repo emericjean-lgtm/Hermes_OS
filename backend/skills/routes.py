@@ -193,6 +193,41 @@ async def get_skills(
     return handle_get_skills(category, domain, status, tag)
 
 
+@router.get("/agent")
+async def competences_de_l_agent() -> dict:
+    """Les competences que porte reellement Hermes Agent (HOS-176).
+
+    `GET /skills` sert le `SkillDistributor`, dont le registre est **vide** :
+    zero competence, mesure le 2026-08-26. Pendant ce temps l'agent en
+    porte quatre-vingt-une sur le disque, lues par
+    `backend/skills/registre.py` depuis HOS-153, et aucun ecran ne les
+    montrait.
+
+    Les deux ne sont pas la meme chose et ne sont donc pas fusionnes : le
+    distributeur decrit des competences que Hermes OS distribuerait, celles
+    d'ici sont ce que le cerveau des missions sait deja faire. Confondre
+    les deux ferait croire le distributeur peuple.
+    """
+    from backend.skills import registre
+
+    competences = registre.lire()
+    groupes = registre.par_domaine(competences)
+    return {
+        "total": len(competences),
+        "domaines": [
+            {
+                "nom": domaine,
+                "competences": [
+                    {"nom": c.nom, "description": c.description}
+                    for c in sorted(liste, key=lambda x: x.nom)
+                ],
+            }
+            for domaine, liste in sorted(groupes.items())
+        ],
+        "racine": str(registre.racine_des_competences()),
+    }
+
+
 @router.get("/cache")
 async def get_cache() -> dict:
     return handle_get_cache()

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -88,7 +89,12 @@ async def transcrire(fichier: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=422, detail="fichier vide")
 
     suffixe = Path(fichier.filename or "audio.wav").suffix or ".wav"
-    temporaire = Path(tempfile.mkstemp(suffix=suffixe)[1])
+    # `mkstemp` rend un descripteur **ouvert**. Le laisser tel quel verrouille
+    # le fichier sous Windows et `unlink` echoue par WinError 32 — la
+    # transcription reussit, et la route rend quand meme un 500.
+    descripteur, chemin = tempfile.mkstemp(suffix=suffixe)
+    os.close(descripteur)
+    temporaire = Path(chemin)
     try:
         temporaire.write_bytes(octets)
         texte = fournisseur.transcribe(str(temporaire), lire().langue[:2])

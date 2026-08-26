@@ -72,7 +72,9 @@ const componentStatus = (status: string) => {
 
 // ── Component ─────────────────────────────────────────────
 
-export function SystemCenter() {
+/** `imbrique` supprime l'en-tete : ce Center est alors rendu sous
+ *  celui du System Center, qui porte deja titre et onglets (HOS-177). */
+export function SystemCenter({ imbrique = false }: { imbrique?: boolean }) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Real subsystem health from /api/v1/system/health. Every number below used to
@@ -137,28 +139,30 @@ export function SystemCenter() {
   return (
     <div className="animate-fade-in p-6">
       {/* Header */}
-      <CenterHeader
-        title="System"
-        subtitle={`Supervision de l'intégration globale — ${health.total_components} composants enregistrés`}
-        right={
-          health.status === "healthy" ? (
-            <Badge variant="success">
-              <CheckCircle className="w-3 h-3" />
-              Système sain
-            </Badge>
-          ) : health.status === "degraded" ? (
-            <Badge variant="warning">
-              <AlertTriangle className="w-3 h-3" />
-              Dégradé
-            </Badge>
-          ) : (
-            <Badge variant="danger">
-              <AlertTriangle className="w-3 h-3" />
-              Défaillant
-            </Badge>
-          )
-        }
-      />
+      {!imbrique && (
+        <CenterHeader
+          title="System"
+          subtitle={`Supervision de l'intégration globale — ${health.total_components} composants enregistrés`}
+          right={
+            health.status === "healthy" ? (
+              <Badge variant="success">
+                <CheckCircle className="w-3 h-3" />
+                Système sain
+              </Badge>
+            ) : health.status === "degraded" ? (
+              <Badge variant="warning">
+                <AlertTriangle className="w-3 h-3" />
+                Dégradé
+              </Badge>
+            ) : (
+              <Badge variant="danger">
+                <AlertTriangle className="w-3 h-3" />
+                Défaillant
+              </Badge>
+            )
+          }
+        />
+      )}
 
       {/* Health Overview */}
       <div className="grid grid-cols-4 gap-3 mb-6">

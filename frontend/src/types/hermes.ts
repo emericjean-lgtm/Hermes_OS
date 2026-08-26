@@ -133,12 +133,58 @@ export interface MissionReport {
    * lié n'a rien à comparer — et jamais « vérification réussie ». Les
    * confondre à l'affichage recréerait le faux positif que HOS-092 existe
    * pour détecter. */
-  verification?: {
-    contradicted?: boolean;
-    files_changed?: number;
-    workspace?: string;
-    [k: string]: unknown;
+  verification?: MissionVerification | null;
+}
+
+/** Un defaut nomme par la verification : toujours un fichier, souvent une
+ *  ligne, et la raison. Les cinq gardes ne remplissent pas les memes champs
+ *  — un import invalide porte un niveau, un livrable vide un apercu — d'ou
+ *  l'union plutot que cinq types qui ne differeraient que par un champ. */
+export interface VerificationDefect {
+  fichier: string;
+  ligne?: number;
+  fonction?: string;
+  raison?: string;
+  apercu?: string;
+  motif?: string;
+  chemin?: string;
+  paquet?: string;
+  niveau?: number;
+  profondeur?: number;
+}
+
+/** Ce que `backend/mission/verification.py` mesure sur le disque.
+ *
+ *  Le type ne nommait que trois champs sur treize, et l'ecran en affichait
+ *  deux lignes. Les cinq defauts que la verification sait nommer —
+ *  livrable vide, SQL casse, test qui ne peut pas echouer, dependance
+ *  fabriquee, import invalide — n'avaient aucune surface, alors que chacun
+ *  porte le fichier, la ligne et la raison. */
+export interface MissionVerification {
+  contradicted?: boolean;
+  verified?: boolean;
+  measured?: boolean;
+  workspace?: string;
+  files_changed?: number;
+  created?: string[];
+  modified?: string[];
+  deleted?: string[];
+  summary?: string;
+  tests?: {
+    ran?: boolean;
+    passed?: boolean;
+    output?: string;
+    reason?: string;
   } | null;
+  manifeste?: { declares?: number; manquants?: string[] } | null;
+  imports?: { fatals?: string[] } | null;
+  imports_remontent?: VerificationDefect | null;
+  faux_paquet?: VerificationDefect | null;
+  test_tautologique?: VerificationDefect | null;
+  livrable_vide?: VerificationDefect | null;
+  sql_casse?: VerificationDefect | null;
+  travail_deja_fait?: boolean;
+  tests_echouent?: boolean;
 }
 
 // Mirrors backend/mission/mission_models.py's MissionStatus values

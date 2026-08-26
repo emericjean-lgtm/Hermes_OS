@@ -70,7 +70,9 @@ const dotColour = (status: string | undefined) =>
         ? "bg-hermes-dim"
         : "bg-hermes-red";
 
-export default function DeploymentCenter() {
+/** `imbrique` supprime l'en-tete : ce Center est alors rendu sous
+ *  celui du Runtime Center, qui porte deja titre et onglets (HOS-177). */
+export default function DeploymentCenter({ imbrique = false }: { imbrique?: boolean }) {
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>("overview");
 
   const health = useSubsystemHealth();
@@ -92,28 +94,30 @@ export default function DeploymentCenter() {
 
   return (
     <div className="space-y-6">
-      <CenterHeader
-        title="Deployment Center"
-        subtitle="État de préparation à la production et gestion du système"
-        right={
-          health.isLoading ? (
-            <span className="text-hermes-muted text-[11px] font-mono">vérification…</span>
-          ) : health.isError ? (
-            <Badge variant="danger">injoignable</Badge>
-          ) : (
-            <Badge
-              variant={
-                health.data?.status === "healthy" ? "success"
-                : health.data?.status === "degraded" ? "warning"
-                : "danger"
-              }
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${dotColour(health.data?.status)}`} />
-              {health.data?.status}
-            </Badge>
-          )
-        }
-      />
+      {!imbrique && (
+        <CenterHeader
+          title="Deployment Center"
+          subtitle="État de préparation à la production et gestion du système"
+          right={
+            health.isLoading ? (
+              <span className="text-hermes-muted text-[11px] font-mono">vérification…</span>
+            ) : health.isError ? (
+              <Badge variant="danger">injoignable</Badge>
+            ) : (
+              <Badge
+                variant={
+                  health.data?.status === "healthy" ? "success"
+                  : health.data?.status === "degraded" ? "warning"
+                  : "danger"
+                }
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${dotColour(health.data?.status)}`} />
+                {health.data?.status}
+              </Badge>
+            )
+          }
+        />
+      )}
 
       {/* Tab Nav */}
       <div className="flex gap-1 bg-hermes-elevated/50 rounded-lg p-1">

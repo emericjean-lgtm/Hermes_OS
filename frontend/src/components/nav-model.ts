@@ -43,7 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "models", label: "Models", icon: Brain, keywords: "modèle ollama routage benchmark" },
       { id: "agents", label: "Agents", icon: Users, keywords: "atlas aegis echo kronos veritas" },
-      { id: "runtime", label: "Runtime", icon: Zap, keywords: "vram gpu ollama ressources" },
+      { id: "runtime", label: "Runtime", icon: Zap, keywords: "monitoring evenements deployment ram flux vram gpu ollama ressources" },
       { id: "code_intelligence", label: "Code Intel", icon: Code2, keywords: "analyse code klaatcode" },
       { id: "skills", label: "Skills", icon: Sparkles, keywords: "compétences capacités" },
       { id: "tools", label: "Tools", icon: Wrench, keywords: "outils mcp connecteurs" },
@@ -71,11 +71,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Opérations",
     ref: "S5",
     items: [
-      { id: "health", label: "Health", icon: HeartPulse, keywords: "santé sous-systèmes" },
-      { id: "monitoring", label: "Monitoring", icon: LineChart, keywords: "métriques cpu ram surveillance" },
-      { id: "events", label: "Events", icon: Radio, keywords: "événements flux bus temps réel" },
-      { id: "system", label: "System", icon: LayoutGrid, keywords: "système statistiques" },
-      { id: "deployment", label: "Deploy", icon: Rocket, keywords: "déploiement docker" },
+      { id: "system", label: "System", icon: LayoutGrid, keywords: "sante health assemblage composants dependances système statistiques" },
     ],
   },
 ];
