@@ -242,7 +242,11 @@ describe("API Client Endpoints", () => {
     expect(typeof missionsClient.resume).toBe("function");
     expect(typeof missionsClient.cancel).toBe("function");
     expect(typeof missionsClient.graph).toBe("function");
-    expect(typeof missionsClient.timeline).toBe("function");
+    // `timeline` a ete retire : il visait `GET /missions/{id}/timeline`, que
+    // le backend ne sert pas, et aucun ecran ne l'appelait. Ce test-ci
+    // n'aurait rien pu voir — il verifie qu'une methode existe, pas qu'elle
+    // mene quelque part. Le garde qui le voit est
+    // `backend/tests/test_les_appels_du_cockpit_visent_de_vraies_routes.py`.
   });
 
   it("agentsClient has CRUD + action methods", async () => {

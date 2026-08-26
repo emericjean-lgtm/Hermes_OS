@@ -109,13 +109,6 @@ export function useMissionGraph(id: string | null) {
     enabled: !!id,
   });
 }
-export function useMissionTimeline(id: string | null) {
-  return useQuery({
-    queryKey: ["missions", id, "timeline"],
-    queryFn: () => (id ? missionsClient.timeline(id) : null),
-    enabled: !!id,
-  });
-}
 export function useCreateMission() {
   const qc = useQueryClient();
   return useMutation({
@@ -267,13 +260,6 @@ export function useToolsHealth() {
 }
 export function useMCPServers() {
   return useQuery<MCPServer[]>({ queryKey: ["tools", "mcp"], queryFn: toolsClient.mcpServers });
-}
-export function useExecuteTool() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: toolsClient.execute,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tools"] }),
-  });
 }
 
 // ── Governance ───────────────────────────────────────

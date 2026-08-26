@@ -4,11 +4,11 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   CheckCircle2, ChevronLeft, CircleDot, FolderGit2, FolderOpen, GitBranch,
-  GitPullRequest, ShieldAlert, Unlink, XCircle,
+  GitPullRequest, ShieldAlert, Trash2, Unlink, XCircle,
 } from "lucide-react";
 import {
   useBindProject, useCreateProject, useCreatePullRequest, useFilesystemBrowse,
-  useGitStatus, useProjects, useValidateProject,
+  useGitStatus, useProjects, useRemoveProject, useValidateProject,
 } from "@/hooks/use-api";
 import type { ProjectDTO } from "@/services/client";
 import { RailPanel, Placeholder } from "./rail-primitives";
@@ -369,6 +369,22 @@ export function ProjectPanel({ sessionId }: { sessionId?: string }) {
     setLinkedId(null);
   }, []);
 
+  // Delier n'agit que sur le localStorage : la fiche reste en base. Sans
+  // ce bouton, un chemin mal saisi produisait un projet indelebile, et la
+  // liste de selection accumulait les essais rates.
+  const supprimer = useRemoveProject();
+  const [aConfirmer, setAConfirmer] = useState(false);
+  const oublier = useCallback(() => {
+    if (!project) return;
+    supprimer.mutate(project.id, {
+      onSuccess: () => {
+        window.localStorage.removeItem(LINKED_PROJECT_KEY);
+        setLinkedId(null);
+        setAConfirmer(false);
+      },
+    });
+  }, [project, supprimer]);
+
   return (
     <RailPanel title="Workspace / Projet" icon={<FolderGit2 size={11} />}>
       {!project ? (
@@ -387,14 +403,44 @@ export function ProjectPanel({ sessionId }: { sessionId?: string }) {
                 </div>
               )}
             </div>
-            <button
-              onClick={unlink}
-              title="Délier ce workspace"
-              className="shrink-0 text-hermes-dim transition-colors hover:text-hermes-red"
-            >
-              <Unlink size={12} />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={unlink}
+                title="Délier ce workspace de la session — la fiche est conservée"
+                className="text-hermes-dim transition-colors hover:text-hermes-sodium"
+              >
+                <Unlink size={12} />
+              </button>
+              {/* Deux temps : un clic arme, le second efface. Une suppression
+                  a un clic dans une colonne dense se declenche par accident,
+                  et celle-ci est irreversible cote serveur. */}
+              <button
+                onClick={() => (aConfirmer ? oublier() : setAConfirmer(true))}
+                onBlur={() => setAConfirmer(false)}
+                disabled={supprimer.isPending}
+                title={aConfirmer
+                  ? "Confirmer : la fiche du workspace sera supprimée"
+                  : "Supprimer la fiche de ce workspace (le dossier n'est pas touché)"}
+                className={`transition-colors disabled:opacity-40 ${
+                  aConfirmer ? "text-hermes-red" : "text-hermes-dim hover:text-hermes-red"
+                }`}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
           </div>
+
+          {aConfirmer && (
+            <p className="text-[10px] leading-relaxed text-hermes-red">
+              Cliquez de nouveau pour supprimer la fiche. Le dossier sur le
+              disque n&apos;est pas touché.
+            </p>
+          )}
+          {supprimer.isError && (
+            <p className="text-[10px] text-hermes-red">
+              La suppression a échoué — la fiche est toujours là.
+            </p>
+          )}
 
           <ValidationBlock project={project} />
 

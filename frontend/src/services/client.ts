@@ -321,7 +321,6 @@ export const missionsClient = {
   create: (data: Partial<Mission>) =>
     fetchJSON<Mission>("/missions", { method: "POST", body: JSON.stringify(data) }),
   graph: (id: string) => fetchJSON<MissionGraph>(`/missions/${id}/graph`),
-  timeline: (id: string) => fetchJSON<MissionTimeline>(`/missions/${id}/timeline`),
   progress: (id: string) => fetchJSON<{ progress: number; completed: number; total: number }>(
     `/missions/${id}/progress`
   ),
