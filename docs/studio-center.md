@@ -114,8 +114,9 @@ langage — `OLLAMA_MAX_LOADED_MODELS=1` — et s'étend ici :
 
 ### 3. La délégation passe par des outils MCP
 
-`studio_image`, `studio_video`, `studio_file_attente`, `studio_rendus`
-rejoignent les 71 outils que l'agent appelle déjà. L'agent compose le
+`studio_state`, `studio_models`, `studio_render`, `studio_queue` et
+`studio_outputs` rejoignent les 71 outils que l'agent appelait déjà — 76
+désormais. L'agent compose le
 graphe et le soumet, comme il écrit un fichier avec `files_apply`.
 
 Les rendus vont dans `E:\YouTube\Generations`, à côté de `Archives`,
@@ -144,7 +145,7 @@ Neuf, dont trois seulement posent une vraie question sur ce matériel.
 | 1 | LLM texte | script, titres, description | déjà là |
 | 2 | LLM extraction | découpage en plans | déjà là — qwen3.5-9b, 100/100 |
 | 3 | T2I diffusion | miniatures, plans-clés | oui |
-| 4 | I2V / T2V | animation | **à trancher par la mesure** |
+| 4 | I2V / T2V | animation | oui — **5 min de calcul par seconde de vidéo** |
 | 5 | TTS narration | voix off | oui — Piper trop robotique pour narrer |
 | 6 | ASR mot-à-mot | sous-titres | faster-whisper présent, horodatage par mot à ajouter |
 | 7 | T2M | musique, ambiance | oui, optionnel |
@@ -156,12 +157,71 @@ produite et dit si elle correspond à la consigne, c'est la règle de la
 maison appliquée à la génération : un rendu qui se termine sans erreur
 n'est pas un rendu réussi.
 
-## Ce qui reste à mesurer
+## Le verdict, mesuré
 
-Le temps de mur d'un plan réel. Le socle et l'attention sont établis ; ce
-qui ne l'est pas, c'est le produit `couches × étapes de débruitage`. Un
-ordre de grandeur se calcule — une cinquantaine de blocs à 307 ms font
-15 s par étape, soit quelques minutes pour huit étapes — mais ce projet ne
-conclut pas sur un calcul.
+Trois rendus réels, LTX-2.5 Q3_K_M, 8 étapes, `res_multistep`, décodage par
+tuiles. Fichiers vérifiés sur le disque — en-tête `ftyp`, pas seulement un
+succès annoncé.
 
-*(Section complétée après le premier rendu.)*
+| Format | Images | Durée | Pic VRAM | Débordement |
+|---|---|---|---|---|
+| 512 × 288 | 49 (2 s) | **170 s** | 7,98 Gio (50 %) | non |
+| 768 × 432 | 49 (2 s) | **251 s** | 7,59 Gio (47 %) | non |
+| 704 × 1280 | 97 (4 s) | **1 218 s** (20,3 min) | 7,04 Gio (44 %) | non |
+
+Deux choses ressortent, et aucune n'était devinable.
+
+**La VRAM n'est pas la contrainte.** Elle reste autour de 7 à 8 Gio quelle
+que soit la résolution : le décodage par tuiles la plafonne, et le pic
+*baisse* même à mesure que le format grandit, parce que les tuiles restent
+de taille fixe pendant que le reste se répartit. Sur les 15,98 Gio, la
+moitié dort.
+
+**Le temps est la contrainte, et il est sévère.** Vingt minutes pour quatre
+secondes de vertical, soit **environ cinq minutes de calcul par seconde de
+vidéo finie**.
+
+### Ce que cela permet, et ce que cela interdit
+
+* **Un short de 30 s** : sept à huit plans de 4 s, soit **2 h 30 à 3 h de
+  rendu**. Faisable la nuit, jamais en interaction.
+* **Une vidéo longue** : hors de portée localement. Une minute de montage
+  coûterait cinq heures.
+* **Les images fixes** : négligeables à côté — le même modèle rend une image
+  en quelques secondes.
+
+La production locale est donc un **atelier de nuit**, pas un outil de
+tâtonnement. C'est exactement le régime qu'une mission Hermes sait tenir :
+on décrit, on lance, on relit au matin. L'API garde son rôle pour ce qui
+doit sortir tout de suite, ou en long format.
+
+### Le décodage par tuiles n'est pas un réglage, c'est la condition
+
+Le premier rendu a échoué à `VAEDecode`, qui a réclamé **14,58 Gio d'un
+seul bloc** pour 49 images en 512 × 288 — sur une carte qui en a 15,98 dont
+10,73 déjà pris par le transformeur. Le débruitage, lui, avait tourné 267 s
+sans incident : le goulot n'était pas le modèle mais la sortie du VAE, qui
+matérialise toutes les images à la fois.
+
+`VAEDecodeTiled` avec `temporal_size` à 16 — et non les 64 par défaut,
+parce que c'est la dimension temporelle qui explose sur une vidéo — ramène
+le pic à 7,98 Gio. Le même rendu passe alors en 170 s au lieu d'échouer
+après 267.
+
+### Deux erreurs commises en chemin, et ce qu'elles apprennent
+
+**L'encodeur.** J'ai d'abord téléchargé 8,6 Go d'un GGUF nommé
+`LTX-2.5-gemma4-12b-text-encoder-Q4_K_M` — le nom correspondait, l'usage
+non : son dépôt indique qu'il sert le moteur `engine25` du greffon
+Nz-Videomni pour **AviUtl2**, et qu'il est « incompatible avec le Gemma 4
+générique ». ComfyUI-GGUF le refuse, `ltxv` n'étant pas dans sa
+`TXT_ARCH_LIST`. Le bon fichier porte `comfy` dans son nom, se charge par
+le nœud natif `CLIPLoader` en type `ltxv`, et pèse 14,32 Go.
+
+**Le schéma des échantillonneurs.** `sampler_disponible()` lisait
+`champ[0]`, obtenait la chaîne `"COMBO"` du schéma V3, et en rendait la
+première lettre. ComfyUI a refusé le graphe avec « sampler_name: 'C' not in
+(list of length 44) » — un message assez précis pour trouver la faute en une
+lecture, ce qui n'est pas toujours le cas.
+
+Les deux ont la même forme : un nom plausible pris pour une garantie.
