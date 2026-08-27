@@ -1287,7 +1287,9 @@ def studio_render(graph: dict, need_bytes: int | None = None) -> dict:
     from backend.studio.arbitrage import carte_reservee
     from backend.studio.comfyui import ComfyUI
 
-    besoin = int(need_bytes or 11_525_623_808)
+    from backend.studio.arbitrage import BESOIN_RENDU_OCTETS
+
+    besoin = int(need_bytes or BESOIN_RENDU_OCTETS)
     with carte_reservee(besoin) as occ:
         if not occ.obtenu:
             return {"queued": False, "reason": "card_busy", "detail": occ.detail}

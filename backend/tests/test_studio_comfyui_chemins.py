@@ -80,3 +80,45 @@ def test_un_drapeau_de_sortie_sans_valeur_ne_leve_pas(monkeypatch):
     monkeypatch.setattr(comfy, "etat", lambda: EtatComfy(
         joignable=True, arguments=("main.py", "--output-directory")))
     assert comfy.dossier_sortie() == ""
+
+
+# ── Les erreurs de ComfyUI ────────────────────────────────────────────
+
+ETAT_EN_ERREUR = {
+    "status_str": "error",
+    # L'ordre compte : ce sont les deux premières entrées qui avaient
+    # mangé la coupe à 600 caractères.
+    "messages": [
+        ["execution_start", {"prompt_id": "x", "timestamp": 1787841324825}],
+        ["execution_cached", {"nodes": [], "prompt_id": "x"}],
+        ["execution_error", {
+            "node_type": "VAEDecode", "node_id": "12",
+            "exception_message": "CUDA out of memory. Tried to allocate "
+                                 "2.67 GiB. GPU 0 has a total capacity of "
+                                 "15.98 GiB of which 0 bytes is free."}],
+    ],
+}
+
+
+def test_lerreur_rendue_nomme_le_noeud_et_la_cause():
+    """La première version sérialisait `messages` et coupait à 600.
+
+    La coupe tombait avant `exception_message` : l'appelant lisait un
+    horodatage là où ComfyUI disait « CUDA out of memory ... VAEDecode ».
+    Le journal portait la réponse et la rendait illisible — le contraire
+    exact de la règle « lire le tableau errors, pas le compteur ».
+    """
+    from backend.studio.comfyui import _erreur_de
+
+    e = _erreur_de(ETAT_EN_ERREUR)
+    assert e.startswith("VAEDecode#12 : ")
+    assert "out of memory" in e
+
+
+def test_un_etat_sans_erreur_exploitable_rend_quand_meme_quelque_chose():
+    """Mieux vaut du JSON brut qu'une chaîne vide : une erreur sans
+    message se lirait alors comme une absence d'erreur."""
+    from backend.studio.comfyui import _erreur_de
+
+    assert _erreur_de({"status_str": "error"})
+    assert _erreur_de({"messages": [["execution_start", {}]]})

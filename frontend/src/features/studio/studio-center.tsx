@@ -19,7 +19,9 @@ import { formatGio, formatGioPair } from "@/lib/format";
  * ## Pourquoi la VRAM est en tête et pas en bas
  *
  * Les 16 Gio de la RX 6800 sont indivisibles. Ollama tenant gpt-oss occupe
- * 13,21 Gio ; LTX-2.5 en Q3_K_M en réclame 10,73. Ils ne peuvent pas
+ * 13,21 Gio ; un rendu LTX-2.5 en réclame 7,75 au pic — mesuré sur le
+ * processus, et non déduit du poids du fichier, qui vaut le double et ne
+ * prédit rien puisque ComfyUI diffuse les couches. Ils ne peuvent pas
  * coexister, et rien ne le dit : ROCm complète en mémoire système sans
  * lever d'erreur. Mesuré le 2026-08-27 — 3 226 ms contre 187 ms pour un
  * résultat identique.

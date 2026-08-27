@@ -24,17 +24,18 @@ from typing import Any
 
 from fastapi import APIRouter, Body
 
-from backend.studio.arbitrage import carte_reservee, pic_gpu_du_processus
+from backend.studio.arbitrage import (BESOIN_RENDU_OCTETS, carte_reservee,
+                                      pic_gpu_du_processus)
 from backend.studio.comfyui import ComfyUI, pid_du_serveur
 
 logger = logging.getLogger("hermes_os.studio.routes")
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
-#: Le poids de LTX-2.5 en Q3_K_M, mesuré sur le fichier. Sert de besoin par
-#: défaut quand l'appelant n'en déclare pas : mieux vaut réserver trop que
-#: laisser deux locataires se disputer la carte.
-BESOIN_DEFAUT = 11_525_623_808
+#: Une seule definition, dans `arbitrage` : c'est le module qui
+#: raisonne sur la carte. L'alias garde le nom que les routes et
+#: les tests emploient deja.
+BESOIN_DEFAUT = BESOIN_RENDU_OCTETS
 
 
 def _comfy() -> ComfyUI:

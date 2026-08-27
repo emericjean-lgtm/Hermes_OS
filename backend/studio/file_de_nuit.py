@@ -41,6 +41,8 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional
 
+from backend.studio.arbitrage import BESOIN_RENDU_OCTETS
+
 logger = logging.getLogger("hermes_os.studio.file")
 
 #: Au-delà, ce n'est plus un aléa. Trois et non un : un échec isolé arrive
@@ -112,7 +114,7 @@ def derouler(
     attendre: Callable[[str], Any],
     relire: Optional[Callable[[str, str], Any]] = None,
     reserver: Optional[Callable[[int], Any]] = None,
-    besoin_octets: int = 11_525_623_808,
+    besoin_octets: int = BESOIN_RENDU_OCTETS,
     journal: Optional[str] = None,
 ) -> Rapport:
     """Rendre chaque plan, le relire, et consigner.
@@ -259,7 +261,7 @@ def atelier(
     *,
     base_comfy: str = "http://127.0.0.1:8188",
     minutes_par_plan: float = 45.0,
-    besoin_octets: int = 11_525_623_808,
+    besoin_octets: int = BESOIN_RENDU_OCTETS,
     attente_carte_s: float = 900.0,
     journal: Optional[str] = None,
 ) -> Rapport:

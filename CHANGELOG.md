@@ -1,3 +1,149 @@
+## HOS-192 - Ce qui etait deja la, et que personne ne voyait (2026-08-27)
+
+Trois taches, et le meme motif dans les trois : ce qu'il fallait etait
+deja sur le disque, rendu invisible par une ligne de configuration.
+
+### La delegation ne marchait pas pour une raison qui n'etait pas dans ce depot
+
+Le but declare du projet YouTube etait que Hermes Agent conduise la
+generation. Neuf outils MCP etaient enregistres et testes. L'agent n'en
+voyait aucun.
+
+`mcp_servers.hermes-ollama.tools.include` est une liste **blanche** de
+seize noms. Enregistrer un outil cote serveur ne le donne pas a l'agent :
+il faut l'y nommer. Et `cache/mcp_schema_cache.json` gardait les seize
+anciens, ce qui aurait annule la correction sans un vidage.
+
+Deux listes blanches silencieuses. C'est la troisieme fois dans ce projet
+— l'EventHub avait avale trente-cinq topics de la meme facon.
+
+Une fois levees : douze appels d'outils en 54 s, et la phrase qui compte,
+
+    « none are in a successful "kept" state — they are all in the
+      "indetermine" state »
+
+La distinction entre « le fichier existe » et « le fichier est bon » a
+survecu jusqu'a une reponse en langage naturel. C'etait le seul test.
+
+### Les images fixes ne demandaient aucun telechargement
+
+Avant de prendre douze gigaoctets de SDXL : LTX-2.5 avec `length: 1` rend
+une image. Il le fait — 169 s et 6,86 Gio en 768x432.
+
+Mais 1024x1024 est tombe en CUDA OOM a 14,57 Gio de pic, sur `VAEDecode`.
+
+Le message le disait, et mon propre code le cachait : `Rendu.erreur`
+serialisait le tableau `messages` entier et coupait a 600 caracteres — or
+il commence par `execution_start` et `execution_cached`, si bien que la
+coupe tombait avant `exception_message`. On lisait un horodatage la ou
+ComfyUI ecrivait « CUDA out of memory ... VAEDecode ».
+
+**Amendement, meme jour.** J'ai d'abord conclu qu'il fallait tuiler le
+decodage, comme pour la video, et je l'ai ecrit avant de le verifier. La
+mesure ne le confirme pas : avec `VAEDecodeTiled`, le 1024x1024 tournait
+encore apres 455 s sans aboutir, epingle a 14,65 Gio. Le pic est le meme
+quel que soit le mode de decodage — la pression est donc ailleurs, et
+`VAEDecode` tombait parce qu'il demandait 2,67 Gio **de plus** sur une
+carte deja pleine.
+
+Je n'ai pas isole la cause, et j'ai interrompu le 1280x720 tuile a 150 s,
+soit avant les 220 s du non tuile : il n'est donc pas etabli que le
+tuilage soit plus lent ici. Conclusion etroite et honnete : au-dela de
+~0,9 megapixel, LTX est a la limite de cette carte pour une image fixe.
+
+### Un modele d'image, finalement
+
+SDXL 1.0 base installe (6,94 Go + 335 Mo de VAE corrige, 86 Mo/s en six
+tranches paralleles). Meme consigne, meme graine :
+
+    LTX   1280x720    220 s   14,58 Gio   objet mou, lumiere respectee
+    SDXL  1024x1024    45 s   13,46 Gio   objet net, lumiere ignoree
+    SDXL  1344x768     35 s   13,23 Gio
+
+Cinq fois plus rapide, a une resolution que LTX n'atteignait pas. Mais le
+resultat le plus utile n'est pas « SDXL gagne » : les deux sont
+complementaires. SDXL rend l'objet net et les graduations lisibles, et
+aplatit la lumiere ; LTX est mou sur l'objet — un sextant demande, des
+compas rendus — et respecte la lumiere laterale demandee.
+
+SDXL pour une vignette dont le sujet doit se reconnaitre, LTX pour un plan
+d'ambiance ou une image qui doit se raccorder a de la video.
+
+Licence CreativeML Open RAIL++-M, usage commercial permis. Flux.1-dev
+ecarte (non commercial) ; Flux.1-schnell est Apache 2.0 mais demande en
+plus un encodeur T5 de cinq a dix gigaoctets sur une carte deja partagee.
+
+### L'audio natif etait sur le disque depuis le debut
+
+`ltx-2.5-audio-vae-bf16.safetensors` n'etait reference nulle part parce
+que `LTXVAudioVAELoader` lit dans `checkpoints` et non dans `vae`. Une
+ligne de `extra_model_paths.yaml`.
+
+Deux verifications avant d'allumer le GPU : le VAE porte les prefixes
+`audio_vae.` et `vocoder.` attendus, et le GGUF distille declare
+`AVTransformer3DModel` avec `use_audio_video_cross_attention: true`.
+
+    rendu        339 s pour 2,04 s  (+21 % sur la video seule)
+    pic VRAM     11,07 Gio          (7,75 en video seule)
+    piste        AAC 48 kHz stereo, 2,01 s
+    niveau       moyenne -7,9 dB, crete 0,0 dB
+
+Le niveau a ete **releve**, pas deduit de la presence d'une piste : un MP4
+porte volontiers un canal silencieux et se termine avec le code 0. La
+crete a 0,0 dB dit au passage que le signal sature.
+
+Ce que ni Piper ni Kokoro ne peuvent poser apres coup : des pas qui
+tombent sur l'image, une porte au bon quart de seconde.
+
+### Une raison fausse propagee en quatre endroits
+
+`BESOIN_DEFAUT` valait 11,5 Gio — le **poids du fichier** Q3_K_M — en
+supposant que les poids resident sur la carte. Ils n'y resident pas :
+`--cache-none` les fait diffuser depuis la RAM, et trois quantifications
+de 10,7 a 17,4 Go avaient donne le meme pic a deux centiemes pres.
+
+Reserver 11,5 quand il en faut 7,8 n'est pas prudent : c'est faux dans
+l'autre sens, et la file aurait refuse des rendus qui tenaient. Le faux
+echec, que ce depot traque autant que le faux succes.
+
+La constante existait en **quatre exemplaires** — routes, file de nuit,
+atelier, outil MCP. Une seule definition desormais, dans `arbitrage`.
+
+La meme erreur justifiait le choix de l'attention dans `hermes-ltx.bat` :
+« 10,73 + 8,25 depasse 15,98 ». Avec le pic reel, `split` — 40 % plus
+rapide que `sub_quad` — tiendrait. Note dans le lanceur, non applique :
+une hypothese n'est pas une mesure, et c'est exactement ce que cette
+correction dit.
+
+### Nettoyage
+
+    LTX-2.5-gemma4-12b-text-encoder-Q4_K_M.gguf   8,60 Go  incompatible (AviUtl2)
+    LTX-2.5-Distilled-Q3_K_M.gguf                10,73 Go  sous le plancher Q4
+    LTX-2.5-Distilled-Q6_K.gguf                  17,38 Go  +34 % de temps, ecarte
+
+70 Go -> 33 Go. Les trois etaient mesures et documentes ; a 60-85 Mo/s,
+en reprendre un coute quelques minutes.
+
+### Verified
+
+Delegation : 12 appels d'outils en 54 s, l'agent nomme les trois plans et
+rapporte `indetermine` pour chacun sans jamais parler de succes.
+
+Audio natif : `pluie_toit_00001_.mp4`, AAC 48 kHz stereo, moyenne -7,9 dB
+et crete 0,0 dB — niveau **releve**, pas deduit de la presence d'une
+piste. 339 s, pic 11,07 Gio.
+
+Images : quatre rendus sur disque, deux LTX et deux SDXL, tailles et
+resolutions verifiees par ffprobe.
+
+Disque : 70 Go -> 33 Go sur `C:/AI/Models/LTX`, plus 6,8 Go pour
+`C:/AI/Models/Images`. Aucun residu `.part`.
+
+Suites : backend **2 131 passes, 2 ignores** ; frontend **110 passes** ;
+`npx tsc --noEmit` propre. Onglet Nuit verifie dans le navigateur.
+
+---
+
 ## HOS-191 - Le relecteur, la file de nuit, et trois mesures fausses (2026-08-27)
 
 Un plan video se termine toujours. ComfyUI rend un MP4 valide quel que soit

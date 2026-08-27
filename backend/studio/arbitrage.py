@@ -4,8 +4,16 @@
 
 Les 16 Gio de la RX 6800 sont indivisibles. Ollama tenant gpt-oss-20b
 occupe 13,21 Gio — mesuré sur le processus, et non les 9,55 Gio que
-`/api/ps` annonce, qui ne compte que les poids. LTX-2.5 en Q3_K_M réclame
-10,73 Gio pour les siens. **Ils ne peuvent pas coexister.**
+`/api/ps` annonce, qui ne compte que les poids. Un rendu LTX-2.5 en
+réclame 7,75 au pic. **Ils ne peuvent pas coexister.**
+
+Ce chiffre de 7,75 est mesuré, et il a remplacé un raisonnement faux. La
+première version de ce module comptait le **poids du fichier** — 10,73 Gio
+en Q3_K_M — en supposant que les poids résident sur la carte. Ils n'y
+résident pas : `--cache-none` et `--disable-smart-memory` font que ComfyUI
+les diffuse depuis la RAM, et trois quantifications de 10,7 à 17,4 Go ont
+donné le même pic à deux centièmes près. La conclusion tenait quand même,
+mais pour la mauvaise raison — et une raison fausse se propage.
 
 Et rien ne le dit. ROCm ne lève pas quand une allocation dépasse la VRAM :
 il complète en mémoire système. Mesuré le 2026-08-27 sur l'attention à
@@ -44,6 +52,24 @@ logger = logging.getLogger("hermes_os.studio.arbitrage")
 #: lancé à côté n'est pas couvert — comme le registre de sessions ACP, et
 #: pour la même raison, que `system.py` documente déjà.
 _VERROU = threading.Lock()
+
+#: Ce qu'un rendu prend réellement sur la carte, plus une marge.
+#:
+#: Défini **ici** et nulle part ailleurs. Il a d'abord existé en quatre
+#: exemplaires — routes, file de nuit, atelier, outil MCP — et quatre
+#: copies d'un même chiffre finissent par diverger ; celle qui se trompe
+#: est toujours celle qu'on ne regarde pas.
+#:
+#: La valeur d'origine, 11,5 Gio, était le poids du fichier Q3_K_M. Le
+#: raisonnement était faux : ComfyUI **diffuse** les couches depuis la RAM
+#: (`--cache-none`, `--disable-smart-memory`), et le pic ne dépend donc pas
+#: de la quantification. Mesuré le 2026-08-27 sur trois quantifications de
+#: 10,7 à 17,4 Go : 7,59 / 7,61 / 7,59 Gio, et 7,75 sur les rendus de nuit.
+#:
+#: Réserver 11,5 quand il en faut 7,8 n'est pas prudent — c'est faux dans
+#: l'autre sens, et la file refuserait des rendus qui tiendraient. C'est le
+#: faux échec que ce dépôt traque autant que le faux succès.
+BESOIN_RENDU_OCTETS = 9_663_676_416
 
 
 @dataclass

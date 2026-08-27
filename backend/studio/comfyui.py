@@ -246,7 +246,7 @@ class ComfyUI:
                 rendu.fichiers = _fichiers_de(entree, racine)
                 break
             if etat.get("status_str") == "error":
-                rendu.erreur = json.dumps(etat.get("messages") or etat)[:600]
+                rendu.erreur = _erreur_de(etat)
                 break
 
         rendu.duree_s = round(time.time() - t0, 1)
@@ -260,6 +260,29 @@ class ComfyUI:
             return True
         except Exception:
             return False
+
+
+def _erreur_de(etat: dict) -> str:
+    """Le message d'erreur de ComfyUI, et le nœud qui l'a levé.
+
+    La première version sérialisait `messages` entier et le coupait à
+    600 caractères. Or ce tableau commence par `execution_start` et
+    `execution_cached` : la coupe tombait donc **avant**
+    `exception_message`, et l'appelant lisait un horodatage là où
+    ComfyUI disait « CUDA out of memory ... VAEDecode ». Le journal
+    portait la réponse et la rendait illisible.
+    """
+    for entree in (etat.get("messages") or []):
+        if not (isinstance(entree, (list, tuple)) and len(entree) == 2):
+            continue
+        nom, corps = entree
+        if nom != "execution_error" or not isinstance(corps, dict):
+            continue
+        noeud = corps.get("node_type") or "?"
+        rang = corps.get("node_id")
+        message = str(corps.get("exception_message") or "").strip()
+        return f"{noeud}#{rang} : {message}"[:900]
+    return json.dumps(etat)[:600]
 
 
 def pid_du_serveur(port: int = 8188) -> Optional[int]:

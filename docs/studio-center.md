@@ -138,19 +138,24 @@ tableau de bord.
 
 ## Les types de modèles
 
-Neuf, dont trois seulement posent une vraie question sur ce matériel.
+Neuf. État au 2026-08-27 : la colonne de droite dit ce qui est **installé
+et mesuré**, pas ce qui serait souhaitable.
 
-| # | Type | Rôle | Local ? |
+| # | Type | Rôle | État |
 |---|---|---|---|
 | 1 | LLM texte | script, titres, description | déjà là |
 | 2 | LLM extraction | découpage en plans | déjà là — qwen3.5-9b, 100/100 |
-| 3 | T2I diffusion | miniatures, plans-clés | oui |
-| 4 | I2V / T2V | animation | oui — **5 min de calcul par seconde de vidéo** |
-| 5 | TTS narration | voix off | oui — Piper trop robotique pour narrer |
-| 6 | ASR mot-à-mot | sous-titres | faster-whisper présent, horodatage par mot à ajouter |
-| 7 | T2M | musique, ambiance | oui, optionnel |
-| 8 | Upscale + interpolation | 1080p, fluidité | oui, peu coûteux |
-| 9 | VLM | relire ce qui a été généré | oui — axe `vision` déjà mesuré |
+| 3 | T2I diffusion | miniatures, plans-clés | **SDXL 1.0** — 35 s en 1344 × 768 |
+| 4 | I2V / T2V | animation | **LTX-2.5 Q5_K_M** — 5 min de calcul par seconde |
+| 5 | TTS narration | voix off | Piper et Kokoro mesurés, **le choix reste à faire à l'oreille** |
+| 6 | ASR mot-à-mot | sous-titres | **faster-whisper**, bornes par mot vérifiées |
+| 7 | T2M | musique | rien — YuE et Stable Audio présélectionnés sur licence, jamais testés |
+| 8 | Upscale | haute résolution | modèle sur le disque, **jamais essayé** |
+| 9 | VLM | relire ce qui a été généré | **qwen3.5-2b-relecteur** — 4 refus sur 4 |
+
+Le son d'ambiance ne figure plus au septième rang : LTX-2.5 le produit
+lui-même, synchronisé à l'image, ce qu'aucun modèle de musique ne peut
+faire. La ligne 7 ne concerne donc plus que la musique proprement dite.
 
 Le neuvième mérite qu'on s'y arrête. Un modèle qui *regarde* l'image
 produite et dit si elle correspond à la consigne, c'est la règle de la
@@ -433,3 +438,176 @@ La build ffmpeg de cette machine (Gyan 8.1.2) porte `--enable-libass`,
 Comme partout ailleurs dans le Studio, l'ordre des plans, le texte et le
 rythme viennent de l'appelant. Ce module assemble et vérifie ; il ne
 monte pas à la place de qui décide.
+
+---
+
+## La délégation à Hermes Agent (HOS-192)
+
+C'était le but déclaré du projet, et il n'avait jamais été éprouvé. Deux
+blocages, tous deux silencieux, l'en empêchaient — et aucun n'était dans
+le code de Hermes OS.
+
+**`mcp_servers.hermes-ollama.tools.include` est une liste blanche.**
+Enregistrer neuf outils sur le serveur MCP ne les donne pas à l'agent : il
+faut les y nommer. Sans cela l'agent ne voit rien, ne dit rien, et répond
+de mémoire. C'est exactement la forme du défaut que l'EventHub avait
+présenté en avalant trente-cinq topics.
+
+**`cache/mcp_schema_cache.json` gardait les seize anciens outils.** Même
+la liste corrigée n'aurait rien changé tant que le cache tenait.
+
+Une fois les deux levés, l'agent a été interrogé sur deux faits qu'il ne
+pouvait pas deviner — l'état du runtime et le rapport de la dernière file.
+Douze appels d'outils en 54 s, et surtout :
+
+> « none are in a successful "kept" state — they are all in the
+> "indetermine" state »
+
+La distinction entre « le fichier existe » et « le fichier est bon » a
+survécu jusqu'à une réponse en langage naturel. C'est le seul test qui
+comptait : un agent qui aurait lu `indetermine` et écrit « 3 plans
+réussis » aurait rendu toute la chaîne inutile.
+
+Le mot « déléguer » n'apparaît pas dans l'invite, et ce n'est pas un
+hasard : ce dépôt a mesuré que le mentionner suffit à faire cesser les
+appels d'outils du modèle local.
+
+---
+
+## Les images fixes (HOS-192)
+
+Avant de télécharger douze gigaoctets : LTX-2.5 avec `length: 1` rend une
+image. Mesuré le 2026-08-27, même graphe qu'un plan à une image près.
+
+| | temps | pic VRAM | |
+|---|---|---|---|
+| 768 × 432 | 169 s | 6,86 Gio | ✓ |
+| 1024 × 1024 | 219 s | 14,57 Gio | **CUDA OOM** sur `VAEDecode` |
+| 1280 × 720 | 220 s | 14,58 Gio | ✓ de justesse |
+
+### Une hypothèse que la mesure a démentie
+
+J'ai conclu de l'OOM qu'il fallait tuiler le décodage, comme pour la vidéo,
+et je l'ai écrit avant de le vérifier. La mesure ne le confirme pas : avec
+`VAEDecodeTiled`, le 1024 × 1024 tournait encore après **455 s** sans avoir
+abouti, épinglé à 14,65 Gio, et j'ai fini par l'interrompre.
+
+Ce que cela dit, prudemment : le pic de ~14,6 Gio est atteint quel que soit
+le mode de décodage, donc il ne vient pas du décodage seul. L'OOM tombait
+sur `VAEDecode` parce que celui-ci demandait 2,67 Gio **de plus** sur une
+carte déjà pleine — la pression était là avant lui.
+
+Ce que cela ne dit pas : je n'ai pas isolé la cause, et j'ai interrompu le
+1280 × 720 tuilé à 150 s, soit **avant** les 220 s qu'avait mis le non
+tuilé. Il n'est donc pas établi que le tuilage soit plus lent ici ; je l'ai
+coupé trop tôt pour le savoir.
+
+La conclusion utilisable est étroite : **au-delà de ~0,9 mégapixel, LTX est
+à la limite de cette carte pour une image fixe**, et le rendre confortable
+demanderait une mesure que je n'ai pas faite.
+
+### Une piste non explorée, et elle est déjà sur le disque
+
+`ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors` — 0,93 Go, jamais
+utilisé — et le nœud `LTXVLatentUpsampler` existe dans cette installation.
+
+Le chemin évident serait donc : rendre en 768 × 432, qui tient
+confortablement à 6,86 Gio, puis agrandir le **latent** avant de décoder.
+On obtiendrait du 1536 × 864 sans jamais approcher la falaise de VRAM.
+
+Non mesuré. C'est écrit ici parce que le modèle et le nœud sont là, pas
+parce que ça marche : la distinction est tout l'objet de ce document.
+
+### Ce que LTX vaut comme modèle d'image
+
+Bon pour l'ambiance — lumière, matière, composition, profondeur de champ.
+Il a respecté la lumière latérale demandée. Faible sur l'objet précis :
+demandé un sextant, il rend des compas et une règle parallèle, et le détail
+fin est mou.
+
+### SDXL, mesuré côte à côte
+
+Même consigne, même graine, modèle entraîné pour l'image fixe.
+
+| | temps | pic VRAM | poids |
+|---|---|---|---|
+| SDXL 1024 × 1024 | **45 s** | 13,46 Gio | 1,73 Mo |
+| SDXL 1344 × 768 | **35 s** | 13,23 Gio | 1,70 Mo |
+
+Cinq fois plus rapide, à une résolution que LTX n'atteignait pas. L'objet
+est net, les graduations lisibles, la matière crédible. En revanche SDXL a
+ignoré la lumière latérale et rendu une composition à plat, là où LTX
+l'avait respectée.
+
+**Ils sont complémentaires, et c'est le résultat le plus utile :** SDXL
+pour une vignette dont le sujet doit se reconnaître, LTX pour un plan
+d'ambiance ou une image qui doit se raccorder à de la vidéo.
+
+Installé sous `C:/AI/Models/Images`, cartographié par une entrée `images:`
+dans `extra_model_paths.yaml`. Licence CreativeML Open RAIL++-M : usage
+commercial permis — le filtre décisif, celui qui a écarté Flux.1-dev
+(non commercial). Flux.1-schnell est pourtant Apache 2.0, mais il demande
+en plus un encodeur T5 de cinq à dix gigaoctets sur une carte déjà partagée
+avec LTX.
+
+Le VAE corrigé (`sdxl_vae.safetensors`) est chargé séparément : celui
+embarqué dans le checkpoint produit des artefacts en fp16.
+
+## L'audio natif de LTX-2.5 (HOS-192)
+
+`ltx-2.5-audio-vae-bf16.safetensors` était sur le disque depuis le début et
+n'était référencé nulle part. La raison est une seule ligne :
+`LTXVAudioVAELoader` lit dans **`checkpoints`** et non dans `vae` — vérifié
+dans `comfy_extras/nodes_lt_audio.py`. Le fichier existait, le nœud
+affichait une liste vide, et rien ne reliait les deux.
+
+Corrigé par une entrée `checkpoints: vae/` dans `extra_model_paths.yaml`,
+plutôt qu'en copiant le fichier : ce document pose déjà qu'un modèle
+partagé n'a pas à exister en double.
+
+### Deux vérifications avant le premier rendu
+
+Le modèle distillé qu'on possède est-il seulement audio-capable ? Cela ne
+se supposait pas. Deux lectures, sans allumer le GPU :
+
+- le VAE porte bien les préfixes `audio_vae.` et `vocoder.` que le nœud
+  remplace — 348 Mio, stéréo, sortie 48 kHz par extension de bande ;
+- le GGUF déclare `_class_name: AVTransformer3DModel` et
+  `use_audio_video_cross_attention: true`, avec 32 têtes d'attention audio
+  et 128 canaux de sortie.
+
+### Mesuré le 2026-08-27
+
+Les deux latents partent **dans le même échantillonnage** —
+`LTXVConcatAVLatent` avant, `LTXVSeparateAVLatent` après — ce qui est la
+raison d'être de la chose : le son est synchrone, pas juxtaposé.
+
+| | |
+|---|---|
+| Durée du rendu | 339 s pour 2,04 s (contre 281 s en vidéo seule, **+21 %**) |
+| Pic VRAM | 11,07 Gio (contre 7,75 en vidéo seule) |
+| Piste produite | AAC 48 kHz stéréo, 2,01 s |
+| Niveau réel | moyenne −7,9 dB, crête 0,0 dB |
+
+Le niveau a été relevé, et non déduit de la présence d'une piste : un MP4
+porte volontiers une piste audio **silencieuse** et se termine avec le
+code 0. La crête à 0,0 dB dit d'ailleurs que le signal sature — il faudra
+l'atténuer avant montage.
+
+### Ce que cela change
+
+La narration posée par Piper devient un **choix** et non une nécessité.
+Surtout, LTX produit ce qu'aucun TTS ne peut poser après coup : des pas
+qui tombent sur l'image, une porte qui claque au bon quart de seconde, une
+pluie qui suit le plan. Pour vingt et un pour cent de temps en plus, sur
+une chaîne où le son d'ambiance est la moitié du travail.
+
+Reste à mesurer : la qualité sur de la parole, et la tenue sur des plans
+plus longs que deux secondes.
+
+### Licence
+
+Le VAE audio porte la même LTX-2.x Community License que le reste : usage
+commercial autorisé **en dessous de 10 M$ de revenus annuels**, licence
+payante au-delà. C'est le même filtre qui avait écarté F5-TTS, XTTS,
+MusicGen et MiniMax H3 — celui-ci passe.
