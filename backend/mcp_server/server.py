@@ -1225,6 +1225,117 @@ def evolution_progression(project_id: str | None = None) -> dict:
     return progression_tracker.compute_progression(tasks, skills)
 
 
+# ── Studio : generation d'images et de plans video (HOS-190) ──────────
+#
+# L'agent compose le graphe et le soumet, comme il ecrit un fichier avec
+# files_apply. Hermes OS n'apporte qu'une chose que ni ComfyUI ni l'agent
+# ne peuvent apporter : l'arbitrage de la carte.
+#
+# ComfyUI ignore qu'un modele de langage occupe la VRAM, et reciproquement.
+# Les deux allouent jusqu'a ce que ROCm complete en memoire systeme, sans
+# lever d'erreur — dix-sept fois le temps, mesure le 2026-08-27. Passer par
+# ces outils plutot que d'appeler ComfyUI directement, c'est passer par
+# l'arbitre.
+
+
+def studio_state() -> dict:
+    """Is the generation runtime up, and how much VRAM is free right now?
+
+    Call this before composing a render graph. `attention_sub_quadratique`
+    matters more than it looks on this hardware: without that flag a
+    16k-token render claims 20.16 GiB on a 15.98 GiB card and takes 3226 ms
+    instead of 187 — it completes, silently, seventeen times slower."""
+    from backend.studio.comfyui import ComfyUI
+
+    e = ComfyUI().etat()
+    return {
+        "reachable": e.joignable,
+        "version": e.version,
+        "vram_total_bytes": e.vram_totale,
+        "vram_free_bytes": e.vram_libre,
+        "sub_quadratic_attention": e.attention_sub_quadratique,
+        "queue": ComfyUI().file() if e.joignable else None,
+        "detail": e.detail,
+    }
+
+
+def studio_models() -> dict:
+    """Which model files the generation runtime can actually load, by kind.
+
+    Use these exact names in a render graph. A misspelled filename is
+    rejected with a message that does not name the typo."""
+    from backend.studio.comfyui import ComfyUI
+
+    c = ComfyUI()
+    return {
+        "diffusion": c.modeles("unet_name"),
+        "text_encoders": c.modeles("clip_name"),
+        "vae": c.modeles("vae_name"),
+    }
+
+
+def studio_render(graph: dict, need_bytes: int | None = None) -> dict:
+    """Submit a ComfyUI API-format graph for rendering, arbitrating VRAM.
+
+    Returns as soon as the job is queued — a render takes minutes. Poll
+    studio_queue and read the results with studio_outputs.
+
+    Refuses rather than renders when the card cannot be freed: a render
+    that overflows still succeeds, which is exactly the problem. It
+    succeeds seventeen times slower and the slowness gets blamed on the
+    model."""
+    from backend.studio.arbitrage import carte_reservee
+    from backend.studio.comfyui import ComfyUI
+
+    besoin = int(need_bytes or 11_525_623_808)
+    with carte_reservee(besoin) as occ:
+        if not occ.obtenu:
+            return {"queued": False, "reason": "card_busy", "detail": occ.detail}
+        if occ.liberation_douteuse:
+            return {"queued": False, "reason": "insufficient_vram",
+                    "detail": occ.detail,
+                    "unloaded": occ.modeles_decharges}
+        try:
+            ident = ComfyUI().soumettre(graph)
+        except ValueError as e:
+            return {"queued": False, "reason": "graph_rejected",
+                    "detail": str(e)[:800]}
+        return {"queued": True, "prompt_id": ident,
+                "unloaded": occ.modeles_decharges,
+                "vram_freed_bytes": occ.libere_octets}
+
+
+def studio_queue() -> dict:
+    """How many render jobs are running and waiting."""
+    from backend.studio.comfyui import ComfyUI
+
+    return ComfyUI().file()
+
+
+def studio_outputs(prompt_id: str) -> dict:
+    """The files a finished render produced, or why it has not finished.
+
+    Never assume a render succeeded because it was queued: this is the
+    only call that says what actually landed on disk."""
+    from backend.studio.comfyui import ComfyUI, _fichiers_de
+
+    try:
+        hist = ComfyUI()._lire(f"/history/{prompt_id}", delai=15)
+    except Exception as e:
+        return {"done": False, "detail": str(e)[:200]}
+
+    entree = hist.get(prompt_id)
+    if not entree:
+        return {"done": False, "detail": "unknown or still queued"}
+    etat = entree.get("status") or {}
+    if etat.get("status_str") == "error":
+        return {"done": False, "failed": True,
+                "detail": str(etat.get("messages") or etat)[:600]}
+    if not etat.get("completed"):
+        return {"done": False, "detail": "still running"}
+    return {"done": True, "files": _fichiers_de(entree)}
+
+
 _ALL_TOOLS = [
     security_evaluate,
     files_list,
@@ -1297,6 +1408,11 @@ _ALL_TOOLS = [
     skills_search,
     evolution_process_task,
     evolution_progression,
+    studio_state,
+    studio_models,
+    studio_render,
+    studio_queue,
+    studio_outputs,
 ]
 
 

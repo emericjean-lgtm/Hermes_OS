@@ -109,6 +109,14 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "skills_search",
         "evolution_process_task",
         "evolution_progression",
+        # Studio (HOS-190). L'agent compose le graphe ; Hermes OS
+        # arbitre seulement la carte, que ni ComfyUI ni l'agent ne
+        # voient partagee.
+        "studio_state",
+        "studio_models",
+        "studio_render",
+        "studio_queue",
+        "studio_outputs",
     }
 
 

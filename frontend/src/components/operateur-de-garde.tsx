@@ -44,6 +44,7 @@ export const ONGLETS_AVEC_OPERATEUR: ReadonlySet<string> = new Set([
   "missions",
   "execution",
   "autonomous",
+  "studio",
   "runtime",
   "workspace",
   "validation",

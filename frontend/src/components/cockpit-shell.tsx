@@ -28,6 +28,7 @@ import { SecurityCenter } from "@/features/security/security-center";
 import { SystemCenterMerged } from "@/features/system/system-center-merged";
 import ConversationCenter from "@/features/conversation/conversation-center";
 import { VoiceCenter } from "@/features/voice/voice-center";
+import { StudioCenter } from "@/features/studio/studio-center";
 import ModelIntelligenceCenter from "@/features/models/model-intelligence-center";
 import { WorkspaceCenter } from "@/features/workspace/workspace-center";
 import { ExecutionCenter } from "@/features/execution/execution-center";
@@ -55,6 +56,7 @@ const views = {
   governance: GovernanceCenter,
   evolution: EvolutionCenter,
   autonomous: AutonomousCenter,
+  studio: StudioCenter,
   security: SecurityCenter,
   system: SystemCenterMerged,
   // P-001 : capacités backend qui n'avaient aucun écran.

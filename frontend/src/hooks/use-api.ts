@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  studioClient,
   systemClient,
   missionsClient,
   agentsClient,
@@ -938,5 +939,31 @@ export function useEvolutionAnalyze() {
   return useMutation({
     mutationFn: () => evolutionClient.analyze(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["evolution"] }),
+  });
+}
+
+/** Le Studio (HOS-190).
+ *
+ *  Rafraîchi à la seconde pendant qu'un rendu tourne, à la minute sinon :
+ *  la VRAM ne bouge que quand quelque chose travaille, et sonder un
+ *  compteur GPU par PowerShell coûte assez pour ne pas le faire pour
+ *  rien. */
+export function useStudioState() {
+  return useQuery({
+    queryKey: ["studio", "state"],
+    queryFn: studioClient.state,
+    refetchInterval: 5000,
+  });
+}
+
+export function useStudioModels() {
+  return useQuery({ queryKey: ["studio", "models"], queryFn: studioClient.models });
+}
+
+export function useStudioVram(actif: boolean) {
+  return useQuery({
+    queryKey: ["studio", "vram"],
+    queryFn: studioClient.vram,
+    refetchInterval: actif ? 2000 : 30000,
   });
 }

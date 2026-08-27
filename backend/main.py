@@ -349,11 +349,16 @@ def create_app() -> FastAPI:
     # plaisir de la symetrie ajouterait une dependance a construire au
     # demarrage pour rien ; elle se monte donc directement.
     from backend.voice import routes as voice_routes
+    # HOS-190 : meme raison que la voix ci-dessus — le Studio n'a ni
+    # service ni etat en memoire. Il arbitre la carte et parle a
+    # ComfyUI par HTTP ; lui fabriquer un `ServiceSpec` ajouterait une
+    # dependance a construire au demarrage pour rien.
+    from backend.studio import routes as studio_routes
 
     mount_report = mount_all(
         app,
         [rebase_router(SDS_ROUTER, LEGACY_SDS_PREFIX), *bootstrap.routers,
-         voice_routes.router],
+         voice_routes.router, studio_routes.router],
         prefix=API_V1,
     )
     add_legacy_redirects(app, legacy=LEGACY_SDS_PREFIX, canonical=API_V1)

@@ -145,6 +145,54 @@ export interface VoiceCapability {
   detail: string;
 }
 
+// ── Studio (HOS-190) ─────────────────────────────────────────
+/** Ce que `GET /studio/state` rend.
+ *
+ *  `attention_sub_quadratique` mérite d'être affiché et pas seulement
+ *  vérifié : sans ce drapeau, un rendu à 16 384 jetons réclame 20,16 Gio
+ *  sur une carte de 15,98 et met 3 226 ms au lieu de 187. Il aboutit —
+ *  c'est bien le problème. */
+export interface StudioStateDTO {
+  joignable: boolean;
+  version: string;
+  vram_totale: number;
+  vram_libre: number;
+  attention_sub_quadratique: boolean;
+  detail: string;
+  file: { en_cours: number; en_attente: number };
+}
+
+export interface StudioModelsDTO {
+  diffusion: string[];
+  encodeurs: string[];
+  vae: string[];
+}
+
+/** `mesure: false` n'est pas « zéro octet » : c'est « le compteur n'a rien
+ *  rendu ». L'écran doit écrire « non mesuré », jamais « 0 Gio ». */
+export interface StudioVramDTO {
+  mesure: boolean;
+  pid?: number;
+  octets?: number;
+  raison?: string;
+}
+
+export const studioClient = {
+  state: () => fetchJSON<StudioStateDTO>("/studio/state"),
+  models: () => fetchJSON<StudioModelsDTO>("/studio/models"),
+  vram: () => fetchJSON<StudioVramDTO>("/studio/vram"),
+  queue: () => fetchJSON<{ joignable: boolean; en_cours: number; en_attente: number }>(
+    "/studio/queue"),
+  render: (graphe: Record<string, unknown>, besoin_octets?: number) =>
+    fetchJSON<{
+      success: boolean; prompt_id?: string; error?: string; raison?: string;
+      modeles_decharges?: string[]; vram_liberee_octets?: number;
+    }>("/studio/render", {
+      method: "POST",
+      body: JSON.stringify({ graphe, ...(besoin_octets ? { besoin_octets } : {}) }),
+    }),
+};
+
 export const voiceClient = {
   /** POST /voice/speak — un WAV synthétisé par la voix locale.
    *
