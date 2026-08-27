@@ -117,8 +117,14 @@ html, body {
    Three fixed layers behind everything: a cold horizon wash, a sodium
    pool bleeding in from the lower-left (a light source in the room, not
    a symmetric "hero gradient"), and grain. The asymmetry is the point —
-   an even radial glow centred on the viewport is the AI tell. */
+   an even radial glow centred on the viewport is the AI tell.
 
+   `--room-mx`/`--room-my` are written by `room-halo.tsx` on mousemove
+   (HOS-197, the retained design direction's "le halo suit le curseur" —
+   `.design/cockpit/Main.dc.html`). Defaulted here to the original fixed
+   position so the room reads correctly before any JS has run, and stays
+   correct if that component is ever removed — the fallback is a real
+   value, not a placeholder. */
 body::before {
   content: "";
   position: fixed;
@@ -126,17 +132,22 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    /* sodium pool, low and off-centre */
-    radial-gradient(70% 55% at 12% 88%, rgba(255, 148, 54, 0.085), transparent 62%),
-    /* cold counter-wash, high and opposite */
-    radial-gradient(60% 45% at 88% 4%, rgba(94, 184, 232, 0.045), transparent 60%),
+    /* sodium pool, low and off-centre, tracking the cursor */
+    radial-gradient(70% 55% at var(--room-mx, 12%) var(--room-my, 88%),
+                     rgba(255, 148, 54, 0.085), transparent 62%),
+    /* cold counter-wash, high and opposite — the mockup's own formula,
+       the same position mirrored through the viewport's centre */
+    radial-gradient(60% 45% at calc(100% - var(--room-mx, 12%)) calc(100% - var(--room-my, 88%)),
+                     rgba(94, 184, 232, 0.045), transparent 60%),
     /* horizon lift so the bottom isn't a dead void */
     linear-gradient(0deg, rgba(255, 148, 54, 0.03), transparent 42%);
+  transition: background 220ms linear;
 }
 
 /* Engineering grid: measured, not decorative. Fine 8px lattice for the
    sense of a drawing surface, coarse 96px rules for structure. Masked so
-   it fades out rather than tiling edge to edge. */
+   it fades out rather than tiling edge to edge — and the mask itself
+   tracks the cursor, so the lattice only resolves where the light falls. */
 body::after {
   content: "";
   position: fixed;
@@ -149,8 +160,9 @@ body::after {
     linear-gradient(rgba(133, 149, 166, 0.022) 1px, transparent 1px),
     linear-gradient(90deg, rgba(133, 149, 166, 0.022) 1px, transparent 1px);
   background-size: 96px 96px, 96px 96px, 8px 8px, 8px 8px;
-  mask-image: radial-gradient(ellipse 120% 100% at 20% 90%, #000 5%, transparent 72%);
-  -webkit-mask-image: radial-gradient(ellipse 120% 100% at 20% 90%, #000 5%, transparent 72%);
+  mask-image: radial-gradient(ellipse 120% 100% at var(--room-mx, 20%) var(--room-my, 90%), #000 5%, transparent 72%);
+  -webkit-mask-image: radial-gradient(ellipse 120% 100% at var(--room-mx, 20%) var(--room-my, 90%), #000 5%, transparent 72%);
+  transition: mask-image 220ms linear, -webkit-mask-image 220ms linear;
 }
 
 /* Grain + vignette, above the app, inert to the pointer. This is what
@@ -401,6 +413,34 @@ body::after {
   pointer-events: none;
 }
 .sweep:hover::after { animation: shimmer 0.7s ease-out; }
+
+/* ── Le remplissage d'un bouton (HOS-197) ────────────────────────────
+   Il entre par la gauche, dans le sens de lecture, plutôt que de monter
+   en opacité partout à la fois — un contrôle d'instrument se remplit,
+   il ne s'éclaircit pas. Repris de la planche de pièces retenue
+   (`.design/cockpit/Composants.dc.html`).
+
+   `--btn-fill` est posée par la variante du bouton, une seule fois, pour
+   que les quatre variantes partagent le même mécanisme sans que chacune
+   redéclare son propre `::before`. `z-index` sur le contenu : sans lui,
+   le remplissage passerait par-dessus le libellé. */
+.btn-fill { position: relative; overflow: hidden; isolation: isolate; }
+.btn-fill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--btn-fill, transparent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+.btn-fill:hover::before { transform: scaleX(1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-fill::before { transition: none; }
+}
 
 /* ── Geometry ────────────────────────────────────────────────────────
    Radius is varied deliberately, never uniform: chamfered cuts on

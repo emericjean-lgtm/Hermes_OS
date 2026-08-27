@@ -10,6 +10,7 @@ import { useCockpitStore } from "@/hooks/use-store";
 import { CenterBoundary } from "@/components/center-boundary";
 import { FluxEvenements } from "@/components/flux-evenements";
 import { OperateurDeGarde } from "@/components/operateur-de-garde";
+import { RoomHalo } from "@/components/room-halo";
 import { DashboardView } from "@/features/dashboard/dashboard-view";
 import { MissionCenter } from "@/features/missions/mission-center";
 import { AgentCenter } from "@/features/agents/agent-center";
@@ -101,6 +102,7 @@ export default function CockpitShell() {
 
   return (
     <div className="min-h-screen text-hermes-text">
+      <RoomHalo />
       <Rail onOpenPalette={() => setPaletteOpen(true)} />
       <InstrumentBar onOpenPalette={() => setPaletteOpen(true)} />
 

@@ -1,3 +1,74 @@
+## HOS-197 - Ce que la maquette avait retenu, et que le code n'avait pas pris (2026-08-27)
+
+L'utilisateur signale que le design cree en amont n'a pas ete mis en place,
+« seul l'operateur ». Verifie avant d'agir, et le constat est l'inverse :
+l'harmonisation sodium est complete (globals.css porte la palette, les 22
+Centers en heritent par les alias), la piece ambiante existe (halo sodium,
+contre-lumiere glacier, grille technique, grain, vignette), et l'operateur
+va bien au-dela de la maquette — quinze postures pilotees par de vrais
+evenements backend contre treize illustratives. L'ecart reel etait ailleurs,
+et il tenait en quatre points.
+
+### Le halo suit le curseur
+
+La piece etait la, mais figee. La direction retenue
+(`.design/cockpit/Main.dc.html`) en fait une source de lumiere mobile : le
+halo sodium suit la souris, la contre-lumiere glacier se reflete en miroir a
+travers le centre, et la grille ne se revele que la ou la lumiere tombe.
+`components/room-halo.tsx` ecrit `--room-mx`/`--room-my` sur la racine — la
+meme technique que `rail.tsx` pour `--rail-w`, et pour la meme raison :
+plusieurs regles CSS doivent suivre une valeur sans qu'aucune ne devienne la
+source de verite d'une autre. Ecriture directe de la variable, une fois par
+frame au plus, plutot qu'un `setState` par mouvement de souris. Les deux
+variables ont des valeurs de repli reelles dans le CSS, donc la piece se lit
+correctement avant que le moindre JS ait tourne.
+
+### Le badge d'etat dans la barre d'instruments
+
+« Une couleur, un etat, partout ou il est lisible ». La figure de l'operateur
+ne parait que sur douze Centers sur vingt-sept — elle demande de la place et
+serait du bruit sur un ecran de reference. Le badge, lui, tient dans la barre
+et parait partout : c'est justement sur ces ecrans-la qu'on veut encore
+savoir, d'un coup d'oeil, qu'une mission travaille pendant qu'on regarde
+ailleurs.
+
+### La sante se retire au bord — Direction C, mesuree avant d'etre adoptee
+
+Direction C affirmait que l'echelle vert/ambre/rouge remplissait les valeurs
+et que, tout allant bien presque toujours, l'ecran etait vert. Verifie sur
+l'application en marche plutot que sur le compte de jetons du depot :
+**quarante et un elements verts contre treize sodium** sur le Dashboard,
+alors que le sodium est l'accent cense porter « le systeme qui parle ».
+
+La cause n'etait pas diffuse : `ProgressBar`, primitive partagee, remplissait
+ses vingt-quatre segments de la couleur de sante. Desormais le corps de la
+barre est sodium et seul le segment de tete porte la teinte de sante, halo
+compris. Mesure apres : 41 -> 29 elements verts, et une barre a 49 % se lit
+« onze segments sodium, un vert en tete ».
+
+Une exception, et elle compte : le recensement des 35 sous-systemes du
+Dashboard garde ses cellules colorees par la sante, parce que la sante **est**
+la valeur qu'il montre — une cellule rouge dans une rangee verte est tout son
+propos. Direction C vise les mesures dont le chiffre est la valeur, pas les
+recensements de sante. La distinction est ecrite dans le contrat du systeme
+de design plutot que laissee a la relecture suivante.
+
+### Le bouton se remplit par la gauche, et s'enfonce sans retrecir
+
+La planche de pieces (`.design/cockpit/Composants.dc.html`) est explicite :
+« un bouton d'instrument s'enfonce, il ne retrecit pas ». Le bouton faisait
+`active:scale-[0.985]` — exactement ce qu'elle recuse. Retire. Et le
+remplissage entre par la gauche, dans le sens de lecture, au lieu de monter
+en opacite partout a la fois (`.btn-fill` dans globals.css, une seule
+mecanique pour les quatre variantes).
+
+Verifie : tsc --noEmit propre, vitest 110/110, et le CSS mesure sur
+l'application en marche (le halo suit bien, la contre-lumiere se reflete a
+30%/80% quand le curseur est a 70%/20%, le masque de grille suit, le badge
+porte la teinte de l'etat a 34 % de bordure et 8 % de fond, `--btn-fill` vaut
+sodium avec un `::before` a `scaleX(0)`). Comme au tour precedent, aucune
+capture d'ecran : le pane de test ne composite pas les frames.
+
 ## HOS-196 - Trois pannes d'interface qui n'en faisaient qu'une, et la voix Michael sur ecran (2026-08-27)
 
 Trois bugs remontes par l'utilisateur sur l'interface : impossible de

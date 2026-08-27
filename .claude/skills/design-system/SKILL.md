@@ -11,7 +11,7 @@ As of HOS-080 the system carries a specific visual identity — codenamed **SODI
 
 ## Before creating a new component, check in order
 
-1. **Does a primitive already cover this?** `components/ui/card.tsx` — `Card`, `Badge` (7 variants), `Beacon` (pulsing status dot), `StatCard` (a gauge readout with pointer-tracked spotlight depth), `ProgressBar` (a segmented 24-cell meter, colour-ramped, invertible for "high is bad" meters), `Button` (4 variants, only `primary` carries the sodium fill). Most low-level visual needs are already here.
+1. **Does a primitive already cover this?** `components/ui/card.tsx` — `Card`, `Badge` (7 variants), `Beacon` (pulsing status dot), `StatCard` (a gauge readout with pointer-tracked spotlight depth), `ProgressBar` (a segmented 24-cell meter; the fill is sodium and only the **leading lit segment** carries the health tint — see "Health at the edge" below — invertible for "high is bad" meters), `Button` (4 variants; the fill enters from the left on hover and the press depresses 1px without scaling). Most low-level visual needs are already here.
 2. **Does the Center-composition tier already cover this?** `components/center-scaffold.tsx` — `CenterHeader`, `StatGrid`, `Toolbar`, `AsyncPanel` (the loading/error/empty/content pattern — use this rather than hand-rolling those four states again), `PanelLoading`, `DataTable<T>`, `CenterTabs<T>`, `LiveBadge`. This tier exists specifically so a new Center doesn't need its own bespoke layout logic.
 3. **Does an existing token already express this value?** Colour, in `app/globals.css`'s CSS custom properties. **Use the semantic names for new work**: `--hermes-sodium` (the one warm accent — system speaking, every interactive affordance), `--hermes-glacier` (cold, a human decision point), `--hermes-steel` (autonomous activity), `--hermes-arc`/`--hermes-gold`/`--hermes-alarm` (the health scale: good/caution/bad). The old names (`cyan`/`magenta`/`violet`/`green`/`amber`/`red`) still resolve — they're aliases kept for markup that hasn't been revisited — but they now point at the SODIUM values, not their old literal hex codes; don't read the class name as a colour guarantee. **Both `globals.css` and `tailwind.config.ts` must stay in sync** — the Tailwind mirror is what makes `text-hermes-*` classes compile to anything at all.
 4. **Does a similar Center already solve this exact layout problem?** Memory and Governance Centers are the current best examples — both fully built on the Tier-2 scaffold. If extending or building a Center, look at one of these first, not an older hand-rolled one.
@@ -25,6 +25,33 @@ Three roles, all actually loaded via `next/font/google` in `app/layout.tsx` (a p
 ## Geometry and texture
 
 Chamfered corners (`.clip-corner` / `.clip-corner-sm` / `.clip-notch`) replace uniform rounding — vary the chamfer deliberately (tighter on dense cells, wider on hero panels), don't default to one radius everywhere. `.room-grain` and `.room-vignette` (mounted once in `app/layout.tsx`, above the whole app) are what keep large flat panels from reading as sterile vector fills — don't disable or duplicate them per-Center.
+
+## Health at the edge (HOS-197)
+
+The health scale fills **marks**, not surfaces. A meter's body is sodium; its
+leading lit segment — and only that segment — takes the arc/gold/alarm tint,
+with the glow reserved for it too. This is Direction C of the retained design
+canvas (`.design/cockpit/Sodium.dc.html`), and it is a measurement, not a
+preference: on the running Dashboard on 2026-08-27, forty-one green elements
+faced thirteen sodium ones. Because almost everything is healthy almost all
+the time, a health-filled meter made the screen green, and one more green
+told you nothing. A red has to stay a rupture; it is not one if it is merely
+the third value of a ramp you read every day.
+
+The exception is a surface whose subject **is** health — the Dashboard's
+35-cell subsystem census, where a single red cell among the green is the
+entire point. Health colours the value there because health is the value.
+Ask which of the two you have before reaching for the scale.
+
+## The room follows the cursor (HOS-197)
+
+`globals.css`'s `body::before`/`::after` read `--room-mx`/`--room-my`, written
+on mousemove by `components/room-halo.tsx` (mounted once in the shell): the
+sodium pool tracks the pointer, the glacier counter-wash mirrors it through
+the viewport centre, and the engineering grid's mask follows, so the lattice
+only resolves where the light falls. Both variables have real fixed fallbacks
+in the CSS, so the room reads correctly before any JS runs. Don't re-implement
+this per-Center and don't set those variables from anywhere else.
 
 ## Live data, honestly rendered
 
@@ -42,7 +69,9 @@ A change that introduces any of the left column, without a specific and explicit
 | Uniform `rounded-xl`/`rounded-lg` | `.clip-corner`/`.clip-corner-sm`, varied deliberately |
 | A new font not loaded through `next/font` in `app/layout.tsx` | Chakra Petch (display) / Barlow (interface) / IBM Plex Mono (data) — extend this trio before adding a fourth |
 | An interpolated, randomized, or count-up-from-zero value standing in for a real measurement, even briefly | Render the real value directly; if data is missing, show it as missing (an em-dash, a flat baseline) — see `hermes/verification`'s "never fabricate a result" |
-| A purple-to-blue "AI gradient" hero, symmetric radial glow centred on the viewport, or a flat sterile panel with no texture | The room's actual light source (a sodium pool, off-centre, per `globals.css`'s `body::before`) + `.room-grain`/`.room-vignette` |
+| A purple-to-blue "AI gradient" hero, symmetric radial glow centred on the viewport, or a flat sterile panel with no texture | The room's actual light source (a sodium pool, off-centre and cursor-tracked, per `globals.css`'s `body::before` and `room-halo.tsx`) + `.room-grain`/`.room-vignette` |
+| The health scale filling a meter's whole body, so a healthy screen is a green screen | Sodium carries the measure; the health tint sits on the leading segment only — unless health genuinely *is* the value (the subsystem census) |
+| A press state that scales the control down | A 1px depress — an instrument button sinks, it doesn't shrink |
 | A brand-new visual language for one Center | The existing Tier-1/Tier-2 primitives — extend them if they're missing something, don't route around them |
 
 This contract describes the current, real state of `app/globals.css`/`tailwind.config.ts` — if a deliberate future redesign changes the direction, update this table in the same change, not after.

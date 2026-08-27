@@ -4,6 +4,7 @@ import { useSystemHealth, useResourceStatus } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
 import { navLabel, navGroupOf } from "@/components/nav-model";
 import { TelemetryTrace } from "@/components/telemetry-trace";
+import { useOperateur } from "@/hooks/use-operateur";
 import { Search, Thermometer } from "lucide-react";
 
 /** The instrument bar.
@@ -21,6 +22,7 @@ export function InstrumentBar({ onOpenPalette }: { onOpenPalette: () => void }) 
   const { data: health } = useSystemHealth();
   const { data: res } = useResourceStatus();
   const { activeView } = useCockpitStore();
+  const operateur = useOperateur();
 
   const status = health?.status ?? "UNKNOWN";
   const tone =
@@ -96,6 +98,32 @@ export function InstrumentBar({ onOpenPalette }: { onOpenPalette: () => void }) 
             <span className="num text-[11px] text-hermes-dim">/{subsystems.length}</span>
           </div>
         )}
+
+        {/* Le badge de l'opérateur (HOS-197) — « une couleur, un état,
+            partout où il est lisible » (`.design/cockpit/Main.dc.html`).
+            Volontairement pas gardé par `ONGLETS_AVEC_OPERATEUR` comme la
+            figure elle-même : la figure a besoin de place et serait du
+            bruit sur un écran de référence (agents, mémoire, gouvernance…),
+            mais ce badge tient dans une barre d'instruments et c'est
+            justement sur ces écrans-là qu'on veut encore savoir, d'un
+            coup d'œil, si une mission travaille pendant qu'on regarde
+            autre chose. */}
+        <div
+          className="hidden sm:flex items-center gap-2 clip-corner-sm border px-2.5 py-1"
+          style={{
+            borderColor: `color-mix(in srgb, ${operateur.teinte} 34%, transparent)`,
+            background: `color-mix(in srgb, ${operateur.teinte} 8%, transparent)`,
+          }}
+          title={operateur.signal}
+        >
+          <span
+            className="h-[5px] w-[5px] shrink-0"
+            style={{ background: operateur.teinte, boxShadow: `0 0 8px ${operateur.teinte}` }}
+          />
+          <span className="num text-[10px] tracking-[0.1em]" style={{ color: operateur.teinte }}>
+            {operateur.libelle.toUpperCase()}
+          </span>
+        </div>
 
         <div className="flex items-center gap-2">
           <span className={`relative flex h-1.5 w-1.5 ${tone.dot}`}>

@@ -272,13 +272,29 @@ export function ProgressBar({
   // flips it for saturation meters.
   const good = invert ? pct < 60 : pct >= 80;
   const mid = invert ? pct < 85 : pct >= 40;
-  const color = good
+  const sante = good
     ? "var(--hermes-arc)"
     : mid
     ? "var(--hermes-gold)"
     : "var(--hermes-alarm)";
 
+  /* Direction C (HOS-197) : la mesure est portée par le sodium, la santé
+     se retire au bord.
+
+     Avant, l'échelle vert/ambre/rouge remplissait la barre entière. Le
+     défaut n'est pas esthétique : comme presque tout va bien presque tout
+     le temps, l'écran était vert, et un vert de plus ne se distinguait
+     d'aucun autre. Mesuré sur le Dashboard en marche le 2026-08-27 —
+     quarante et un éléments verts contre treize sodium, alors que le
+     sodium est l'accent censé porter « le système qui parle ». Un rouge
+     doit redevenir une rupture ; il ne l'est pas s'il n'est qu'une
+     troisième valeur d'un dégradé qu'on lit tous les jours.
+
+     Le segment de tête garde donc la teinte de santé — c'est la marque
+     que Direction C place au bord du remplissage —, et le halo est le
+     seul endroit où la couleur de santé rayonne. Le reste est sodium. */
   const lit = Math.round((pct / 100) * SEGMENTS);
+  const accent = "var(--hermes-sodium)";
 
   return (
     <div className={`flex items-center gap-2.5 ${className}`}>
@@ -297,8 +313,17 @@ export function ProgressBar({
             transition={{ duration: 0.24, delay: i * 0.012 }}
             className="flex-1"
             style={{
-              background: i < lit ? color : "var(--hermes-border)",
-              boxShadow: i < lit && i >= lit - 2 ? `0 0 7px ${color}` : "none",
+              // Le dernier segment allumé porte la santé ; tous les autres
+              // portent l'accent. La lecture reste immédiate — c'est la
+              // tête de la barre qu'on regarde — sans que la santé occupe
+              // toute la surface.
+              background:
+                i >= lit
+                  ? "var(--hermes-border)"
+                  : i === lit - 1
+                  ? sante
+                  : accent,
+              boxShadow: i === lit - 1 ? `0 0 7px ${sante}` : "none",
             }}
           />
         ))}
@@ -315,7 +340,13 @@ export function ProgressBar({
 /* ── Button ───────────────────────────────────────────────────────────
    Keyed switches: flat, chamfered, with a real pressed state. Only the
    primary variant carries the sodium fill — if every control glows,
-   nothing reads as the main action. */
+   nothing reads as the main action.
+
+   HOS-197, planche de pièces retenue (`.design/cockpit/Composants.dc.html`) :
+   le remplissage entre par la gauche, dans le sens de lecture, au lieu de
+   monter en opacité partout à la fois. Et le clic **enfonce** d'un pixel
+   sans rétrécir — un bouton d'instrument s'enfonce, il ne rétrécit pas ;
+   `active:scale-[0.985]`, qui faisait exactement cela, est retiré. */
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "ghost" | "danger" | "success";
@@ -323,19 +354,34 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: React.ReactNode;
 }
 
-const buttonVariants = {
-  primary:
-    "border-hermes-sodium/55 bg-hermes-sodium/[0.12] text-hermes-sodium " +
-    "hover:bg-hermes-sodium/20 hover:border-hermes-sodium hover:shadow-glow-cyan",
-  ghost:
-    "border-hermes-border text-hermes-muted hover:text-hermes-text " +
-    "hover:border-hermes-border-bright hover:bg-hermes-elevated/70",
-  danger:
-    "border-hermes-alarm/55 bg-hermes-alarm/[0.12] text-hermes-alarm " +
-    "hover:bg-hermes-alarm/20 hover:border-hermes-alarm",
-  success:
-    "border-hermes-arc/55 bg-hermes-arc/[0.12] text-hermes-arc " +
-    "hover:bg-hermes-arc/20 hover:border-hermes-arc",
+/** Chaque variante déclare sa teinte de remplissage et la couleur que le
+ *  libellé prend une fois rempli. Le fond plein réclame un texte sombre :
+ *  du sodium sur du sodium ne se lit pas. */
+const buttonVariants: Record<string, { classes: string; fill: string }> = {
+  primary: {
+    classes:
+      "border-hermes-sodium/55 bg-hermes-sodium/[0.12] text-hermes-sodium " +
+      "hover:border-hermes-sodium hover:shadow-glow-cyan hover:!text-hermes-bg",
+    fill: "var(--hermes-sodium)",
+  },
+  ghost: {
+    classes:
+      "border-hermes-border text-hermes-muted hover:text-hermes-text " +
+      "hover:border-hermes-border-bright",
+    fill: "var(--hermes-elevated)",
+  },
+  danger: {
+    classes:
+      "border-hermes-alarm/55 bg-hermes-alarm/[0.12] text-hermes-alarm " +
+      "hover:border-hermes-alarm hover:!text-hermes-bg",
+    fill: "var(--hermes-alarm)",
+  },
+  success: {
+    classes:
+      "border-hermes-arc/55 bg-hermes-arc/[0.12] text-hermes-arc " +
+      "hover:border-hermes-arc hover:!text-hermes-bg",
+    fill: "var(--hermes-arc)",
+  },
 };
 
 export function Button({
@@ -344,18 +390,21 @@ export function Button({
   icon,
   children,
   className = "",
+  style,
   ...rest
 }: ButtonProps) {
+  const v = buttonVariants[variant] ?? buttonVariants.ghost;
   return (
     <button
       {...rest}
-      className={`sweep clip-corner-sm num inline-flex items-center justify-center gap-1.5 border
+      style={{ ...style, ["--btn-fill" as string]: v.fill }}
+      className={`btn-fill clip-corner-sm num inline-flex items-center justify-center gap-1.5 border
         uppercase tracking-[0.1em] font-medium
         transition-all duration-200
-        hover:-translate-y-[0.5px] active:translate-y-[1px] active:scale-[0.985]
+        active:translate-y-[1px]
         disabled:opacity-35 disabled:pointer-events-none
         ${size === "sm" ? "px-2.5 py-1 text-[9.5px]" : "px-3.5 py-1.5 text-[10.5px]"}
-        ${buttonVariants[variant]} ${className}`}
+        ${v.classes} ${className}`}
     >
       {icon}
       {children}
