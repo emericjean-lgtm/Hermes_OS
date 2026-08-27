@@ -167,7 +167,7 @@ et mesuré**, pas ce qui serait souhaitable.
 | 2 | LLM extraction | découpage en plans | déjà là — qwen3.5-9b, 100/100 |
 | 3 | T2I diffusion | miniatures, plans-clés | **SDXL 1.0** — 35 s en 1344 × 768 |
 | 4 | I2V / T2V | animation | **LTX-2.5 Q5_K_M** — 5 min de calcul par seconde |
-| 5 | TTS narration | voix off | Piper et Kokoro mesurés, **le choix reste à faire à l'oreille** |
+| 5 | TTS narration | voix off | **Chatterbox**, voix clonée « Michael » — Piper reste le repli sans VRAM |
 | 6 | ASR mot-à-mot | sous-titres | **faster-whisper**, bornes par mot vérifiées |
 | 7 | T2M | musique | rien — YuE et Stable Audio présélectionnés sur licence, jamais testés |
 | 8 | Upscale | haute résolution | modèle sur le disque, **jamais essayé** |
@@ -819,3 +819,77 @@ Trois détails qui décidaient :
 
 Vérifié dans le navigateur : 360 nœuds, 2 canvas, plus d'écran de
 démarrage, menus complets.
+
+---
+
+## La narration par voix clonée (HOS-195)
+
+Chatterbox, cloné depuis un échantillon de l'utilisateur, sous un
+personnage nommé « Michael » — confirmé explicitement le 2026-08-27 :
+c'est sa propre voix, en performance de personnage, pas l'enregistrement
+d'un tiers.
+
+### Un environnement séparé, pour la même raison que Hermes Agent
+
+`chatterbox-tts` épingle `torch==2.6.0`. L'installer dans `.venv` ou dans
+l'interpréteur embarqué de ComfyUI aurait remplacé le torch ROCm 2.13 par
+une build CPU et cassé tous les rendus. `C:\AI\Apps\chatterbox-venv`
+hérite du torch de ComfyUI par un fichier `.pth`, Chatterbox y est
+installé `--no-deps`. Vérifié après coup : ComfyUI répond, en ROCm, GPU
+actif — l'isolation a tenu.
+
+C'est la même frontière que celle documentée dans
+`hermes_agent_cli.py` pour Hermes Agent : deux environnements Python,
+jamais confondus.
+
+### Un seul chargement pour plusieurs répliques
+
+Charger le modèle coûte 9 à 27 s mesurées. `backend/studio/narration.py`
+prend donc une **liste** de segments et un seul sous-processus
+(`_chatterbox_worker.py`, qui tourne dans l'environnement Chatterbox) les
+synthétise tous après un unique chargement.
+
+### La carte s'arbitre aussi ici
+
+Mesuré : **4,38 Gio de pic** pendant la synthèse — pas gratuit comme
+Piper, qui tourne sur CPU pour zéro octet de VRAM. La narration passe donc
+par `arbitrage.carte_reservee`, exactement comme un rendu vidéo : la carte
+occupée refuse plutôt que de déborder en silence.
+
+### Les réglages, et pourquoi ils ne sont pas ceux du modèle
+
+`exaggeration 0.3`, `cfg_weight 0.3` — pas les 0.5/0.5 par défaut. Mesuré
+sur la même phrase : le défaut donne un débit plus appuyé, moins adapté à
+une narration continue. Encodé dans
+`C:\AI\Models\Voices\michael\reglages.json`, à côté de la référence,
+plutôt que deviné en silence à chaque appel.
+
+### Ce que le nettoyage de la référence a appris
+
+Trois échantillons soumis, mesurés plutôt que jugés à l'oreille :
+
+- le premier (44,6 s, niveau à −30,7 dB) a produit un clone à **quatre
+  trames voisées** sur toute la phrase — la voix survivait à peine ;
+- réduit à seize secondes de parole continue et nettoyé (coupe-bas 70 Hz,
+  sous la fondamentale à 98 Hz pour ne pas raser la voix ; débruitage
+  **doux** et non fort — le fort gagnait 21 dB de silence mais faisait
+  chuter la confiance de transcription de −0.188 à −0.351, la voix
+  décrochait avec le bruit) — le clone est monté à 126 trames ;
+- le troisième était déjà propre (−54,4 dB de bruit résiduel mesuré) et
+  n'a demandé qu'une normalisation de niveau.
+
+Le clonage a été vérifié, pas supposé : la hauteur médiane du clone se
+déplace systématiquement vers celle de la référence — de 157 Hz (voix par
+défaut du modèle) à 82-102 Hz selon les réglages, contre 91,2 Hz mesurés
+sur la référence « Michael ».
+
+### Surfaces
+
+| | |
+|---|---|
+| `backend/studio/narration.py` | `synthetiser()`, arbitrage compris |
+| `backend/studio/_chatterbox_worker.py` | le seul fichier qui tourne dans l'environnement Chatterbox |
+| `studio_narrate` (MCP) | ce que Hermes Agent appelle pour narrer |
+
+Comme les autres outils du Studio, ce module ne décide de rien — texte,
+découpage en segments, réglages : tout vient de l'appelant.

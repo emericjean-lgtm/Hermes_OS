@@ -121,6 +121,7 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "studio_night_report",
         "studio_assemble",
         "studio_subtitles",
+        "studio_narrate",
     }
 
 

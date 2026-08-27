@@ -1,3 +1,72 @@
+## HOS-195 - La voix Michael, branchee dans le pipeline (2026-08-27)
+
+Chatterbox, clone depuis un echantillon fourni par l'utilisateur — sa
+propre voix, en performance de personnage nomme « Michael », confirme
+explicitement avant tout clonage. Trois references soumises et mesurees
+avant de retenir la troisieme : la premiere (44,6 s, -30,7 dB) donnait un
+clone a quatre trames voisees sur toute la phrase, la voix survivait a
+peine. Reduite a seize secondes de parole continue et debruitee
+**doucement** — le reglage fort gagnait 21 dB de silence mais faisait
+chuter la confiance de transcription de -0.188 a -0.351, la voix decrochait
+avec le bruit — le clone est monte a 126 trames. La troisieme etait deja
+propre et n'a demande qu'une normalisation.
+
+Verifie, pas suppose : la hauteur mediane du clone se deplace
+systematiquement vers celle de la reference, de 157 Hz (voix par defaut du
+modele) a 82-102 Hz selon les reglages, contre 91,2 Hz mesures sur
+« Michael ».
+
+### Un environnement separe, pour la meme raison que Hermes Agent
+
+`chatterbox-tts` epingle `torch==2.6.0`. L'installer dans `.venv` ou dans
+l'interprete embarque de ComfyUI aurait remplace le torch ROCm 2.13 par
+une build CPU et casse tous les rendus. Une venv enfant herite du torch
+de ComfyUI par un `.pth`, Chatterbox y est installe `--no-deps`. Verifie
+apres coup : ComfyUI repond, en ROCm, GPU actif — l'isolation a tenu, deux
+fois (a l'installation, puis a chaque appel reel depuis).
+
+### Le pipeline
+
+`backend/studio/narration.py` : un seul chargement pour plusieurs
+repliques (9 a 27 s mesures par chargement, une narration en compte
+plusieurs), et la carte s'arbitre comme pour un rendu — 4,38 Gio de pic
+mesures, pas gratuit comme Piper. `_chatterbox_worker.py` est le seul
+fichier qui tourne dans l'environnement Chatterbox ; il ne decide de
+rien, tout arrive en parametre.
+
+`studio_narrate` (MCP) rejoint la liste blanche de l'agent et son cache de
+schemas a ete vide — les deux verrous silencieux qu'HOS-192 avait deja
+trouves pour la delegation, retrouves une deuxieme fois sur un nouvel
+outil.
+
+### Un defaut latent corrige avant qu'il morde
+
+Le sous-processus decodait stderr en UTF-8 strict. Un avertissement
+HuggingFace accentue, imprime dans l'encodage systeme Windows, a fait
+planter un thread interne pendant la verification reelle — sans faire
+echouer l'appel cette fois, mais rien ne garantissait la prochaine.
+Corrige avec `errors="replace"`, la meme convention deja posee pour
+Hermes Agent dans ce depot pour la meme cause.
+
+### Un redemarrage systeme, pas un bug
+
+Pendant la verification reelle, ComfyUI, le backend et le Cockpit sont
+tombes d'un coup. Diagnostic avant conclusion : `LastBootUpTime` et
+l'evenement Windows 1074 confirment un **redemarrage systeme** a 21:05:30
+— une mise a jour planifiee, sans rapport avec la synthese. Les trois
+services relances, ComfyUI verifie sur ses bons drapeaux
+(`--use-quad-cross-attention`, pas de CORS desarme).
+
+### Verified
+
+Synthese reelle de bout en bout : deux repliques, fichiers WAV sur disque,
+16,2 s de chargement, 5,08-5,44 s de synthese chacune. Backend **2 161
+passes, 2 ignores** (11 tests nouveaux pour la narration). Aucun binaire
+audio n'entre dans le depot — la reference vit sous
+`C:\AI\Models\Voices\michael\`, hors de git.
+
+---
+
 ## HOS-194 - L'Atelier produit, et ComfyUI s'encastre sans rien desarmer (2026-08-27)
 
 Trois manques constates en regardant l'ecran plutot qu'en le decrivant :

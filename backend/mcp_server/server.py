@@ -1388,6 +1388,40 @@ def studio_subtitles(audio: str, srt_path: str, language: str = "fr") -> dict:
             "segments": len(segments), "path": srt_path}
 
 
+def studio_narrate(lines: list[dict], output_dir: str) -> dict:
+    """Synthesize narration lines with the cloned "Michael" voice.
+
+    Each line is {id, text} -- id names the output file so you can splice
+    segments back in whatever order you choose. All lines load the model
+    once and synthesize in a single pass: reloading per line would cost
+    9-27s each, measured, on top of the synthesis itself.
+
+    This voice was cloned from a sample the user recorded themselves,
+    performing as a character named "Michael" -- confirmed explicitly by
+    the user on 2026-08-27. Do not use this tool to clone or narrate with
+    any other voice without the same kind of explicit confirmation from
+    the user that they have the right to use it.
+
+    Costs real VRAM (4.38 GiB measured, unlike Piper which is CPU-only and
+    free): this goes through the same card arbitration as a render, and
+    refuses rather than run if a mission or render already holds the
+    card. `reussie` is false unless every line actually produced a file --
+    read `segments` to see which one failed and why."""
+    from backend.studio.arbitrage import carte_reservee
+    from backend.studio.narration import synthetiser
+
+    textes = [(str(l.get("id") or i), str(l.get("text") or ""))
+              for i, l in enumerate(lines)]
+    n = synthetiser(textes, output_dir, reserver=carte_reservee)
+    return {
+        "reussie": n.reussie, "appareil": n.appareil, "charge_s": n.charge_s,
+        "erreur": n.erreur,
+        "segments": [{"id": s.identifiant, "reussi": s.reussi,
+                      "chemin": s.chemin, "duree_s": s.duree_s,
+                      "erreur": s.erreur} for s in n.segments],
+    }
+
+
 def studio_night(plans: list[dict], minutes_per_plan: float = 45.0) -> dict:
     """Queue several shots to render back to back, and return immediately.
 
@@ -1501,6 +1535,7 @@ _ALL_TOOLS = [
     studio_night_report,
     studio_assemble,
     studio_subtitles,
+    studio_narrate,
 ]
 
 
