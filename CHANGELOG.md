@@ -1,3 +1,54 @@
+## HOS-198 - La bascule d'onglet, corrigee pour de bon (2026-08-27)
+
+Le bug du Studio Center persistait apres HOS-196 : depuis un sous-onglet
+(Voix, Nuit ou Graphe), changer d'onglet principal ne changeait rien a
+l'ecran. Reproduit sur l'application en marche plutot que raisonne.
+
+### Ce que HOS-196 avait rate, et pourquoi
+
+Le correctif precedent retirait `exit` du conteneur de vue, en pariant que
+sans variante de sortie a jouer, `AnimatePresence` demonterait l'ancienne
+vue immediatement. **Il ne le fait pas** — framer-motion 11.18.2 sous
+React 19 ne relache alors jamais l'enfant sortant. Mesure dans le DOM :
+chaque navigation ajoutait un `.center-enter` de plus, tous a opacite 1,
+aucun retire. Studio, puis Assistant, puis Mission Center, empiles dans le
+flux. Le premier gardait le haut de la page et les suivants etaient
+pousses 1 140 px plus bas, hors ecran — d'ou « ca ne fonctionne pas »,
+alors que `activeView` et `aria-current` changeaient correctement. Le
+correctif de HOS-196 avait donc remplace un blocage par une fuite.
+
+### La correction
+
+`AnimatePresence` n'avait plus de travail : la sortie est retiree pour de
+bonnes raisons (une iframe ignore le fondu de ses ancetres et resterait
+visible par-dessus la vue suivante), et l'entree est une animation CSS que
+le remontage declenche seul. Ne restait que sa comptabilite de presence,
+laquelle fuyait. Un `key` sur un element ordinaire suffit : React demonte
+de facon deterministe, sans dependre d'une frame de composition, et
+l'iframe s'en va avec la vue.
+
+Verifie dans un vrai navigateur, cette fois avec un pane qui affiche :
+32 combinaisons (quatre sous-onglets du Studio x huit onglets principaux),
+zero echec, toujours exactement un Center en DOM. Le cas dur — quitter
+Studio -> Graphe avec l'iframe ComfyUI vivante — passe de 1 iframe a 0.
+Rafale de 19 onglets sans pause : maximum 1 Center a tout instant.
+
+### Un test qui ne gardait rien, retire avant d'etre commite
+
+Le premier garde-fou ecrit pour cet incident montait le shell et comptait
+les Centers apres bascule. Verifie comme doit l'etre tout garde-fou — la
+faute reintroduite exprès — il est reste **vert**. Sous JSDOM il n'y a pas
+de vraies frames de composition, framer-motion y relache l'enfant sortant
+immediatement, et le defaut ne peut pas s'y produire. Le garder aurait ete
+pire que rien : il aurait affirme garder une regression qu'il laisse
+passer.
+
+Ce qui reste est ce qui *peut* se garder automatiquement — que la
+construction fautive n'a pas ete remise — et il a ete verifie rouge sur la
+faute reintroduite avant d'etre garde. Meme nature que
+`test_hermes_agent_is_the_brain.py` : il ne prouve pas que la navigation
+marche, il empeche le retour de la cause connue.
+
 ## HOS-197 - Ce que la maquette avait retenu, et que le code n'avait pas pris (2026-08-27)
 
 L'utilisateur signale que le design cree en amont n'a pas ete mis en place,

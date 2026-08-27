@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { Rail } from "@/components/rail";
 import { InstrumentBar } from "@/components/instrument-bar";
 import { StatusBar } from "@/components/statusbar";
@@ -132,73 +131,74 @@ export default function CockpitShell() {
               and ConversationCenter's own comments). */}
           <div className={isConversation ? "mx-auto h-full w-full" : "h-full max-w-[1560px] 2xl:max-w-[1860px]"}>
             <CenterBoundary viewKey={activeView}>
-              {/* `mode="wait"` bloquait toute navigation dès que la sortie
-                  de l'ancienne vue ne se terminait pas — et rien ne
+              {/* Pas d'`AnimatePresence` ici, et c'est la correction — pas
+                  un oubli (HOS-198).
+
+                  Cette bascule de vue est passée par trois états. Avec
+                  `mode="wait"`, toute navigation se bloquait dès que la
+                  sortie de l'ancienne vue ne se terminait pas, et rien ne
                   garantit qu'elle se termine : une frame de composition
-                  manquée (onglet en arrière-plan, GPU chargé par un rendu
-                  ComfyUI en parallèle) suffit, et `AnimatePresence` attend
-                  cette confirmation indéfiniment avant de monter la
-                  suivante. Constaté : `activeView` passait bien de
-                  "conversation" à "voice" au clic (aria-current le
-                  confirmait), mais `<main>` restait figé sur le contenu de
-                  l'Assistant — un seul `.center-enter` en DOM, opacité 0,
-                  coincé en sortie. Chaque clic suivant s'empilait derrière
-                  le même blocage sans jamais aboutir.
+                  manquée suffit, et `AnimatePresence` attend cette
+                  confirmation indéfiniment. Sans `mode` mais avec `exit`,
+                  l'ancienne vue restait affichée par-dessus la nouvelle le
+                  temps du fondu — visible surtout sur Studio → Graphe,
+                  parce qu'une iframe ignore le fondu CSS de ses ancêtres et
+                  reste composée à pleine visibilité. Retirer `exit` devait
+                  régler ça en faisant démonter l'ancienne vue aussitôt.
 
-                  Sans `mode`, la nouvelle vue monte dès que `activeView`
-                  change et ne bloque plus derrière une sortie qui traîne.
+                  Ça ne l'a pas fait, et c'est **pire** : sans variante de
+                  sortie, `AnimatePresence` (framer-motion 11.18.2, React 19)
+                  ne relâche jamais l'enfant sortant. Mesuré sur
+                  l'application en marche — chaque navigation ajoutait un
+                  `.center-enter` de plus dans le DOM, tous à opacité 1,
+                  aucun retiré : Studio, puis Assistant, puis Mission
+                  Center, empilés dans le flux. Le premier gardait le haut
+                  de la page et les suivants étaient poussés 1 140 px plus
+                  bas, hors écran — d'où « je change d'onglet et ça ne
+                  fonctionne pas », alors que `activeView` et `aria-current`
+                  changeaient correctement.
 
-                  Ça ne suffisait pourtant pas pour Studio → Graphe : quitter
-                  cet onglet laissait DEUX `.center-enter` en DOM à la fois,
-                  Studio (avec l'iframe ComfyUI vivante) et la vue suivante.
-                  Les iframes ignorent notoirement le fondu CSS de leurs
-                  ancêtres — elles restent composées à pleine visibilité
-                  pendant que le conteneur qui les entoure s'estompe vers
-                  opacity 0 — donc l'ancien Studio restait visible,
-                  superposé, tant que son animation de sortie durait. D'où
-                  `exit` retiré plus bas : sans variante de sortie à jouer,
-                  AnimatePresence démonte l'ancienne vue immédiatement,
-                  l'iframe disparaît avec elle au lieu de traîner. */}
-              <AnimatePresence>
-                <motion.div
-                  key={activeView}
-                  /* `center-enter` porte l'allumage et le balayage ; framer
-                     ne garde que la sortie, qu'une animation CSS ne sait pas
-                     faire sans démonter l'élément trop tôt.
-
-                     `h-full overflow-hidden` reste réservé à l'Assistant :
-                     c'est le seul Center qui gère son propre défilement
-                     interne (transcript + rail), et qui a donc besoin d'une
-                     hauteur bornée pour que son `min-h-0` interne se calcule.
-                     Appliqué à tous les autres Centers, ce même couple
-                     rognait leur contenu au lieu de le rendre défilable :
-                     mesuré sur Governance à 500 px de fenêtre, une boîte de
-                     370 px contenait 415 px de contenu réel, et les 45 px
-                     manquants n'étaient récupérables nulle part — ni par un
-                     scroll interne (aucun Center hors Assistant n'en a un),
-                     ni par le scroll de la page (`overflow-hidden` l'en
-                     empêchait). `min-h-full`, sans `overflow-hidden`, laisse
-                     le contenu déborder jusqu'au `overflow-y-auto` du
-                     conteneur parent — dix-sept Centers sur vingt-sept
-                     n'ont pas leur propre zone de défilement et dépendaient
-                     entièrement de ce débordement pour être consultables. */
-                  className={
-                    isConversation
-                      ? "h-full relative overflow-hidden center-enter"
-                      : "min-h-full relative center-enter"
-                  }
-                  transition={{ duration: 0.18, ease: [0.4, 0, 1, 1] }}
-                >
-                  <View />
-                </motion.div>
-              </AnimatePresence>
+                  La leçon est qu'`AnimatePresence` n'avait plus de travail :
+                  la sortie est retirée pour de bonnes raisons, et l'entrée
+                  est une animation CSS (`center-enter`) que le remontage
+                  déclenche tout seul. Ne restait que sa comptabilité de
+                  présence — laquelle fuyait. Un `key` sur un élément
+                  ordinaire suffit : React démonte l'ancienne vue de façon
+                  déterministe, sans dépendre d'une frame de composition, et
+                  l'iframe s'en va avec elle. */}
+              <div
+                key={activeView}
+                /* `h-full overflow-hidden` reste réservé à l'Assistant :
+                   c'est le seul Center qui gère son propre défilement
+                   interne (transcript + rail), et qui a donc besoin d'une
+                   hauteur bornée pour que son `min-h-0` interne se calcule.
+                   Appliqué à tous les autres Centers, ce même couple
+                   rognait leur contenu au lieu de le rendre défilable :
+                   mesuré sur Governance à 500 px de fenêtre, une boîte de
+                   370 px contenait 415 px de contenu réel, et les 45 px
+                   manquants n'étaient récupérables nulle part — ni par un
+                   scroll interne (aucun Center hors Assistant n'en a un),
+                   ni par le scroll de la page (`overflow-hidden` l'en
+                   empêchait). `min-h-full`, sans `overflow-hidden`, laisse
+                   le contenu déborder jusqu'au `overflow-y-auto` du
+                   conteneur parent — dix-sept Centers sur vingt-sept
+                   n'ont pas leur propre zone de défilement et dépendaient
+                   entièrement de ce débordement pour être consultables. */
+                className={
+                  isConversation
+                    ? "h-full relative overflow-hidden center-enter"
+                    : "min-h-full relative center-enter"
+                }
+              >
+                <View />
+              </div>
             </CenterBoundary>
           </div>
         </div>
       </main>
 
       <StatusBar />
-      {/* Hors de l'AnimatePresence ci-dessus, et c'est tout l'intérêt : le
+      {/* Hors du conteneur de vue ci-dessus, et c'est tout l'intérêt : le
           shell démonte le Center actif à chaque bascule d'onglet, et une
           animation CSS repart de zéro quand son élément est démonté.
           L'opérateur placé ici traverse les bascules sans recommencer son
