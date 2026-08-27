@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import {
   useBindProject, useCreateProject, useCreatePullRequest, useFilesystemBrowse,
-  useGitStatus, useProjects, useRemoveProject, useValidateProject,
+  useGitStatus, useProjects, useRemoveProject, useUpdateProject, useValidateProject,
 } from "@/hooks/use-api";
 import type { ProjectDTO } from "@/services/client";
 import { RailPanel, Placeholder } from "./rail-primitives";
@@ -373,6 +373,12 @@ export function ProjectPanel({ sessionId }: { sessionId?: string }) {
   // ce bouton, un chemin mal saisi produisait un projet indelebile, et la
   // liste de selection accumulait les essais rates.
   const supprimer = useRemoveProject();
+  // Corriger un chemin plutot que refaire une fiche : `PATCH /projects/{id}`
+  // existait et `useUpdateProject` etait ecrit, expose, appele par personne.
+  // Sans lui, une faute de frappe obligeait a supprimer puis recreer, en
+  // perdant l'historique attache au projet.
+  const corriger = useUpdateProject();
+  const [chemin, setChemin] = useState<string | null>(null);
   const [aConfirmer, setAConfirmer] = useState(false);
   const oublier = useCallback(() => {
     if (!project) return;
@@ -394,9 +400,35 @@ export function ProjectPanel({ sessionId }: { sessionId?: string }) {
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="truncate font-mono text-[11.5px] text-hermes-text-bright">{project.name}</div>
-              {project.root_path && (
-                <div className="truncate font-mono text-[9.5px] text-hermes-dim">{project.root_path}</div>
-              )}
+              {chemin !== null ? (
+                <input
+                  autoFocus
+                  value={chemin}
+                  onChange={(e) => setChemin(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setChemin(null);
+                    if (e.key === "Enter" && chemin.trim()) {
+                      corriger.mutate(
+                        { id: project.id, data: { root_path: chemin.trim() } },
+                        { onSuccess: () => setChemin(null) },
+                      );
+                    }
+                  }}
+                  onBlur={() => setChemin(null)}
+                  placeholder="Chemin du dossier"
+                  className="w-full clip-corner-sm border border-hermes-sodium/50 bg-hermes-bg
+                    px-1.5 py-0.5 font-mono text-[9.5px] text-hermes-text outline-none"
+                />
+              ) : project.root_path ? (
+                <button
+                  onClick={() => setChemin(project.root_path ?? "")}
+                  title="Corriger le chemin"
+                  className="block w-full truncate text-left font-mono text-[9.5px]
+                    text-hermes-dim transition-colors hover:text-hermes-sodium"
+                >
+                  {project.root_path}
+                </button>
+              ) : null}
               {project.repository && (
                 <div className="truncate font-mono text-[9.5px] text-hermes-dim">
                   {project.repository}{project.branch ? `@${project.branch}` : ""}

@@ -511,7 +511,26 @@ export interface ToolHealthSummary {
   avg_latency_ms: number;
 }
 
+/** Ce que `GET /tools/agent` rend : les outils que Hermes Agent peut
+ *  reellement appeler, groupes par famille.
+ *
+ *  A distinguer de `ToolDefinition`, qui decrit une entree du registre
+ *  declare — celui dont aucune entree n'a d'executeur. */
+export interface AgentToolFamilyDTO {
+  nom: string;
+  total: number;
+  outils: { nom: string; resume: string }[];
+}
+
+export interface AgentToolsDTO {
+  success: boolean;
+  total: number;
+  familles: AgentToolFamilyDTO[];
+}
+
 export const toolsClient = {
+  /** GET /tools/agent — la surface d'execution reelle (HOS-187). */
+  agent: () => fetchJSON<AgentToolsDTO>("/tools/agent"),
   list: () => fetchJSON<unknown>("/tools").then((d) => unwrap<ToolDefinition>(d, "tools")),
   get: (id: string) => fetchJSON<ToolDefinition>(`/tools/${id}`),
   register: (data: Partial<ToolDefinition>) =>

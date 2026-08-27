@@ -1,11 +1,12 @@
 "use client";
 
-import { useTools, useToolsHealth, useMCPServers } from "@/hooks/use-api";
+import { useAgentTools, useTools, useToolsHealth, useMCPServers } from "@/hooks/use-api";
 import { Card, Badge } from "@/components/ui/card";
 import type { ToolDefinition, MCPServer, ToolHealth } from "@/types/hermes";
 import { CenterHeader } from "@/components/center-scaffold";
 
 export function ToolsCenter() {
+  const { data: agentTools } = useAgentTools();
   const { data: tools } = useTools();
   const { data: toolHealth } = useToolsHealth();
   const { data: mcpServers } = useMCPServers();
@@ -54,9 +55,53 @@ export function ToolsCenter() {
         </div>
       </div>
 
+      {/* La surface qui compte pour une mission, en premier. Le registre
+          declare vient ensuite, et l'encadre ci-dessus dit pourquoi. */}
+      <Card
+        title="Outils de l'agent"
+        subtitle={`${agentTools?.total ?? 0} appelables par Hermes Agent, via MCP`}
+      >
+        {!agentTools ? (
+          <p className="text-xs text-hermes-dim">Relevé en cours…</p>
+        ) : agentTools.total === 0 ? (
+          <p className="text-xs text-hermes-dim">
+            Le serveur MCP n&apos;expose aucun outil — ce qui signifie qu&apos;aucune
+            mission ne peut lire ni écrire quoi que ce soit.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {agentTools.familles.map((f) => (
+              <div key={f.nom}>
+                <div className="mb-1.5 flex items-baseline gap-2">
+                  <span className="tech-label !text-hermes-sodium">{f.nom}</span>
+                  <span className="num text-[10px] text-hermes-dim">{f.total}</span>
+                  <span className="h-px flex-1 bg-hermes-border" />
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {f.outils.map((o) => (
+                    <span
+                      key={o.nom}
+                      title={o.resume || "Sans description"}
+                      className="clip-corner-sm border border-hermes-border bg-hermes-surface/60
+                        px-2 py-1 num text-[10px] text-hermes-muted
+                        transition-colors hover:border-hermes-sodium/50 hover:text-hermes-text"
+                    >
+                      {o.nom}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <div className="grid grid-cols-2 gap-4 mb-6">
         {/* Native tools */}
-        <Card title="Outils natifs" subtitle={`${tools?.length || 0} enregistré(s)`}>
+        <Card
+          title="Registre déclaré"
+          subtitle={`${tools?.length || 0} entrée(s), sans exécuteur`}
+        >
           <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto">
             {tools?.map((tool) => {
               const h = healthMap.get(tool.id);

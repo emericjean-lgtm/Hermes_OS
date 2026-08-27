@@ -243,6 +243,25 @@ async def get_tools(
     return handle_get_tools(tool_type, category, status, tag)
 
 
+@router.get("/agent")
+async def outils_de_lagent() -> dict:
+    """Les outils que Hermes Agent peut reellement appeler (HOS-187).
+
+    Distinct de `GET /tools`, qui liste un registre declare dont aucune
+    entree n'a d'executeur — `POST /tools/execute` rend « No executor
+    registered » pour les seize. Cette route-ci lit `_ALL_TOOLS`, la liste
+    que le serveur MCP enregistre vraiment, et c'est elle qui decrit ce
+    dont l'agent est capable.
+
+    Placee **avant** `/{tool_id}` : declaree apres, FastAPI ferait
+    correspondre `/tools/agent` a la route parametree et chercherait un
+    outil nomme « agent ».
+    """
+    from backend.tools.registre_agent import rapport
+
+    return {"success": True, **rapport()}
+
+
 @router.get("/health")
 async def get_health() -> dict:
     return handle_get_health()

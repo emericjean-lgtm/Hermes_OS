@@ -1,68 +1,98 @@
-## HOS-186 — Revue des controles : un appel dans le vide, un projet indelebile (2026-08-26)
+## HOS-144/187/188 — Le routeur peut enfin departager, et l'ecran montre ce que l'agent sait faire (2026-08-27)
 
-### Ce que la revue a mesure
+### HOS-144, ouvert depuis le 21 aout, referme
 
-Releve statique de tous les controles interactifs du Cockpit :
+HOS-143 avait montre que **toutes** les missions tournaient sur le plus
+petit modele, y compris « ecrire les tests unitaires ». HOS-144 en avait
+donne la cause sans la corriger : le routeur connait les modeles, mais
+leurs profils sont vides. `AdaptiveRouter.recommend()` lit
+`profile.task_scores.get(type, 0.5)` — chaque modele rendait donc le meme
+neutre, et le departage tombait sur le critere suivant, la taille.
 
-    97 boutons, 111 gestionnaires onClick, 38 champs, 51 onChange
-    0 gestionnaire vide, 0 controle desactive en dur, 1 bouton sans onClick
-      (un submit dans un formulaire — legitime)
+Les mesures existaient dans le magasin de bancs. Rien ne les reliait.
 
-Aucun bouton mort. Mais un bouton branche peut appeler une route qui
-n'existe pas, et ce releve-la ne le voit pas. Confrontation des **139
-appels** de `client.ts` aux **338 routes** du contrat OpenAPI :
+Mesure apres le pont, sur les modeles reellement presents :
 
-    missionsClient.timeline  ->  GET /missions/{id}/timeline  ABSENTE
+    gpt-oss-20b-64k     code_generation 1.00
+    muse-glimmer-64k    code_generation 0.94
+    qwen3.6-35b-128k    code_generation 0.88
+    ornith-9b-256k      code_generation 0.36
+    gemma4-12b-256k     code_generation 0.36
+    lfm2.5-2.6b-125k    code_generation 0.28
 
-Le backend sert onze routes de mission ; celle-la n'en fait pas partie. Le
-hook `useMissionTimeline` n'avait **aucun consommateur** : le defaut n'a
-donc jamais ete visible.
+    60 scores verses sur 6 profils ; 4 modeles mesures sans profil
+    correspondant, comptes et non avales
 
-### Le test qui aurait du le voir en prouvait le contraire
+Deux refus valent autant que la traduction. **Un axe non mesure ne produit
+pas de score** : le magasin omet deliberement les axes absents, et ecrire
+`0.0` ferait passer « non mesure » pour « nul ». Sans score, le routeur
+retombe sur 0,5, qui dit « je ne sais pas ». **Une note de catalogue
+n'ecrase pas une course reelle** : `benchmark_scheduler` ecrit depuis
+l'execution effective d'une tache, preuve plus directe qu'une epreuve
+synthetique.
 
-    expect(typeof missionsClient.timeline).toBe("function");
+Un defaut trouve en chemin : `bench_store.catalogue()` rend les lignes
+brutes par axe, c'est la route qui les reduit en `notes`. Le pont lisait la
+forme *servie* et rendait un catalogue vide **sans rien dire** — le bilan
+affichait trois zeros, dont `sans_profil: 0`, ce qui ne pouvait pas etre.
 
-Il verifiait qu'un objet que nous avions ecrit contenait bien ce que nous y
-avions mis. C'est la tautologie que `backend/mission/tests_tautologiques.py`
-traque dans le code livre, arrivee cette fois dans notre propre suite.
+### Le registre d'outils : ni repare, ni supprime
 
-Remplace par `test_les_appels_du_cockpit_visent_de_vraies_routes.py`, qui
-compare les chemins ecrits au schema construit depuis l'application. Il
-n'appelle rien : les verbes destructeurs sont verifies comme les autres.
+La decision annoncee etait de le supprimer plutot que de le reparer. La
+mesure l'a renversee : **dix modules en dependent**, dont `base_agent.py`,
+`conversation/routes.py` et le serveur MCP. Le rayon est trop large pour un
+gain incertain.
 
-Deux pieges rencontres en l'ecrivant, tous deux consignes dans le fichier :
-retirer toute interpolation finale transformait `/autonomous/${goalId}` en
-`/autonomous`, qui n'existe pas — un faux negatif pour neuf faux positifs ;
-et `/code-intelligence/${kind}` n'est pas une route parametree mais un choix
-dans une union fermee de quatre. Le garde developpe l'union plutot que de
-l'exempter, et verifie donc les quatre.
+Fait a la place ce que le projet avait deja fait pour les competences
+(HOS-153) : exposer ce que porte le cerveau. `GET /tools/agent` lit
+`_ALL_TOOLS` — la liste que `create_mcp_server()` enregistre vraiment — et
+rend **71 outils** groupes par famille : 12 de fichiers, 9 de git, 7 de
+memoire, 7 de workflows, 6 de projets, 6 de competences, 5 de taches, 4 de
+cliches, 2 de verification.
 
-### Un projet mal saisi ne pouvait plus etre retire
+Le Tools Center mene desormais avec eux. Le registre declare reste, sous son
+vrai nom — « Registre declare, 16 entrees, sans executeur ».
 
-Le panneau Workspace savait creer et **delier** — delier n'agit que sur le
-`localStorage`. La fiche restait en base, et la liste de selection accumulait
-les essais rates, alors que `DELETE /projects/{id}` existe et que
-`useRemoveProject` etait ecrit, expose, appele par personne.
+### La surface d'API, inventoriee au lieu d'etre subie
 
-Suppression ajoutee, en deux temps : un clic arme, le second efface. Une
-suppression a un clic dans une colonne dense se declenche par accident, et
-celle-ci est irreversible cote serveur.
+Dix-huit hooks sans consommateur au releve precedent. Quatre retires :
+`useStartConversation` et `useSendConversationMessage` (le flux NDJSON a
+remplace ce chemin), `useEvents` (la socket unique du shell alimente le
+store depuis HOS-182), `useSkills` (le Skills Center appelle `skillsClient`
+en direct). Leurs methodes client restent : elles servent ailleurs.
 
-### Inventaire restant
+Un branche : `useUpdateProject`. Le panneau savait creer, delier et — depuis
+hier — supprimer, mais pas **corriger**. Une faute de frappe dans un chemin
+obligeait a detruire la fiche et a la refaire, en perdant son historique.
 
-**21 hooks sur 108** n'ont aucun consommateur. Deux natures : du code mort
-(`useStartConversation`, `useSendConversationMessage` — l'Assistant passe
-par le client de flux) et des **capacites absentes de l'ecran**
-(`useUpdateProject`, `useCreateAgent`, `useStartExecution`). Les seconds ne
-sont pas a supprimer mais a brancher, et ce choix appartient a l'operateur.
+Les quatorze restants ne sont pas de meme nature, et c'est pourquoi les
+supprimer serait faux : quatre sont des **capacites que le backend sert et
+qu'aucun ecran n'offre** — creer un agent, approuver une action en
+conversation, choisir des competences pour une tache. Les effacer effacerait
+la trace d'une fonction manquante.
 
-Retires ici : `useMissionTimeline` (route inexistante) et `useExecuteTool`
-(aucun executeur cote serveur, cf. HOS-185).
+`src/__tests__/surface-api.test.ts` les inscrit avec leur raison. Un hook
+ajoute sans consommateur fait echouer la suite ; un hook enfin branche aussi,
+et il faut alors le retirer de la liste. La dette est declaree, datee, et ne
+peut plus grossir en silence.
+
+Le test a attrape deux erreurs de sa propre redaction : il se lisait lui-meme
+— les quatorze noms cites y passaient pour des usages — et il a refuse trois
+raisons ecrites « idem ».
+
+### Une seconde tautologie dans notre propre suite
+
+    it("useSkills is exported", ...)
+      expect(typeof useSkills).toBe("function");
+
+Comme `missionsClient.timeline` hier : verifier qu'une fonction que nous
+avons ecrite existe bien. Retiree.
 
 ### Verified
 
-Suites : backend **2 054 passes, 2 ignores** ; frontend **107 passes** ;
-`tsc --noEmit` propre.
+Suites : backend **2 063 passes, 2 ignores** ; frontend **110 passes** ;
+`tsc --noEmit` propre. `GET /tools/agent` rend 71 outils sur le serveur en
+marche, et le Tools Center les affiche groupes par famille.
 
 ---
 

@@ -233,9 +233,6 @@ export function useMemoryStatistics() {
 }
 
 // ── Skills ───────────────────────────────────────────
-export function useSkills() {
-  return useQuery<Skill[]>({ queryKey: ["skills"], queryFn: () => skillsClient.list() });
-}
 export function useSelectSkills(taskDescription: string) {
   return useQuery<SkillSelection[]>({
     queryKey: ["skills", "select", taskDescription],
@@ -251,6 +248,15 @@ export function useSkillCache() {
 export function useTools() {
   return useQuery<ToolDefinition[]>({ queryKey: ["tools"], queryFn: toolsClient.list });
 }
+/** Les outils que l'agent peut vraiment appeler (HOS-187).
+ *
+ *  `useTools` rend le registre declare, dont `POST /tools/execute` refuse
+ *  chaque entree faute d'executeur. Celui-ci rend la surface MCP, qui est
+ *  celle qu'une mission emprunte. */
+export function useAgentTools() {
+  return useQuery({ queryKey: ["tools", "agent"], queryFn: toolsClient.agent });
+}
+
 export function useToolsHealth() {
   // Aggregate, not a per-tool list — see ToolHealthSummary.
   return useQuery<ToolHealthSummary>({
@@ -329,12 +335,6 @@ export function useExecutionAction(id: string) {
 }
 
 // ── Events ───────────────────────────────────────────
-export function useEvents(params?: Record<string, string>) {
-  return useQuery<SystemEvent[]>({
-    queryKey: ["events", params],
-    queryFn: () => eventsClient.list(params),
-  });
-}
 
 // ── Alexandrie ───────────────────────────────────────
 export function useAlexandrieStatus() {
@@ -754,18 +754,7 @@ export function useCloudStatus() {
 
 // ── Conversation (HOS-062) ────────────────────────────────
 
-export function useStartConversation() {
-  return useMutation({
-    mutationFn: (userRequest?: string) => conversationClient.start(userRequest),
-  });
-}
 
-export function useSendConversationMessage() {
-  return useMutation({
-    mutationFn: ({ sessionId, message }: { sessionId: string; message: string }) =>
-      conversationClient.message(sessionId, message),
-  });
-}
 
 export function useConversationDecision() {
   return useMutation({

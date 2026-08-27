@@ -340,10 +340,10 @@ describe("Custom Hooks exist", () => {
     expect(typeof useMemorySearch).toBe("function");
   });
 
-  it("useSkills is exported", async () => {
-    const { useSkills } = await import("@/hooks/use-api");
-    expect(typeof useSkills).toBe("function");
-  });
+  // `useSkills` a ete retire : le Skills Center appelle `skillsClient` en
+  // direct, et ce test-ci n'aurait rien pu voir — il verifiait qu'une
+  // fonction que nous avions ecrite existait bien. L'inventaire vivant est
+  // `src/__tests__/surface-api.test.ts`.
 
   it("useTools is exported", async () => {
     const { useTools } = await import("@/hooks/use-api");

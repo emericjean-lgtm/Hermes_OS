@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, Query
+
+logger = logging.getLogger("hermes_os.model_intelligence.routes")
 
 from .adaptive_router import AdaptiveRouter, CloudGate
 from .benchmark_scheduler import BenchmarkScheduler
@@ -13,6 +16,7 @@ from .model_evolution_adapter import ModelEvolutionAdapter
 from .model_intelligence_models import RuntimeBackend, TaskContext, TaskType
 from .model_memory_adapter import ModelMemoryAdapter
 from .model_profiler import ModelProfiler
+from .profils_mesures import appliquer_depuis_le_magasin
 from .model_predictor import ModelPredictor
 from .model_runtime_adapter import ModelRuntimeAdapter
 from .model_runtime_optimizer import ModelRuntimeOptimizer
@@ -67,6 +71,21 @@ def _get_profiler() -> ModelProfiler:
         # compute_model_score() formula instead of ModelProfile's own,
         # separately-maintained overall_score property.
         _profiler = ModelProfiler(analyzer=_get_analyzer())
+        # HOS-144. Sans ceci, chaque profil rend le meme `task_scores.get(
+        # type, 0.5)` et le routeur departage sur le critere suivant : la
+        # taille. C'est ainsi que toutes les missions tournaient sur le plus
+        # petit modele, y compris pour ecrire des tests.
+        #
+        # Verse apres la construction et non dans `ModelProfiler.__init__` :
+        # quatre autres modules construisent leur propre profileur, et un
+        # acces SQLite dans le constructeur les ferait tous ouvrir la base
+        # au demarrage pour un service qu'ils n'utilisent pas.
+        bilan = appliquer_depuis_le_magasin(_profiler)
+        if bilan["scores"]:
+            logger.info(
+                "profils du routeur : %d score(s) verses depuis %d profil(s) mesure(s)",
+                bilan["scores"], bilan["profils"],
+            )
     return _profiler
 
 
