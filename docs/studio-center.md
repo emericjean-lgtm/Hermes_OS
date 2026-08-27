@@ -82,6 +82,15 @@ passant par la RAM. Le drapeau est `--use-quad-cross-attention`, figé dans
 `hermes-ltx.bat` avec cette raison écrite à côté — sans quoi quelqu'un le
 « corrigera » un jour vers `split`.
 
+> **Amendé le 2026-08-27 (HOS-193).** Le calcul ci-dessus est **faux** : il
+> additionne le poids du fichier, alors que ComfyUI diffuse les couches
+> depuis la RAM et que ces poids ne résident jamais sur la carte. `split` a
+> donc été mesuré pour de bon — 239 s contre 248, même pic VRAM, sorties
+> **pixel-identiques**. Voir « `split` contre `sub_quad` : mesuré » en fin
+> de document. La conclusion (garder `sub_quad`) tient, mais pour une autre
+> raison : le gain réel est de 3,6 % et le format vertical n'a pas été
+> testé.
+
 ## Architecture
 
 ### 1. ComfyUI est un runtime, pas une application voisine
@@ -611,3 +620,86 @@ Le VAE audio porte la même LTX-2.x Community License que le reste : usage
 commercial autorisé **en dessous de 10 M$ de revenus annuels**, licence
 payante au-delà. C'est le même filtre qui avait écarté F5-TTS, XTTS,
 MusicGen et MiniMax H3 — celui-ci passe.
+
+---
+
+## `split` contre `sub_quad` : mesuré (HOS-193)
+
+`split` avait été écarté par un calcul qui comptait le poids du fichier
+comme s'il résidait sur la carte. Le calcul refait donnait ~11,85 Gio,
+donc « ça tiendrait ». Estimation. La voici remplacée par une mesure.
+
+Même graphe, même graine (1234), 768 × 432, 49 images, 8 étapes, les deux
+serveurs démarrés à froid.
+
+| | temps | pic VRAM |
+|---|---|---|
+| `sub_quad` (actuel) | 248 s | 14,42 Gio |
+| `split` | **239 s** | 14,42 Gio |
+
+**Neuf secondes, soit 3,6 %.** Pas les 40 % annoncés.
+
+L'écart entre 40 % et 3,6 % est le résultat le plus instructif : les 40 %
+venaient d'un banc qui chronométrait **l'attention seule**. Dans un rendu
+réel, l'attention est une petite part du travail — le reste, ce sont les
+36 Go de modèle relus depuis le disque, le décodage du VAE, le
+planificateur. Un micro-banc ne prédit pas un pipeline.
+
+### La qualité : aucune dégradation, et c'est vérifié
+
+Les deux implémentations calculent la même attention ; elles la découpent
+seulement autrement pour tenir en mémoire. `sub_quad` implémente Rabe &
+Staats (*Self-attention Does Not Need O(n²) Memory*), un softmax découpé
+**exact**, et les deux chemins montent en float32 sous la même condition —
+lu dans le code, pas supposé.
+
+Restait l'associativité des flottants, qui aurait pu dériver sur huit pas
+de débruitage. Elle n'a rien dérivé :
+
+| instant | écart max | écart moyen | PSNR | pixels touchés |
+|---|---|---|---|---|
+| 15 % | 0 | 0,000 | identique | 0,00 % |
+| 50 % | 0 | 0,000 | identique | 0,00 % |
+| 85 % | 0 | 0,000 | identique | 0,00 % |
+
+Les fichiers diffèrent de **deux octets** — un horodatage de conteneur —
+et pas d'un seul pixel. Vérifié sur deux paires indépendantes.
+
+### Ce qui reste à savoir avant de basculer
+
+Le pic mesuré est **identique** entre les deux, ce qui ne colle pas avec
+le banc isolé où `split` demandait le double. Autrement dit, à cette
+taille, ce n'est pas l'attention qui fixe le pic.
+
+Or `split` prend bien plus de mémoire d'attention **quand les jetons se
+multiplient**. Le format le plus lourd de ce projet — 704 × 1280 sur 97
+images — n'a pas été testé avec `split`, et c'est précisément là qu'il
+pourrait déborder alors que `sub_quad` passe.
+
+Le gain est de 3,6 % ; le risque non mesuré porte sur le format vertical,
+qui est celui des shorts. Le lanceur de production reste donc sur
+`sub_quad`, et `hermes-ltx-split.bat` conserve la variante à côté.
+
+### Une mesure incohérente, laissée ouverte
+
+Ces rendus pèsent 14,42 Gio au pic. Les trois plans de la nuit du même
+jour, **même résolution, même modèle, même nombre d'images**, avaient
+donné 7,61 Gio — trois fois exactement le même chiffre.
+
+Deux mesures reproductibles de la même configuration, dans un rapport de
+deux. Les conditions diffèrent : la nuit passait par `carte_reservee`, qui
+venait de décharger Ollama, et échantillonnait toutes les 5 s ; ces
+rendus-ci sont soumis directement et échantillonnés toutes les 3 s.
+
+J'ai vérifié que ce n'est **pas** un pic manqué : relevé à la seconde, la
+valeur haute est un plateau qui dure des minutes, pas une pointe.
+
+Je ne connais pas le mécanisme. L'hypothèse la plus plausible est que le
+compteur `Dedicated Usage` inclut ce que l'allocateur de PyTorch *réserve*
+et pas seulement ce qu'il *utilise*, et qu'il en réserve d'autant plus que
+la carte est libre. Non vérifié.
+
+Conséquence pratique : `BESOIN_RENDU_OCTETS` vaut 9 Gio, calé sur la plus
+basse des deux mesures. Si c'est la haute qui décrit le besoin réel, la
+réservation est trop courte. À trancher avant de faire tourner une nuit
+pendant qu'une mission travaille.

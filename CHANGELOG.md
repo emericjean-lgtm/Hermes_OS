@@ -1,3 +1,76 @@
+## HOS-193 - split mesure, et une mesure qui ne colle pas (2026-08-27)
+
+`split` avait ete ecarte par un calcul qui additionnait le poids du
+fichier a la memoire d'attention, comme si les poids residaient sur la
+carte. Ils n'y resident pas. Le calcul refait donnait « ca tiendrait » —
+une estimation, remplacee ici par une mesure.
+
+Meme graphe, meme graine, 768x432 sur 49 images, les deux serveurs
+demarres a froid :
+
+    sub_quad   248 s   pic 14,42 Gio
+    split      239 s   pic 14,42 Gio
+
+**Neuf secondes, 3,6 %.** Pas les 40 % annonces.
+
+L'ecart entre 40 % et 3,6 % est le resultat le plus instructif : les 40 %
+venaient d'un banc qui chronometrait **l'attention seule**. Dans un rendu
+reel elle est une petite part du travail — le reste, ce sont trente-six
+gigaoctets de modele relus depuis le disque, le decodage du VAE, le
+planificateur. Un micro-banc ne predit pas un pipeline.
+
+### Aucune degradation, et c'est verifie
+
+Les deux implementations calculent la meme attention et ne different que
+par le decoupage. `sub_quad` implemente Rabe & Staats, un softmax decoupe
+**exact** ; les deux chemins montent en float32 sous la meme condition —
+lu dans le code, pas suppose. Restait l'associativite des flottants, qui
+aurait pu deriver sur huit pas de debruitage.
+
+    instant    ecart max   ecart moyen   PSNR        pixels touches
+    15 %       0           0,000         identique   0,00 %
+    50 %       0           0,000         identique   0,00 %
+    85 %       0           0,000         identique   0,00 %
+
+Les fichiers different de **deux octets** — un horodatage de conteneur —
+et pas d'un pixel. Verifie sur deux paires independantes.
+
+### Garde sub_quad quand meme
+
+Le gain est de 3,6 %, et `split` prend bien plus de memoire d'attention
+quand les jetons se multiplient. Le format 704x1280 sur 97 images — celui
+des shorts — n'a pas ete teste avec lui, et c'est precisement la qu'il
+pourrait deborder. `hermes-ltx-split.bat` garde la variante a cote.
+
+### Une mesure incoherente, laissee ouverte
+
+Ces rendus pesent 14,42 Gio au pic. Les trois plans de la nuit du **meme
+jour**, meme resolution, meme modele, meme nombre d'images, avaient donne
+7,61 Gio — trois fois exactement le meme chiffre.
+
+Un rapport de deux entre deux mesures reproductibles de la meme chose.
+
+J'ai verifie que ce n'est pas un pic manque : releve a la seconde, la
+valeur haute est un plateau qui dure des minutes. Les conditions different
+— la nuit passait par `carte_reservee`, qui venait de decharger Ollama —
+mais je ne connais pas le mecanisme. L'hypothese la plus plausible est que
+`Dedicated Usage` compte ce que l'allocateur PyTorch *reserve* et pas
+seulement ce qu'il *utilise*, et qu'il en reserve d'autant plus que la
+carte est libre. Non verifie, donc ecrit comme tel.
+
+Consequence : `BESOIN_RENDU_OCTETS` vaut 9 Gio, cale sur la plus **basse**
+des deux. Si c'est la haute qui decrit le besoin, la reservation est trop
+courte — a trancher avant de faire tourner une nuit pendant qu'une mission
+travaille.
+
+### Verified
+
+Quatre rendus sur disque sous `E:\YouTube\Generations\attention`,
+comparaison pixel par numpy sur trois instants. Lanceur de production
+restaure sur `--use-quad-cross-attention` et verifie par `/system_stats`.
+
+---
+
 ## HOS-192 - Ce qui etait deja la, et que personne ne voyait (2026-08-27)
 
 Trois taches, et le meme motif dans les trois : ce qu'il fallait etait
