@@ -245,6 +245,30 @@ export interface RapportNuitDTO {
   plans: PlanNuitDTO[];
 }
 
+/** Ce que `POST /studio/narrate` rend — même forme que l'outil MCP
+ *  `studio_narrate`, parce que c'est la même fonction en dessous
+ *  (HOS-196). `reussi` par réplique et non un seul booléen global : une
+ *  narration de cinq répliques où la troisième échoue doit le montrer,
+ *  pas se réduire à un échec ou un succès binaire. */
+export interface SegmentNarreDTO {
+  id: string;
+  reussi: boolean;
+  chemin: string;
+  duree_s: number;
+  erreur: string;
+}
+
+export interface NarrationDTO {
+  success: boolean;
+  appareil: string;
+  charge_s: number;
+  erreur: string;
+  dossier: string;
+  segments: SegmentNarreDTO[];
+  raison?: string;
+  error?: string;
+}
+
 export const studioClient = {
   state: () => fetchJSON<StudioStateDTO>("/studio/state"),
   night: () => fetchJSON<{
@@ -273,6 +297,15 @@ export const studioClient = {
     }>("/studio/render", {
       method: "POST",
       body: JSON.stringify({ gabarit, consigne, parametres }),
+    }),
+  /** Synthétiser des répliques avec la voix clonée « Michael ». Chaque
+   *  ligne est `{id, texte}` — l'identifiant nomme le fichier de sortie.
+   *  `dossier` est optionnel : sans lui, le backend horodate lui-même
+   *  sous `E:\YouTube\Generations\narration`. */
+  narrate: (lignes: { id: string; texte: string }[], dossier?: string) =>
+    fetchJSON<NarrationDTO>("/studio/narrate", {
+      method: "POST",
+      body: JSON.stringify({ lignes, ...(dossier ? { dossier } : {}) }),
     }),
 };
 

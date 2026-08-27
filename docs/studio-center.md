@@ -890,6 +890,11 @@ sur la référence « Michael ».
 | `backend/studio/narration.py` | `synthetiser()`, arbitrage compris |
 | `backend/studio/_chatterbox_worker.py` | le seul fichier qui tourne dans l'environnement Chatterbox |
 | `studio_narrate` (MCP) | ce que Hermes Agent appelle pour narrer |
+| `POST /studio/narrate` (HOS-196) | même fonction, offerte à l'écran — un formulaire, pas une seconde implémentation |
+| Studio Center → onglet **Voix** (HOS-196) | `narration.tsx` : lister des répliques, un dossier de sortie optionnel, le détail par segment |
 
 Comme les autres outils du Studio, ce module ne décide de rien — texte,
-découpage en segments, réglages : tout vient de l'appelant.
+découpage en segments, réglages : tout vient de l'appelant. La route REST
+ne fait qu'une chose de plus que l'outil MCP : quand aucun dossier n'est
+fourni, elle en horodate un sous `E:\YouTube\Generations\narration` — un
+choix de l'écran, pas de `synthetiser()` elle-même.

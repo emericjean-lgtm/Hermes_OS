@@ -5,6 +5,7 @@ import { AlertTriangle, Boxes, Film, Image as ImageIcon, Layers, Wifi, WifiOff }
 import { CenterHeader, CenterTabs } from "@/components/center-scaffold";
 import { Card } from "@/components/ui/card";
 import { Composer } from "./composer";
+import { Narration } from "./narration";
 import { useStudioModels, useStudioNight, useStudioState, useStudioVram } from "@/hooks/use-api";
 import type { EtatPlanNuit } from "@/services/client";
 import { formatGio, formatGioPair } from "@/lib/format";
@@ -48,7 +49,7 @@ import { formatGio, formatGioPair } from "@/lib/format";
  * principale, qui est le formulaire de l'Atelier.
  */
 
-type Onglet = "atelier" | "nuit" | "graphe";
+type Onglet = "atelier" | "voix" | "nuit" | "graphe";
 
 // Servi par notre propre origine, via la reecriture de `next.config.ts`.
 //
@@ -75,6 +76,7 @@ export function StudioCenter() {
           <CenterTabs<Onglet>
             tabs={[
               { id: "atelier", label: "Atelier" },
+              { id: "voix", label: "Voix" },
               { id: "nuit", label: "Nuit" },
               { id: "graphe", label: "Graphe" },
             ]}
@@ -87,6 +89,7 @@ export function StudioCenter() {
       {onglet === "atelier" && (
         <Atelier etat={etat} modeles={modeles} vram={vram} rendActif={rendActif} />
       )}
+      {onglet === "voix" && <Narration />}
       {onglet === "nuit" && <Nuit />}
       {onglet === "graphe" && <Graphe joignable={etat?.joignable ?? false} />}
     </div>

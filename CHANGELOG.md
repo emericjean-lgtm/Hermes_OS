@@ -1,3 +1,58 @@
+## HOS-196 - Trois pannes d'interface qui n'en faisaient qu'une, et la voix Michael sur ecran (2026-08-27)
+
+Trois bugs remontes par l'utilisateur sur l'interface : impossible de
+scroller dans la plupart des Centers, la navigation qui se bloque un clic
+en retard, ComfyUI (onglet Studio -> Graphe) qui reste affiche par-dessus
+l'onglet suivant quand on change d'onglet. Racine commune dans
+`cockpit-shell.tsx` : le conteneur de vue bornait sa hauteur
+(`h-full overflow-hidden`) et `AnimatePresence` attendait la fin d'une
+animation de sortie (`mode="wait"`) qui ne garantit jamais sa propre fin.
+
+- **Scroll.** Dix-sept Centers sur vingt-sept n'ont pas de defilement
+  interne et dependent entierement du debordement vers le conteneur
+  parent. Mesure sur Governance a 500px de fenetre : une boite de 370px
+  pour 415px de contenu reel, les 45px manquants recuperables nulle part.
+  `h-full overflow-hidden` remplace par `min-h-full` pour tout Center hors
+  Assistant, qui garde son comportement borne (seul Center a gerer son
+  propre defilement interne).
+
+- **Navigation bloquee.** `mode="wait"` bloque le montage de la vue
+  suivante tant que la sortie de la precedente n'est pas confirmee
+  terminee — une confirmation qui depend d'une frame de composition
+  pouvant manquer (onglet en arriere-plan, GPU charge par un rendu
+  parallele). Constate : `aria-current` changeait, `<main>` restait fige
+  sur l'ancienne vue, chaque clic suivant s'empilait sans jamais aboutir.
+  Retire.
+
+- **Iframe persistante.** Les iframes ignorent le fondu CSS de leur
+  conteneur et restent composees a pleine visibilite pendant la sortie —
+  constate sur Studio -> Graphe, deux `.center-enter` en DOM
+  simultanement (l'ancien Studio avec ComfyUI vivant, et la vue cible).
+  `exit` retire du `motion.div` : sans variante de sortie a jouer,
+  `AnimatePresence` demonte l'ancienne vue immediatement au lieu
+  d'attendre une animation qui peut ne jamais se resoudre. Meme correctif
+  applique a `web-preview.tsx`, seul autre site avec iframe (panneau
+  plein ecran, ou le risque etait pire — bloquer l'application entiere).
+
+Verifie : `tsc --noEmit` propre, vitest 110/110, balayage des 19 Centers
+sans desynchronisation ni nouvelle erreur console. Aucune confirmation
+visuelle par capture d'ecran n'a ete possible pendant cette revue : le
+pane de navigateur de la session ne compositait pas les frames, confirme
+par un timeout de 30s sur un `requestAnimationFrame` direct — verification
+faite entierement par inspection DOM/etat.
+
+### La voix Michael (HOS-195), sur ecran plutot que par le chat seul
+
+`studio_narrate` n'existait que comme outil MCP — narrer une replique
+exigeait de le decrire a l'agent en conversation. Nouvel onglet « Voix »
+dans le Studio Center (`narration.tsx`), une route REST miroir de l'outil
+(`POST /studio/narrate`, `backend/studio/routes.py`) qui appelle la meme
+`narration.synthetiser` avec le meme arbitrage de carte — pas une seconde
+implementation. Un test de route a trouve un vrai defaut avant qu'il ne
+morde : une replique composee uniquement d'espaces passait le controle de
+vacuite (`t` au lieu de `t.strip()`) et aurait lance une synthese sur du
+texte blanc.
+
 ## HOS-195 - La voix Michael, branchee dans le pipeline (2026-08-27)
 
 Chatterbox, clone depuis un echantillon fourni par l'utilisateur — sa

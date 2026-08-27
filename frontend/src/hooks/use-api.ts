@@ -996,6 +996,20 @@ export function useStudioCompose() {
   });
 }
 
+/** Synthétiser des répliques avec la voix clonée « Michael » (HOS-196).
+ *
+ *  Pas d'invalidation de requête au succès : la narration ne touche ni
+ *  l'état de ComfyUI ni sa file, seulement la carte pendant l'appel — et
+ *  l'appel est synchrone (le corps HTTP n'arrive qu'une fois la synthèse
+ *  terminée), donc rien à re-sonder après coup. */
+export function useStudioNarrate() {
+  return useMutation({
+    mutationFn: ({ lignes, dossier }: {
+      lignes: { id: string; texte: string }[]; dossier?: string;
+    }) => studioClient.narrate(lignes, dossier),
+  });
+}
+
 /** Le rapport de la file de nuit.
  *
  *  Sondé toutes les trente secondes pendant qu'une nuit tourne : un plan

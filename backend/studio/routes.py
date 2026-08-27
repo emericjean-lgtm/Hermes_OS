@@ -20,6 +20,7 @@ les deux.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from fastapi import APIRouter, Body
@@ -267,6 +268,53 @@ def rapport_nuit() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as e:
         return {"en_cours": en_cours, "rapport": None,
                 "raison": f"journal illisible : {str(e)[:120]}"}
+
+
+#: Où la narration écrit quand l'écran ne précise pas de dossier — la
+#: voie MCP, elle, reçoit toujours `output_dir` de l'agent explicitement
+#: (voir `mcp_server/server.py:studio_narrate`). Un sous-dossier horodaté
+#: évite qu'un deuxième essai écrase le premier sans qu'on l'ait demandé.
+DOSSIER_NARRATION = r"E:\YouTube\Generations\narration"
+
+
+@router.post("/narrate")
+def narrer(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Synthétiser des répliques avec la voix clonée « Michael » (HOS-196).
+
+    Même fonction que l'outil MCP `studio_narrate` — reste du Studio, pas
+    une seconde implémentation : les deux appellent `narration.synthetiser`
+    avec le même arbitrage de carte. Celle-ci existe pour que l'écran
+    puisse déclencher une narration sans passer par l'agent, exactement
+    comme `/render` le permet déjà pour l'image.
+    """
+    import datetime
+
+    from backend.studio.narration import ChatterboxIndisponible, synthetiser
+
+    lignes = payload.get("lignes")
+    if not isinstance(lignes, list) or not lignes:
+        return {"success": False, "error": "il faut au moins une réplique"}
+
+    textes = [(str((l or {}).get("id") or i), str((l or {}).get("texte") or ""))
+              for i, l in enumerate(lignes)]
+    if not any(t.strip() for _, t in textes):
+        return {"success": False, "error": "chaque réplique doit avoir un texte"}
+
+    dossier = payload.get("dossier") or os.path.join(
+        DOSSIER_NARRATION, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+
+    try:
+        n = synthetiser(textes, dossier, reserver=carte_reservee)
+    except ChatterboxIndisponible as e:
+        return {"success": False, "error": str(e), "raison": "chatterbox_absent"}
+
+    return {
+        "success": n.reussie, "appareil": n.appareil, "charge_s": n.charge_s,
+        "erreur": n.erreur, "dossier": dossier,
+        "segments": [{"id": s.identifiant, "reussi": s.reussi,
+                      "chemin": s.chemin, "duree_s": s.duree_s,
+                      "erreur": s.erreur} for s in n.segments],
+    }
 
 
 @router.get("/vram")
