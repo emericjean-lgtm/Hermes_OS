@@ -53,7 +53,17 @@ export function WebPreviewPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      /* Pas d'`exit` : ce panneau plein écran contient une iframe (HOS-196).
+         Les iframes ignorent le fondu CSS de leur conteneur — elles restent
+         composées à pleine visibilité tant que l'animation de sortie n'est
+         pas confirmée terminée, et cette confirmation dépend d'une frame de
+         peinture qui peut manquer (GPU chargé par un rendu en parallèle,
+         onglet en arrière-plan). Constaté sur le même mécanisme dans
+         `cockpit-shell.tsx` : un panneau `fixed inset-0 z-40` resté coincé
+         couvrirait l'application entière, bouton de fermeture compris. Sans
+         `exit`, la fermeture est instantanée au lieu de s'animer sur 150ms
+         — un choix délibéré, pas un oubli. */
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
       transition={{ duration: 0.15 }}
       className="fixed inset-0 z-40 flex flex-col bg-hermes-bg-deep"
     >

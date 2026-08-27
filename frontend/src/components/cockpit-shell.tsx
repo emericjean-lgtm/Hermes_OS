@@ -130,14 +130,61 @@ export default function CockpitShell() {
               and ConversationCenter's own comments). */}
           <div className={isConversation ? "mx-auto h-full w-full" : "h-full max-w-[1560px] 2xl:max-w-[1860px]"}>
             <CenterBoundary viewKey={activeView}>
-              <AnimatePresence mode="wait">
+              {/* `mode="wait"` bloquait toute navigation dès que la sortie
+                  de l'ancienne vue ne se terminait pas — et rien ne
+                  garantit qu'elle se termine : une frame de composition
+                  manquée (onglet en arrière-plan, GPU chargé par un rendu
+                  ComfyUI en parallèle) suffit, et `AnimatePresence` attend
+                  cette confirmation indéfiniment avant de monter la
+                  suivante. Constaté : `activeView` passait bien de
+                  "conversation" à "voice" au clic (aria-current le
+                  confirmait), mais `<main>` restait figé sur le contenu de
+                  l'Assistant — un seul `.center-enter` en DOM, opacité 0,
+                  coincé en sortie. Chaque clic suivant s'empilait derrière
+                  le même blocage sans jamais aboutir.
+
+                  Sans `mode`, la nouvelle vue monte dès que `activeView`
+                  change et ne bloque plus derrière une sortie qui traîne.
+
+                  Ça ne suffisait pourtant pas pour Studio → Graphe : quitter
+                  cet onglet laissait DEUX `.center-enter` en DOM à la fois,
+                  Studio (avec l'iframe ComfyUI vivante) et la vue suivante.
+                  Les iframes ignorent notoirement le fondu CSS de leurs
+                  ancêtres — elles restent composées à pleine visibilité
+                  pendant que le conteneur qui les entoure s'estompe vers
+                  opacity 0 — donc l'ancien Studio restait visible,
+                  superposé, tant que son animation de sortie durait. D'où
+                  `exit` retiré plus bas : sans variante de sortie à jouer,
+                  AnimatePresence démonte l'ancienne vue immédiatement,
+                  l'iframe disparaît avec elle au lieu de traîner. */}
+              <AnimatePresence>
                 <motion.div
                   key={activeView}
                   /* `center-enter` porte l'allumage et le balayage ; framer
                      ne garde que la sortie, qu'une animation CSS ne sait pas
-                     faire sans démonter l'élément trop tôt. */
-                  className="h-full relative overflow-hidden center-enter"
-                  exit={{ opacity: 0, y: -6 }}
+                     faire sans démonter l'élément trop tôt.
+
+                     `h-full overflow-hidden` reste réservé à l'Assistant :
+                     c'est le seul Center qui gère son propre défilement
+                     interne (transcript + rail), et qui a donc besoin d'une
+                     hauteur bornée pour que son `min-h-0` interne se calcule.
+                     Appliqué à tous les autres Centers, ce même couple
+                     rognait leur contenu au lieu de le rendre défilable :
+                     mesuré sur Governance à 500 px de fenêtre, une boîte de
+                     370 px contenait 415 px de contenu réel, et les 45 px
+                     manquants n'étaient récupérables nulle part — ni par un
+                     scroll interne (aucun Center hors Assistant n'en a un),
+                     ni par le scroll de la page (`overflow-hidden` l'en
+                     empêchait). `min-h-full`, sans `overflow-hidden`, laisse
+                     le contenu déborder jusqu'au `overflow-y-auto` du
+                     conteneur parent — dix-sept Centers sur vingt-sept
+                     n'ont pas leur propre zone de défilement et dépendaient
+                     entièrement de ce débordement pour être consultables. */
+                  className={
+                    isConversation
+                      ? "h-full relative overflow-hidden center-enter"
+                      : "min-h-full relative center-enter"
+                  }
                   transition={{ duration: 0.18, ease: [0.4, 0, 1, 1] }}
                 >
                   <View />
