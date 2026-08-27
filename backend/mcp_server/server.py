@@ -1319,8 +1319,9 @@ def studio_outputs(prompt_id: str) -> dict:
     only call that says what actually landed on disk."""
     from backend.studio.comfyui import ComfyUI, _fichiers_de
 
+    comfy = ComfyUI()
     try:
-        hist = ComfyUI()._lire(f"/history/{prompt_id}", delai=15)
+        hist = comfy._lire(f"/history/{prompt_id}", delai=15)
     except Exception as e:
         return {"done": False, "detail": str(e)[:200]}
 
@@ -1333,7 +1334,88 @@ def studio_outputs(prompt_id: str) -> dict:
                 "detail": str(etat.get("messages") or etat)[:600]}
     if not etat.get("completed"):
         return {"done": False, "detail": "still running"}
-    return {"done": True, "files": _fichiers_de(entree)}
+    # Absolute paths, not bare filenames: ComfyUI's history gives
+    # {filename, subfolder, type}, none of which opens a file. Returning
+    # just the filename gave the caller something that looked usable and
+    # resolved to nothing.
+    return {"done": True, "files": _fichiers_de(entree, comfy.dossier_sortie())}
+
+
+def studio_assemble(shots: list[str], output: str,
+                    narration: str | None = None,
+                    srt: str | None = None) -> dict:
+    """Join rendered shots into one finished video, and verify the result.
+
+    `shots` are absolute paths, in the order they should play --
+    studio_night_report and studio_outputs both return usable paths.
+    `narration` is a WAV or MP3 laid over the whole thing; `srt` a
+    subtitle file burned in.
+
+    ffmpeg exits 0 in cases where the result is not what you asked for: a
+    missing input yields a shorter video, a missing subtitle library
+    yields a video with no text. This checks the produced file's duration
+    against the sum of its shots and reports what it could not confirm.
+    `reussi` is false unless that check passed -- never read the absence
+    of an error as success."""
+    from backend.studio.montage import assembler
+
+    m = assembler(shots, output, narration=narration, srt=srt)
+    return {
+        "reussi": m.reussi, "chemin": m.chemin, "plans": m.plans,
+        "duree_s": m.duree_s, "duree_attendue_s": m.duree_attendue_s,
+        "duree_conforme": m.duree_conforme, "sous_titres": m.sous_titres,
+        "ecart_voix_s": m.ecart_voix_s,
+        "avertissements": m.avertissements, "erreur": m.erreur,
+    }
+
+
+def studio_subtitles(audio: str, srt_path: str, language: str = "fr") -> dict:
+    """Transcribe a narration and write an SRT beside it.
+
+    Returns how many subtitles were actually written -- segments whose end
+    precedes their start are dropped, because ffmpeg accepts them and then
+    shows a subtitle that never disappears."""
+    from backend.studio.montage import ecrire_srt, transcrire_en_segments
+
+    segments = transcrire_en_segments(audio, langue=language)
+    if not segments:
+        return {"success": False, "written": 0,
+                "detail": "no segments -- audio unreadable or "
+                          "faster-whisper unavailable"}
+    return {"success": True, "written": ecrire_srt(segments, srt_path),
+            "segments": len(segments), "path": srt_path}
+
+
+def studio_night(plans: list[dict], minutes_per_plan: float = 45.0) -> dict:
+    """Queue several shots to render back to back, and return immediately.
+
+    Each plan is {identifiant, consigne, graphe}. `consigne` is the prompt
+    the shot is meant to realise: the queue shows every finished file to a
+    vision model and compares it against that text. Without it the shot
+    comes back `indetermine` -- a render paid for and not verified.
+
+    Use this instead of repeated studio_render when there is more than one
+    shot: it holds the GPU lock for each render in turn, so a language
+    model cannot reload mid-render and push the card into system memory,
+    which costs seventeen times the time without raising any error.
+
+    Renders are slow -- roughly five minutes of compute per second of
+    finished video. Read the outcome later with studio_night_report."""
+    from backend.studio.routes import nuit
+
+    return nuit({"plans": plans, "minutes_par_plan": minutes_per_plan})
+
+
+def studio_night_report() -> dict:
+    """What the render queue actually produced, read from its journal.
+
+    A shot counts as `retenu` only if it rendered AND a vision model
+    confirmed it matches its prompt. `rejete` means it was checked and
+    does not match; `indetermine` means it could not be checked at all --
+    which is not the same thing and must not be read as success."""
+    from backend.studio.routes import rapport_nuit
+
+    return rapport_nuit()
 
 
 _ALL_TOOLS = [
@@ -1413,6 +1495,10 @@ _ALL_TOOLS = [
     studio_render,
     studio_queue,
     studio_outputs,
+    studio_night,
+    studio_night_report,
+    studio_assemble,
+    studio_subtitles,
 ]
 
 

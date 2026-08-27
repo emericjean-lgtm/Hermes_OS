@@ -25,7 +25,7 @@ from typing import Any
 from fastapi import APIRouter, Body
 
 from backend.studio.arbitrage import carte_reservee, pic_gpu_du_processus
-from backend.studio.comfyui import ComfyUI
+from backend.studio.comfyui import ComfyUI, pid_du_serveur
 
 logger = logging.getLogger("hermes_os.studio.routes")
 
@@ -131,6 +131,98 @@ def file() -> dict[str, Any]:
     return {"joignable": e.joignable, **c.file()}
 
 
+#: Où la file de nuit consigne son rapport. Sur E: avec les rendus : le
+#: rapport et les fichiers qu'il décrit doivent voyager ensemble, sinon on
+#: se retrouve à lire un verdict sur un plan qu'on ne trouve plus.
+JOURNAL_NUIT = r"E:\YouTube\Generations\nuit\rapport.json"
+
+#: Le fil de la nuit en cours. Un seul : deux files se disputeraient la
+#: carte, et l'arbitrage ne protège que d'un rendu à la fois, pas de deux
+#: files qui se relanceraient l'une l'autre.
+_nuit: Any = None
+
+
+@router.post("/night")
+def nuit(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Lancer une file de plans et rendre la main aussitôt.
+
+    Une nuit dure des heures — trois plans de quatre secondes en 704×1280
+    coûtent une heure de calcul. Aucune requête HTTP ne peut l'attendre :
+    l'appelant reçoit le chemin du journal, que `GET /studio/night` relit.
+
+    Les graphes viennent de l'appelant, comme pour `/render`. Ce module
+    n'en compose aucun : la règle qui prime sur tout dans ce dépôt réserve
+    cette décision à Hermes Agent.
+    """
+    import threading
+
+    from backend.studio.file_de_nuit import Plan, atelier
+
+    global _nuit
+    if _nuit is not None and _nuit.is_alive():
+        return {"success": False, "raison": "nuit_en_cours",
+                "error": "une file de nuit tourne déjà",
+                "journal": JOURNAL_NUIT}
+
+    bruts = payload.get("plans")
+    if not isinstance(bruts, list) or not bruts:
+        return {"success": False, "error": "aucun plan"}
+
+    plans: list[Plan] = []
+    for i, b in enumerate(bruts):
+        graphe = (b or {}).get("graphe")
+        if not isinstance(graphe, dict) or not graphe:
+            return {"success": False, "error": f"plan {i} : graphe manquant"}
+        plans.append(Plan(
+            identifiant=str((b.get("identifiant") or f"plan_{i}")),
+            # La consigne sert au relecteur. Sans elle il n'a rien à quoi
+            # comparer, et le plan finira `indetermine` — ce qui est
+            # correct, mais coûte un rendu pour rien.
+            consigne=str(b.get("consigne") or ""),
+            graphe=graphe))
+
+    minutes = float(payload.get("minutes_par_plan") or 45.0)
+    besoin = int(payload.get("besoin_octets") or BESOIN_DEFAUT)
+
+    _nuit = threading.Thread(
+        target=lambda: atelier(plans, minutes_par_plan=minutes,
+                               besoin_octets=besoin, journal=JOURNAL_NUIT),
+        name="studio-nuit", daemon=True)
+    _nuit.start()
+
+    return {"success": True, "plans": len(plans), "journal": JOURNAL_NUIT}
+
+
+@router.get("/night")
+def rapport_nuit() -> dict[str, Any]:
+    """Le rapport du matin, tel qu'il est sur le disque.
+
+    Relu du fichier et non d'un état en mémoire : le journal est écrit
+    après chaque plan, et il survit à un redémarrage du backend là où une
+    variable ne survivrait pas. Une nuit coupée à la sixième heure doit
+    laisser lisibles les cinq premières.
+
+    `en_cours` dit « **ce** backend a lancé une nuit qui tourne encore »,
+    et non « une nuit tourne quelque part ». Un script lancé à côté n'y
+    figure pas — comme le verrou de `carte_reservee`, qui est un objet de
+    processus, et pour la même raison. Le journal, lui, reste vrai dans
+    les deux cas : c'est pourquoi c'est lui qu'on lit.
+    """
+    import json
+    import os
+
+    en_cours = _nuit is not None and _nuit.is_alive()
+    if not os.path.exists(JOURNAL_NUIT):
+        return {"en_cours": en_cours, "rapport": None,
+                "raison": "aucune nuit n'a encore été consignée"}
+    try:
+        with open(JOURNAL_NUIT, encoding="utf-8") as f:
+            return {"en_cours": en_cours, "rapport": json.load(f)}
+    except (OSError, json.JSONDecodeError) as e:
+        return {"en_cours": en_cours, "rapport": None,
+                "raison": f"journal illisible : {str(e)[:120]}"}
+
+
 @router.get("/vram")
 def vram() -> dict[str, Any]:
     """Ce que le processus de rendu détient vraiment sur la carte.
@@ -140,19 +232,7 @@ def vram() -> dict[str, Any]:
     Le compteur du processus est la seule mesure qui distingue « tient sur
     la carte » de « complète en RAM ».
     """
-    import subprocess
-
-    script = ("(Get-NetTCPConnection -LocalPort 8188 -State Listen"
-              " -ErrorAction SilentlyContinue | Select-Object -First 1)"
-              ".OwningProcess")
-    try:
-        sortie = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            capture_output=True, text=True, timeout=20).stdout.strip()
-        pid = int(sortie) if sortie.isdigit() else 0
-    except Exception:
-        pid = 0
-
+    pid = pid_du_serveur()
     if not pid:
         return {"mesure": False, "raison": "ComfyUI n'écoute pas sur 8188"}
 

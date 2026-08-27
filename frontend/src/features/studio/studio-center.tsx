@@ -4,7 +4,8 @@ import { useState } from "react";
 import { AlertTriangle, Boxes, Film, Layers, Wifi, WifiOff } from "lucide-react";
 import { CenterHeader, CenterTabs } from "@/components/center-scaffold";
 import { Card } from "@/components/ui/card";
-import { useStudioModels, useStudioState, useStudioVram } from "@/hooks/use-api";
+import { useStudioModels, useStudioNight, useStudioState, useStudioVram } from "@/hooks/use-api";
+import type { EtatPlanNuit } from "@/services/client";
 import { formatGio, formatGioPair } from "@/lib/format";
 
 /**
@@ -35,7 +36,7 @@ import { formatGio, formatGioPair } from "@/lib/format";
  * alors du changement d'application sans le changement de fenêtre.
  */
 
-type Onglet = "atelier" | "graphe";
+type Onglet = "atelier" | "nuit" | "graphe";
 
 const COMFY_URL = "http://127.0.0.1:8188";
 
@@ -56,6 +57,7 @@ export function StudioCenter() {
           <CenterTabs<Onglet>
             tabs={[
               { id: "atelier", label: "Atelier" },
+              { id: "nuit", label: "Nuit" },
               { id: "graphe", label: "Graphe" },
             ]}
             active={onglet}
@@ -64,11 +66,11 @@ export function StudioCenter() {
         }
       />
 
-      {onglet === "atelier" ? (
+      {onglet === "atelier" && (
         <Atelier etat={etat} modeles={modeles} vram={vram} rendActif={rendActif} />
-      ) : (
-        <Graphe joignable={etat?.joignable ?? false} />
       )}
+      {onglet === "nuit" && <Nuit />}
+      {onglet === "graphe" && <Graphe joignable={etat?.joignable ?? false} />}
     </div>
   );
 }
@@ -294,6 +296,120 @@ function Famille({ icone, nom, fichiers }: {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Nuit ────────────────────────────────────────────────────────────── */
+
+/** Comment chaque état se lit, et pourquoi il a sa propre couleur.
+ *
+ *  Le point de tout cet écran tient dans la distance entre `retenu` et
+ *  `indetermine`. Les deux ont produit un fichier ; seul le premier a été
+ *  confronté à sa consigne. Les peindre pareil, ou pire, n'en montrer que
+ *  le total, redonnerait le « 3/3 » au-dessus d'un dossier vide.
+ */
+const ETATS_NUIT: Record<EtatPlanNuit, { texte: string; teinte: string; aide: string }> = {
+  retenu: { texte: "Retenu", teinte: "var(--hermes-arc)",
+    aide: "Rendu, puis confirmé conforme à sa consigne par le relecteur." },
+  rejete: { texte: "Rejeté", teinte: "var(--hermes-alarm)",
+    aide: "Rendu et relu : le plan ne correspond pas à sa consigne." },
+  indetermine: { texte: "Indéterminé", teinte: "var(--hermes-gold)",
+    aide: "Le fichier existe, mais la relecture n'a pas pu se faire. Ce n'est ni un succès ni un rejet." },
+  echoue: { texte: "Échoué", teinte: "var(--hermes-alarm)",
+    aide: "Le rendu n'a produit aucun fichier." },
+  abandonne: { texte: "Abandonné", teinte: "var(--hermes-muted)",
+    aide: "La file s'était arrêtée avant d'y arriver." },
+  rendu: { texte: "Rendu", teinte: "var(--hermes-glacier)",
+    aide: "Le fichier est là ; la relecture est en cours." },
+  en_attente: { texte: "En attente", teinte: "var(--hermes-muted)",
+    aide: "Pas encore lancé." },
+};
+
+function Nuit() {
+  const { data } = useStudioNight();
+  const rapport = data?.rapport;
+
+  if (!rapport) {
+    return (
+      <Card title="File de nuit" subtitle="Aucun rapport">
+        <p className="text-sm text-hermes-muted">
+          {data?.raison ?? "Aucune nuit n'a encore été consignée."}
+        </p>
+        <p className="mt-3 text-[11.5px] leading-relaxed text-hermes-muted">
+          Une file s&apos;ouvre par l&apos;agent, avec l&apos;outil{" "}
+          <span className="num text-hermes-text">studio_night</span>. Elle
+          enchaîne les plans, réserve la carte pour chacun, et confronte chaque
+          fichier produit à la consigne qui devait le produire.
+        </p>
+      </Card>
+    );
+  }
+
+  const retenus = rapport.compte.retenu ?? 0;
+  return (
+    <div className="flex flex-col gap-3">
+      <Card
+        title="Rapport du matin"
+        subtitle={`${retenus}/${rapport.plans.length} plan(s) retenu(s) en ${Math.round(rapport.duree_s / 60)} min`}
+        action={data?.en_cours ? (
+          <span className="tech-label !text-hermes-glacier">en cours</span>
+        ) : null}
+      >
+        <div className="flex flex-wrap gap-5">
+          {Object.entries(rapport.compte).map(([etat, n]) => (
+            <Chiffre
+              key={etat}
+              valeur={n}
+              label={ETATS_NUIT[etat as EtatPlanNuit]?.texte ?? etat}
+              teinte={ETATS_NUIT[etat as EtatPlanNuit]?.teinte}
+            />
+          ))}
+        </div>
+        {rapport.arret_anticipe && (
+          <div className="clip-corner mt-3 flex items-start gap-2 border border-hermes-alarm/40 bg-hermes-alarm/10 p-2.5">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0 text-hermes-alarm" />
+            <p className="text-[11.5px] leading-relaxed text-hermes-text">
+              {rapport.arret_anticipe}
+            </p>
+          </div>
+        )}
+      </Card>
+
+      {rapport.plans.map((p) => {
+        const e = ETATS_NUIT[p.etat] ?? ETATS_NUIT.en_attente;
+        return (
+          <Card key={p.identifiant} title={p.identifiant} subtitle={p.consigne}
+                action={<span className="tech-label" style={{ color: e.teinte }}>{e.texte}</span>}>
+            <p className="mb-2 text-[11px] leading-relaxed text-hermes-dim">{e.aide}</p>
+            <div className="flex flex-col gap-1">
+              <Ligne libelle="Durée" valeur={p.duree_s ? `${Math.round(p.duree_s)} s` : "—"} />
+              <Ligne
+                libelle="Pic VRAM"
+                /* « non mesuré » et non « 0 Gio » : le compteur peut ne
+                   rien rendre, et zéro se lirait comme « rien ne tourne ». */
+                valeur={p.pic_vram_octets
+                  ? `${formatGio(p.pic_vram_octets)} Gio`
+                  : "non mesuré"}
+              />
+              {p.etat === "retenu" || p.etat === "rejete" ? (
+                <Ligne libelle="Confiance du relecteur" valeur={`${p.confiance} %`} />
+              ) : null}
+              {p.fichiers.map((f) => (
+                <Ligne key={f} libelle="Fichier" valeur={f} />
+              ))}
+              {p.raison && <Ligne libelle="Raison" valeur={p.raison} alerte />}
+            </div>
+            {p.defauts.length > 0 && (
+              <div className="mt-2 flex flex-col gap-1">
+                {p.defauts.map((d) => (
+                  <span key={d} className="text-[11px] text-hermes-gold">— {d}</span>
+                ))}
+              </div>
+            )}
+          </Card>
+        );
+      })}
     </div>
   );
 }

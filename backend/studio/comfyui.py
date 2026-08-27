@@ -32,6 +32,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -137,6 +140,20 @@ class ComfyUI:
             arguments=tuple(str(a) for a in (systeme.get("argv") or [])),
         )
 
+    def dossier_sortie(self) -> str:
+        """Où ComfyUI écrit réellement, ou "" si on ne peut pas le savoir.
+
+        Lu dans les arguments de lancement et non supposé : ce serveur
+        écrit sur `E:` par `--output-directory`, et supposer
+        `<comfy>/output` renverrait un chemin qui existe mais où rien
+        n'arrive jamais — la pire des deux erreurs possibles.
+        """
+        args = self.etat().arguments
+        try:
+            return str(args[args.index("--output-directory") + 1])
+        except (ValueError, IndexError):
+            return ""
+
     def modeles(self, genre: str) -> list[str]:
         """Les fichiers qu'un chargeur voit, par genre.
 
@@ -204,6 +221,9 @@ class ComfyUI:
         t0 = time.time()
         rendu = Rendu(identifiant=identifiant)
         limite = t0 + minutes * 60
+        # Lu une fois, avant la boucle : c'est un appel HTTP, et il ne
+        # change pas pendant un rendu.
+        racine = self.dossier_sortie()
 
         while time.time() < limite:
             if sonde_vram is not None:
@@ -223,7 +243,7 @@ class ComfyUI:
             etat = entree.get("status") or {}
             if etat.get("completed"):
                 rendu.acheve = True
-                rendu.fichiers = _fichiers_de(entree)
+                rendu.fichiers = _fichiers_de(entree, racine)
                 break
             if etat.get("status_str") == "error":
                 rendu.erreur = json.dumps(etat.get("messages") or etat)[:600]
@@ -242,14 +262,64 @@ class ComfyUI:
             return False
 
 
-def _fichiers_de(entree: dict) -> list[str]:
-    """Les noms de fichiers produits, tous nœuds de sortie confondus."""
-    noms: list[str] = []
+def pid_du_serveur(port: int = 8188) -> Optional[int]:
+    """Le processus qui sert ComfyUI, ou None.
+
+    Cherché par le **port qu'il écoute** et non par son nom d'image : le
+    serveur tourne sous `python.exe`, comme cinq autres processus de cette
+    machine. C'est la leçon du compteur GPU, qui nomme ses instances par
+    pid parce qu'un nom d'image ne distingue rien.
+
+    `/system_stats` ne le donne pas — vérifié, la clé n'existe pas. Le
+    port, lui, désigne sans ambiguïté celui qui répond aux requêtes, ce
+    qu'une correspondance sur la ligne de commande ne garantit pas.
+
+    Une seule implémentation, appelée par les routes comme par la file de
+    nuit : deux lectures du même fait finissent par diverger, et celle qui
+    se trompe est toujours celle qu'on ne regarde pas.
+    """
+    if not sys.platform.startswith("win"):
+        return None
+    script = (f"(Get-NetTCPConnection -LocalPort {int(port)} -State Listen"
+              " -ErrorAction SilentlyContinue | Select-Object -First 1)"
+              ".OwningProcess")
+    try:
+        sortie = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, timeout=20,
+        ).stdout.strip()
+        return int(sortie) if sortie.isdigit() else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _fichiers_de(entree: dict, racine: str = "") -> list[str]:
+    """Les fichiers produits, tous nœuds de sortie confondus.
+
+    Chemins **absolus** quand `racine` est donnée. L'historique de ComfyUI
+    ne rend que `{filename, subfolder, type}` — trois morceaux dont aucun
+    ne désigne un fichier ouvrable. La première version ne gardait que
+    `filename`, et le relecteur recevait donc `rue_sodium_00001_.mp4` :
+    aucune image n'en sortait, et le plan finissait `indetermine` alors
+    que le rendu était bon.
+
+    Ce défaut-là n'a rien cassé — c'est ce qui le rend intéressant. La
+    file a dit « je n'ai pas pu vérifier » au lieu de « c'est réussi »,
+    ce qui est exactement le comportement voulu, et c'est pourquoi il
+    fallait lire le rapport pour le voir.
+    """
+    fichiers: list[str] = []
     for sortie in (entree.get("outputs") or {}).values():
         for lot in sortie.values():
             if not isinstance(lot, list):
                 continue
             for element in lot:
-                if isinstance(element, dict) and element.get("filename"):
-                    noms.append(str(element["filename"]))
-    return noms
+                if not isinstance(element, dict) or not element.get("filename"):
+                    continue
+                morceaux = [racine] if racine else []
+                if element.get("subfolder"):
+                    morceaux.append(str(element["subfolder"]))
+                morceaux.append(str(element["filename"]))
+                fichiers.append(os.path.join(*morceaux) if len(morceaux) > 1
+                                else morceaux[0])
+    return fichiers

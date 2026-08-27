@@ -117,6 +117,10 @@ async def test_list_tools_exposes_all_expected_tools(monkeypatch, tmp_path):
         "studio_render",
         "studio_queue",
         "studio_outputs",
+        "studio_night",
+        "studio_night_report",
+        "studio_assemble",
+        "studio_subtitles",
     }
 
 

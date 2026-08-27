@@ -967,3 +967,16 @@ export function useStudioVram(actif: boolean) {
     refetchInterval: actif ? 2000 : 30000,
   });
 }
+
+/** Le rapport de la file de nuit.
+ *
+ *  Sondé toutes les trente secondes pendant qu'une nuit tourne : un plan
+ *  dure des minutes, et le journal n'est réécrit qu'entre deux plans.
+ *  Sonder plus vite relirait le même fichier. */
+export function useStudioNight() {
+  return useQuery({
+    queryKey: ["studio", "night"],
+    queryFn: studioClient.night,
+    refetchInterval: (q) => (q.state.data?.en_cours ? 30000 : false),
+  });
+}

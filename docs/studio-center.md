@@ -252,3 +252,184 @@ première lettre. ComfyUI a refusé le graphe avec « sampler_name: 'C' not in
 lecture, ce qui n'est pas toujours le cas.
 
 Les deux ont la même forme : un nom plausible pris pour une garantie.
+
+---
+
+## Le relecteur (HOS-191)
+
+Un plan vidéo **se termine toujours**. ComfyUI rend un MP4 valide quel que
+soit le contenu, et à cinq minutes de calcul par seconde de vidéo finie,
+s'en apercevoir au montage coûte une nuit. C'est la règle centrale de ce
+dépôt appliquée à la génération : `success = true` n'est pas une preuve.
+
+Le relecteur extrait des images du plan et les confronte à la consigne qui
+devait le produire. `backend/studio/relecteur.py`.
+
+### Le piège qu'il a failli devenir
+
+Interrogé une première fois, le modèle a répondu « matches: true,
+confidence: 98 » en énumérant comme présents les trois éléments de la
+consigne — dont de la vapeur que l'œil ne trouvait pas. Un relecteur qui
+approuve tout ne mesure rien : il **fabrique** de la confiance, ce qui est
+pire que de n'en fabriquer aucune.
+
+La qualification passe donc par le cas négatif : la même image, quatre
+consignes fausses, graduées de l'absurde (un chiot en studio) au proche
+(une rue de nuit en néons bleus sous la pluie — même ambiance, autre
+sujet). Mesuré le 2026-08-27 sur `qwen3.5-2b-relecteur`, trois images par
+plan : **4 refus sur 4**, consigne vraie acceptée. Le cas « proche mais
+faux » est refusé à 95 %.
+
+### Trois défauts trouvés, dont deux invisibles
+
+**La fenêtre bornée.** `num_predict` à 300 rendait `done_reason=length` et
+une réponse **vide** : ce modèle dépense son budget en raisonnement avant
+de conclure. Le prendre pour un refus aurait disqualifié un modèle qui
+fonctionne. C'est le défaut que ce dépôt documente sous « ni un échec sur
+parole », rencontré une fois de plus.
+
+**Le contexte de 256k.** Le tag d'origine portait `num_ctx 262144` pour
+juger une image de 768 × 416 avec une consigne de cent vingt jetons. Le
+cache KV inutilisé faisait dépasser **300 s au chargement à froid** — ce
+qui s'est lu comme un relecteur en panne, `TimeoutError`, verdict `None`.
+Le module a réagi correctement (il a dit « je n'ai pas pu regarder », pas
+« ça ne correspond pas »), mais la mesure était fausse. Un tag à 16384 :
+
+| | 256k | 16k |
+|---|---|---|
+| Résident | 6,29 Gio | **2,41 Gio** |
+| À froid | > 300 s (délai dépassé) | **9,9 s** |
+| À chaud | 21,7 s | **5,0 s** |
+
+**Trois images qui n'en étaient qu'une.** `extraire()` documentait qu'elle
+rendait trois images réparties dans le plan — « prendre seulement la
+première, c'est relire la couverture d'un livre ». Elle en rendait **une**.
+Le filtre `thumbnail` choisit une image représentative par lot de cent, et
+un plan LTX en compte quarante-neuf. Le lot réduit à la longueur du plan
+n'a pas corrigé le défaut : les trois fichiers sortaient alors *octet pour
+octet identiques*. Les tailles se ressemblaient assez pour ne pas alerter ;
+seule une empreinte SHA l'a montré. On demande désormais chaque image à un
+instant précis — 15 %, 50 %, 85 % de la durée — une par appel.
+
+Aucun des trois n'a été trouvé en relisant du code.
+
+### Une règle de verdict, parce que son absence en était une
+
+Sur le même plan réel, deux réglages du **même** modèle ont vu exactement
+la même chose — rue étroite, nuit, sodium, asphalte mouillé, pas de vapeur
+— et rendu des verdicts opposés. Ce n'était pas une divergence de
+perception mais un blanc dans la question : la consigne disait « sois
+strict » sans dire ce que « correspond » signifie quand un élément
+secondaire manque.
+
+La règle est maintenant explicite : le plan correspond quand le **sujet,
+le décor, le moment et la lumière** sont ceux de la consigne ; un détail
+absent va dans `missing` et ne suffit pas à rejeter. À ce prix de rendu, un
+plan correct rejeté pour une vapeur manquante coûte autant qu'un plan faux
+accepté. L'assouplissement a été re-qualifié : toujours 4 refus sur 4.
+
+Le verdict reste **conjonctif** entre les images : une seule qui ne
+correspond pas condamne le plan, parce qu'un plan dont le dernier tiers
+dérive n'est pas utilisable et qu'une moyenne le ferait passer.
+
+---
+
+## La file de nuit (HOS-191)
+
+`backend/studio/file_de_nuit.py`. Un short de trente secondes demande sept
+à huit plans, soit près de trois heures de calcul : la production est un
+atelier de nuit, pas un outil de tâtonnement.
+
+Trois refus la définissent :
+
+- **Elle ne compte pas un plan comme réussi parce qu'il s'est terminé.**
+  Un plan rendu mais non relu est `indetermine` — jamais `retenu`. Les
+  sept états sont distincts jusque dans l'écran, parce que « le fichier
+  existe » et « le fichier est bon » sont deux faits différents.
+- **Elle ne lance rien sans la carte**, par `arbitrage.carte_reservee`. La
+  réservation couvre le rendu et s'arrête là : la relecture charge 2,41 Gio
+  à côté des 7,61 que ComfyUI garde, ce qui tient, et tenir le verrou plus
+  longtemps empêcherait une mission de reprendre la main entre deux plans.
+- **Elle s'arrête après trois échecs consécutifs.** Au-delà ce n'est plus
+  un aléa, et continuer coûterait huit heures pour confirmer ce que le
+  troisième échec disait déjà.
+
+Le journal est réécrit **après chaque plan**, pas à la fin : une nuit
+coupée à la sixième heure doit laisser lisibles les cinq premières.
+
+Toutes les dépendances sont injectées — `derouler()` s'éprouve sans GPU,
+sans ComfyUI et sans Ollama. Une file qui ne se testerait que par des nuits
+entières ne serait jamais testée. `atelier()` est le seul point qui
+connaisse les trois à la fois.
+
+### Surfaces
+
+| | |
+|---|---|
+| `POST /studio/night` | dépose des plans, rend la main aussitôt |
+| `GET /studio/night` | le rapport, relu du journal sur disque |
+| `studio_night` (MCP) | ce que Hermes Agent appelle pour déléguer une nuit |
+| `studio_night_report` (MCP) | ce qu'elle a réellement produit |
+| Studio Center → onglet **Nuit** | le rapport du matin, par état |
+
+Comme `/studio/render`, aucune de ces surfaces ne compose de graphe : il
+vient de l'appelant. La règle qui prime sur tout réserve cette décision à
+Hermes Agent, et un « service qui construit le bon workflow » serait
+exactement la seconde boucle qu'elle interdit.
+
+---
+
+## Le montage (HOS-191)
+
+`backend/studio/montage.py`. Le dernier maillon : des plans retenus, une
+narration, des sous-titres, un fichier fini — et la preuve que ce fichier
+est bien ce qu'on a demandé.
+
+### Trois façons dont `ffmpeg` rend 0 sans faire ce qu'on croit
+
+- **Une entrée manquante** : la vidéo sort plus courte, code 0. Le module
+  refuse donc d'assembler dès qu'un plan manque, plutôt que de livrer un
+  montage amputé qui ne se verrait qu'au visionnage — après la nuit qui a
+  payé les autres plans.
+- **Un SRT incohérent** (fin avant début) : accepté, et le sous-titre ne
+  disparaît jamais. `ecrire_srt()` écarte ces segments et renumérote sans
+  trou, un rang manquant faisant ignorer la suite par certains lecteurs.
+- **libass absent** : la vidéo sort sans texte. `sous_titres` n'est mis à
+  vrai qu'après vérification du filtre ; sinon le montage aboutit avec un
+  avertissement, sans promettre ce qu'il n'a pas produit.
+
+La vérification finale est une relecture de la durée du fichier obtenu,
+comparée à la somme des plans, à une demi-seconde près. `duree_conforme`
+est faux aussi quand la durée n'a pas pu être lue : non mesuré n'est pas
+conforme.
+
+### Le décalage voix / image est rapporté, jamais corrigé
+
+Une narration plus longue que les plans est le cas normal — on écrit le
+texte avant de savoir combien de plans on gardera. Étirer changerait la
+voix, couper perdrait la fin ; l'appelant est le seul à savoir lequel il
+préfère. Le module pose `-shortest` (l'image commande, sinon la vidéo
+gagnerait un écran noir) et **le dit** dans `avertissements`.
+
+### Mesuré le 2026-08-27
+
+Trois plans de 2,04 s → 6,12 s vérifiées, 1 s d'encodage en x264 CRF 18.
+Narration Piper de 9,96 s sur 6,12 s d'image : écart `+3,84 s` rapporté.
+Transcription `faster-whisper small` en 4 s, deux segments, deux
+sous-titres écrits. Incrustation constatée en comparant l'empreinte SHA
+d'une image du montage à la même image du montage sans sous-titres —
+`5227…` contre `a01f…`, et le texte lisible à l'œil.
+
+La build ffmpeg de cette machine (Gyan 8.1.2) porte `--enable-libass`,
+`--enable-fontconfig` et `--enable-libfreetype`.
+
+### Surfaces
+
+| | |
+|---|---|
+| `studio_assemble` (MCP) | joindre des plans, poser voix et sous-titres, vérifier |
+| `studio_subtitles` (MCP) | transcrire une narration et écrire le SRT |
+
+Comme partout ailleurs dans le Studio, l'ordre des plans, le texte et le
+rythme viennent de l'appelant. Ce module assemble et vérifie ; il ne
+monte pas à la place de qui décide.

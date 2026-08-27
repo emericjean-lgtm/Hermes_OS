@@ -177,8 +177,43 @@ export interface StudioVramDTO {
   raison?: string;
 }
 
+/** Un plan de la file de nuit, tel que le journal le consigne.
+ *
+ *  `etat` porte sept valeurs et non deux, parce que « terminé » et
+ *  « réussi » ne sont pas la même chose ici. Un plan `indetermine` a bien
+ *  produit un fichier : c'est la relecture qui n'a pas pu se faire. Le
+ *  compter comme retenu serait le `success: true` au-dessus d'un
+ *  workspace vide que ce dépôt a déjà payé cinq fois. */
+export type EtatPlanNuit =
+  | "en_attente" | "rendu" | "retenu" | "rejete"
+  | "indetermine" | "echoue" | "abandonne";
+
+export interface PlanNuitDTO {
+  identifiant: string;
+  consigne: string;
+  etat: EtatPlanNuit;
+  fichiers: string[];
+  duree_s: number;
+  pic_vram_octets: number;
+  confiance: number;
+  defauts: string[];
+  raison: string;
+}
+
+export interface RapportNuitDTO {
+  debut: number;
+  fin: number;
+  duree_s: number;
+  arret_anticipe: string;
+  compte: Record<string, number>;
+  plans: PlanNuitDTO[];
+}
+
 export const studioClient = {
   state: () => fetchJSON<StudioStateDTO>("/studio/state"),
+  night: () => fetchJSON<{
+    en_cours: boolean; rapport: RapportNuitDTO | null; raison?: string;
+  }>("/studio/night"),
   models: () => fetchJSON<StudioModelsDTO>("/studio/models"),
   vram: () => fetchJSON<StudioVramDTO>("/studio/vram"),
   queue: () => fetchJSON<{ joignable: boolean; en_cours: number; en_attente: number }>(
