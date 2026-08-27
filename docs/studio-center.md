@@ -181,6 +181,33 @@ moitié dort.
 secondes de vertical, soit **environ cinq minutes de calcul par seconde de
 vidéo finie**.
 
+### La quantification : monter est presque gratuit
+
+Même format, même graphe, seule la quantification change.
+
+| Quantification | Fichier | Durée | Pic VRAM |
+|---|---|---|---|
+| Q3_K_M | 10,73 Go | 251 s | 7,59 Gio |
+| **Q5_K_M** | 15,66 Go | **281 s** (+12 %) | 7,61 Gio |
+| Q6_K | 17,38 Go | 336 s (+34 %) | 7,59 Gio |
+
+**Le pic de VRAM ne bouge pas.** 7,59, 7,61, 7,59 — à deux centièmes près,
+sur trois fichiers dont le plus gros dépasse la carte de 1,4 Gio. C'est la
+preuve définitive que ComfyUI diffuse les couches depuis la RAM au lieu de
+les résider : `--cache-none` et `--disable-smart-memory`, les réglages que
+la distribution avait choisis pour ce matériel, font exactement cela.
+
+Le compromis n'est donc pas mémoire contre qualité, mais **temps contre
+qualité** — et il est bon marché jusqu'à Q5.
+
+**Q5_K_M est retenu.** Quarante-six pour cent de bits en plus pour douze
+pour cent de temps. Q6_K coûte encore vingt pour cent de plus pour un écart
+de quantification bien moindre : le rendement s'effondre là.
+
+À noter pour la mémoire du projet : Q3_K_M était **sous** le plancher que
+ce dépôt s'était fixé ailleurs — « jamais sous Q4 ». La mesure confirme la
+règle, et cette fois elle est gratuite.
+
 ### Ce que cela permet, et ce que cela interdit
 
 * **Un short de 30 s** : sept à huit plans de 4 s, soit **2 h 30 à 3 h de

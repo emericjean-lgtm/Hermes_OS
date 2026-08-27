@@ -1,73 +1,37 @@
-## HOS-190 (suite) — Le verdict : vingt minutes pour quatre secondes (2026-08-27)
+## HOS-190 (fin) — La quantification est presque gratuite (2026-08-27)
 
-### Trois rendus reels
+Meme format, meme graphe, seule la quantification change. 768 x 432,
+49 images, 8 etapes.
 
-LTX-2.5 Q3_K_M, 8 etapes, `res_multistep`, decodage par tuiles. Fichiers
-verifies sur le disque — en-tete `ftyp`, pas seulement un succes annonce.
+    Q3_K_M   10,73 Go    251 s    pic 7,59 Gio
+    Q5_K_M   15,66 Go    281 s    pic 7,61 Gio    +12 % de temps
+    Q6_K     17,38 Go    336 s    pic 7,59 Gio    +34 % de temps
 
-    512 x 288    49 images (2 s)     170 s    pic 7,98 Gio (50 %)
-    768 x 432    49 images (2 s)     251 s    pic 7,59 Gio (47 %)
-    704 x 1280   97 images (4 s)   1 218 s    pic 7,04 Gio (44 %)
+**Le pic de VRAM ne bouge pas.** 7,59 / 7,61 / 7,59 — a deux centiemes
+pres, sur trois fichiers dont le plus gros depasse la carte de 1,4 Gio.
 
-**La VRAM n'est pas la contrainte.** Elle reste autour de 7 a 8 Gio quelle
-que soit la resolution, et le pic *baisse* meme quand le format grandit :
-les tuiles restent de taille fixe pendant que le reste se repartit. Sur les
-15,98 Gio, la moitie dort.
+C'est la preuve definitive d'une hypothese formee en regardant les mesures
+precedentes : ComfyUI **diffuse** les couches depuis la RAM au lieu de les
+resider. `--cache-none` et `--disable-smart-memory` — les reglages que la
+distribution patientx avait choisis pour ce materiel, et que j'avais failli
+perdre en relancant le serveur avec mes propres drapeaux — font exactement
+cela.
 
-**Le temps l'est, et severement.** Environ **cinq minutes de calcul par
-seconde de video finie**. Un short de 30 s demande sept a huit plans, soit
-deux heures et demie a trois heures. Une video longue est hors de portee :
-une minute de montage couterait cinq heures.
+Le compromis n'est donc pas memoire contre qualite mais **temps contre
+qualite**, et il est bon marche jusqu'a Q5 : quarante-six pour cent de bits
+en plus pour douze pour cent de temps. Q6 demande vingt pour cent de plus
+pour un ecart de quantification bien moindre.
 
-La production locale est donc un atelier de nuit, pas un outil de
-tatonnement — exactement le regime qu'une mission Hermes sait tenir.
+Q5_K_M retenu, et consigne dans `hermes-ltx.bat` avec le tableau.
 
-### Le decodage par tuiles n'est pas un reglage, c'est la condition
-
-Le premier rendu a echoue a `VAEDecode`, qui a reclame **14,58 Gio d'un seul
-bloc** pour 49 images en 512 x 288, sur une carte de 15,98 dont 10,73 deja
-pris par le transformeur. Le debruitage, lui, avait tourne 267 s sans
-incident : le goulot n'etait pas le modele mais la sortie du VAE, qui
-materialise toutes les images a la fois.
-
-`VAEDecodeTiled` avec `temporal_size` a 16 — et non les 64 par defaut,
-parce que c'est la dimension temporelle qui explose sur une video — ramene
-le pic a 7,98 Gio. Le meme rendu passe alors en 170 s au lieu d'echouer
-apres 267.
-
-L'echantillonneur de VRAM a signale ce premier echec correctement : pic
-15,81 Gio, soit 98,9 %, `deborde: true`. Le seuil a 98,5 % a fait son
-travail.
-
-### Deux erreurs commises en chemin
-
-**L'encodeur.** 8,6 Go telecharges pour rien : le GGUF
-`LTX-2.5-gemma4-12b-text-encoder-Q4_K_M` porte le bon nom mais sert le
-moteur `engine25` du greffon Nz-Videomni pour **AviUtl2**, et son depot
-precise qu'il est « incompatible avec le Gemma 4 generique ». ComfyUI-GGUF
-le refuse : `general.architecture = ltxv` n'est pas dans sa `TXT_ARCH_LIST`.
-Le bon fichier porte `comfy` dans son nom et se charge par le noeud natif
-`CLIPLoader` en type `ltxv`.
-
-**Le schema des echantillonneurs.** `sampler_disponible()` lisait
-`champ[0]`, obtenait la chaine `"COMBO"` du schema V3, et en rendait la
-premiere lettre. ComfyUI a refuse le graphe avec « sampler_name: 'C' not in
-(list of length 44) ».
-
-Les deux ont la meme forme : un nom plausible pris pour une garantie.
-
-### Le telechargement, mesure aussi
-
-En flux unique, le debit s'est degrade de 52 a 1,5 Mo/s avec une rupture a
-51 %. Une seconde connexion ouverte au meme moment rendait **6,5 Mo/s** :
-l'etranglement porte sur la connexion. Reecrit en six tranches paralleles
-par `Range`, le debit est monte a **85 Mo/s** — les 14,32 Go de l'encodeur
-sont passes en trois minutes.
+A noter : Q3_K_M etait **sous** le plancher que ce depot s'etait fixe
+ailleurs — « jamais sous Q4 », note apres la campagne de modeles de secours.
+La mesure confirme la regle, et cette fois elle ne coute presque rien.
 
 ### Verified
 
-Suites : backend **2 083 passes, 2 ignores** ; frontend **110 passes** ;
-`tsc --noEmit` propre. Trois MP4 valides sous `E:\YouTube\Generations`.
+Cinq MP4 valides sous `E:\YouTube\Generations`, en-tete `ftyp` verifiee.
+Suites inchangees : backend 2 083 passes, frontend 110 passes.
 
 ---
 
