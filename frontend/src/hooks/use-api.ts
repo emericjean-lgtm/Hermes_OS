@@ -33,7 +33,7 @@ import {
   filesystemBrowseClient,
   gitClient,
 } from "@/services/client";
-import type { ToolHealthSummary } from "@/services/client";
+import type { ParametresRendu, ToolHealthSummary } from "@/services/client";
 import type {
   Mission,
   MissionReport,
@@ -965,6 +965,34 @@ export function useStudioVram(actif: boolean) {
     queryKey: ["studio", "vram"],
     queryFn: studioClient.vram,
     refetchInterval: actif ? 2000 : 30000,
+  });
+}
+
+/** Les gabarits que le Studio Center sait composer.
+ *
+ *  Sans `refetchInterval` : la liste ne change qu'au redémarrage du
+ *  backend, et la sonder en boucle coûterait sans rien apprendre. */
+export function useStudioTemplates() {
+  return useQuery({
+    queryKey: ["studio", "templates"],
+    queryFn: studioClient.templates,
+  });
+}
+
+/** Soumettre un rendu depuis un gabarit.
+ *
+ *  Invalide l'état et la file : la carte vient de changer d'occupant, et
+ *  l'écran doit le montrer sans attendre son prochain sondage. */
+export function useStudioCompose() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ gabarit, consigne, parametres }: {
+      gabarit: string; consigne: string; parametres: ParametresRendu;
+    }) => studioClient.composer(gabarit, consigne, parametres),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["studio", "state"] });
+      qc.invalidateQueries({ queryKey: ["studio", "vram"] });
+    },
   });
 }
 

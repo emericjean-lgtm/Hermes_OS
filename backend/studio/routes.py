@@ -75,6 +75,10 @@ def modeles() -> dict[str, Any]:
         "diffusion": c.modeles("unet_name"),
         "encodeurs": c.modeles("clip_name"),
         "vae": c.modeles("vae_name"),
+        # Les modèles d'image sont des *checkpoints*. Sans cette ligne,
+        # SDXL — installé et mesuré — n'apparaissait nulle part dans
+        # l'écran, et l'on pouvait croire qu'il n'était pas là.
+        "checkpoints": c.modeles("ckpt_name"),
     }
 
 
@@ -94,8 +98,32 @@ def rendre(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     Ollama de recharger entre-temps.
     """
     graphe = payload.get("graphe")
+
+    # Deux façons d'arriver ici, et une seule décide de quelque chose.
+    #
+    # `graphe` : l'appelant a composé lui-même — c'est la voie de Hermes
+    # Agent, et elle reste intacte.
+    #
+    # `gabarit` + `parametres` : la voie du Studio Center. Le gabarit est
+    # figé, les paramètres sont explicites, rien n'est inféré. C'est un
+    # formulaire, pas une seconde boucle — la distinction est écrite en
+    # tête de `gabarits.py`.
+    if not graphe and payload.get("gabarit"):
+        from backend.studio.gabarits import GabaritInvalide, composer
+
+        parametres = payload.get("parametres") or {}
+        if not isinstance(parametres, dict):
+            return {"success": False, "error": "parametres doit être un objet"}
+        try:
+            graphe = composer(str(payload["gabarit"]),
+                              str(payload.get("consigne") or ""), **parametres)
+        except GabaritInvalide as e:
+            return {"success": False, "error": str(e),
+                    "raison": "gabarit_invalide"}
+
     if not isinstance(graphe, dict) or not graphe:
-        return {"success": False, "error": "graphe manquant"}
+        return {"success": False,
+                "error": "il faut un `graphe` ou un `gabarit`"}
 
     besoin = int(payload.get("besoin_octets") or BESOIN_DEFAUT)
 
@@ -123,6 +151,23 @@ def rendre(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
             "modeles_decharges": occ.modeles_decharges,
             "vram_liberee_octets": occ.libere_octets,
         }
+
+
+@router.get("/templates")
+def gabarits() -> dict[str, Any]:
+    """Ce que le Studio Center sait composer, et avec quels paramètres.
+
+    Décrit ici et non dupliqué dans le frontend : deux listes du même
+    fait finissent par diverger, et c'est toujours celle qu'on ne regarde
+    pas qui se trompe.
+    """
+    from backend.studio.gabarits import CATALOGUE, FORMATS
+
+    return {
+        "gabarits": CATALOGUE,
+        "formats": {nom: {"largeur": l, "hauteur": h}
+                    for nom, (l, h) in FORMATS.items()},
+    }
 
 
 @router.get("/queue")

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Boxes, Film, Layers, Wifi, WifiOff } from "lucide-react";
+import { AlertTriangle, Boxes, Film, Image as ImageIcon, Layers, Wifi, WifiOff } from "lucide-react";
 import { CenterHeader, CenterTabs } from "@/components/center-scaffold";
 import { Card } from "@/components/ui/card";
+import { Composer } from "./composer";
 import { useStudioModels, useStudioNight, useStudioState, useStudioVram } from "@/hooks/use-api";
 import type { EtatPlanNuit } from "@/services/client";
 import { formatGio, formatGioPair } from "@/lib/format";
@@ -32,15 +33,30 @@ import { formatGio, formatGioPair } from "@/lib/format";
  *
  * ## L'onglet Graphe
  *
- * L'interface de ComfyUI, en cadre. ComfyUI ne pose ni `X-Frame-Options`
- * ni `frame-ancestors` : l'encastrement fonctionne. C'est l'atelier pour
- * bricoler un graphe à la main — pas la surface principale, qui serait
- * alors du changement d'application sans le changement de fenêtre.
+ * L'interface de ComfyUI, en cadre. Elle est servie par **notre** origine
+ * (`/comfy/`, réécriture dans `next.config.ts`) et non par la sienne.
+ *
+ * La première version pointait droit sur 127.0.0.1:8188 au motif que
+ * ComfyUI ne pose ni `X-Frame-Options` ni `frame-ancestors`. C'était une
+ * vérification d'en-têtes, pas un chargement de page : l'iframe recevait
+ * **403**, parce que `origin_only_middleware` refuse toute requête dont
+ * l'`Origin` diffère du sien. La réécriture part du serveur, sans en-tête
+ * `Origin`, et laisse donc ce garde intact — là où `--enable-cors-header`
+ * l'aurait supprimé pour tout le monde.
+ *
+ * C'est l'atelier pour bricoler un graphe à la main — pas la surface
+ * principale, qui est le formulaire de l'Atelier.
  */
 
 type Onglet = "atelier" | "nuit" | "graphe";
 
-const COMFY_URL = "http://127.0.0.1:8188";
+// Servi par notre propre origine, via la reecriture de `next.config.ts`.
+//
+// L'iframe pointait sur http://127.0.0.1:8188 et recevait **403** :
+// ComfyUI refuse toute requete dont l'en-tete `Origin` differe du sien.
+// La barre finale compte — sans elle Next redirige et les chemins
+// relatifs du HTML se resolvent contre `/`.
+const COMFY_URL = "/comfy/";
 
 export function StudioCenter() {
   const [onglet, setOnglet] = useState<Onglet>("atelier");
@@ -140,6 +156,8 @@ function Atelier({
         </div>
       )}
 
+      <Composer actif={rendActif} />
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card
           title="Carte"
@@ -180,8 +198,10 @@ function Atelier({
         subtitle="Ce que les chargeurs voient sur le disque, et rien d'autre"
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Famille icone={<Layers size={12} />} nom="Diffusion"
+          <Famille icone={<Layers size={12} />} nom="Diffusion (vidéo)"
                    fichiers={modeles?.diffusion} />
+          <Famille icone={<ImageIcon size={12} />} nom="Checkpoints (image)"
+                   fichiers={modeles?.checkpoints} />
           <Famille icone={<Boxes size={12} />} nom="Encodeurs de texte"
                    fichiers={modeles?.encodeurs} />
           <Famille icone={<Film size={12} />} nom="VAE"

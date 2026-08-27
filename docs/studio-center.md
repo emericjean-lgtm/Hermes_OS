@@ -123,10 +123,14 @@ langage — `OLLAMA_MAX_LOADED_MODELS=1` — et s'étend ici :
 
 ### 3. La délégation passe par des outils MCP
 
-`studio_state`, `studio_models`, `studio_render`, `studio_queue` et
-`studio_outputs` rejoignent les 71 outils que l'agent appelait déjà — 76
-désormais. L'agent compose le
-graphe et le soumet, comme il écrit un fichier avec `files_apply`.
+Neuf outils `studio_*` — état, modèles, rendu, file, sorties, file de
+nuit et son rapport, montage, sous-titres — portent le total à 80.
+L'agent compose le graphe et le soumet, comme il écrit un fichier avec
+`files_apply`.
+
+Les enregistrer ne suffit pas à les lui donner : `tools.include` dans son
+`config.yaml` est une liste **blanche**, et son cache de schémas garde
+l'ancienne. Voir « La délégation à Hermes Agent ».
 
 Les rendus vont dans `E:\YouTube\Generations`, à côté de `Archives`,
 `Assets`, `Episodes`, `Exports` et `Shorts` — jamais dedans. La génération
@@ -144,6 +148,13 @@ L'interface de ComfyUI vit dans **un onglet** de ce Center, en cadre. Elle
 ne pose ni `X-Frame-Options` ni `frame-ancestors` : l'encastrement
 fonctionne. C'est l'atelier pour bricoler un graphe à la main, pas le
 tableau de bord.
+
+> **Amendé le 2026-08-27 (HOS-194).** « L'encastrement fonctionne » était
+> une vérification d'en-têtes prise pour un chargement de page : l'iframe
+> recevait **403** de `origin_only_middleware`, qui compare `Host` et
+> `Origin`. Exact sur les en-têtes, faux sur le fait. ComfyUI est
+> désormais servi par notre propre origine, via `/comfy/` — voir « ComfyUI
+> encastré, sans rien désarmer » en fin de document.
 
 ## Les types de modèles
 
@@ -703,3 +714,108 @@ Conséquence pratique : `BESOIN_RENDU_OCTETS` vaut 9 Gio, calé sur la plus
 basse des deux mesures. Si c'est la haute qui décrit le besoin réel, la
 réservation est trop courte. À trancher avant de faire tourner une nuit
 pendant qu'une mission travaille.
+
+---
+
+## L'Atelier produit enfin quelque chose (HOS-194)
+
+L'onglet affichait la VRAM, la file et les modèles, et ne permettait de
+lancer **rien**. Pour produire un plan il fallait passer par l'agent ou
+par l'éditeur de ComfyUI — donc par une autre application, ce que ce
+Center devait précisément éviter.
+
+### Un formulaire, pas une seconde boucle
+
+`backend/studio/gabarits.py` compose trois graphes figés à partir de
+paramètres **explicites** : consigne, format, durée, étapes, graine. Rien
+n'est inféré de la consigne.
+
+La règle qui prime sur tout interdit qu'une seconde boucle décide à la
+place de Hermes Agent, et j'ai écrit ailleurs qu'« un service qui
+construit le bon workflow » serait exactement cela. La distinction tient
+en un mot : **choisir**. Décider quel pipeline convient à un objectif,
+c'est raisonner. Remplir un gabarit avec des paramètres qu'on vous a
+donnés, c'est un formulaire — et c'est ce que le cahier des charges
+prévoyait dès l'origine : « le graphe vient de l'appelant […] ou du Studio
+Center par un gabarit ».
+
+`backend/tests/test_studio_gabarits.py` garde cette frontière. Le jour où
+quelqu'un ajoutera « si la consigne parle de mouvement, mettre plus
+d'images », c'est là que ça cassera.
+
+### Le défaut qu'il a fallu voir pour trouver
+
+Le premier rendu lancé depuis le formulaire est sorti **tuilé et
+déformé**. Le graphe était correct, ComfyUI a rendu 200, le fichier
+existait : rien ne signalait quoi que ce soit.
+
+La cause : une liste de formats **commune aux deux moteurs**. Le rendu
+SDXL est parti en 768 × 432 — valide pour LTX, ruineux pour SDXL, qui est
+entraîné autour du mégapixel et s'effondre loin de ses compartiments.
+
+Les formats sont désormais séparés par moteur, et le formulaire retombe
+sur un format valide dès qu'on change de gabarit :
+
+| moteur | formats |
+|---|---|
+| LTX | 768 × 432, 1280 × 720, 704 × 1280 |
+| SDXL | 1024 × 1024, 1344 × 768, 832 × 1216 |
+
+Deux tests le gardent : aucun format commun entre les deux listes, et
+tous les formats SDXL entre 0,8 et 1,2 mégapixel.
+
+### Ce que l'écran annonce avant le clic
+
+Le coût. « 2,0 s de vidéo en 768 × 432 — compter environ 10 min de calcul,
+la carte réservée pendant ce temps. » À cinq minutes de calcul par
+seconde, l'apprendre après serait une mauvaise surprise de vingt minutes.
+
+---
+
+## ComfyUI encastré, sans rien désarmer (HOS-194)
+
+L'iframe pointait sur `http://127.0.0.1:8188` et affichait une page
+blanche. La cause exacte est dans `server.py:159` : `origin_only_middleware`
+compare les en-têtes `Host` et `Origin` et renvoie **403** quand ils
+diffèrent — une protection contre un site tiers qui ferait exécuter un
+workflow depuis le navigateur de l'utilisateur.
+
+### Pourquoi c'était long à voir
+
+Le 403 est **sélectif**. Les feuilles de style passaient, parce que le
+navigateur n'envoie pas d'`Origin` pour elles. Les scripts
+`type="module"`, qui sont des requêtes CORS, échouaient. La page se
+chargeait donc, affichait son écran de démarrage, et n'en sortait jamais —
+onze nœuds dans le DOM, aucun canvas.
+
+Ma première explication, « ComfyUI ne pose ni `X-Frame-Options` ni
+`frame-ancestors`, donc l'encastrement fonctionne », était une
+vérification d'en-têtes prise pour un chargement de page. Elle était
+exacte et sans rapport.
+
+### La solution retenue, et celle qu'on a écartée
+
+**Écartée : `--enable-cors-header`.** Un drapeau, une ligne. Mais il
+**remplace** le garde au lieu de le restreindre : vérifié, une origine
+quelconque obtenait alors 200. Il désarme la protection pour tout le
+monde afin d'en autoriser une seule.
+
+**Retenue : un proxy same-origin.** `next.config.ts` réécrit `/comfy/*`
+vers ComfyUI côté serveur, et `src/middleware.ts` retire l'`Origin` et le
+`Sec-Fetch-Site` avant de transmettre. La requête arrive alors comme un
+`curl` — sans rien à comparer — cas que le garde laisse passer par
+construction. Rien n'est désactivé.
+
+Trois détails qui décidaient :
+
+- **La barre finale.** Sans `skipTrailingSlashRedirect`, Next redirige
+  `/comfy/` vers `/comfy` (308), et les chemins relatifs du HTML de
+  ComfyUI se résolvent contre `/` au lieu de `/comfy/`.
+- **Les WebSockets passent.** Vérifié : `101 Switching Protocols` à
+  travers la réécriture. Sans cela l'interface se serait chargée sans
+  jamais afficher de progression — à moitié utile, ce qui est pire.
+- **Le middleware ne vise que `/comfy/*`.** L'`Origin` du Cockpit
+  lui-même est légitime et reste intact.
+
+Vérifié dans le navigateur : 360 nœuds, 2 canvas, plus d'écran de
+démarrage, menus complets.

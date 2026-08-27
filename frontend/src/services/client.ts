@@ -166,6 +166,42 @@ export interface StudioModelsDTO {
   diffusion: string[];
   encodeurs: string[];
   vae: string[];
+  /** Les modèles d'image sont des *checkpoints*, pas des `unet`. Sans
+   *  cette liste, SDXL — installé et mesuré — n'apparaissait nulle part
+   *  dans l'écran, et l'on pouvait croire qu'il n'était pas là. */
+  checkpoints: string[];
+}
+
+/** Ce que le Studio Center sait composer.
+ *
+ *  Un gabarit est un graphe figé qu'on remplit avec des paramètres
+ *  explicites : rien n'y est inféré. Le catalogue vient du backend
+ *  plutôt que d'être recopié ici — deux listes du même fait finissent
+ *  par diverger, et c'est celle qu'on ne regarde pas qui se trompe. */
+export interface GabaritDTO {
+  titre: string;
+  moteur: string;
+  sortie: "image" | "video";
+  note: string;
+  parametres: string[];
+  /** Les formats que ce moteur sait rendre. SDXL s'effondre loin de ses
+   *  compartiments d'entraînement, LTX déborde au-delà de 0,9 Mpx : une
+   *  liste commune laissait choisir un format ruineux sans rien dire. */
+  formats: string[];
+}
+
+export interface StudioGabaritsDTO {
+  gabarits: Record<string, GabaritDTO>;
+  formats: Record<string, { largeur: number; hauteur: number }>;
+}
+
+export interface ParametresRendu {
+  format_?: string;
+  images?: number;
+  etapes?: number;
+  graine?: number;
+  cfg?: number;
+  avec_son?: boolean;
 }
 
 /** `mesure: false` n'est pas « zéro octet » : c'est « le compteur n'a rien
@@ -225,6 +261,18 @@ export const studioClient = {
     }>("/studio/render", {
       method: "POST",
       body: JSON.stringify({ graphe, ...(besoin_octets ? { besoin_octets } : {}) }),
+    }),
+  templates: () => fetchJSON<StudioGabaritsDTO>("/studio/templates"),
+  /** Composer et soumettre en un appel. Rend la main dès la soumission :
+   *  un plan dure des minutes et aucune requête HTTP ne doit les
+   *  attendre. Le suivi passe par `/studio/queue`. */
+  composer: (gabarit: string, consigne: string, parametres: ParametresRendu) =>
+    fetchJSON<{
+      success: boolean; prompt_id?: string; error?: string; raison?: string;
+      modeles_decharges?: string[]; vram_liberee_octets?: number;
+    }>("/studio/render", {
+      method: "POST",
+      body: JSON.stringify({ gabarit, consigne, parametres }),
     }),
 };
 

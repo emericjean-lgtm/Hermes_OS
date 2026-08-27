@@ -158,14 +158,19 @@ class ComfyUI:
         """Les fichiers qu'un chargeur voit, par genre.
 
         `genre` est le nom du champ dans le schéma du nœud —
-        `unet_name`, `clip_name`, `vae_name`. Sert au Studio Center pour
-        proposer ce qui existe au lieu d'un champ libre où l'on se
-        trompe de nom.
+        `unet_name`, `clip_name`, `vae_name`, `ckpt_name`. Sert au Studio
+        Center pour proposer ce qui existe au lieu d'un champ libre où
+        l'on se trompe de nom.
+
+        `ckpt_name` manquait, et c'est pour cela que SDXL — installé,
+        mesuré, fonctionnel — n'apparaissait nulle part dans l'écran : un
+        modèle d'image est un *checkpoint*, pas un `unet`.
         """
         noeuds = {
             "unet_name": "UnetLoaderGGUF",
             "clip_name": "CLIPLoaderGGUF",
             "vae_name": "VAELoader",
+            "ckpt_name": "CheckpointLoaderSimple",
         }
         noeud = noeuds.get(genre)
         if not noeud:

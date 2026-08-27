@@ -1,3 +1,93 @@
+## HOS-194 - L'Atelier produit, et ComfyUI s'encastre sans rien desarmer (2026-08-27)
+
+Trois manques constates en regardant l'ecran plutot qu'en le decrivant :
+l'onglet Atelier ne lancait rien, SDXL n'y apparaissait pas, et l'iframe
+de ComfyUI etait blanche.
+
+### Un formulaire, et la frontiere qu'il ne franchit pas
+
+`backend/studio/gabarits.py` compose trois graphes figes — plan video,
+image SDXL, image LTX — a partir de parametres **explicites**. Rien n'est
+infere de la consigne.
+
+La regle qui prime sur tout interdit qu'une seconde boucle decide a la
+place de l'agent, et j'avais ecrit qu'« un service qui construit le bon
+workflow » serait exactement cela. La distinction tient en un mot :
+**choisir**. Decider quel pipeline convient a un objectif, c'est
+raisonner ; remplir un gabarit avec des parametres qu'on vous donne, c'est
+un formulaire. C'est d'ailleurs ce que le cahier des charges prevoyait :
+« le graphe vient de l'appelant [...] ou du Studio Center par un gabarit ».
+
+`test_studio_gabarits.py` garde cette frontiere : le jour ou quelqu'un
+ajoutera « si la consigne parle de mouvement, mettre plus d'images »,
+c'est la que ca cassera.
+
+### Le defaut qu'il a fallu regarder pour trouver
+
+Le premier rendu lance depuis le formulaire est sorti **tuile et
+deforme**. Le graphe etait correct, ComfyUI a rendu 200, le fichier
+existait. Rien ne signalait quoi que ce soit — il fallait ouvrir l'image.
+
+La cause : une liste de formats **commune aux deux moteurs**. Le rendu
+SDXL est parti en 768x432, valide pour LTX et ruineux pour SDXL, qui est
+entraine autour du megapixel. Les formats sont desormais separes, le
+formulaire retombe sur un format valide quand on change de moteur, et deux
+tests gardent la separation.
+
+### L'iframe : un 403 selectif
+
+`origin_only_middleware` (server.py:159) compare `Host` et `Origin` et
+renvoie 403 quand ils different — protection contre un site tiers qui
+ferait executer un workflow depuis le navigateur de l'utilisateur.
+
+Le 403 etait **selectif**, ce qui l'a rendu long a voir : les feuilles de
+style passaient, le navigateur n'envoyant pas d'`Origin` pour elles ; les
+scripts `type="module"`, requetes CORS, echouaient. La page se chargeait,
+affichait son ecran de demarrage, et n'en sortait jamais.
+
+Ma premiere explication — « ComfyUI ne pose ni X-Frame-Options ni
+frame-ancestors, donc l'encastrement fonctionne » — etait une verification
+d'en-tetes prise pour un chargement de page. Exacte, et sans rapport.
+
+**Ecarte : `--enable-cors-header`.** Une ligne, mais il **remplace** le
+garde au lieu de le restreindre : verifie, une origine quelconque obtenait
+alors 200. Desarmer la protection pour tout le monde afin d'en autoriser
+une seule.
+
+**Retenu : un proxy same-origin.** `next.config.ts` reecrit `/comfy/*`
+cote serveur, `src/middleware.ts` retire `Origin` et `Sec-Fetch-Site`
+avant de transmettre. La requete arrive comme un `curl`, sans rien a
+comparer — cas que le garde laisse passer par construction. Rien n'est
+desactive.
+
+Trois details decidaient : `skipTrailingSlashRedirect`, sans quoi Next
+redirige `/comfy/` et les chemins relatifs se resolvent contre `/` ; les
+WebSockets, verifiees a **101 Switching Protocols** a travers la
+reecriture, sans quoi l'interface se chargerait sans jamais afficher de
+progression ; et un middleware limite a `/comfy/*`, l'`Origin` du Cockpit
+lui-meme etant legitime.
+
+### Rangement
+
+`ckpt_name` manquait dans `/studio/models` : SDXL, installe et mesure la
+veille, n'apparaissait nulle part. Et le mapping `checkpoints: vae/` de
+HOS-192 faisait passer les deux VAE de LTX pour des checkpoints — le VAE
+audio a desormais son propre dossier.
+
+`hermes-ltx-cockpit.bat`, ecrit pour tester la piste CORS, est supprime :
+le proxy le rend inutile et il desarmait un garde.
+
+### Verified
+
+Rendu lance **depuis le bouton** de l'ecran : soumis, carte reservee,
+`image_00002_.png` sur disque, image nette et conforme a la consigne.
+ComfyUI dans le cadre : 360 noeuds, 2 canvas, plus d'ecran de demarrage —
+avec son garde intact.
+
+Backend 2 150 passes, frontend 110 passes, tsc propre.
+
+---
+
 ## HOS-193 - split mesure, et une mesure qui ne colle pas (2026-08-27)
 
 `split` avait ete ecarte par un calcul qui additionnait le poids du
