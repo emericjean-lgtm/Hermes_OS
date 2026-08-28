@@ -425,3 +425,51 @@ class TestFormatsReels:
     def test_les_variantes_suite_ont_disparu(self):
         for mort in ("paysage_suite", "paysage_large_suite"):
             assert mort not in FORMATS
+
+
+class TestDecoupageTemporelDuVAE:
+    """Le scintillement venait d'un decodage en trop petits morceaux
+    (HOS-205).
+
+    `VAEDecodeTiled` divise `temporal_size` par la compression temporelle
+    du VAE — 8 pour LTX. A 16, cela faisait deux images latentes par
+    tuile : un plan de 49 images (7 latentes) etait reconstruit a partir
+    de SIX morceaux, un plan de 257 images a partir de trente-deux.
+
+    Mesure a latents identiques, sur un plan a camera fixe ou toute
+    vitesse est un artefact : la derive fantome passe de 0,108 a 0,035
+    (graine 777) et de 0,110 a 0,065 (graine 1234). Confirme a l'oeil par
+    l'utilisateur, et corrobore par le poids des fichiers a qualite
+    constante — 30 % de bits en moins.
+    """
+
+    #: Ce que `nodes.py` applique : `temporal_size // compression`.
+    COMPRESSION_TEMPORELLE_LTX = 8
+
+    def _latentes_par_tuile(self, temporal_size):
+        return max(2, temporal_size // self.COMPRESSION_TEMPORELLE_LTX)
+
+    def test_un_plan_de_deux_secondes_se_decode_d_un_seul_bloc(self):
+        g = plan_video("une rue", images=49)
+        ts = g["12"]["inputs"]["temporal_size"]
+        latentes_du_plan = (49 - 1) // self.COMPRESSION_TEMPORELLE_LTX + 1
+        assert self._latentes_par_tuile(ts) >= latentes_du_plan, (
+            f"temporal_size={ts} donne {self._latentes_par_tuile(ts)} latentes "
+            f"par tuile pour un plan qui en compte {latentes_du_plan} : le plan "
+            "serait recolle a partir de plusieurs morceaux, et c'est "
+            "exactement le defaut que HOS-205 a corrige.")
+
+    def test_le_reglage_fautif_ne_revient_pas(self):
+        # 16 est la valeur d'origine. Le message porte la raison, pour que
+        # quiconque la remette sache ce qu'elle coutait.
+        ts = plan_video("une rue")["12"]["inputs"]["temporal_size"]
+        assert ts != 16, (
+            "temporal_size=16 est revenu. Il donne deux latentes par tuile, "
+            "donc six morceaux pour un plan de 49 images et trente-deux pour "
+            "un plan de 257 — c'est la cause mesuree du scintillement.")
+
+    def test_le_decodage_reste_tuile(self):
+        # Le non-tuile echoue vraiment sur cette carte : `CUDA out of
+        # memory`, 10,51 Gio demandes d'un bloc, re-mesure en HOS-205. Le
+        # correctif elargit la tuile, il ne la supprime pas.
+        assert plan_video("une rue")["12"]["class_type"] == "VAEDecodeTiled"

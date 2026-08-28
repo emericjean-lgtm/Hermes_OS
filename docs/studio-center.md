@@ -1100,6 +1100,78 @@ pas la configuration actuelle. Et la contrainte est la **RAM systeme** —
 plus de vingt minutes. C'est de la pagination.
 
 
+
+## Le scintillement : trouve, corrige, confirme a l'oeil (HOS-205)
+
+Apres trois tours de mesures infructueux, la cause est le **decoupage
+temporel du decodeur VAE** — l'hypothese ecartee en HOS-201 sur un
+indicateur que HOS-202 a ensuite invalide, et jamais reprise depuis.
+
+### Le calcul que je n'avais pas fait
+
+`VAEDecodeTiled` divise `temporal_size` par la compression temporelle du
+VAE, qui vaut 8 pour LTX (`nodes.py`, methode `decode`). Le reglage de 16
+ne signifiait donc pas « seize images par tuile » mais **deux images
+latentes par tuile**, avec une seule de recouvrement.
+
+| temporal_size | 49 images | 121 images | 257 images |
+|---|---|---|---|
+| **16 (ancien)** | **6 tuiles** | **15 tuiles** | **32 tuiles** |
+| 64 (retenu) | 1 | 3 | 5 |
+| 4096 | 1 | 1 | 1 |
+
+Un plan de dix secondes etait reconstruit a partir de trente-deux
+morceaux. La description de l'utilisateur — « comme si la video etait
+creee en ajoutant des petits morceaux les uns apres les autres » —
+decrivait litteralement ce que le code faisait.
+
+### La mesure, exempte de bruit de graine
+
+C'est la seule mesure propre de toute la campagne : a graine fixee le
+debruitage est deterministe, donc les latents sont **identiques** et seul
+le decodeur change. Plan a camera fixe, ou toute vitesse mesuree est un
+artefact.
+
+| graine | derive fantome a 16 | a 64 | reduction |
+|---|---|---|---|
+| 777 | 0,108 | 0,035 | **-68 %** |
+| 1234 | 0,110 | 0,065 | **-41 %** |
+
+Trois signaux independants concordent :
+
+1. la mesure de deplacement par correlation de phase ;
+2. le poids des fichiers a CRF constant — **-30 %**, donc 30 % de
+   changement inter-image en moins, mesure par un encodeur qui ne partage
+   aucune hypothese avec l'instrument ;
+3. **l'utilisateur, a l'oeil** : « la video est beaucoup plus stable, je
+   n'ai plus la sensation de scintillement et de saccade ».
+
+### Ce que le correctif ne fait pas
+
+La dispersion locale ne baisse que de 2,5 %. Le decoupage ajoutait une
+**derive parasite** ; l'incoherence de fond mesuree en HOS-202 — 2,4 fois
+celle d'une video geometriquement parfaite — reste celle du modele. Deux
+defauts coexistaient et les trois premiers tours les ont confondus.
+
+### Pourquoi 64 et non 4096
+
+Le decodage non tuile echoue vraiment ici : `CUDA out of memory`, 10,51
+Gio demandes d'un bloc, re-mesure. Le choix d'origine de tuiler etait donc
+fonde — c'est sa **taille** qui etait mauvaise, pas son principe.
+
+4096 donnerait une tuile unique a toute longueur, mais sa consommation sur
+les plans longs n'est pas mesuree, et un debordement y transformerait un
+rendu mediocre en rendu absent. 64 est meilleur a toutes les longueurs
+deja testees, sans ce risque.
+
+### Ce que cet incident apprend
+
+L'hypothese correcte a ete formulee des le premier tour, puis ecartee sur
+une mesure inadaptee — et **jamais reprise** apres que cette mesure eut
+ete reconnue fausse. Invalider un instrument ne suffit pas : il faut
+rejouer ce qu'il avait servi a ecarter.
+
+
 ## L'enchainement de plans (HOS-200)
 
 `LTXVImgToVideo` fait partir un plan d'une image au lieu du bruit. Donner

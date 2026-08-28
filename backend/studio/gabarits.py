@@ -262,10 +262,38 @@ def plan_video(consigne: str, *, format_: str = "paysage",
     else:
         latent_video, latent_audio = ["11", 0], None
 
+    # `temporal_size` a 64 et non 16 — c'est la cause du scintillement que
+    # l'utilisateur signalait, trouvee en HOS-205 et confirmee a l'oeil.
+    #
+    # Le nœud divise cette valeur par la compression temporelle du VAE,
+    # qui vaut 8 pour LTX (`nodes.py`, `VAEDecodeTiled.decode`). 16
+    # donnait donc **deux images latentes par tuile**, avec une seule de
+    # recouvrement : un plan de 49 images, qui ne compte que 7 latentes,
+    # etait reconstruit a partir de SIX morceaux. A 121 images, quinze ; a
+    # 257, trente-deux. « Comme si la video etait creee en ajoutant des
+    # petits morceaux les uns apres les autres » — la description de
+    # l'utilisateur decrivait litteralement le code.
+    #
+    # Mesure a latents identiques (meme graine, seul le decodeur change,
+    # donc sans le bruit de graine qui a fausse le reste de la campagne) :
+    # sur un plan a camera FIXE, ou toute vitesse est un artefact, la
+    # derive fantome passe de 0,108 a 0,035 (graine 777) et de 0,110 a
+    # 0,065 (graine 1234). Corrobore par un signal independant : a CRF
+    # constant, les fichiers pesent 30 % de moins, donc il y a 30 % de
+    # changement inter-image en moins.
+    #
+    # 16 n'etait pas arbitraire — le decodage non tuile echoue vraiment
+    # ici (`CUDA out of memory`, 10,51 Gio d'un bloc, re-mesure). Mais il
+    # etait bien plus agressif que necessaire : 64 tient sans deborder.
+    #
+    # Pourquoi pas 4096, qui donnerait une tuile unique a toute longueur :
+    # non mesure encore sur les plans longs, et un debordement y
+    # transformerait un rendu mediocre en rendu absent. 64 est meilleur a
+    # toutes les longueurs deja testees, sans ce risque.
     g["12"] = {"class_type": "VAEDecodeTiled",
                "inputs": {"samples": latent_video, "vae": ["3", 0],
                           "tile_size": 256, "overlap": 32,
-                          "temporal_size": 16, "temporal_overlap": 4}}
+                          "temporal_size": 64, "temporal_overlap": 8}}
 
     # ── Interpolation d'images ──
     # Placée après le décodage, donc sur des images et non des latents :
