@@ -1,3 +1,61 @@
+## HOS-199 - La duree d'un plan, et trois reglages deja ecrits mais jamais offerts (2026-08-28)
+
+« Je ne peux pas choisir la duree de la video. » C'etait vrai en pratique
+et faux en theorie : le formulaire offrait un champ **Images**, qui *est*
+la duree du plan, sans que rien ne le dise. Personne ne cherche « 97 »
+quand il veut quatre secondes.
+
+Le champ est desormais une duree en secondes. La conversion vit dans
+`gabarits.py` avec les autres mesures, parce que LTX n'accepte que des
+longueurs `8k + 1` — 49 images pour 2 s, 97 pour 4 s, les deux longueurs
+effectivement rendues et chronometrees. A 24 im/s la coincidence est
+exacte : 24 etant multiple de 8, toute duree entiere tombe pile sur une
+longueur valide. L'ecran affiche la duree **reellement rendue** (2,04 s
+pour 2 s demandees, l'image supplementaire de `8k+1`) plutot que d'arrondir
+en silence.
+
+### Trois parametres implementes depuis HOS-194, jamais offerts
+
+Un releve de la signature des gabarits contre ce que le catalogue annonce
+en a trouve trois : `negatif` (le prompt negatif), `prefixe` (le nom du
+fichier de sortie) et `cadence`. Tous trois codes, testes, et invisibles
+dans l'ecran — donc inaccessibles autrement qu'en passant par l'agent. Ils
+sont maintenant dans le formulaire, pour les trois gabarits concernes.
+
+Un test garde le catalogue et les fabriques d'accord : tout parametre
+annonce a l'ecran doit etre accepte par `composer`. Verifie rouge sur un
+parametre fantome avant d'etre garde.
+
+### Une estimation fausse de +260 %, trouvee en la rendant visible
+
+L'ecran annoncait « ≈ 5 min de calcul par seconde de video finie ». Cette
+regle vient du **seul rendu vertical** dont elle est tiree et ne retient
+que la duree, en ignorant la surface. Confrontee aux deux autres rendus du
+tableau de `docs/studio-center.md`, elle surestime de **+144 %** en
+768 × 432 (612 s annoncees pour 251 mesurees) et de **+260 %** en 512 × 288
+(612 s pour 170).
+
+L'erreur allait dans le sens le plus couteux a l'usage : elle decourageait
+un essai bon marche en l'annoncant a vingt minutes. Le temps suit
+`pixels x images`, pas la duree seule. Ajustement par moindres carres sur
+les trois rendus reels, ecart maximal 11 % :
+
+```
+t ≈ 56 s + 13,27 s par million de pixels-images
+```
+
+Constantes dans `gabarits.py`, servies par `/studio/templates` plutot que
+recopiees dans le frontend. L'ecran dit desormais « extrapole de trois
+rendus mesures, a ±11 % » : trois points ne font pas une loi.
+
+Verifie a l'ecran : 4 s en 704 × 1280 annonce 20 min, mesure 20,3 ; 2 s en
+768 × 432 annonce 5 min, mesure 4,2 — contre 10 min annoncees avant.
+
+`docs/studio-center.md` est **amende explicitement** a l'endroit ou la
+regle etait etablie, sans reecrire la mesure d'origine : « cinq minutes par
+seconde » reste juste pour le vertical, et c'est a ce titre que
+`file_de_nuit.py` continue de s'en servir pour justifier l'atelier de nuit.
+
 ## HOS-198 - La bascule d'onglet, corrigee pour de bon (2026-08-27)
 
 Le bug du Studio Center persistait apres HOS-196 : depuis un sous-onglet

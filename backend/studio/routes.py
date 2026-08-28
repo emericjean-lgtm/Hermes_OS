@@ -162,12 +162,23 @@ def gabarits() -> dict[str, Any]:
     fait finissent par diverger, et c'est toujours celle qu'on ne regarde
     pas qui se trompe.
     """
-    from backend.studio.gabarits import CATALOGUE, FORMATS
+    from backend.studio.gabarits import (CATALOGUE, COUT_FIXE_S,
+                                         COUT_PAR_MPX_IMAGE_S, FORMATS,
+                                         IMAGES_MAX, PAS_IMAGES)
 
     return {
         "gabarits": CATALOGUE,
         "formats": {nom: {"largeur": l, "hauteur": h}
                     for nom, (l, h) in FORMATS.items()},
+        # La contrainte de longueur de LTX (`8k + 1`) vient d'ici et non
+        # d'une constante recopiée dans l'écran : c'est elle qui permet au
+        # formulaire de proposer une durée en secondes tout en n'envoyant
+        # que des longueurs que le modèle accepte.
+        "images": {"pas": PAS_IMAGES, "max": IMAGES_MAX},
+        # Le coût de calcul, ajusté sur les trois rendus réels. Servi plutôt
+        # que recopié pour la même raison que le reste : la mesure vit à
+        # côté des autres mesures, pas dans le composant qui l'affiche.
+        "cout": {"fixe_s": COUT_FIXE_S, "par_mpx_image_s": COUT_PAR_MPX_IMAGE_S},
     }
 
 

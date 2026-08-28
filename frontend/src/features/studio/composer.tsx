@@ -27,12 +27,29 @@ import type { GabaritDTO } from "@/services/client";
  * recopiée ici : deux listes du même fait finissent par diverger.
  */
 
-const CHAMPS: Record<string, { libelle: string; min: number; max: number; pas: number }> = {
-  images: { libelle: "Images", min: 1, max: 257, pas: 8 },
-  etapes: { libelle: "Étapes", min: 1, max: 50, pas: 1 },
-  graine: { libelle: "Graine", min: 0, max: 999999, pas: 1 },
-  cfg: { libelle: "CFG", min: 1, max: 20, pas: 0.5 },
+/** Les champs numériques, hors durée — celle-ci a sa propre commande
+ *  parce qu'elle ne s'envoie pas telle quelle (voir `Duree` plus bas).
+ *
+ *  `images` n'y figure plus : c'était le défaut signalé — le formulaire
+ *  offrait « Images », qui *est* la durée du plan, sans que rien ne le
+ *  dise. Personne ne cherche « 97 » quand il veut quatre secondes. */
+const CHAMPS: Record<string, { libelle: string; min: number; max: number; pas: number; aide?: string }> = {
+  etapes: { libelle: "Étapes", min: 1, max: 50, pas: 1,
+            aide: "LTX est distillé : au-delà de 8, il ne gagne rien. SDXL en demande 25." },
+  graine: { libelle: "Graine", min: 0, max: 999999, pas: 1,
+            aide: "Même graine + mêmes réglages = même rendu. 0 pour laisser courir." },
+  cfg: { libelle: "CFG", min: 1, max: 20, pas: 0.5,
+         aide: "Combien le modèle colle à la consigne. 7 est la référence SDXL." },
 };
+
+/** Les cadences proposées. 24 est la seule mesurée sur ce projet — les
+ *  autres sont offertes parce que le gabarit les accepte, et étiquetées
+ *  comme non mesurées plutôt que présentées comme équivalentes. */
+const CADENCES = [
+  { v: 24, nom: "24", note: "cadence de tous les plans mesurés" },
+  { v: 25, nom: "25", note: "non mesurée" },
+  { v: 30, nom: "30", note: "non mesurée" },
+];
 
 export function Composer({ actif }: { actif: boolean }) {
   const { data: catalogue } = useStudioTemplates();
@@ -42,9 +59,18 @@ export function Composer({ actif }: { actif: boolean }) {
   const [consigne, setConsigne] = useState("");
   const [format, setFormat] = useState("paysage");
   const [valeurs, setValeurs] = useState<Record<string, number>>({
-    images: 49, etapes: 8, graine: 0, cfg: 7,
+    etapes: 8, graine: 0, cfg: 7,
   });
   const [avecSon, setAvecSon] = useState(false);
+  // La durée est l'état que l'opérateur manipule ; les images en sont
+  // dérivées à la soumission. L'inverse — stocker des images et afficher
+  // une durée — ferait sauter le curseur d'un cran à l'autre à chaque
+  // frappe, l'arrondi remontant dans le champ qu'on est en train de
+  // remplir.
+  const [duree, setDuree] = useState(2);
+  const [cadence, setCadence] = useState(24);
+  const [negatif, setNegatif] = useState("");
+  const [prefixe, setPrefixe] = useState("");
 
   if (!catalogue) {
     return <Card title="Rendu"><p className="text-xs text-hermes-dim">Chargement des gabarits…</p></Card>;
@@ -61,12 +87,48 @@ export function Composer({ actif }: { actif: boolean }) {
   const formatEffectif = offerts.includes(format) ? format : offerts[0];
   const dims = catalogue.formats[formatEffectif];
 
+  // La contrainte vient du backend, pas d'une constante recopiée ici :
+  // LTX n'accepte que des longueurs `8k + 1`, et c'est `gabarits.py` qui
+  // le sait. Les valeurs de repli ne servent qu'au premier rendu, avant
+  // que le catalogue ne soit arrivé.
+  const pas = catalogue.images?.pas ?? 8;
+  const imagesMax = catalogue.images?.max ?? 257;
+  const imagesPourDuree = (s: number, c: number) =>
+    Math.max(1, Math.min(imagesMax, Math.round((Math.max(0, s) * c) / pas) * pas + 1));
+
+  const images = imagesPourDuree(duree, cadence);
+  // Ce que le rendu durera vraiment. L'image supplémentaire de `8k + 1`
+  // fait 2,04 s là où l'on a demandé 2,00 — l'écart est petit, mais
+  // l'afficher coûte une ligne et l'arrondir en silence ferait annoncer
+  // une durée qui n'est pas rendue.
+  const dureeReelle = images / cadence;
+  const dureePlafonnee = images >= imagesMax;
+
+  // Le temps de calcul suit les **pixels autant que les images**, ce que
+  // « 5 min par seconde de vidéo » ignorait : cette règle venait du seul
+  // rendu vertical et surestimait de 144 % en 768×432. Annoncer vingt
+  // minutes pour un rendu qui en prend quatre décourage un essai qui
+  // aurait été bon marché.
+  const coutFixe = catalogue.cout?.fixe_s ?? 56;
+  const coutParMpx = catalogue.cout?.par_mpx_image_s ?? 13.27;
+  const minutesCalcul =
+    (coutFixe + coutParMpx * ((dims?.largeur ?? 0) * (dims?.hauteur ?? 0) * images) / 1e6) / 60;
+
   const soumettre = () => {
     const parametres: Record<string, unknown> = { format_: formatEffectif };
     for (const [cle, v] of Object.entries(valeurs)) {
       if (attendus.has(cle)) parametres[cle] = v;
     }
+    // La durée ne part pas telle quelle : le nœud attend une longueur en
+    // images, et c'est elle qu'on envoie.
+    if (attendus.has("images")) parametres.images = images;
+    if (attendus.has("cadence")) parametres.cadence = cadence;
     if (attendus.has("avec_son")) parametres.avec_son = avecSon;
+    // Vides, ces deux-là ne partent pas : le gabarit a ses propres
+    // défauts mesurés, et envoyer une chaîne vide les écraserait — un
+    // prompt négatif vide n'est pas « le prompt négatif par défaut ».
+    if (attendus.has("negatif") && negatif.trim()) parametres.negatif = negatif.trim();
+    if (attendus.has("prefixe") && prefixe.trim()) parametres.prefixe = prefixe.trim();
     lancer.mutate({ gabarit, consigne, parametres });
   };
 
@@ -125,10 +187,47 @@ export function Composer({ actif }: { actif: boolean }) {
             </select>
           </label>
 
+          {/* La durée, en secondes — ce que l'opérateur a en tête. Le
+              champ « Images » qu'elle remplace disait la même chose dans
+              l'unité du modèle, ce qui revenait à ne pas la proposer. */}
+          {attendus.has("images") && (
+            <label className="flex flex-col gap-1">
+              <span className="tech-label">Durée (s)</span>
+              <input
+                type="number"
+                min={1}
+                max={Math.floor((imagesMax - 1) / cadence)}
+                step={0.5}
+                value={duree}
+                onChange={(e) => setDuree(Number(e.target.value))}
+                className="w-24 rounded-lg border border-hermes-border bg-hermes-bg px-2 py-1.5
+                  font-mono text-[11px] text-hermes-text outline-none focus:border-hermes-amber"
+              />
+            </label>
+          )}
+
+          {attendus.has("cadence") && (
+            <label className="flex flex-col gap-1">
+              <span className="tech-label">Cadence</span>
+              <select
+                value={cadence}
+                onChange={(e) => setCadence(Number(e.target.value))}
+                className="rounded-lg border border-hermes-border bg-hermes-bg px-2 py-1.5
+                  font-mono text-[11px] text-hermes-text outline-none focus:border-hermes-amber"
+              >
+                {CADENCES.map((c) => (
+                  <option key={c.v} value={c.v} title={c.note}>
+                    {c.nom} im/s{c.v === 24 ? "" : " ·"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           {Object.entries(CHAMPS)
             .filter(([cle]) => attendus.has(cle))
             .map(([cle, c]) => (
-              <label key={cle} className="flex flex-col gap-1">
+              <label key={cle} className="flex flex-col gap-1" title={c.aide}>
                 <span className="tech-label">{c.libelle}</span>
                 <input
                   type="number"
@@ -158,18 +257,72 @@ export function Composer({ actif }: { actif: boolean }) {
           )}
         </div>
 
+        {/* Prompt négatif et préfixe : implémentés dans les gabarits
+            depuis HOS-194 et jamais offerts, donc inaccessibles autrement
+            qu'en passant par l'agent. Laissés vides, le gabarit garde ses
+            propres défauts mesurés. */}
+        {(attendus.has("negatif") || attendus.has("prefixe")) && (
+          <div className="flex flex-wrap gap-3">
+            {attendus.has("negatif") && (
+              <label className="flex min-w-[280px] flex-1 flex-col gap-1">
+                <span className="tech-label">Ce qu&apos;il ne faut pas (optionnel)</span>
+                <input
+                  type="text"
+                  value={negatif}
+                  onChange={(e) => setNegatif(e.target.value)}
+                  placeholder="blurry, distorted, watermark, text, low quality"
+                  className="rounded-lg border border-hermes-border bg-hermes-bg px-3 py-1.5
+                    font-mono text-[11px] text-hermes-text outline-none focus:border-hermes-amber"
+                />
+              </label>
+            )}
+            {attendus.has("prefixe") && (
+              <label className="flex min-w-[200px] flex-col gap-1">
+                <span className="tech-label">Nom du fichier (optionnel)</span>
+                <input
+                  type="text"
+                  value={prefixe}
+                  onChange={(e) => setPrefixe(e.target.value)}
+                  placeholder={fiche?.sortie === "video" ? "studio/plan" : "studio/image"}
+                  className="rounded-lg border border-hermes-border bg-hermes-bg px-3 py-1.5
+                    font-mono text-[11px] text-hermes-text outline-none focus:border-hermes-amber"
+                />
+              </label>
+            )}
+          </div>
+        )}
+
         {/* Le coût, annoncé avant le clic. Cinq minutes de calcul par
             seconde de vidéo : c'est la chose la plus utile à savoir
             avant de lancer, et l'apprendre après serait une mauvaise
-            surprise de vingt minutes. */}
+            surprise de vingt minutes.
+
+            La durée affichée est celle qui sera **rendue**, pas celle qui
+            a été tapée : `8k + 1` ajoute une image, et 2 s demandées font
+            2,04 s. */}
         {fiche?.sortie === "video" && dims && (
-          <p className="text-[11px] text-hermes-dim">
-            {(valeurs.images / 24).toFixed(1)} s de vidéo en {dims.largeur}×{dims.hauteur} —
-            compter environ{" "}
+          <p className="text-[11px] leading-relaxed text-hermes-dim">
+            <span className="num text-hermes-muted">{dureeReelle.toFixed(2)} s</span> de vidéo
+            en {dims.largeur}×{dims.hauteur} —{" "}
+            <span className="num">{images} images</span> à {cadence} im/s. Compter environ{" "}
             <span className="num text-hermes-muted">
-              {Math.round((valeurs.images / 24) * 5)} min
+              {minutesCalcul < 1.5
+                ? `${Math.round(minutesCalcul * 60)} s`
+                : `${Math.round(minutesCalcul)} min`}
             </span>{" "}
-            de calcul, la carte réservée pendant ce temps.
+            de calcul, la carte réservée pendant ce temps — extrapolé de trois
+            rendus mesurés, à ±11 %.
+            {dureePlafonnee && (
+              <span className="text-hermes-gold">
+                {" "}Plafonné à {imagesMax} images — c&apos;est la longueur maximale
+                du gabarit.
+              </span>
+            )}
+            {cadence !== 24 && (
+              <span className="text-hermes-gold">
+                {" "}Seule la cadence 24 a été mesurée sur cette carte.
+              </span>
+            )}
           </p>
         )}
 

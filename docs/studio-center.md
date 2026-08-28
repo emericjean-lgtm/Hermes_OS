@@ -166,7 +166,7 @@ et mesuré**, pas ce qui serait souhaitable.
 | 1 | LLM texte | script, titres, description | déjà là |
 | 2 | LLM extraction | découpage en plans | déjà là — qwen3.5-9b, 100/100 |
 | 3 | T2I diffusion | miniatures, plans-clés | **SDXL 1.0** — 35 s en 1344 × 768 |
-| 4 | I2V / T2V | animation | **LTX-2.5 Q5_K_M** — 5 min de calcul par seconde |
+| 4 | I2V / T2V | animation | **LTX-2.5 Q5_K_M** — 170 s à 1 218 s selon format et durée |
 | 5 | TTS narration | voix off | **Chatterbox**, voix clonée « Michael » — Piper reste le repli sans VRAM |
 | 6 | ASR mot-à-mot | sous-titres | **faster-whisper**, bornes par mot vérifiées |
 | 7 | T2M | musique | rien — YuE et Stable Audio présélectionnés sur licence, jamais testés |
@@ -203,8 +203,35 @@ de taille fixe pendant que le reste se répartit. Sur les 15,98 Gio, la
 moitié dort.
 
 **Le temps est la contrainte, et il est sévère.** Vingt minutes pour quatre
-secondes de vertical, soit **environ cinq minutes de calcul par seconde de
-vidéo finie**.
+secondes de vertical.
+
+> **Amendé le 2026-08-28 (HOS-199).** Cette section concluait « environ
+> cinq minutes de calcul par seconde de vidéo finie ». La règle est
+> **fausse hors du format vertical dont elle est tirée** : elle ne retient
+> que la durée et ignore la surface. Confrontée aux deux autres rendus du
+> tableau ci-dessus, elle surestime de **+144 %** en 768 × 432 (612 s
+> annoncées pour 251 mesurées) et de **+260 %** en 512 × 288 (612 s pour
+> 170). L'erreur va dans le sens le plus coûteux à l'usage : elle
+> décourage un essai bon marché en l'annonçant à vingt minutes.
+>
+> Le temps suit **`pixels × images`**, pas la durée seule. Ajustement par
+> moindres carrés sur les trois rendus :
+>
+> ```
+> t ≈ 56 s + 13,27 s par million de pixels-images
+> ```
+>
+> Écart maximal 11 % sur les trois points — 512×288 : 152 s estimées pour
+> 170 mesurées ; 768×432 : 272 pour 251 ; 704×1280 : 1 216 pour 1 218.
+> Trois points ne font pas une loi : c'est une extrapolation, et l'écran
+> l'annonce comme telle. Les constantes vivent dans
+> `backend/studio/gabarits.py` (`duree_calcul_s`) et sont servies par
+> `/studio/templates` plutôt que recopiées dans le frontend.
+>
+> La formulation « cinq minutes par seconde » reste juste **pour le
+> vertical 704 × 1280**, et c'est à ce titre qu'elle est encore citée
+> ailleurs dans ce dépôt pour justifier qu'un rendu ne se retente pas à la
+> légère.
 
 ### La quantification : monter est presque gratuit
 

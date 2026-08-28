@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import pytest
 
-from backend.studio.gabarits import (CATALOGUE, FORMATS, GabaritInvalide,
-                                     composer, image_ltx, image_sdxl,
-                                     plan_video)
+from backend.studio.gabarits import (CATALOGUE, FORMATS, IMAGES_MAX,
+                                     duree_calcul_s,
+                                     PAS_IMAGES, GabaritInvalide, composer,
+                                     duree_reelle_s, image_ltx, image_sdxl,
+                                     images_pour_duree, plan_video)
 
 
 def _types(graphe: dict) -> list[str]:
@@ -197,3 +199,122 @@ def test_le_catalogue_decrit_exactement_ce_qui_se_compose():
         assert composer(nom, "une consigne")
         assert fiche["sortie"] in ("image", "video")
         assert fiche["titre"] and fiche["moteur"] and fiche["note"]
+
+
+# ── La durée, et pourquoi elle se compte en images (HOS-199) ─────────
+#
+# L'utilisateur ne pouvait pas choisir la durée d'un plan : le formulaire
+# offrait « images », qui *est* la durée, sans que rien ne le dise. La
+# conversion vit ici plutôt que dans l'écran, avec la contrainte qu'elle
+# doit respecter — LTX n'accepte que des longueurs `8k + 1`.
+
+class TestDureeEtImages:
+    def test_les_longueurs_rendues_sont_celles_que_ltx_accepte(self):
+        # `8k + 1` : la forme mesurée sur les rendus réels de ce projet.
+        for secondes in (0.5, 1, 2, 3, 4, 5, 7.5, 10, 30):
+            n = images_pour_duree(secondes)
+            assert (n - 1) % PAS_IMAGES == 0, f"{secondes}s -> {n} images"
+
+    def test_les_durees_entieres_a_24_tombent_sur_les_valeurs_mesurees(self):
+        # 49 images pour 2 s et 97 pour 4 s sont les deux longueurs
+        # effectivement rendues et chronométrées (docs/studio-center.md).
+        # Si cette correspondance se casse, les mesures consignées ne
+        # décrivent plus ce que l'écran produit.
+        assert images_pour_duree(2) == 49
+        assert images_pour_duree(4) == 97
+
+    def test_la_duree_reelle_se_calcule_et_ne_se_suppose_pas(self):
+        # Une image de plus que la durée exacte : 49/24 vaut 2,04 s et non
+        # 2,00. L'écart est petit mais il doit être affichable, sinon
+        # l'écran annonce une durée qu'il ne rend pas.
+        assert duree_reelle_s(49) == pytest.approx(2.0417, abs=1e-3)
+        assert duree_reelle_s(97) == pytest.approx(4.0417, abs=1e-3)
+
+    def test_la_longueur_est_plafonnee_plutot_que_de_deborder(self):
+        # Vingt secondes demandées, c'est presque deux heures de calcul à
+        # cinq minutes la seconde. Le plafond est celui du gabarit, pas
+        # une opinion de l'écran.
+        assert images_pour_duree(20) == IMAGES_MAX
+        assert images_pour_duree(1000) == IMAGES_MAX
+
+    def test_une_duree_nulle_ou_negative_rend_au_moins_une_image(self):
+        assert images_pour_duree(0) >= 1
+        assert images_pour_duree(-5) >= 1
+
+    def test_la_cadence_change_la_longueur_pour_une_meme_duree(self):
+        # Deux secondes à 30 im/s, ce n'est pas deux secondes à 24 : c'est
+        # exactement le piège que la note de ce module signalait — changer
+        # la cadence change la durée sans le dire. Ici elle est prise en
+        # compte, donc la durée demandée reste tenue.
+        assert duree_reelle_s(images_pour_duree(2, 30.0), 30.0) == pytest.approx(2, abs=0.2)
+        assert duree_reelle_s(images_pour_duree(2, 24.0), 24.0) == pytest.approx(2, abs=0.2)
+
+
+# ── Ce que le catalogue offre à l'écran ──────────────────────────────
+
+class TestCatalogueOffreCeQueLesGabaritsAcceptent:
+    def test_aucun_parametre_annonce_n_est_refuse_par_sa_fabrique(self):
+        # Le défaut inverse a existé pendant cinq versions : `negatif`,
+        # `prefixe` et `cadence` étaient implémentés, testés, et absents du
+        # catalogue — donc invisibles dans l'écran. Un paramètre annoncé
+        # que `composer` refuserait serait le symétrique, et pire.
+        for nom, fiche in CATALOGUE.items():
+            for p in fiche["parametres"]:
+                kwarg = "format_" if p == "format" else p
+                composer(nom, "une consigne", **{kwarg: _valeur_plausible(kwarg)})
+
+    def test_le_prompt_negatif_arrive_bien_dans_le_graphe(self):
+        g = composer("plan_video", "une rue", negatif="flou, texte")
+        textes = [n["inputs"]["text"] for n in g.values()
+                  if n["class_type"] == "CLIPTextEncode"]
+        assert "flou, texte" in textes
+
+    def test_le_prefixe_nomme_le_fichier_de_sortie(self):
+        g = composer("image_sdxl", "un portrait", prefixe="studio/essai_7")
+        sortie = [n for n in g.values() if n["class_type"] == "SaveImage"][0]
+        assert sortie["inputs"]["filename_prefix"] == "studio/essai_7"
+
+
+def _valeur_plausible(kwarg: str):
+    return {
+        "format_": "paysage", "images": 49, "cadence": 24.0, "etapes": 8,
+        "graine": 0, "cfg": 7.0, "avec_son": False, "negatif": "flou",
+        "prefixe": "studio/essai",
+    }[kwarg]
+
+
+class TestCoutDeCalcul:
+    """L'estimation annoncée avant le clic (HOS-199).
+
+    L'écran promettait « ≈ 5 min par seconde de vidéo finie ». La règle
+    venait du seul rendu vertical et ne valait que pour lui.
+    """
+
+    #: Les trois rendus réellement chronométrés (`docs/studio-center.md`).
+    MESURES = [((512, 288), 49, 170), ((768, 432), 49, 251),
+               ((704, 1280), 97, 1218)]
+
+    def test_l_estimation_tient_les_trois_mesures_a_moins_de_15_pour_cent(self):
+        for (l, h), images, reel in self.MESURES:
+            estime = duree_calcul_s(l, h, images)
+            ecart = abs(estime - reel) / reel
+            assert ecart < 0.15, (
+                f"{l}×{h}, {images} images : {estime:.0f} s estimées contre "
+                f"{reel} s mesurées ({ecart:.0%})")
+
+    def test_l_ancienne_regle_se_trompait_bien_de_plus_du_double(self):
+        # Ce test garde la *raison* du changement. Si quelqu'un revient à
+        # « 5 min par seconde » en trouvant la formule compliquée, il verra
+        # ici ce que cette simplicité coûtait — et sur quel rendu.
+        for (l, h), images, reel in self.MESURES[:2]:
+            ancienne = (images / 24.0) * 5 * 60
+            assert ancienne > reel * 2, (
+                f"{l}×{h} : l'ancienne règle donnait {ancienne:.0f} s pour "
+                f"{reel} s réelles")
+
+    def test_le_cout_croit_avec_la_surface_pas_seulement_avec_la_duree(self):
+        # C'est tout le defaut de l'ancienne regle : a nombre d'images egal,
+        # un format quatre fois plus grand ne coutait pas plus cher.
+        petit = duree_calcul_s(512, 288, 49)
+        grand = duree_calcul_s(1280, 720, 49)
+        assert grand > petit * 2

@@ -2,11 +2,18 @@
 
 ## Pourquoi une file, et pas un simple appel
 
-Cinq minutes de calcul par seconde de vidéo finie — mesuré le 2026-08-27 :
-vingt minutes pour quatre secondes en 704 × 1280. Un short de trente
-secondes demande sept à huit plans, soit près de trois heures. La production
-est donc un **atelier de nuit**, pas un outil de tâtonnement, et ce qui la
-gouverne n'est pas une requête mais une file.
+Vingt minutes pour quatre secondes en 704 × 1280 — mesuré le 2026-08-27.
+Un short de trente secondes dans ce format demande sept à huit plans, soit
+près de trois heures. La production est donc un **atelier de nuit**, pas un
+outil de tâtonnement, et ce qui la gouverne n'est pas une requête mais une
+file.
+
+Ce raisonnement tenait ici sous la forme « cinq minutes par seconde de
+vidéo », qui ne vaut que pour ce format vertical : le temps suit la surface
+autant que la durée, et la même règle surestime de 144 % en 768 × 432 (voir
+`duree_calcul_s` dans `gabarits.py`, HOS-199). La conclusion, elle, ne
+change pas — c'est le format le plus lourd qui dicte l'organisation en
+file, et c'est bien celui-là qu'on rend la nuit.
 
 Le modèle existe déjà dans ce dépôt : `scripts/derouler_cahier.py` déroule
 un cahier des charges section par section, reprend là où il s'était arrêté,

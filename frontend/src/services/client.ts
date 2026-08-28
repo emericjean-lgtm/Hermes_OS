@@ -193,15 +193,31 @@ export interface GabaritDTO {
 export interface StudioGabaritsDTO {
   gabarits: Record<string, GabaritDTO>;
   formats: Record<string, { largeur: number; hauteur: number }>;
+  /** La contrainte de longueur de LTX (`8k + 1`), servie par le backend
+   *  plutôt que recopiée ici : c'est elle qui permet au formulaire de
+   *  proposer une durée en secondes tout en n'envoyant que des longueurs
+   *  que le modèle accepte (HOS-199). */
+  images?: { pas: number; max: number };
+  /** Le coût de calcul, ajusté sur les trois rendus réellement chronométrés
+   *  (`docs/studio-center.md`). L'ancienne règle « 5 min par seconde de
+   *  vidéo » ne valait que pour le format vertical dont elle était tirée :
+   *  elle surestimait de 144 % en 768×432 et de 260 % en 512×288. */
+  cout?: { fixe_s: number; par_mpx_image_s: number };
 }
 
 export interface ParametresRendu {
   format_?: string;
+  /** Une longueur en **images**, pas une durée — c'est ce que le nœud
+   *  `EmptyLTXVLatentVideo` attend. L'écran la présente en secondes et
+   *  fait la conversion, mais le fil transporte des images. */
   images?: number;
+  cadence?: number;
   etapes?: number;
   graine?: number;
   cfg?: number;
   avec_son?: boolean;
+  negatif?: string;
+  prefixe?: string;
 }
 
 /** `mesure: false` n'est pas « zéro octet » : c'est « le compteur n'a rien

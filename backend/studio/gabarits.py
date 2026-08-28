@@ -262,8 +262,13 @@ CATALOGUE: dict[str, dict[str, Any]] = {
         "titre": "Plan vidéo",
         "moteur": "LTX-2.5",
         "sortie": "video",
-        "note": "≈ 5 min de calcul par seconde de vidéo finie.",
-        "parametres": ["format", "images", "etapes", "graine", "avec_son"],
+        # Pas de « ≈ 5 min par seconde de vidéo » : cette règle venait du
+        # seul rendu vertical et surestimait de 144 % en 768×432. Le temps
+        # suit la surface autant que la durée, et l'estimation exacte est
+        # sous le formulaire, calculée pour le format choisi.
+        "note": "3 à 20 min selon le format et la durée, mesurés.",
+        "parametres": ["format", "images", "cadence", "etapes", "graine",
+                       "avec_son", "negatif", "prefixe"],
         "formats": FORMATS_PAR_MOTEUR["ltx"],
     },
     "image_sdxl": {
@@ -271,7 +276,8 @@ CATALOGUE: dict[str, dict[str, Any]] = {
         "moteur": "SDXL 1.0",
         "sortie": "image",
         "note": "35 à 45 s. Objet net, détail gravé ; lumière plus plate.",
-        "parametres": ["format", "etapes", "graine", "cfg"],
+        "parametres": ["format", "etapes", "graine", "cfg", "negatif",
+                       "prefixe"],
         "formats": FORMATS_PAR_MOTEUR["sdxl"],
     },
     "image_ltx": {
@@ -280,10 +286,64 @@ CATALOGUE: dict[str, dict[str, Any]] = {
         "sortie": "image",
         "note": "≈ 170 s. Lumière et ambiance ; mou sur l'objet précis. "
                 "Limité à 0,9 mégapixel sur cette carte.",
-        "parametres": ["format", "etapes", "graine"],
+        "parametres": ["format", "etapes", "graine", "negatif", "prefixe"],
         "formats": ["paysage"],
     },
 }
+
+#: Les longueurs de latent que LTX accepte sont de la forme `8k + 1` — 49
+#: images pour 2 s, 97 pour 4 s, mesurées et consignées dans
+#: `docs/studio-center.md`. À 24 im/s la coïncidence est exacte : 24 est un
+#: multiple de 8, donc toute durée en secondes entières tombe pile sur une
+#: longueur valide (`24·N + 1`). C'est pourquoi l'écran peut proposer une
+#: durée sans jamais mentir sur ce qui sera rendu.
+#:
+#: Exposé ici plutôt que recopié dans le frontend, comme le reste du
+#: catalogue : deux listes du même fait finissent par diverger.
+PAS_IMAGES = 8
+IMAGES_MAX = 257
+
+
+def images_pour_duree(duree_s: float, cadence: float = 24.0) -> int:
+    """La longueur valide la plus proche de la durée demandée.
+
+    Rend un nombre d'images, jamais une durée : c'est `length` que le nœud
+    `EmptyLTXVLatentVideo` attend, et l'arrondi doit être visible à
+    l'appelant plutôt que subi. `duree_reelle_s()` dit ce qu'il obtiendra.
+    """
+    brut = max(0.0, float(duree_s)) * max(1.0, float(cadence))
+    images = round(brut / PAS_IMAGES) * PAS_IMAGES + 1
+    return max(1, min(IMAGES_MAX, images))
+
+
+def duree_reelle_s(images: int, cadence: float = 24.0) -> float:
+    """La durée qu'un nombre d'images produit réellement."""
+    return max(1, int(images)) / max(1.0, float(cadence))
+
+
+#: Le coût de calcul d'un plan, ajusté sur les **trois** rendus réels de
+#: `docs/studio-center.md` — 512×288/49 en 170 s, 768×432/49 en 251 s,
+#: 704×1280/97 en 1 218 s.
+#:
+#: L'écran annonçait jusqu'ici « ≈ 5 min par seconde de vidéo finie ».
+#: Cette règle vient du seul rendu vertical et ne vaut que pour lui : elle
+#: surestime de **+144 %** en 768×432 et de **+260 %** en 512×288, parce
+#: que le temps suit les pixels autant que les images, pas la durée seule.
+#: Annoncer vingt minutes pour un rendu qui en prend quatre décourage un
+#: essai qui aurait été bon marché — l'erreur va dans le sens qui coûte le
+#: plus cher à l'usage.
+#:
+#: Ajustement linéaire par moindres carrés sur `pixels × images`, écart
+#: maximal 11 % sur les trois points. Trois points ne font pas une loi :
+#: c'est une extrapolation, et l'écran doit le dire.
+COUT_FIXE_S = 56.0
+COUT_PAR_MPX_IMAGE_S = 13.27
+
+
+def duree_calcul_s(largeur: int, hauteur: int, images: int) -> float:
+    """Le temps de calcul attendu, en secondes."""
+    mpx_images = (int(largeur) * int(hauteur) * max(1, int(images))) / 1_000_000
+    return COUT_FIXE_S + COUT_PAR_MPX_IMAGE_S * mpx_images
 
 _FABRIQUES = {
     "plan_video": plan_video,
@@ -309,6 +369,7 @@ def composer(gabarit: str, consigne: str, **parametres: Any) -> dict[str, Any]:
     return fabrique(consigne, **parametres)
 
 
-__all__ = ["CATALOGUE", "FORMATS", "FORMATS_PAR_MOTEUR",
-           "GabaritInvalide", "composer",
-           "image_ltx", "image_sdxl", "plan_video"]
+__all__ = ["CATALOGUE", "COUT_FIXE_S", "COUT_PAR_MPX_IMAGE_S", "FORMATS",
+           "FORMATS_PAR_MOTEUR", "IMAGES_MAX", "PAS_IMAGES",
+           "GabaritInvalide", "composer", "duree_calcul_s", "duree_reelle_s",
+           "image_ltx", "image_sdxl", "images_pour_duree", "plan_video"]
