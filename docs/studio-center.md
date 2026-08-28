@@ -1056,6 +1056,50 @@ paysage n'ont donc jamais ete rendus a la taille annoncee — et le
 deja, sans qu'on le sache, ce que `paysage_large` produisait.
 
 
+
+### La graine domine tout, et c'est le seul levier trouve (HOS-203)
+
+Meme consigne, memes reglages, seule la graine change — plan statique,
+images brutes.
+
+| graine | vitesse | dispersion |
+|---|---|---|
+| 1234 | 0,107 | **0,396** |
+| 42 | 0,099 | 0,474 |
+| 777 | 0,108 | **0,746** |
+
+Facteur **1,88** a vitesse quasi identique, contre x1,02 pour la
+quantification, x1,00 pour l'echantillonneur, x1,01 pour les formules de
+coherence dans la consigne et x1,26 *en pire* pour les etapes.
+
+Consequence pratique : un plan qui scintille se relance avec une autre
+graine, pas avec un autre reglage.
+
+Consequence methodologique, plus importante : plusieurs reglages ont
+semble marcher pendant cette campagne puis n'ont pas tenu a la
+reproduction — `res_multistep` a donné -17 % sur une graine et 0 % sur la
+suivante. Ils mesuraient du bruit de graine. **Toute mesure de coherence
+temporelle doit porter sur plusieurs graines**, sinon elle ne mesure rien.
+
+### La quantification ne change rien (HOS-203)
+
+Trois quantifications rendues sur le meme plan, meme graine :
+
+| modele | vitesse | dispersion |
+|---|---|---|
+| Q5_K_M — 16,82 Go | 0,108 | 0,746 |
+| Q6_K — 18,66 Go | 0,138 | 0,952 (vitesse x1,28, non comparable) |
+| Q8_0 — 23,63 Go | 0,112 | **0,763** |
+
+Quarante pour cent de bits en plus, +2 % de dispersion : rien.
+
+Deux corrections au tableau « monter est presque gratuit » plus haut. Le
+pic VRAM **reel** est de 12,71 Gio et non 7,6 : ces mesures ne decrivent
+pas la configuration actuelle. Et la contrainte est la **RAM systeme** —
+20,6 Gio pris par le processus, 3,4 Gio libres, et le Q6_K passe de cinq a
+plus de vingt minutes. C'est de la pagination.
+
+
 ## L'enchainement de plans (HOS-200)
 
 `LTXVImgToVideo` fait partir un plan d'une image au lieu du bruit. Donner

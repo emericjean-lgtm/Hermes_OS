@@ -1,3 +1,98 @@
+## HOS-203 - La quantification n'y est pour rien, la graine pese plus que tout (2026-08-28)
+
+Fin de la campagne sur le scintillement. Deux hypotheses restaient : la
+quantification, et la formulation de la consigne. Les deux sont closes, et
+un troisieme facteur, jamais regarde, s'avere dominer tous les autres.
+
+### La quantification n'est pas la cause
+
+Trois quantifications telechargees et rendues sur le meme plan statique,
+meme graine, meme tout. Mesure sur images brutes, la seule base comparable.
+
+| modele | vitesse | dispersion | ecart |
+|---|---|---|---|
+| Q5_K_M — 16,82 Go | 0,108 | 0,746 | reference |
+| Q6_K — 18,66 Go | 0,138 | 0,952 | non comparable (vitesse x1,28) |
+| **Q8_0 — 23,63 Go** | 0,112 | **0,763** | **+2 %** |
+
+Le Q8_0 porte 40 % de bits de plus que le Q5 et donne le meme resultat.
+
+Deux mesures au passage, contre le principe que j'avais suppose : le pic
+VRAM reel est **12,71 Gio** et non les 7,6 du tableau de ce document — ces
+chiffres ne decrivent pas la configuration actuelle. Et la contrainte est
+la **RAM systeme**, pas la carte : le processus monte a 20,6 Gio, il ne
+reste que 3,4 Gio libres, et le Q6_K met plus de vingt minutes la ou le Q5
+en prend cinq. C'est de la pagination, pas du calcul.
+
+### Les formules de coherence dans la consigne ne font rien
+
+Consigne de l'utilisateur rendue telle quelle, puis privee de ses seuls
+termes de coherence (« continuous coherent motion, stable architecture,
+consistent lighting throughout the shot »), meme graine.
+
+| | vitesse | dispersion |
+|---|---|---|
+| avec les formules | 9,70 | 30,385 |
+| sans les formules | 8,94 | 30,196 |
+
+**0,6 % d'ecart.** Le modele ne traite pas ces instructions comme des
+contraintes.
+
+### Un resultat annonce puis retire
+
+`res_multistep` avait donne -17 % sur la graine 777, a vitesse identique.
+Annonce comme « le seul gain solide de la campagne ». **Il ne se reproduit
+pas** : sur la graine 1234, les deux echantillonneurs donnent 0,396,
+strictement. Le -17 % etait du bruit de graine. Aucun changement de code
+n'en decoule — la confirmation avait ete exigee avant de toucher au
+gabarit, et elle a servi.
+
+### La graine domine tout
+
+Meme consigne, memes reglages, seule la graine change.
+
+| graine | vitesse | dispersion |
+|---|---|---|
+| 1234 | 0,107 | **0,396** |
+| 42 | 0,099 | 0,474 |
+| 777 | 0,108 | **0,746** |
+
+A vitesse quasi identique, un facteur **1,88**. Mis en regard de tout ce
+qui a ete mesure :
+
+| levier | effet sur la dispersion |
+|---|---|
+| quantification Q5 -> Q8 | x1,02 |
+| echantillonneur | x1,00 |
+| formules de coherence | x1,01 |
+| etapes 8 -> 24 | x1,26, en pire |
+| **graine** | **x1,88** |
+
+La graine pese plus que tous les reglages reunis. C'est la seule action
+utile trouvee, et la moins chere : un plan qui scintille se relance avec
+une autre graine. Le bouton de tirage ajoute en HOS-199 prend ici sa vraie
+justification.
+
+C'est aussi l'explication retrospective des faux positifs de cette
+campagne : plusieurs reglages ont semble marcher puis n'ont pas tenu a la
+reproduction. Ils mesuraient du bruit de graine. **Toute mesure future sur
+la coherence temporelle doit porter sur plusieurs graines**, sans quoi
+elle ne mesure rien.
+
+### Etat des six hypotheses du rapport initial
+
+| hypothese | verdict |
+|---|---|
+| instabilite intrinseque de LTX-2.5 | **confirmee** — 2,4 fois la dispersion d'une video parfaite |
+| quantification Q5_K_M | **ecartee** — Q8_0 identique |
+| nombre d'etapes | **ecartee** — au-dela de huit, c'est pire |
+| VAE au decodage | mesure faite sur images brutes : le defaut y est deja |
+| type de mouvement | **non tranchee** — l'instrument ne compare pas des vitesses si differentes |
+| encodage final | **ecartee** — present dans les PNG bruts |
+
+Aucun code n'a change. Le resultat de ce tour est une mesure, et il dit
+que le defaut est dans le modele.
+
 ## HOS-202 - Le defaut mesure sans encodage, deux formats qui mentaient, et 390 Mo de trop (2026-08-28)
 
 Suite du diagnostic, avec le compte rendu de l'utilisateur comme point de
