@@ -60,19 +60,20 @@ NEGATIF_DEFAUT = "blurry, distorted, watermark, text, low quality"
 #: Une liste commune était donc un piège : elle laissait choisir un format
 #: valide pour l'un et ruineux pour l'autre, sans rien dire.
 FORMATS: dict[str, tuple[int, int]] = {
-    # LTX — mesurés sur cette carte.
-    "paysage": (768, 432),
-    "paysage_large": (1280, 720),
+    # LTX — mesurés sur cette carte, et corrigés le 2026-08-28 (HOS-202).
+    #
+    # `paysage` valait 768 × 432 et `paysage_large` 1280 × 720. Ces deux
+    # tailles n'ont **jamais été rendues** : `ffprobe` sur les fichiers
+    # réels donne 768 × 416 et 1280 × 704. LTX ramène la hauteur au
+    # multiple de 32 inférieur, en silence. Déclarer une taille que le
+    # modèle ne produit pas trompait le calcul de coût, le choix de format
+    # et le garde-fou du départ sur image — lequel refusait `paysage` pour
+    # une hauteur de 432 qui n'existait pas.
+    #
+    # Les valeurs ci-dessous sont celles que les fichiers portent.
+    "paysage": (768, 416),
+    "paysage_large": (1280, 704),
     "portrait": (704, 1280),
-    # Variantes compatibles avec le départ sur image (HOS-200) : celui-ci
-    # exige des côtés multiples de 32, et ni 432 ni 720 ne le sont. Non
-    # mesurées séparément, mais tenues par les mesures existantes :
-    # 1280 × 704 fait 901 120 pixels, exactement le compte du portrait
-    # 704 × 1280 déjà chronométré ; 768 × 448 dépasse le paysage mesuré de
-    # 3,7 %. Le rapport d'image s'écarte un peu du 16:9 — c'est le prix de
-    # la contrainte du modèle, et il est écrit plutôt que subi.
-    "paysage_suite": (768, 448),
-    "paysage_large_suite": (1280, 704),
     # SDXL — ses compartiments d'entraînement, à un mégapixel près.
     "carre": (1024, 1024),
     "paysage_sdxl": (1344, 768),
@@ -82,8 +83,12 @@ FORMATS: dict[str, tuple[int, int]] = {
 #: Ce que chaque moteur sait rendre, et avec quoi commencer. Le premier
 #: de la liste est le défaut.
 FORMATS_PAR_MOTEUR: dict[str, list[str]] = {
-    "ltx": ["paysage", "paysage_large", "portrait",
-            "paysage_suite", "paysage_large_suite"],
+    # Les trois formats LTX sont désormais tous multiples de 32, donc tous
+    # compatibles avec le départ sur image. Les variantes « suite »
+    # ajoutées en HOS-200 n'ont plus d'objet : `paysage_large_suite` était
+    # 1280 × 704, c'est-à-dire exactement ce que `paysage_large` rendait
+    # déjà sans le dire.
+    "ltx": ["paysage", "paysage_large", "portrait"],
     "sdxl": ["carre", "paysage_sdxl", "portrait_sdxl"],
 }
 

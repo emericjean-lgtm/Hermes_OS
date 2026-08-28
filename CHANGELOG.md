@@ -1,3 +1,102 @@
+## HOS-202 - Le defaut mesure sans encodage, deux formats qui mentaient, et 390 Mo de trop (2026-08-28)
+
+Suite du diagnostic, avec le compte rendu de l'utilisateur comme point de
+depart : textures qui changent d'une image a l'autre, feuillage qui se
+redispose, zones lumineuses qui scintillent, decor qui « respire » —
+surtout sur les plans presque statiques.
+
+### Deux limites de l'instrument, trouvees avant de publier des chiffres
+
+**L'indicateur est sensible a l'encodeur.** Le meme rendu mesure 0,621 sur
+ses images brutes et 0,902 sur son mp4, alors que ce mp4 et un `libx264`
+CRF 23 partant des memes images ont une erreur d'encodage **identique**
+(2,98 contre 2,97 niveaux, memes tailles de fichier). L'ecart ne vient
+donc pas de la qualite d'encodage. Il reste **non explique**, et il
+invalidait le plancher de reference de HOS-201, mesure sur un fichier
+libx264 quand les rendus venaient de ComfyUI.
+
+**Le rapport dispersion/vitesse depend de la geometrie du mouvement.** Sur
+des temoins parfaits a vitesse croissante, le rapport *monte* (3,4 → 10,1
+→ 12,4) au lieu de rester constant : les bords d'un zoom se deplacent plus
+que le centre. Ce rapport ne mesure donc rien des que les vitesses
+different.
+
+### La mesure refaite, sans aucun encodage
+
+`SaveImage` ajoute au meme graphe donne les images du decodeur avant tout
+h264.
+
+| source | vitesse | dispersion |
+|---|---|---|
+| temoin : image figee x49 | 0,000 | **0,000** |
+| temoin : travelling parfait | 0,076 | 0,257 |
+| LTX-2.5 : plan statique | 0,109 | **0,621** |
+
+Le temoin fige rend exactement zero : l'instrument n'a pas de biais. A
+mouvement comparable, le modele produit **2,4 fois** la dispersion d'une
+video geometriquement parfaite, et son incoherence vaut pres de six fois
+son propre mouvement. C'est ce rapport qui explique que le defaut saute
+aux yeux sur un plan statique.
+
+### Sept reglages, aucun ne corrige
+
+Meme consigne, meme graine, meme encodeur — donc comparables entre eux.
+
+- Etapes 8 / 16 / 24 : 0,552 / 0,567 / **0,695**. Au-dela de huit, c'est
+  pire. La note « un modele distille ne gagne rien au-dela de huit » vaut
+  donc aussi pour la coherence, et dans le mauvais sens.
+- `res_multistep` : -12 % en absolu, mais avec moins de mouvement — non
+  concluant. A noter : le depot documentait `res_multistep` alors que le
+  code envoyait `euler`, ecart trouve en verifiant.
+- `uni_pc`, CFG 2,0, STG a l'echelle 2,0 sur les blocs 14/19, 720p :
+  aucun gain.
+
+Le plan de parallaxe a trente-quatre fois plus de mouvement que le plan
+statique : les deux ne sont pas comparables avec cet instrument.
+L'hypothese « un mouvement franc masque le defaut » reste **plausible et
+non tranchee**.
+
+### Deux formats qui n'ont jamais existe
+
+`ffprobe` sur les fichiers reels :
+
+| declare | reellement produit |
+|---|---|
+| `paysage` 768 x 432 | **768 x 416** |
+| `paysage_large` 1280 x 720 | **1280 x 704** |
+
+LTX ramene la hauteur au multiple de 32 inferieur, en silence. Ces tailles
+faussaient le calcul de cout et le garde-fou du depart sur image, lequel
+refusait `paysage` pour une hauteur de 432 qui n'existait pas. Les formats
+declarent desormais leur taille reelle, et les variantes « suite » de
+HOS-200 disparaissent : `paysage_large_suite` valait 1280 x 704,
+c'est-a-dire ce que `paysage_large` rendait deja.
+
+### 390 Mo commites par erreur
+
+Un `git add -A` pendant la campagne de HOS-201 a commite **881 images**
+d'analyse — les frames extraites par les scripts de mesure — soit environ
+390 Mo. Elles sont retirees du suivi et `.gitignore` couvre desormais ces
+motifs.
+
+Retirer ne suffit pas a alleger le depot : les objets restent dans
+l'historique. Les en sortir demanderait une reecriture d'historique et un
+`push --force`, operation destructive qui n'est pas engagee sans decision
+explicite.
+
+### Le mur materiel
+
+Lightricks documente que le scintillement se concentre sur les zones a
+haute frequence — cheveux, tissus, **feuillage** — ce qui fait du plan de
+test de ce projet, une foret dans la brume, a peu pres le pire sujet
+possible. La recommandation officielle est le modele **Dev** avec
+echantillonnage multi-etages ; il fait 22 milliards de parametres, 21,5 Go
+en int8, sur une carte de 16. L'agrandisseur de latent du pipeline
+multi-etages (1 Go) est dans un depot **ferme**, qui exige une
+authentification et l'acceptation d'une licence.
+
+Backend 2192 passed, 2 skipped. Frontend tsc propre.
+
 ## HOS-201 - La « micro-coupure » : bon phenomene, mauvaise mesure (2026-08-28)
 
 L'utilisateur a corrige sa description apres avoir regarde les fichiers,

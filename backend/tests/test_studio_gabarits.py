@@ -348,12 +348,18 @@ class TestDepartSurImage:
                        avec_son=True)
         assert g["6c"]["inputs"]["video_latent"] == ["6i", 2]
 
-    def test_un_format_non_multiple_de_32_est_refuse_avant_le_rendu(self):
+    def test_une_taille_non_multiple_de_32_est_refusee_avant_le_rendu(self):
         # Mesure : accepte, le plan occupe la carte et echoue SEPT MINUTES
         # plus tard sur une erreur einops illisible. Refuser coute une
         # milliseconde.
+        #
+        # Les formats du catalogue passent tous depuis HOS-202 — ils
+        # declarent enfin la taille que LTX rend vraiment. Le garde-fou
+        # protege donc les tailles libres, seule voie qui reste pour lui
+        # soumettre une hauteur impaire.
         with pytest.raises(GabaritInvalide, match="multiples de 32"):
-            plan_video("une rue", format_="paysage", image_depart="fin.png")
+            plan_video("une rue", largeur=768, hauteur=432,
+                       image_depart="fin.png")
 
     def test_les_formats_annonces_comme_compatibles_le_sont_vraiment(self):
         for nom in FORMATS_PAR_MOTEUR["ltx"]:
@@ -391,3 +397,31 @@ class TestInterpolation:
     def test_un_modele_inconnu_est_refuse_en_le_nommant(self):
         with pytest.raises(GabaritInvalide, match="interpolation inconnue"):
             plan_video("une rue", interpolation="rife_v9000")
+
+
+
+class TestFormatsReels:
+    """Les formats declares doivent etre ceux que LTX rend (HOS-202).
+
+    `paysage` annoncait 768 x 432 et `paysage_large` 1280 x 720. `ffprobe`
+    sur les fichiers reels donne 768 x 416 et 1280 x 704 : LTX ramene la
+    hauteur au multiple de 32 inferieur, en silence. Une taille declaree
+    que le modele ne produit pas fausse le calcul de cout, le choix de
+    format, et le garde-fou du depart sur image.
+    """
+
+    def test_tous_les_formats_ltx_sont_des_multiples_de_32(self):
+        for nom in FORMATS_PAR_MOTEUR["ltx"]:
+            l, h = FORMATS[nom]
+            assert l % 32 == 0 and h % 32 == 0, f"{nom} = {l}x{h}"
+
+    def test_les_formats_ltx_acceptent_donc_tous_le_depart_sur_image(self):
+        # Corollaire du precedent, et c'est ce qui rend les variantes
+        # « suite » de HOS-200 inutiles : elles n'existaient que parce que
+        # les formats mentaient sur leur hauteur.
+        for nom in FORMATS_PAR_MOTEUR["ltx"]:
+            plan_video("une rue", format_=nom, image_depart="fin.png")
+
+    def test_les_variantes_suite_ont_disparu(self):
+        for mort in ("paysage_suite", "paysage_large_suite"):
+            assert mort not in FORMATS

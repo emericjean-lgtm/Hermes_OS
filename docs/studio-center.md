@@ -993,6 +993,69 @@ Restent non mesures : une resolution plus haute, une echelle de STG plus
 forte, une quantification superieure. Aucune n'est ecartee — elles n'ont
 simplement pas ete essayees.
 
+
+### Amende le 2026-08-28 (deuxieme fois) : le plancher etait mal etabli
+
+Les chiffres ci-dessus comparaient des rendus encodes par ComfyUI a un
+temoin encode par `libx264`. **L'indicateur est sensible a l'encodeur**,
+et cette comparaison etait donc invalide.
+
+Constate : le meme rendu, mesure sur ses images brutes puis sur son mp4,
+donne 0,621 et 0,902 — alors que ce meme mp4 et un `libx264` CRF 23
+partant des memes images ont une erreur d'encodage **identique** (2,98 et
+2,97 niveaux, memes tailles de fichier). L'ecart de dispersion ne
+s'explique donc pas par la qualite d'encodage, mais par la structure
+spatiale du residu, que la correlation de phase lit comme un deplacement.
+Ce point reste **non explique** et il interdit de comparer deux fichiers
+produits par des encodeurs differents.
+
+Mesure refaite **sans aucun encodage**, sur les images brutes du
+decodeur (`SaveImage` ajoute au meme graphe), plan quasi statique :
+
+| source | vitesse | dispersion |
+|---|---|---|
+| temoin : image figee x49 | 0,000 | **0,000** |
+| temoin : travelling parfait | 0,076 | 0,257 |
+| LTX-2.5 : plan statique | 0,109 | **0,621** |
+
+Le temoin fige rend exactement zero : l'instrument n'a pas de biais. A
+mouvement comparable, le modele produit **2,4 fois** la dispersion d'une
+video geometriquement parfaite, et son incoherence vaut pres de **six
+fois** son propre mouvement. C'est le rapport, non la valeur brute, qui
+explique que le defaut saute aux yeux sur un plan statique.
+
+Les comparaisons de parametres du tableau precedent restent valides entre
+elles : tous ces rendus passent par le meme encodeur.
+
+### Ce que la documentation Lightricks confirme
+
+Le scintillement de LTX se concentre dans les zones a haute frequence —
+cheveux, tissus, **feuillage**. Le plan de test de ce projet, une foret
+dans la brume, est donc a peu pres le sujet le plus defavorable possible.
+Lightricks recommande le modele **Dev** avec echantillonnage multi-etages
+pour la coherence finale, et reserve le distille a l'iteration.
+
+Ce Dev est hors de portee ici : 22 milliards de parametres, 21,5 Go meme
+en int8, sur une carte de 16. L'agrandisseur de latent du pipeline
+multi-etages (1 Go) est dans un depot **ferme**, qui exige une
+authentification et l'acceptation d'une licence.
+
+### Un defaut trouve en verifiant : les formats declares n'existent pas
+
+`ffprobe` sur les rendus reels :
+
+| format declare | reellement produit |
+|---|---|
+| `paysage` 768 x 432 | **768 x 416** |
+| `paysage_large` 1280 x 720 | **1280 x 704** |
+| `portrait` 704 x 1280 | 704 x 1280 |
+
+LTX ramene la hauteur au multiple de 32 inferieur. Les deux formats
+paysage n'ont donc jamais ete rendus a la taille annoncee — et le
+`paysage_large_suite` (1280 x 704) ajoute pour le depart sur image etait
+deja, sans qu'on le sache, ce que `paysage_large` produisait.
+
+
 ## L'enchainement de plans (HOS-200)
 
 `LTXVImgToVideo` fait partir un plan d'une image au lieu du bruit. Donner

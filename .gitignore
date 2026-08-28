@@ -37,3 +37,19 @@ data/generated/
 
 # Trace d execution du garde-fou (HOS-141), pas du code.
 config/hooks/*.log
+
+# Images d'analyse extraites d'un rendu (HOS-202). Un `git add -A` en a
+# commite 881, soit ~390 Mo, pendant la campagne de mesure de HOS-201 :
+# ces dossiers sont des sous-produits jetables d'un script de mesure, pas
+# du depot. Ils appartiennent au scratchpad, jamais ici.
+/fr_*/
+/fx_*/
+/fy_*/
+/fz_*/
+/b_*/
+/q_*/
+/w_*/
+/z_*/
+/t_fixe/
+/t_zoom/
+/tz_*/
