@@ -1,3 +1,52 @@
+## HOS-206 - La file de nuit se lance enfin depuis l'ecran (2026-08-28)
+
+L'utilisateur : « peux-tu m'expliquer a quoi sert l'interface nuit de
+l'onglet studio ? il n'y a pas de bouton accessible ou autre je ne
+comprends pas son interet ou utilisation ».
+
+Il n'y avait effectivement aucun bouton. L'onglet ne savait que **lire**
+le rapport du matin ; le lancement n'existait que comme outil MCP
+`studio_night`, donc uniquement accessible en le demandant a l'agent dans
+le chat.
+
+C'est le troisieme cas identique en trois jours — la voix Michael
+(HOS-196), les trois parametres de rendu (HOS-199), et maintenant la file
+de nuit. Le motif est toujours le meme : une capacite backend reelle,
+testee, et sans aucune commande a l'ecran.
+
+### Pourquoi l'ecran ne pouvait pas la lancer
+
+`POST /studio/night` exigeait un `graphe` ComfyUI complet par plan. Le
+frontend n'en compose aucun, et c'est deliberé : la regle qui prime sur
+tout dans ce depot reserve cette decision au gabarit ou a l'agent.
+
+La route accepte desormais `gabarit` + `parametres` par plan, exactement
+comme `/render` depuis HOS-194, et compose cote serveur. La voie du
+`graphe` reste intacte pour l'agent — un test l'atteste, pour qu'elle ne
+regresse pas au profit de la nouvelle.
+
+### Ce que l'ecran annonce avant le clic
+
+Une nuit tient la carte pendant des heures. Le formulaire calcule donc le
+cout total de la file — nombre de plans x cout par plan, avec le modele
+de HOS-199 — et l'affiche en heures. Un delai maximal par plan est
+reglable : au-dela, le plan est abandonne et la file passe au suivant,
+plutot que de tenir la carte jusqu'au matin sur un rendu qui ne sort pas.
+
+Les reglages sont communs a toute la file, seule la consigne change d'un
+plan a l'autre : une nuit sert a decliner un meme plan, pas a melanger
+des formats. Et la consigne n'est pas decorative — c'est elle que le
+relecteur oppose au fichier produit. Sans elle le plan finit
+`indetermine`, ce qui est correct mais coute un rendu pour rien.
+
+### Tests
+
+Cinq, dont deux qui nomment le defaut : un plan sans gabarit ni graphe
+est refuse **en nommant son rang** (sur une file de dix, savoir lequel est
+mal decrit evite de relire les dix), et un gabarit invalide de meme.
+
+Backend 2200 passed, 2 skipped. Frontend tsc propre, vitest 113/113.
+
 ## HOS-205 - Le scintillement : trouve, corrige, confirme a l'oeil (2026-08-28)
 
 Apres trois tours de mesures infructueux, la cause du scintillement est

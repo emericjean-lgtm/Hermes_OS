@@ -208,13 +208,22 @@ def nuit(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     coûtent une heure de calcul. Aucune requête HTTP ne peut l'attendre :
     l'appelant reçoit le chemin du journal, que `GET /studio/night` relit.
 
-    Les graphes viennent de l'appelant, comme pour `/render`. Ce module
-    n'en compose aucun : la règle qui prime sur tout dans ce dépôt réserve
-    cette décision à Hermes Agent.
+    Deux façons de décrire un plan, et une seule décide de quelque chose.
+
+    `graphe` : l'appelant a composé lui-même — c'est la voie de Hermes
+    Agent, et elle reste intacte.
+
+    `gabarit` + `parametres` : la voie du Studio Center (HOS-206). Le
+    gabarit est figé, les paramètres explicites, rien n'est inféré —
+    exactement le même arrangement que `/render`, pour la même raison. Un
+    écran qui ne sait pas composer de graphe ne pouvait pas lancer de
+    nuit, et l'onglet Nuit n'affichait donc qu'un rapport qu'aucun bouton
+    ne permettait de produire.
     """
     import threading
 
     from backend.studio.file_de_nuit import Plan, atelier
+    from backend.studio.gabarits import GabaritInvalide, composer
 
     global _nuit
     if _nuit is not None and _nuit.is_alive():
@@ -228,15 +237,30 @@ def nuit(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
     plans: list[Plan] = []
     for i, b in enumerate(bruts):
-        graphe = (b or {}).get("graphe")
+        b = b or {}
+        graphe = b.get("graphe")
+        consigne = str(b.get("consigne") or "")
+
+        if not graphe and b.get("gabarit"):
+            parametres = b.get("parametres") or {}
+            if not isinstance(parametres, dict):
+                return {"success": False,
+                        "error": f"plan {i} : parametres doit être un objet"}
+            try:
+                graphe = composer(str(b["gabarit"]), consigne, **parametres)
+            except GabaritInvalide as e:
+                return {"success": False, "raison": "gabarit_invalide",
+                        "error": f"plan {i} : {e}"}
+
         if not isinstance(graphe, dict) or not graphe:
-            return {"success": False, "error": f"plan {i} : graphe manquant"}
+            return {"success": False,
+                    "error": f"plan {i} : il faut un `graphe` ou un `gabarit`"}
         plans.append(Plan(
             identifiant=str((b.get("identifiant") or f"plan_{i}")),
             # La consigne sert au relecteur. Sans elle il n'a rien à quoi
             # comparer, et le plan finira `indetermine` — ce qui est
             # correct, mais coûte un rendu pour rien.
-            consigne=str(b.get("consigne") or ""),
+            consigne=consigne,
             graphe=graphe))
 
     minutes = float(payload.get("minutes_par_plan") or 45.0)

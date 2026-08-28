@@ -6,6 +6,7 @@ import { CenterHeader, CenterTabs } from "@/components/center-scaffold";
 import { Card } from "@/components/ui/card";
 import { Composer } from "./composer";
 import { Narration } from "./narration";
+import { FileDeNuit } from "./file-de-nuit";
 import { useStudioModels, useStudioNight, useStudioState, useStudioVram } from "@/hooks/use-api";
 import type { EtatPlanNuit } from "@/services/client";
 import { formatGio, formatGioPair } from "@/lib/format";
@@ -356,24 +357,26 @@ function Nuit() {
   const rapport = data?.rapport;
 
   if (!rapport) {
+    // Le formulaire d'abord, et non un texte qui renvoie à l'agent :
+    // jusqu'à HOS-206 cet onglet n'affichait qu'un rapport, sans aucun
+    // bouton pour en produire un. La capacité existait, l'écran n'y
+    // donnait pas accès.
     return (
-      <Card title="File de nuit" subtitle="Aucun rapport">
-        <p className="text-sm text-hermes-muted">
-          {data?.raison ?? "Aucune nuit n'a encore été consignée."}
-        </p>
-        <p className="mt-3 text-[11.5px] leading-relaxed text-hermes-muted">
-          Une file s&apos;ouvre par l&apos;agent, avec l&apos;outil{" "}
-          <span className="num text-hermes-text">studio_night</span>. Elle
-          enchaîne les plans, réserve la carte pour chacun, et confronte chaque
-          fichier produit à la consigne qui devait le produire.
-        </p>
-      </Card>
+      <div className="flex flex-col gap-3">
+        <FileDeNuit />
+        <Card title="Rapport du matin" subtitle="Aucune nuit consignée">
+          <p className="text-sm text-hermes-muted">
+            {data?.raison ?? "Aucune nuit n'a encore été consignée."}
+          </p>
+        </Card>
+      </div>
     );
   }
 
   const retenus = rapport.compte.retenu ?? 0;
   return (
     <div className="flex flex-col gap-3">
+      <FileDeNuit />
       <Card
         title="Rapport du matin"
         subtitle={`${retenus}/${rapport.plans.length} plan(s) retenu(s) en ${Math.round(rapport.duree_s / 60)} min`}

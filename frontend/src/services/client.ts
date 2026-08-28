@@ -335,6 +335,18 @@ export const studioClient = {
         method: "POST",
         body: JSON.stringify({ video, ...(nom ? { nom } : {}) }),
       }),
+  /** Lancer une file de nuit depuis l'écran (HOS-206). Chaque plan est
+   *  décrit par un gabarit et des paramètres, jamais par un graphe : le
+   *  frontend n'en compose pas, c'est `gabarits.py` qui le fait. */
+  startNight: (plans: { identifiant: string; consigne: string;
+                        gabarit: string; parametres: ParametresRendu }[],
+               minutes_par_plan?: number) =>
+    fetchJSON<{ success: boolean; plans?: number; journal?: string;
+                error?: string; raison?: string }>("/studio/night", {
+      method: "POST",
+      body: JSON.stringify({ plans,
+        ...(minutes_par_plan ? { minutes_par_plan } : {}) }),
+    }),
   narrate: (lignes: { id: string; texte: string }[], dossier?: string) =>
     fetchJSON<NarrationDTO>("/studio/narrate", {
       method: "POST",

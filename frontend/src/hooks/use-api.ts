@@ -1010,6 +1010,27 @@ export function useStudioNarrate() {
   });
 }
 
+/** Lancer une file de nuit (HOS-206).
+ *
+ *  Invalide le rapport : la nuit vient de demarrer, et l'ecran doit le
+ *  montrer sans attendre son prochain sondage — lequel n'a lieu que
+ *  toutes les trente secondes, et seulement si une nuit est deja connue
+ *  comme en cours. */
+export function useStudioStartNight() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ plans, minutes }: {
+      plans: { identifiant: string; consigne: string; gabarit: string;
+               parametres: ParametresRendu }[];
+      minutes?: number;
+    }) => studioClient.startNight(plans, minutes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["studio", "night"] });
+      qc.invalidateQueries({ queryKey: ["studio", "state"] });
+    },
+  });
+}
+
 /** Le rapport de la file de nuit.
  *
  *  Sondé toutes les trente secondes pendant qu'une nuit tourne : un plan
