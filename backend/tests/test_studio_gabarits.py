@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-from backend.studio.gabarits import (CATALOGUE, FORMATS, IMAGES_MAX,
-                                     duree_calcul_s,
+from backend.studio.gabarits import (CATALOGUE, FORMATS, FORMATS_PAR_MOTEUR,
+                                     IMAGES_MAX,
+                                     MODELES_INTERPOLATION, duree_calcul_s,
                                      PAS_IMAGES, GabaritInvalide, composer,
                                      duree_reelle_s, image_ltx, image_sdxl,
                                      images_pour_duree, plan_video)
@@ -280,6 +281,9 @@ def _valeur_plausible(kwarg: str):
         "format_": "paysage", "images": 49, "cadence": 24.0, "etapes": 8,
         "graine": 0, "cfg": 7.0, "avec_son": False, "negatif": "flou",
         "prefixe": "studio/essai",
+        # `portrait` et non `paysage` : le depart sur image exige des
+        # cotes multiples de 32 (HOS-200), et 432 n'en est pas un.
+        "image_depart": None, "interpolation": "aucune",
     }[kwarg]
 
 
@@ -318,3 +322,72 @@ class TestCoutDeCalcul:
         petit = duree_calcul_s(512, 288, 49)
         grand = duree_calcul_s(1280, 720, 49)
         assert grand > petit * 2
+
+
+class TestDepartSurImage:
+    """Enchainer deux plans en gardant decor et personnages (HOS-200)."""
+
+    def test_sans_image_le_plan_part_du_bruit_comme_avant(self):
+        g = plan_video("une rue")
+        assert "LTXVImgToVideo" not in _types(g)
+        assert g["11"]["inputs"]["latent_image"] == ["6", 0]
+
+    def test_avec_image_le_conditionnement_vient_de_l_image(self):
+        g = plan_video("une rue", format_="portrait", image_depart="fin.png")
+        assert "LTXVImgToVideo" in _types(g)
+        # Le conditionnement du sampler doit passer par le noeud d'image,
+        # sinon l'image est chargee, payee, et ignoree.
+        assert g["7"]["inputs"]["positive"] == ["6i", 0]
+        assert g["11"]["inputs"]["latent_image"] == ["6i", 2]
+
+    def test_avec_son_le_latent_concatene_est_celui_de_l_image(self):
+        # Le defaut que ce test empeche : `LTXVConcatAVLatent` cable en dur
+        # sur le latent vide. Le plan repartait alors du bruit des qu'on
+        # demandait le son, en perdant sa continuite, sans aucune erreur.
+        g = plan_video("une rue", format_="portrait", image_depart="fin.png",
+                       avec_son=True)
+        assert g["6c"]["inputs"]["video_latent"] == ["6i", 2]
+
+    def test_un_format_non_multiple_de_32_est_refuse_avant_le_rendu(self):
+        # Mesure : accepte, le plan occupe la carte et echoue SEPT MINUTES
+        # plus tard sur une erreur einops illisible. Refuser coute une
+        # milliseconde.
+        with pytest.raises(GabaritInvalide, match="multiples de 32"):
+            plan_video("une rue", format_="paysage", image_depart="fin.png")
+
+    def test_les_formats_annonces_comme_compatibles_le_sont_vraiment(self):
+        for nom in FORMATS_PAR_MOTEUR["ltx"]:
+            l, h = FORMATS[nom]
+            if l % 32 or h % 32:
+                continue
+            plan_video("une rue", format_=nom, image_depart="fin.png")
+
+
+class TestInterpolation:
+    """L'interpolation d'images, integree au rendu (HOS-200)."""
+
+    def test_sans_interpolation_la_cadence_de_sortie_est_celle_demandee(self):
+        g = plan_video("une rue", cadence=24.0)
+        assert g["13"]["inputs"]["fps"] == 24.0
+        assert g["13"]["inputs"]["images"] == ["12", 0]
+
+    def test_la_cadence_est_multipliee_pour_que_la_duree_ne_change_pas(self):
+        # Sans ce doublement, interpoler x2 rendrait un ralenti : deux fois
+        # plus d'images jouees a la meme cadence, donc deux fois plus long.
+        g = plan_video("une rue", cadence=24.0, interpolation="film")
+        assert g["13"]["inputs"]["fps"] == 48.0
+        assert g["13"]["inputs"]["images"] == ["12j", 0]
+
+    def test_l_interpolation_se_place_apres_le_decodage(self):
+        # `FrameInterpolate` travaille sur des images, pas des latents.
+        g = plan_video("une rue", interpolation="rife")
+        assert g["12j"]["inputs"]["images"] == ["12", 0]
+
+    def test_chaque_modele_annonce_designe_un_fichier(self):
+        for cle in MODELES_INTERPOLATION:
+            g = plan_video("une rue", interpolation=cle)
+            assert g["12i"]["inputs"]["model_name"] == MODELES_INTERPOLATION[cle]
+
+    def test_un_modele_inconnu_est_refuse_en_le_nommant(self):
+        with pytest.raises(GabaritInvalide, match="interpolation inconnue"):
+            plan_video("une rue", interpolation="rife_v9000")

@@ -218,6 +218,13 @@ export interface ParametresRendu {
   avec_son?: boolean;
   negatif?: string;
   prefixe?: string;
+  /** Nom d'une image du dossier d'entrée de ComfyUI. Le plan part alors
+   *  de cette image — c'est ce qui enchaîne deux plans en conservant
+   *  décor et personnages (HOS-200). */
+  image_depart?: string;
+  /** "aucune" | "film" | "rife" | "rife_heavy". Double la cadence de
+   *  sortie en conséquence, pour que la durée ne change pas. */
+  interpolation?: string;
 }
 
 /** `mesure: false` n'est pas « zéro octet » : c'est « le compteur n'a rien
@@ -318,6 +325,16 @@ export const studioClient = {
    *  ligne est `{id, texte}` — l'identifiant nomme le fichier de sortie.
    *  `dossier` est optionnel : sans lui, le backend horodate lui-même
    *  sous `E:\YouTube\Generations\narration`. */
+  /** Extraire la dernière image d'un plan pour enchaîner le suivant.
+   *  Elle est écrite dans le dossier d'entrée de ComfyUI, seule adresse
+   *  que `LoadImage` sait lire. */
+  lastFrame: (video: string, nom?: string) =>
+    fetchJSON<{ success: boolean; nom?: string; chemin?: string;
+                octets?: number; error?: string; raison?: string }>(
+      "/studio/last-frame", {
+        method: "POST",
+        body: JSON.stringify({ video, ...(nom ? { nom } : {}) }),
+      }),
   narrate: (lignes: { id: string; texte: string }[], dossier?: string) =>
     fetchJSON<NarrationDTO>("/studio/narrate", {
       method: "POST",

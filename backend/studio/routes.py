@@ -328,6 +328,73 @@ def narrer(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     }
 
 
+#: Où ComfyUI lit les images d'entrée. C'est le seul dossier que
+#: `LoadImage` sait nommer, donc le seul endroit où déposer une image de
+#: départ. Déduit du processus plutôt que codé en dur serait plus robuste,
+#: mais l'installation est fixe sur cette machine et un chemin lisible
+#: vaut mieux qu'une déduction qui échoue en silence.
+DOSSIER_ENTREE_COMFY = (
+    r"C:\AI\Apps\ComfyUI-ROCm\comfyui-rocm-091926\input")
+
+
+@router.post("/last-frame")
+def derniere_image(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Extraire la dernière image d'un plan, pour enchaîner le suivant.
+
+    C'est la moitié manquante de l'enchaînement (HOS-200) : `plan_video`
+    sait partir d'une image, mais rien ne savait produire cette image à
+    partir du plan précédent. L'écran a besoin des deux pour que « faire
+    la suite » tienne en un clic.
+
+    L'image est écrite dans le dossier d'entrée de ComfyUI parce que
+    `LoadImage` ne sait lire que là — ce n'est pas un choix de rangement,
+    c'est la seule adresse que le nœud accepte.
+    """
+    import subprocess
+
+    from backend.studio.relecteur import ffmpeg as _localiser_ffmpeg
+
+    source = str(payload.get("video") or "").strip()
+    if not source:
+        return {"success": False, "error": "il faut le chemin d'un plan"}
+    if not os.path.isfile(source):
+        return {"success": False, "error": f"introuvable : {source}",
+                "raison": "video_absente"}
+
+    ff = _localiser_ffmpeg()
+    if not ff:
+        return {"success": False, "error": "ffmpeg introuvable",
+                "raison": "ffmpeg_absent"}
+
+    nom = str(payload.get("nom") or "").strip()
+    if not nom:
+        base = os.path.splitext(os.path.basename(source))[0]
+        nom = f"suite_{base}.png"
+    if not nom.lower().endswith(".png"):
+        nom += ".png"
+    # Le nom vient de l'appelant : on ne garde que le nom de fichier, pour
+    # qu'un « ../.. » ne fasse pas écrire hors du dossier d'entrée.
+    nom = os.path.basename(nom)
+    cible = os.path.join(DOSSIER_ENTREE_COMFY, nom)
+
+    os.makedirs(DOSSIER_ENTREE_COMFY, exist_ok=True)
+    # `-sseof -0.1` : se placer un dixième de seconde avant la fin plutôt
+    # que de décoder tout le plan pour n'en garder que la dernière image.
+    p = subprocess.run([ff, "-v", "error", "-sseof", "-0.1", "-i", source,
+                        "-vframes", "1", "-y", cible],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=120)
+    # Vérifié sur le disque, pas d'après le code de retour : `ffmpeg` rend
+    # 0 dans des cas où il n'a rien écrit — c'est consigné dans
+    # `montage.py`, et la même prudence vaut ici.
+    if not os.path.isfile(cible) or os.path.getsize(cible) == 0:
+        return {"success": False, "raison": "extraction_vide",
+                "error": (p.stderr or "aucune image extraite")[:400]}
+
+    return {"success": True, "nom": nom, "chemin": cible,
+            "octets": os.path.getsize(cible)}
+
+
 @router.get("/vram")
 def vram() -> dict[str, Any]:
     """Ce que le processus de rendu détient vraiment sur la carte.

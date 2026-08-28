@@ -1,3 +1,90 @@
+## HOS-200 - Les saccades mesurees, et l'enchainement de plans (2026-08-28)
+
+Trois questions posees sur le Studio, dont une - « les saccades viennent
+du modele ou d'un reglage ? » - qui ne se tranche que par la mesure.
+
+### La saccade vient du modele, et l'hypothese de depart etait fausse
+
+Ce que ce n'est pas : le conteneur est sain (24/1 constant, h264, nombre
+d'images conforme), verifie par ffprobe sur un fichier reellement produit.
+
+Mesure de l'ecart de luminance entre images successives, sur trois plans -
+deux formats, trois contenus. L'autocorrelation culmine a **8** dans les
+trois cas (+0,52 / +0,30 / +0,30), toujours le decalage le plus eleve,
+alors que r(12) change de signe et ne decrit rien. Seuil de bruit ≈0,14
+pour n≈50 : les valeurs sont 2 a 4 fois au-dessus. Dans chaque groupe de
+huit images le mouvement est fort au debut et faible a la fin - trois
+a-coups par seconde a 24 im/s.
+
+Ce 8 est le taux de compression temporelle du VAE de LTX. Deux faits
+independants le corroborent : la contrainte `8k + 1` sur le nombre
+d'images, et le « Must be 8*n + 1 frames » de la documentation du noeud
+`LTXVAddGuide`. Trois indices, une cause.
+
+**L'hypothese de depart etait le decoupage temporel du decodeur**
+(`temporal_size` 16, recouvrement 4, donc un pas de 12). La mesure l'a
+infirmee : c'est precisement a 12 que le signal est le plus anti-correle.
+Elle a ete ecartee au lieu d'etre corrigee apres coup.
+
+### Le lissage : integre au rendu, et honnete sur ce qu'il ne fait pas
+
+Trois modeles installes depuis `Comfy-Org/frame_interpolation`, le depot
+que le gabarit officiel livre avec ComfyUI designe. Banc de comparaison
+sans diffusion (la video deja rendue est rechargee), donc 6 a 26 s par
+essai au lieu de minutes.
+
+| modele | variation du pas | secousse image-a-image |
+|---|---|---|
+| rife_v4.26 | +26 % / +18 % | +55 % / +29 % |
+| rife_v4.26_heavy | +32 % / +15 % | +58 % / +18 % |
+| film_net_fp16 | +14 % / +8 % | **-18 % / -14 %** |
+
+**Aucun ne supprime l'irregularite de fond** - attendu, puisque
+l'interpolation ne peut pas inventer ce qui s'est passe entre deux groupes
+de huit. FILM est le seul a reduire la secousse image-a-image ; RIFE
+l'aggrave. FILM est donc le choix propose, et l'ecran ecrit ce que le
+lissage ne fait pas plutot que de le laisser croire.
+
+L'interpolation est faite **pendant** le rendu, pas en seconde passe, et
+la cadence de sortie est multipliee d'autant pour que la duree ne bouge
+pas - sans ce doublement, le plan deviendrait un ralenti.
+
+### Enchainer deux plans en gardant decor et personnages
+
+`LTXVImgToVideo` fait partir un plan d'une image au lieu du bruit ; donner
+au suivant la derniere image du precedent conserve la scene.
+`POST /studio/last-frame` extrait cette image dans le dossier d'entree de
+ComfyUI, seule adresse que `LoadImage` sait lire.
+
+Une contrainte que rien n'annoncait : ce noeud decoupe le latent en blocs
+de 2x2 et exige des cotes **multiples de 32**. Ni 432 ni 720 ne le sont.
+Constate en le lancant : le plan est accepte, occupe la carte, et echoue
+**sept minutes plus tard** sur un `einops.EinopsError` illisible. Un
+garde-fou refuse desormais en une milliseconde, en nommant les formats
+compatibles. Deux formats compatibles ont ete ajoutes - `paysage_suite`
+(768 x 448) et `paysage_large_suite` (1280 x 704, exactement le compte de
+pixels du portrait deja chronometre).
+
+Un test empeche un defaut trouve en ecrivant le code : avec le son,
+`LTXVConcatAVLatent` etait cable en dur sur le latent vide. Le plan
+repartait donc du bruit des qu'on demandait le son, en perdant sa
+continuite, sans aucune erreur.
+
+### La graine, et un piege corrige
+
+La valeur par defaut etait `0` - une graine fixe, pas un tirage. Deux
+lancements sans y toucher rendaient exactement le meme fichier. Un bouton
+de tirage a ete ajoute, et l'aide corrigee : elle disait « 0 pour laisser
+courir », ce qui etait faux.
+
+### Verifications
+
+Les deux nouveautes sont validees par des **rendus reels**, pas par
+construction de graphe : un plan I2V + lissage en 512 x 320 rend 49 images
+a 48 im/s pour 1,02 s - exactement le calcul. Le premier essai, lui, a
+echoue, et c'est ce qui a fait trouver la contrainte des multiples de 32 :
+`success: true` de la soumission ne valait que « accepte ».
+
 ## HOS-199 - La duree d'un plan, et trois reglages deja ecrits mais jamais offerts (2026-08-28)
 
 « Je ne peux pas choisir la duree de la video. » C'etait vrai en pratique

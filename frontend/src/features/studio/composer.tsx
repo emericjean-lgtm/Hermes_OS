@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Film, Image as ImageIcon, Loader2 } from "lucide-react";
+import { AlertTriangle, Dices, Film, Image as ImageIcon, Loader2, Link2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useStudioCompose, useStudioTemplates } from "@/hooks/use-api";
 import type { GabaritDTO } from "@/services/client";
@@ -36,8 +36,12 @@ import type { GabaritDTO } from "@/services/client";
 const CHAMPS: Record<string, { libelle: string; min: number; max: number; pas: number; aide?: string }> = {
   etapes: { libelle: "Étapes", min: 1, max: 50, pas: 1,
             aide: "LTX est distillé : au-delà de 8, il ne gagne rien. SDXL en demande 25." },
+  // « 0 pour laisser courir » était faux, et c'est le piège que le dé
+  // corrige : 0 est une graine comme une autre, pas un tirage. Deux
+  // rendus lancés sans y toucher donnaient donc exactement le même
+  // fichier — ce que personne n'attend d'un bouton « Lancer ».
   graine: { libelle: "Graine", min: 0, max: 999999, pas: 1,
-            aide: "Même graine + mêmes réglages = même rendu. 0 pour laisser courir." },
+            aide: "Même graine + mêmes réglages = le même plan, à l'identique. Le dé en tire une nouvelle." },
   cfg: { libelle: "CFG", min: 1, max: 20, pas: 0.5,
          aide: "Combien le modèle colle à la consigne. 7 est la référence SDXL." },
 };
@@ -71,6 +75,8 @@ export function Composer({ actif }: { actif: boolean }) {
   const [cadence, setCadence] = useState(24);
   const [negatif, setNegatif] = useState("");
   const [prefixe, setPrefixe] = useState("");
+  const [interpolation, setInterpolation] = useState("aucune");
+  const [imageDepart, setImageDepart] = useState("");
 
   if (!catalogue) {
     return <Card title="Rendu"><p className="text-xs text-hermes-dim">Chargement des gabarits…</p></Card>;
@@ -129,6 +135,8 @@ export function Composer({ actif }: { actif: boolean }) {
     // prompt négatif vide n'est pas « le prompt négatif par défaut ».
     if (attendus.has("negatif") && negatif.trim()) parametres.negatif = negatif.trim();
     if (attendus.has("prefixe") && prefixe.trim()) parametres.prefixe = prefixe.trim();
+    if (attendus.has("interpolation") && interpolation !== "aucune") parametres.interpolation = interpolation;
+    if (attendus.has("image_depart") && imageDepart.trim()) parametres.image_depart = imageDepart.trim();
     lancer.mutate({ gabarit, consigne, parametres });
   };
 
@@ -244,6 +252,23 @@ export function Composer({ actif }: { actif: boolean }) {
               </label>
             ))}
 
+          {/* Le dé. Sans lui, la graine reste à 0 — une valeur fixe, pas
+              un tirage — et deux lancements consécutifs rendent le même
+              plan. */}
+          {attendus.has("graine") && (
+            <button
+              onClick={() => setValeurs((v) => ({
+                ...v, graine: Math.floor(Math.random() * 1_000_000),
+              }))}
+              title="Tirer une nouvelle graine"
+              className="mb-[1px] flex items-center gap-1.5 rounded-lg border border-hermes-border
+                px-2.5 py-1.5 font-mono text-[11px] text-hermes-muted transition-all
+                hover:border-hermes-amber/40 hover:text-hermes-amber"
+            >
+              <Dices size={12} /> Nouvelle
+            </button>
+          )}
+
           {attendus.has("avec_son") && (
             <label className="flex cursor-pointer items-center gap-2 pb-1.5">
               <input
@@ -256,6 +281,66 @@ export function Composer({ actif }: { actif: boolean }) {
             </label>
           )}
         </div>
+
+        {/* Lissage et enchaînement (HOS-200). Deux réglages dont l'effet
+            se paie au rendu, donc annoncés ici plutôt que découverts
+            après coup. */}
+        {(attendus.has("interpolation") || attendus.has("image_depart")) && (
+          <div className="flex flex-wrap items-end gap-3">
+            {attendus.has("interpolation") && (
+              <label className="flex flex-col gap-1">
+                <span className="tech-label">Lissage</span>
+                <select
+                  value={interpolation}
+                  onChange={(e) => setInterpolation(e.target.value)}
+                  className="rounded-lg border border-hermes-border bg-hermes-bg px-2 py-1.5
+                    font-mono text-[11px] text-hermes-text outline-none focus:border-hermes-amber"
+                >
+                  <option value="aucune">aucun</option>
+                  <option value="film">FILM — le seul qui réduit la secousse</option>
+                  <option value="rife">RIFE — plus rapide, aggrave la secousse</option>
+                  <option value="rife_heavy">RIFE lourd</option>
+                </select>
+              </label>
+            )}
+
+            {attendus.has("image_depart") && (
+              <label className="flex min-w-[240px] flex-1 flex-col gap-1">
+                <span className="tech-label">Partir d&apos;une image (optionnel)</span>
+                <div className="flex items-center gap-1.5">
+                  <Link2 size={12} className="shrink-0 text-hermes-dim" />
+                  <input
+                    type="text"
+                    value={imageDepart}
+                    onChange={(e) => setImageDepart(e.target.value)}
+                    placeholder="nom d'une image du dossier d'entrée de ComfyUI"
+                    className="w-full rounded-lg border border-hermes-border bg-hermes-bg px-3 py-1.5
+                      font-mono text-[11px] text-hermes-text outline-none focus:border-hermes-amber"
+                  />
+                </div>
+              </label>
+            )}
+          </div>
+        )}
+
+        {/* Ce que le lissage ne fait pas, dit avant le clic. */}
+        {interpolation !== "aucune" && (
+          <p className="text-[11px] leading-relaxed text-hermes-gold">
+            Le lissage double la cadence sans changer la durée. Il ne supprime
+            pas l&apos;irrégularité de fond : celle-ci vient de la structure
+            temporelle du modèle (8 images par image latente), et aucun des
+            trois modèles mesurés ne l&apos;efface.
+          </p>
+        )}
+
+        {/* Ce que le départ sur image exige, avant que le rendu n'échoue. */}
+        {imageDepart.trim() && dims && (dims.largeur % 32 !== 0 || dims.hauteur % 32 !== 0) && (
+          <p className="text-[11px] leading-relaxed text-hermes-alarm">
+            {dims.largeur} × {dims.hauteur} ne convient pas : partir d&apos;une image
+            exige des côtés multiples de 32. Choisissez un format « suite », ou
+            le portrait.
+          </p>
+        )}
 
         {/* Prompt négatif et préfixe : implémentés dans les gabarits
             depuis HOS-194 et jamais offerts, donc inaccessibles autrement

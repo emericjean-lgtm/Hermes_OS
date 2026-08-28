@@ -849,6 +849,95 @@ démarrage, menus complets.
 
 ---
 
+## Les saccades, mesurees (HOS-200)
+
+L'utilisateur a signale de legeres saccades sur les plans generes. La
+question posee etait « le modele ou un reglage ? ». Elle se tranche par la
+mesure, et la reponse est **le modele**.
+
+### Ce que ce n'est pas
+
+Le conteneur est sain : cadence constante 24/1, h264, yuv420p, nombre
+d'images conforme. L'encodage est hors de cause, verifie par `ffprobe` sur
+un fichier reellement produit.
+
+### Le motif, et sa periode
+
+Ecart moyen de luminance entre images successives, sur trois plans (deux
+formats, trois contenus). Autocorrelation du signal :
+
+| plan | r(8) | r(12) | etendue de phase a P=8 |
+|---|---|---|---|
+| portrait 704x1280 | **+0,519** | -0,371 | 38,1 % |
+| paysage 768x432, mouvement rapide | **+0,304** | +0,189 | 17,6 % |
+| paysage 768x432, mouvement lent | **+0,295** | -0,108 | 38,6 % |
+
+`r(8)` est positif dans les trois cas et toujours le plus eleve ; `r(12)`
+change de signe et ne decrit rien. Avec n≈50, le seuil de bruit vaut
+≈0,14 : les valeurs observees sont 2 a 4 fois au-dessus.
+
+Dans chaque groupe de huit images, le mouvement est fort au debut et
+faible a la fin (1,17 -> 0,79 en moyenne de phase). A 24 im/s, cela fait
+**trois a-coups par seconde**.
+
+### Pourquoi 8
+
+C'est le taux de compression temporelle du VAE de LTX : huit images
+decodees par image latente. La meme valeur explique deux autres faits
+independants — la contrainte `8k + 1` sur le nombre d'images, et la
+mention « Must be 8*n + 1 frames » dans la documentation du noeud
+`LTXVAddGuide`. Trois indices, une seule cause.
+
+### Une hypothese ecartee par la mesure
+
+Le premier soupcon portait sur le decoupage temporel du decodeur
+(`temporal_size` 16, `temporal_overlap` 4, donc un pas de 12). La mesure
+l'a **infirme** : `r(12)` est la valeur la plus negative des trois plans
+ou la plus instable. Le tuilage n'y est pour rien.
+
+### Ce que l'interpolation change, et ce qu'elle ne change pas
+
+Trois modeles installes depuis `Comfy-Org/frame_interpolation`, le depot
+que le gabarit officiel livre avec ComfyUI designe. Interpolation x2,
+cadence de sortie doublee pour que la duree ne bouge pas. Deux indicateurs
+sans dimension, donc comparables entre 24 et 48 im/s :
+
+| modele | variation du pas | secousse image-a-image |
+|---|---|---|
+| rife_v4.26 | +26 % / +18 % | +55 % / +29 % |
+| rife_v4.26_heavy | +32 % / +15 % | +58 % / +18 % |
+| film_net_fp16 | +14 % / +8 % | **-18 % / -14 %** |
+
+**Aucun ne supprime l'irregularite de fond**, et c'est attendu :
+l'interpolation ne peut pas inventer ce qui s'est passe entre deux groupes
+de huit. FILM est le seul a reduire la secousse image-a-image ; RIFE
+l'aggrave sur ce banc. FILM est donc le defaut propose, et l'ecran dit ce
+que le lissage ne fait pas plutot que de le laisser croire.
+
+Cout mesure : 6 a 26 s selon le plan et le modele, sans diffusion — le
+banc charge la video deja rendue plutot que de la regenerer.
+
+## L'enchainement de plans (HOS-200)
+
+`LTXVImgToVideo` fait partir un plan d'une image au lieu du bruit. Donner
+au plan suivant la **derniere image** du precedent conserve decor et
+personnages. `POST /studio/last-frame` extrait cette image dans le dossier
+d'entree de ComfyUI, seule adresse que `LoadImage` sait lire.
+
+### Une contrainte que rien n'annoncait
+
+`LTXVImgToVideo` decoupe le latent en blocs de 2x2 et exige donc des cotes
+**multiples de 32**. Ni 432 ni 720 ne le sont : les formats `paysage` et
+`paysage_large` sont incompatibles. Mesure du symptome avant garde-fou :
+le plan est accepte, occupe la carte, et echoue **sept minutes plus tard**
+sur `einops.EinopsError: can't divide axis of length 27 in chunks of 2`.
+
+Deux formats compatibles ont ete ajoutes — `paysage_suite` (768 x 448) et
+`paysage_large_suite` (1280 x 704). Ils ne sont pas mesures separement,
+mais tenus par les mesures existantes : 1280 x 704 fait 901 120 pixels,
+exactement le compte du portrait deja chronometre.
+
+
 ## La narration par voix clonée (HOS-195)
 
 Chatterbox, cloné depuis un échantillon de l'utilisateur, sous un

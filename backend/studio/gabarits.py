@@ -64,6 +64,15 @@ FORMATS: dict[str, tuple[int, int]] = {
     "paysage": (768, 432),
     "paysage_large": (1280, 720),
     "portrait": (704, 1280),
+    # Variantes compatibles avec le départ sur image (HOS-200) : celui-ci
+    # exige des côtés multiples de 32, et ni 432 ni 720 ne le sont. Non
+    # mesurées séparément, mais tenues par les mesures existantes :
+    # 1280 × 704 fait 901 120 pixels, exactement le compte du portrait
+    # 704 × 1280 déjà chronométré ; 768 × 448 dépasse le paysage mesuré de
+    # 3,7 %. Le rapport d'image s'écarte un peu du 16:9 — c'est le prix de
+    # la contrainte du modèle, et il est écrit plutôt que subi.
+    "paysage_suite": (768, 448),
+    "paysage_large_suite": (1280, 704),
     # SDXL — ses compartiments d'entraînement, à un mégapixel près.
     "carre": (1024, 1024),
     "paysage_sdxl": (1344, 768),
@@ -73,7 +82,8 @@ FORMATS: dict[str, tuple[int, int]] = {
 #: Ce que chaque moteur sait rendre, et avec quoi commencer. Le premier
 #: de la liste est le défaut.
 FORMATS_PAR_MOTEUR: dict[str, list[str]] = {
-    "ltx": ["paysage", "paysage_large", "portrait"],
+    "ltx": ["paysage", "paysage_large", "portrait",
+            "paysage_suite", "paysage_large_suite"],
     "sdxl": ["carre", "paysage_sdxl", "portrait_sdxl"],
 }
 
@@ -98,22 +108,76 @@ def _dimensions(format_: str, largeur: int | None,
     return FORMATS[format_]
 
 
+#: Les modèles d'interpolation d'images installés, et ce qu'ils valent
+#: **mesuré ici** (HOS-200) — pas ce qu'en disent leurs auteurs.
+#:
+#: Le banc : deux plans rendus, interpolés ×2, comparés à l'original sur
+#: deux indicateurs sans dimension (donc comparables entre 24 et 48 im/s)
+#: — la variation relative du pas de mouvement, et la secousse d'une
+#: image à l'autre.
+#:
+#: | modèle           | variation | secousse |
+#: |------------------|-----------|----------|
+#: | rife_v4.26       |   +26/+18 % | +55/+29 % |
+#: | rife_v4.26_heavy |   +32/+15 % | +58/+18 % |
+#: | film_net_fp16    |   +14/+8 %  | **-18/-14 %** |
+#:
+#: Aucun ne supprime l'irrégularité de fond : elle vient de la structure
+#: temporelle du VAE (8 images par image latente) et l'interpolation ne
+#: peut pas inventer ce qui s'est passé entre deux groupes. FILM est
+#: néanmoins le seul à **réduire** la secousse image-à-image, et c'est
+#: pourquoi il est le défaut. RIFE, plus rapide, l'aggrave sur ce banc.
+MODELES_INTERPOLATION: dict[str, str] = {
+    "film": "film_net_fp16.safetensors",
+    "rife": "rife_v4.26.safetensors",
+    "rife_heavy": "rife_v4.26_heavy.safetensors",
+}
+
+
 def plan_video(consigne: str, *, format_: str = "paysage",
                largeur: int | None = None, hauteur: int | None = None,
                images: int = 49, etapes: int = 8, graine: int = 0,
                cadence: float = 24.0, negatif: str = NEGATIF_DEFAUT,
-               avec_son: bool = False,
+               avec_son: bool = False, image_depart: str | None = None,
+               interpolation: str = "aucune", multiplicateur: int = 2,
                prefixe: str = "studio/plan") -> dict[str, Any]:
     """Un plan vidéo LTX-2.5, avec son propre son si on le demande.
 
     `avec_son` fait passer les deux latents dans le **même**
     échantillonnage — c'est ce qui rend le son synchrone plutôt que
     juxtaposé, et cela coûte 21 % de temps mesurés.
+
+    `image_depart` nomme une image du dossier `input` de ComfyUI : le plan
+    part alors de cette image au lieu de partir du bruit. C'est ce qui
+    permet d'enchaîner deux plans en conservant décor et personnages —
+    on donne au plan suivant la dernière image du précédent.
+
+    `interpolation` insère un modèle d'interpolation entre le décodage et
+    l'encodage vidéo, et **double la cadence de sortie en conséquence**,
+    de sorte que la durée réelle ne change pas. Sans ce doublement, le
+    même nombre de secondes deviendrait un ralenti.
     """
     if not consigne.strip():
         raise GabaritInvalide("consigne vide : il n'y aurait rien à rendre")
+    if interpolation != "aucune" and interpolation not in MODELES_INTERPOLATION:
+        raise GabaritInvalide(
+            f"interpolation inconnue : {interpolation!r} — attendues "
+            f"{['aucune'] + sorted(MODELES_INTERPOLATION)}")
     l, h = _dimensions(format_, largeur, hauteur)
     images = max(1, int(images))
+
+    # Refuser tôt, et en nommant la contrainte. `LTXVImgToVideo` découpe le
+    # latent en blocs de 2×2, ce qui exige des côtés multiples de 32. Sans
+    # ce contrôle, un plan en 768 × 432 est accepté, occupe la carte, et
+    # échoue **sept minutes plus tard** sur une erreur `einops` illisible
+    # (« can't divide axis of length 27 in chunks of 2 ») — mesuré.
+    if image_depart and (l % 32 or h % 32):
+        compatibles = [n for n, (a, b) in FORMATS.items()
+                       if not (a % 32 or b % 32) and n in FORMATS_PAR_MOTEUR["ltx"]]
+        raise GabaritInvalide(
+            f"un plan qui part d'une image exige des côtés multiples de 32, "
+            f"et {l} × {h} n'en est pas un. Formats compatibles : "
+            f"{sorted(compatibles)}.")
 
     g: dict[str, Any] = {
         "1": {"class_type": "UnetLoaderGGUF",
@@ -128,6 +192,9 @@ def plan_video(consigne: str, *, format_: str = "paysage",
         "6": {"class_type": "EmptyLTXVLatentVideo",
               "inputs": {"width": l, "height": h, "length": images,
                          "batch_size": 1}},
+        # `positive`/`negative` sont recâblés plus bas quand un plan part
+        # d'une image : c'est `LTXVImgToVideo` qui produit alors le
+        # conditionnement, à partir de celui-ci.
         "7": {"class_type": "LTXVConditioning",
               "inputs": {"positive": ["4", 0], "negative": ["5", 0],
                          "frame_rate": cadence}},
@@ -142,15 +209,37 @@ def plan_video(consigne: str, *, format_: str = "paysage",
                           "terminal": 0.1}},
     }
 
+    # ── Départ sur image (I2V) ──
+    # `LTXVImgToVideo` prend le conditionnement brut des deux encodeurs de
+    # texte et rend un conditionnement enrichi de l'image **plus** le
+    # latent de départ. Il se place donc avant `LTXVConditioning`, qui ne
+    # fait qu'y apposer la cadence.
     latent_depart = ["6", 0]
+    if image_depart:
+        g["4i"] = {"class_type": "LoadImage",
+                   "inputs": {"image": image_depart}}
+        g["6i"] = {"class_type": "LTXVImgToVideo",
+                   "inputs": {"positive": ["4", 0], "negative": ["5", 0],
+                              "vae": ["3", 0], "image": ["4i", 0],
+                              "width": l, "height": h, "length": images,
+                              "batch_size": 1, "strength": 1.0}}
+        g["7"]["inputs"]["positive"] = ["6i", 0]
+        g["7"]["inputs"]["negative"] = ["6i", 1]
+        latent_depart = ["6i", 2]
+
     if avec_son:
         g["3b"] = {"class_type": "LTXVAudioVAELoader",
                    "inputs": {"ckpt_name": LTX_VAE_AUDIO}}
         g["6b"] = {"class_type": "LTXVEmptyLatentAudio",
                    "inputs": {"frames_number": images, "frame_rate": cadence,
                               "batch_size": 1, "audio_vae": ["3b", 0]}}
+        # `latent_depart` et non `["6", 0]` : quand le plan part d'une
+        # image, c'est le latent de `LTXVImgToVideo` qu'il faut concaténer
+        # au son. Le câbler en dur sur le latent vide ferait repartir
+        # l'image du bruit dès qu'on demande le son — et le plan aurait
+        # perdu sa continuité sans qu'aucune erreur ne le dise.
         g["6c"] = {"class_type": "LTXVConcatAVLatent",
-                   "inputs": {"video_latent": ["6", 0],
+                   "inputs": {"video_latent": latent_depart,
                               "audio_latent": ["6b", 0]}}
         latent_depart = ["6c", 0]
 
@@ -173,7 +262,27 @@ def plan_video(consigne: str, *, format_: str = "paysage",
                           "tile_size": 256, "overlap": 32,
                           "temporal_size": 16, "temporal_overlap": 4}}
 
-    entrees_video: dict[str, Any] = {"images": ["12", 0], "fps": cadence}
+    # ── Interpolation d'images ──
+    # Placée après le décodage, donc sur des images et non des latents :
+    # c'est ce que `FrameInterpolate` attend. La cadence de sortie est
+    # multipliée d'autant, sinon le plan durerait `multiplicateur` fois
+    # plus longtemps — un ralenti, pas un lissage.
+    #
+    # Le son, lui, n'est pas ré-échantillonné et n'a pas à l'être : la
+    # durée réelle du plan ne change pas, seul le nombre d'images entre
+    # deux instants augmente.
+    images_finales = ["12", 0]
+    fps_sortie = cadence
+    if interpolation != "aucune":
+        g["12i"] = {"class_type": "FrameInterpolationModelLoader",
+                    "inputs": {"model_name": MODELES_INTERPOLATION[interpolation]}}
+        g["12j"] = {"class_type": "FrameInterpolate",
+                    "inputs": {"interp_model": ["12i", 0], "images": ["12", 0],
+                               "multiplier": max(2, int(multiplicateur))}}
+        images_finales = ["12j", 0]
+        fps_sortie = cadence * max(2, int(multiplicateur))
+
+    entrees_video: dict[str, Any] = {"images": images_finales, "fps": fps_sortie}
     if latent_audio is not None:
         g["13b"] = {"class_type": "LTXVAudioVAEDecode",
                     "inputs": {"samples": latent_audio, "audio_vae": ["3b", 0]}}
@@ -268,7 +377,8 @@ CATALOGUE: dict[str, dict[str, Any]] = {
         # sous le formulaire, calculée pour le format choisi.
         "note": "3 à 20 min selon le format et la durée, mesurés.",
         "parametres": ["format", "images", "cadence", "etapes", "graine",
-                       "avec_son", "negatif", "prefixe"],
+                       "avec_son", "image_depart", "interpolation",
+                       "negatif", "prefixe"],
         "formats": FORMATS_PAR_MOTEUR["ltx"],
     },
     "image_sdxl": {
@@ -370,6 +480,7 @@ def composer(gabarit: str, consigne: str, **parametres: Any) -> dict[str, Any]:
 
 
 __all__ = ["CATALOGUE", "COUT_FIXE_S", "COUT_PAR_MPX_IMAGE_S", "FORMATS",
-           "FORMATS_PAR_MOTEUR", "IMAGES_MAX", "PAS_IMAGES",
+           "FORMATS_PAR_MOTEUR", "IMAGES_MAX", "MODELES_INTERPOLATION",
+           "PAS_IMAGES",
            "GabaritInvalide", "composer", "duree_calcul_s", "duree_reelle_s",
            "image_ltx", "image_sdxl", "images_pour_duree", "plan_video"]
