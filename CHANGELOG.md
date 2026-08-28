@@ -1,3 +1,63 @@
+## HOS-201 - La « micro-coupure » : bon phenomene, mauvaise mesure (2026-08-28)
+
+L'utilisateur a corrige sa description apres avoir regarde les fichiers,
+et cette correction invalide le diagnostic de HOS-200. Il ne decrit pas un
+defaut de RYTHME mais de CONTENU : « comme si la video etait creee en
+ajoutant des petits morceaux de 0,5 s », avec « de legeres variations sur
+la disposition des plantes » et l'impression que le plan recule.
+
+### Pourquoi la mesure precedente ne pouvait pas le voir
+
+L'ecart de luminance entre images successives mesure **l'ampleur** d'un
+changement, jamais son **sens**. Il ne peut ni voir un retour en arriere
+ni un objet qui se redispose. La periode 8 qu'il revelait est reelle, mais
+elle decrit autre chose que ce qui gene a l'oeil.
+
+Mesure appropriee : correlation de phase au sous-pixel, par region.
+
+### Le temoin, sans lequel les chiffres ne veulent rien dire
+
+Un travelling avant mathematiquement parfait, fabrique par `zoompan` a
+partir d'une seule image reelle du meme plan — meme resolution, meme
+cadence, meme codec. Il donne le plancher de bruit de l'instrument.
+
+| variante | dispersion locale | exces reel |
+|---|---|---|
+| temoin, zoom parfait | 0,302 px | plancher |
+| 8 etapes | 0,552 px | **+0,25** |
+| 16 etapes | 0,567 px | +0,27 |
+| 24 etapes | 0,695 px | +0,39 |
+| 8 etapes + STG 1.0 | 0,561 px | +0,26 |
+
+Le mouvement global est **monotone** : un seul contre-sens sur 48. La
+camera ne recule jamais. Mais l'incoherence locale vaut 0,25 px par image
+contre 0,172 px de deplacement reel de la camera — le desordre domine le
+mouvement d'un facteur 1,5. C'est ce rapport qui explique l'impression de
+recul et la redisposition des plantes.
+
+Deux conclusions de HOS-200 tombent : ce n'est **ni** le decoupage
+temporel du decodeur, **ni** les huit images par latent. Aucune
+periodicite ne ressort au-dessus du seuil de bruit.
+
+### Trois leviers essayes, aucun ne corrige
+
+Les etapes ne sont pas le levier, et au-dela de huit elles **nuisent** :
+0,552 -> 0,567 -> 0,695. La note « un modele distille ne gagne rien
+au-dela de huit etapes » valait pour la qualite d'image ; elle vaut aussi
+pour la coherence, et dans le mauvais sens.
+
+`LTXVSpatioTemporalGuidance` a l'echelle 1.0 ne change rien. Des echelles
+plus fortes restent a mesurer.
+
+L'interpolation ne s'y attaque pas : elle lisse la restitution, pas la
+generation.
+
+Restent non mesures et non ecartes : resolution plus haute, echelle de STG
+plus forte, quantification superieure.
+
+Aucun code n'a change : ce tour est une mesure, et son resultat est qu'il
+n'y a rien a corriger dans ce depot — le defaut est dans le modele.
+
 ## HOS-200 - Les saccades mesurees, et l'enchainement de plans (2026-08-28)
 
 Trois questions posees sur le Studio, dont une - « les saccades viennent

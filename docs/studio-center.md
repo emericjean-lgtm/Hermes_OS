@@ -917,6 +917,82 @@ que le lissage ne fait pas plutot que de le laisser croire.
 Cout mesure : 6 a 26 s selon le plan et le modele, sans diffusion — le
 banc charge la video deja rendue plutot que de la regenerer.
 
+### Amende le 2026-08-28 : ce n'etait pas la bonne mesure
+
+L'utilisateur a precise sa description apres avoir regarde les fichiers,
+et cette precision invalide une partie de ce qui precede. Il ne decrit
+pas un defaut de RYTHME mais de CONTENU : « comme si la video etait
+creee en ajoutant des petits morceaux de 0,5 s les uns apres les
+autres », avec « de legeres variations sur la disposition des plantes »
+et l'impression que le plan « recule legerement » par moments.
+
+L'ecart de luminance entre images successives, utilise plus haut, mesure
+**l'ampleur** du changement. Il ne peut pas voir un retour en arriere, ni
+un objet qui se redispose. La periode 8 qu'il revele est reelle, mais
+elle decrit autre chose que ce qui gene a l'oeil.
+
+Mesure appropriee : correlation de phase au sous-pixel, par region, sur
+le plan de foret (travelling avant lent).
+
+Un temoin etait indispensable : sans lui, 0,552 px ne veut rien dire.
+Il est fabrique par `zoompan` a partir d'une seule image reelle du meme
+plan — un travelling avant mathematiquement parfait, meme resolution,
+meme cadence, meme codec. Toute dispersion qu'il montre est le bruit de
+l'instrument (compression, estimation sous-pixel, et le fait qu'un zoom
+deplace reellement les bords plus que le centre).
+
+| variante | dispersion locale | exces reel |
+|---|---|---|
+| **temoin, zoom parfait** | 0,302 px | plancher |
+| genere, 8 etapes | 0,552 px | **+0,25** |
+| genere, 16 etapes | 0,567 px | +0,27 |
+| genere, 24 etapes | 0,695 px | +0,39 |
+| genere, 8 etapes + STG 1.0 | 0,561 px | +0,26 |
+
+Vitesse reelle de la camera : 0,172 px/image. Contre-sens du mouvement
+global : **1 sur 48** — la camera ne recule jamais.
+
+L'incoherence propre au modele vaut donc **0,25 px par image**, soit
+environ **1,5 fois** le deplacement effectif de la camera. Le desordre
+local domine le mouvement reel, et c'est ce rapport — non la valeur
+brute — qui explique l'impression de recul.
+
+**Le mouvement global est monotone** : la camera ne recule pas. Mais le
+contenu local se deplace dans des sens incoherents **trois fois plus**
+que la camera n'avance. C'est cela qu'on percoit comme un recul et comme
+une redisposition des plantes : ce n'est pas la camera qui revient en
+arriere, c'est la scene qui n'est pas tenue d'une image a l'autre.
+
+Aucune periodicite nette ne ressort (toutes les autocorrelations restent
+au voisinage du seuil de bruit). Ce n'est donc **ni** le decoupage
+temporel du decodeur, **ni** les huit images par latent : c'est une
+incoherence a large bande, c'est-a-dire un defaut de coherence
+temporelle du modele lui-meme.
+
+
+
+### Trois leviers essayes, aucun ne corrige
+
+Meme consigne, meme graine, seul le reglage change.
+
+**Les etapes ne sont pas le levier, et au-dela de huit elles nuisent.**
+8 -> 0,552 ; 16 -> 0,567 ; 24 -> **0,695**. La note « un modele distille
+ne gagne rien au-dela de huit etapes » valait pour la qualite d'image ;
+elle vaut aussi pour la coherence temporelle, et dans le mauvais sens.
+
+**`LTXVSpatioTemporalGuidance` a l'echelle 1.0 ne change rien** (0,561
+contre 0,552). Le noeud enveloppe le modele et s'insere entre
+`ModelSamplingLTXV` et l'echantillonneur, donc l'essai est peu couteux a
+refaire — des echelles plus fortes restent a mesurer.
+
+**L'interpolation ne s'y attaque pas.** Elle lisse la restitution, pas la
+generation : les images inserees sont coherentes par construction, mais
+les images d'origine gardent leur desordre.
+
+Restent non mesures : une resolution plus haute, une echelle de STG plus
+forte, une quantification superieure. Aucune n'est ecartee — elles n'ont
+simplement pas ete essayees.
+
 ## L'enchainement de plans (HOS-200)
 
 `LTXVImgToVideo` fait partir un plan d'une image au lieu du bruit. Donner
