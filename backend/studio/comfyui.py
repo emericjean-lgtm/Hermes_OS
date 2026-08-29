@@ -266,6 +266,34 @@ class ComfyUI:
         except Exception:
             return False
 
+    def liberer(self) -> bool:
+        """Rendre la VRAM que le processus retient encore.
+
+        ComfyUI garde ses poids et ses tampons entre deux graphes — c'est
+        voulu, ça évite de recharger un modèle à chaque rendu. Mais quand
+        on enchaîne des essais **de mesure**, l'occupation s'accumule :
+        deux essais de calibration consécutifs ont vu 19,29 puis
+        25,64 Gio déjà alloués sur une carte de 15,98 Gio, si bien que le
+        second débordait pour une raison étrangère à ce qu'il mesurait.
+
+        Sans ça, la descente en tuile conclut « aucune tuile ne passe »
+        sur une machine où la plus grande passe très bien — exactement le
+        genre de faux échec que ce projet a déjà payé cinq fois.
+
+        `/free` ne rend pas de JSON : le corps est vide, et `_poster`
+        s'étranglerait dessus.
+        """
+        try:
+            req = request.Request(
+                self.base + "/free",
+                data=json.dumps({"unload_models": True,
+                                 "free_memory": True}).encode("utf-8"),
+                headers={"Content-Type": "application/json"})
+            with request.urlopen(req, timeout=self.delai):
+                return True
+        except Exception:
+            return False
+
 
 def _erreur_de(etat: dict) -> str:
     """Le message d'erreur de ComfyUI, et le nœud qui l'a levé.

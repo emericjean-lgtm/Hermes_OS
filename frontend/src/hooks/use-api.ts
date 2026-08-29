@@ -1031,6 +1031,32 @@ export function useStudioStartNight() {
   });
 }
 
+/** La table de calibration du decodeur (HOS-210).
+ *
+ *  Sans `refetchInterval` : elle ne change qu'apres une mesure, et c'est
+ *  la mutation qui l'invalide. */
+export function useStudioCalibration() {
+  return useQuery({
+    queryKey: ["studio", "calibration"],
+    queryFn: studioClient.calibration,
+  });
+}
+
+/** Mesurer la tuile d'un plan donne.
+ *
+ *  Long — un a trois essais de quelques minutes — parce que ce sont de
+ *  vrais decodages. Mais bien moins qu'un rendu complet qui echouerait
+ *  a la fin, apres toute la diffusion. */
+export function useStudioCalibrer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ largeur, hauteur, images, refaire }: {
+      largeur: number; hauteur: number; images: number; refaire?: boolean;
+    }) => studioClient.calibrer(largeur, hauteur, images, refaire),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["studio", "calibration"] }),
+  });
+}
+
 /** Le rapport de la file de nuit.
  *
  *  Sondé toutes les trente secondes pendant qu'une nuit tourne : un plan

@@ -419,6 +419,88 @@ def derniere_image(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
             "octets": os.path.getsize(cible)}
 
 
+@router.get("/calibration")
+def calibration() -> dict[str, Any]:
+    """Ce que le decodeur a reellement mesure sur cette machine (HOS-210).
+
+    L'ecran s'en sert pour dire, avant le clic, si le reglage du plan
+    visee a ete **eprouve** ou s'il repose encore sur les paliers ecrits
+    dans le code — lesquels se sont deja reveles faux deux fois.
+    """
+    from backend.studio.calibration import lire_table
+
+    table = lire_table()
+    return {
+        "mesures": table,
+        "compte": len(table),
+        # Les paliers de repli, pour que l'ecran puisse dire d'ou vient la
+        # valeur qu'il affiche.
+        "paliers": [{"volume_max": p, "tuile": t}
+                    for p, t in _paliers()],
+    }
+
+
+def _paliers() -> list[tuple[float, int]]:
+    from backend.studio.gabarits import PALIERS_TUILE
+    return PALIERS_TUILE
+
+
+@router.post("/calibration")
+def calibrer_decodeur(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Mesurer la plus grande tuile qui decode ce plan d'un seul bloc.
+
+    Decode un latent **vide** aux dimensions visees : la memoire du
+    decodeur ne depend que des dimensions, jamais du contenu, donc l'essai
+    predit exactement ce qui se passera au vrai rendu, sans charger un
+    seul modele de diffusion. La recherche part du palier ecrit dans le
+    code, puis monte tant que ca passe et descend au premier debordement
+    — un a trois essais dans le cas courant.
+
+    Passe par l'arbitrage de la carte comme un rendu : un essai a blanc
+    occupe la VRAM tout autant, et le laisser partir pendant qu'une
+    mission tient la carte fausserait sa propre mesure.
+    """
+    from backend.studio.calibration import calibrer, connue
+
+    largeur = int(payload.get("largeur") or 0)
+    hauteur = int(payload.get("hauteur") or 0)
+    images = int(payload.get("images") or 0)
+    if not (largeur and hauteur and images):
+        return {"success": False,
+                "error": "il faut `largeur`, `hauteur` et `images`"}
+
+    if not payload.get("refaire"):
+        deja = connue(largeur, hauteur, images)
+        if deja:
+            return {"success": True, "tuile": deja, "deja_mesure": True}
+
+    with carte_reservee(BESOIN_DEFAUT) as occ:
+        if not occ.obtenu:
+            return {"success": False, "raison": "carte_occupee",
+                    "error": occ.detail}
+        resultat = calibrer(largeur, hauteur, images)
+
+    if not resultat.get("tuile"):
+        # Ne jamais dire « aucune tuile ne passe » quand la recherche s'est
+        # arretee sur une non-mesure : c'est cette confusion entre « la
+        # carte ne peut pas » et « je n'ai pas su lire » qui a produit trois
+        # faux resultats pendant la campagne HOS-207.
+        raison = resultat.get("raison")
+        explications = {
+            "aucune_tuile": "aucune tuile ne decode ce plan d'un seul bloc",
+            "delai": "l'essai n'a pas abouti dans le temps imparti — un "
+                     "decodage qui deborde rampe sur la memoire partagee "
+                     "au lieu d'echouer. La mesure est inconnue, pas "
+                     "negative, et la carte peut rester occupee : un tel "
+                     "decodage ne repond pas a la demande d'arret",
+        }
+        return {"success": False, "raison": raison,
+                "error": explications.get(
+                    raison, f"la mesure n'a pas abouti ({raison})"),
+                "tentatives": resultat.get("tentatives", [])}
+    return {"success": True, **resultat}
+
+
 @router.get("/vram")
 def vram() -> dict[str, Any]:
     """Ce que le processus de rendu détient vraiment sur la carte.

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Dices, Film, Image as ImageIcon, Loader2, Link2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Dices, Film, Gauge, Image as ImageIcon,
+         Loader2, Link2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { useStudioCompose, useStudioTemplates } from "@/hooks/use-api";
+import { useStudioCalibration, useStudioCalibrer, useStudioCompose,
+         useStudioTemplates } from "@/hooks/use-api";
 import type { GabaritDTO } from "@/services/client";
 
 /**
@@ -57,6 +59,8 @@ const CADENCES = [
 
 export function Composer({ actif }: { actif: boolean }) {
   const { data: catalogue } = useStudioTemplates();
+  const { data: calibration } = useStudioCalibration();
+  const calibrer = useStudioCalibrer();
   const lancer = useStudioCompose();
 
   const [gabarit, setGabarit] = useState("plan_video");
@@ -377,6 +381,18 @@ export function Composer({ actif }: { actif: boolean }) {
           </div>
         )}
 
+        {/* D'où vient le réglage du décodeur, et s'il a été éprouvé
+            (HOS-210). La table des paliers vit dans le code et s'est
+            révélée fausse deux fois : trop prudente, d'où le
+            quadrillage, puis mal calibrée. Une mesure prise sur cette
+            machine prime sur elle — encore faut-il que l'écran dise
+            laquelle des deux il applique. */}
+        {fiche?.sortie === "video" && dims && (
+          <CalibrationDuPlan
+            largeur={dims.largeur} hauteur={dims.hauteur} images={images}
+            mesures={calibration?.mesures} calibrer={calibrer} />
+        )}
+
         {/* Le coût, annoncé avant le clic. Cinq minutes de calcul par
             seconde de vidéo : c'est la chose la plus utile à savoir
             avant de lancer, et l'apprendre après serait une mauvaise
@@ -450,6 +466,60 @@ export function Composer({ actif }: { actif: boolean }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+/** Dit si le réglage du décodeur a été mesuré pour ce plan précis.
+ *
+ *  Le défaut que ça évite : un rendu part, la diffusion tourne vingt
+ *  minutes, et le décodage déborde à la fin. L'essai à blanc décode un
+ *  latent **vide** aux mêmes dimensions — même chemin mémoire, aucun
+ *  modèle de diffusion chargé — et le résultat est enregistré une fois
+ *  pour toutes.
+ */
+function CalibrationDuPlan({ largeur, hauteur, images, mesures, calibrer }: {
+  largeur: number; hauteur: number; images: number;
+  mesures?: Record<string, { tuile: number; mesure_le?: string }>;
+  calibrer: ReturnType<typeof useStudioCalibrer>;
+}) {
+  const cle = `${largeur}x${hauteur}x${images}`;
+  const mesure = mesures?.[cle];
+
+  if (mesure) {
+    return (
+      <p className="flex items-center gap-1.5 text-[11px] text-hermes-arc">
+        <CheckCircle2 size={12} className="shrink-0" />
+        Décodage éprouvé sur cette machine — tuile {mesure.tuile}
+        {mesure.mesure_le ? `, mesurée le ${mesure.mesure_le}` : ""}.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <p className="flex-1 text-[11px] leading-relaxed text-hermes-gold">
+        Ce format et cette durée n&apos;ont jamais été mesurés ici. Le réglage
+        vient d&apos;une table écrite dans le code, qui s&apos;est déjà révélée
+        fausse — un débordement se produirait <strong>après</strong> la
+        diffusion, donc après tout le temps de calcul.
+      </p>
+      <button
+        onClick={() => calibrer.mutate({ largeur, hauteur, images })}
+        disabled={calibrer.isPending}
+        title="Décode un latent vide aux mêmes dimensions, en partant du réglage de la table : un à trois essais de quelques minutes chacun"
+        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-hermes-gold/40
+          px-3 py-1.5 font-mono text-[11px] text-hermes-gold transition-all
+          hover:bg-hermes-gold/10 disabled:opacity-40"
+      >
+        {calibrer.isPending ? <Loader2 size={12} className="animate-spin" /> : <Gauge size={12} />}
+        {calibrer.isPending ? "Mesure en cours…" : "Mesurer maintenant"}
+      </button>
+      {calibrer.data && !calibrer.data.success && (
+        <span className="w-full text-[11px] text-hermes-alarm">
+          {calibrer.data.error}
+        </span>
+      )}
+    </div>
   );
 }
 

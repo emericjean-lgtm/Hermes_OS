@@ -188,7 +188,23 @@ COMPRESSION_SPATIALE = 32
 
 
 def tuile_spatiale(largeur: int, hauteur: int, images: int) -> int:
-    """La plus grande tuile spatiale qui laisse le plan tenir d'un bloc."""
+    """La plus grande tuile spatiale qui laisse le plan tenir d'un bloc.
+
+    Une mesure prise sur cette machine prime toujours sur les paliers
+    ci-dessus (HOS-210). Ceux-ci restent le repli : ils viennent de
+    mesures reelles eux aussi, mais faites sur une configuration donnee,
+    et ils se sont deja reveles faux deux fois quand elle a bouge.
+    """
+    try:
+        from backend.studio.calibration import connue
+        mesuree = connue(largeur, hauteur, images)
+        if mesuree:
+            return mesuree
+    except Exception:
+        # La calibration est un confort, pas une dependance : un fichier
+        # illisible ne doit pas empecher de rendre.
+        pass
+
     volume = (int(largeur) * int(hauteur) * max(1, int(images))) / 1_000_000
     for plafond, tuile in PALIERS_TUILE:
         if volume <= plafond:

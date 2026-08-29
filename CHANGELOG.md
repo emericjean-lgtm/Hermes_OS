@@ -1,3 +1,92 @@
+## HOS-210 - Le reglage du decodeur se mesure au lieu de se supposer (2026-08-29)
+
+Trois fois de suite — HOS-205, HOS-208, HOS-209 — le defaut visible venait
+de la **meme** table ecrite a la main, `PALIERS_TUILE`. Trop prudente
+d'abord (elle descendait a 64 la ou 128 tenait, d'ou le quadrillage), mal
+calibree ensuite. HOS-209 a rectifie un seuil ; il n'a pas rectifie le
+fait qu'un seuil ecrit a la main est faux des que quelque chose bouge.
+
+Et l'echec tombe **au decodage, apres la diffusion** : vingt minutes de
+calcul pour decouvrir que la tuile ne passait pas.
+
+### L'essai a blanc
+
+La memoire du decodeur ne depend que des **dimensions** du latent, jamais
+de son contenu. Decoder un latent vide exerce donc le meme chemin memoire
+qu'un vrai plan, sans charger un seul modele de diffusion. C'est la
+technique qui avait permis toute la campagne de mesure ; elle est
+maintenant dans le produit, derriere un bouton.
+
+La recherche part de ce que la table propose, puis **monte** tant que ca
+passe et **descend** au premier debordement. Une descente depuis 256
+coutait jusqu'a sept essais de plusieurs minutes chacun — c'est-a-dire un
+reglage qu'on renonce a mesurer.
+
+### Quatre defauts de l'instrument, trouves en le faisant tourner
+
+Aucun en relisant le code. Tous sur un chiffre invraisemblable.
+
+**La memoire ne se libere pas entre deux essais.** Deux essais consecutifs
+ont vu **19,29 puis 25,64 Gio deja alloues** sur une carte de 15,98 : le
+second debordait pour une raison etrangere a ce qu'il mesurait. Sans
+remise a zero, la recherche conclut sur du bruit. `/free` avant chaque
+essai.
+
+**Un decodage qui deborde ne s'arrete pas, et rien ne l'arrete.** Il
+bascule sur la memoire partagee et rampe : un essai a tenu **quarante
+minutes** sans aboutir ni echouer, le processus consommant une seconde de
+CPU par seconde ecoulee. `/interrupt` ne mord pas dessus — verifie deux
+fois, la carte restant a 14,18 Gio apres l'appel ; il a fallu relancer
+ComfyUI. L'essai qui n'aboutit pas est desormais interrompu avant de
+rendre la main, ce qui suffit pour un essai qui tourne normalement mais
+**pas** pour celui-la. La seule protection reelle est de ne pas l'y
+laisser arriver, d'ou le plafond ci-dessous — et la reponse le dit
+maintenant : « la carte peut rester occupee ».
+
+**« Ca passe » ne veut pas dire « c'est utilisable ».** La tuile 160
+decode 768x416x97 en quatre minutes ; la 192 tenait encore apres vingt,
+avec 14,18 Gio de VRAM sur 15,98. Une premiere version l'aurait retenue
+comme « la plus grande qui passe », et cette lenteur se serait payee a
+chaque rendu — a rebours de la consigne, « de la qualite, mais dans un
+temps acceptable ». La montee est bornee a deux fois et demie le cout du
+premier succes.
+
+**Un verdict incertain n'est pas un debordement.** `delai` et `erreur`
+arretent la recherche au lieu de la faire continuer, et la route ne dit
+plus « aucune tuile ne passe » quand elle n'a rien mesure : c'est cette
+confusion entre « la carte ne peut pas » et « je n'ai pas su lire » qui a
+produit trois faux resultats pendant HOS-207.
+
+### La table de depart
+
+Cinq entrees y ont ete versees a la creation, tirees des rendus reels de
+la campagne plutot que redemandees a la carte : 768x416 a 49, 121 et 257
+images (tuiles 256, 160, 128), et 1280x704 a 121 et 217 images (128 et
+64). Elle vit a cote des rendus, pas dans le depot : c'est une mesure
+propre a cette machine, pas un fait du code. `PALIERS_TUILE` reste le
+repli, et une table illisible ne bloque jamais un rendu.
+
+### La mesure de bout en bout, faite
+
+768x416 sur 97 images, par la route de l'interface, sur une carte vide :
+**tuile 160**, deux essais, 1500,8 s au total. La 160 decode en 296,5 s ;
+la 192 tenait encore apres 1203,9 s et a ete classee `delai`, ce qui a
+arrete la montee sans rien conclure sur elle.
+
+La table ecrite a la main proposait deja 160 pour ce plan : la mesure la
+**confirme** ici plutot que de la corriger. C'est le resultat attendu dans
+le cas courant — l'interet n'est pas que la table soit fausse partout,
+c'est de ne plus avoir a le supposer. Avec le plafond de rampe, la meme
+mesure aurait coute 741 s au lieu de 1204 pour le second essai, meme
+reponse.
+
+### Ce que l'ecran dit
+
+Sous le formulaire, une ligne par plan : soit « Decodage eprouve sur cette
+machine — tuile N, mesuree le … », soit un avertissement disant d'ou vient
+le reglage affiche, et un bouton pour mesurer.
+
+
 ## HOS-209 - Le quadrillage : HOS-208 se trompait de cause (2026-08-29)
 
 HOS-208 attribuait le quadrillage a un **recouvrement nul** : le calcul

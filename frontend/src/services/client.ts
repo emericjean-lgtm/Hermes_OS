@@ -292,6 +292,17 @@ export interface NarrationDTO {
   error?: string;
 }
 
+/** Ce que le decodeur a reellement mesure sur cette machine (HOS-210).
+ *
+ *  La table des paliers vit dans le code et s'est revelee fausse deux
+ *  fois. Une mesure prise ici prime sur elle — et l'ecran doit pouvoir
+ *  dire laquelle des deux il affiche. */
+export interface CalibrationDTO {
+  mesures: Record<string, { tuile: number; mesure_le?: string; secondes?: number }>;
+  compte: number;
+  paliers: { volume_max: number; tuile: number }[];
+}
+
 export const studioClient = {
   state: () => fetchJSON<StudioStateDTO>("/studio/state"),
   night: () => fetchJSON<{
@@ -347,6 +358,21 @@ export const studioClient = {
       body: JSON.stringify({ plans,
         ...(minutes_par_plan ? { minutes_par_plan } : {}) }),
     }),
+  /** La table mesuree, et les paliers de repli. */
+  calibration: () => fetchJSON<CalibrationDTO>("/studio/calibration"),
+  /** Mesurer la plus grande tuile qui decode ce plan d'un seul bloc.
+   *  Decode un latent vide, en partant du palier ecrit dans le code :
+   *  un a trois essais, contre un rendu entier pour decouvrir l'echec
+   *  apres la diffusion. */
+  calibrer: (largeur: number, hauteur: number, images: number, refaire = false) =>
+    fetchJSON<{ success: boolean; tuile?: number; deja_mesure?: boolean;
+                mesure_le?: string; secondes?: number; error?: string;
+                raison?: string;
+                tentatives?: { tuile: number; verdict: string; secondes: number }[] }>(
+      "/studio/calibration", {
+        method: "POST",
+        body: JSON.stringify({ largeur, hauteur, images, refaire }),
+      }),
   narrate: (lignes: { id: string; texte: string }[], dossier?: string) =>
     fetchJSON<NarrationDTO>("/studio/narrate", {
       method: "POST",

@@ -1413,6 +1413,128 @@ inverse aurait evite de publier une fausse cause.
 Backend 2210 passed, 2 skipped.
 
 
+## Le réglage se mesure au lieu de se supposer (HOS-210)
+
+Trois fois de suite — HOS-205, HOS-208, HOS-209 — le défaut visible
+venait de la **même** table écrite à la main : `PALIERS_TUILE`. Trop
+prudente d'abord (elle descendait à 64 là où 128 tenait, d'où le
+quadrillage), mal calibrée ensuite. Le correctif de HOS-209 a rectifié un
+seuil. Il n'a pas rectifié le fait qu'un seuil écrit à la main est faux
+dès que quelque chose bouge : un autre modèle, une autre quantification,
+Ollama qui occupe la carte au moment du rendu.
+
+Et l'échec tombe **au décodage, après la diffusion** : vingt minutes de
+calcul pour découvrir que la tuile ne passait pas.
+
+### Ce que l'essai à blanc exploite
+
+La mémoire du décodeur ne dépend que des **dimensions** du latent, jamais
+de son contenu. Décoder un latent vide exerce donc exactement le même
+chemin mémoire qu'un vrai plan, sans charger un seul modèle de diffusion.
+C'est la technique qui avait déjà permis toute la campagne de mesure ;
+elle est maintenant dans le produit.
+
+Le graphe tient en quatre nœuds — `VAELoader`, `EmptyLTXVLatentVideo`,
+`VAEDecodeTiled`, `PreviewImage` — et `PreviewImage` plutôt que
+`SaveImage` parce qu'un essai n'a rien à laisser dans les rendus.
+
+### La recherche part de la table, elle ne l'ignore pas
+
+La première version descendait depuis 256 jusqu'au premier succès. Sur
+cette carte, un essai se compte en minutes : sept essais, c'est un réglage
+qu'on renonce à mesurer.
+
+La table s'est trompée deux fois, mais jamais de beaucoup. On part donc de
+ce qu'elle propose, puis on **monte** tant que ça passe et on **descend**
+au premier débordement. Un ou deux essais dans le cas courant.
+
+### Les défauts de l'instrument, trouvés en le faisant tourner
+
+Quatre en réalité, et aucun trouvé en relisant le code — tous sur un
+chiffre invraisemblable, comme le reste de cette campagne.
+
+**La mémoire ne se libère pas entre deux essais.** ComfyUI garde ses poids
+et ses tampons entre deux graphes ; c'est voulu, ça évite de recharger un
+modèle à chaque rendu. Mais en enchaînant des essais de mesure,
+l'occupation s'accumule : deux essais consécutifs ont vu **19,29 puis
+25,64 Gio déjà alloués** sur une carte de 15,98. Le second débordait donc
+pour une raison étrangère à ce qu'il mesurait. Sans remise à zéro, la
+descente conclut sur du bruit — exactement le faux échec que ce projet a
+déjà payé cinq fois. `ComfyUI.liberer()` appelle `/free` avant chaque
+essai.
+
+**Un décodage qui déborde ne s'arrête pas, et rien ne l'arrête.** Il
+bascule sur la mémoire partagée et rampe. Un essai à tuile 192 a tenu
+**quarante minutes** sans aboutir ni échouer, le processus consommant une
+seconde de CPU par seconde écoulée. `/interrupt` ne mord pas dessus : le
+nœud ne rend la main qu'entre deux allocations. Vérifié deux fois — après
+l'appel, le processus tenait toujours 14,18 Gio et continuait de calculer.
+Il a fallu relancer ComfyUI.
+
+L'essai qui n'aboutit pas est désormais interrompu avant de rendre la
+main. Ça suffit pour un essai qui tourne normalement, **pas** pour
+celui-là : il n'existe pas de moyen propre de reprendre la carte à un
+décodage déjà parti en mémoire partagée. La seule protection réelle est de
+ne pas l'y laisser arriver — c'est l'objet du plafond ci-dessous — et la
+réponse le dit désormais, plutôt que de laisser croire la carte libre.
+
+**« Ça passe » ne veut pas dire « c'est utilisable ».** La tuile 160
+décode 768×416×97 en quatre minutes ; la 192 tenait encore après vingt
+sans aboutir, le processus consommant une seconde de CPU par seconde
+écoulée et 14,18 Gio de VRAM sur 15,98. Elle ne débordait pas au sens de
+PyTorch — elle rampait sur la mémoire partagée. Une première version
+l'aurait retenue comme « la plus grande qui passe », et cette lenteur se
+serait payée à chaque rendu. La montée est donc bornée à deux fois et
+demie le coût du premier succès : au-delà, on ne gagne pas une mesure, on
+paie une lenteur. C'est aussi ce qui évite d'attendre vingt minutes une
+réponse qu'on rejettera.
+
+**Un verdict incertain n'est pas un débordement.** `delai` et `erreur`
+arrêtent la recherche au lieu de la faire continuer. Poursuivre
+reviendrait à conclure d'un silence, ce qui avait produit un « aucune
+tuile ne passe » alors qu'un vrai rendu de la même configuration avait
+abouti.
+
+### La table de départ
+
+Cinq entrées y ont été versées à la création, tirées des rendus réels de
+la campagne plutôt que redemandées à la carte :
+
+| plan | tuile | d'où elle vient |
+|---|---|---|
+| 768×416, 49 img | 256 | rendu réel, HOS-205 |
+| 768×416, 121 img | 160 | rendu réel, HOS-207 |
+| 768×416, 257 img | 128 | rendu réel, HOS-207 |
+| 1280×704, 121 img | 128 | rendu réel, validé à l'œil, HOS-209 |
+| 1280×704, 217 img | 64 | essai à blanc, HOS-207 |
+
+Elle vit dans `E:\YouTube\Generations\calibration_decodeur.json`, à côté
+des rendus et non dans le dépôt : c'est une mesure propre à cette
+machine, pas un fait du code.
+
+### La première mesure de bout en bout
+
+768×416 sur 97 images, lancée par la route de l'interface sur une carte
+vide : **tuile 160**, deux essais, 1500,8 s au total. La 160 décode en
+296,5 s ; la 192 tenait encore après 1203,9 s et a été classée `delai`,
+ce qui a arrêté la montée sans rien conclure sur elle.
+
+Les paliers écrits à la main proposaient déjà 160 pour ce plan. La mesure
+les **confirme** ici plutôt qu'elle ne les corrige — c'est le résultat
+attendu dans le cas courant. L'intérêt n'est pas que la table soit fausse
+partout ; c'est de ne plus avoir à le supposer, et de le savoir avant les
+vingt minutes de diffusion plutôt qu'après.
+
+### Ce que l'écran dit
+
+Sous le formulaire, une ligne par plan. Soit « Décodage éprouvé sur cette
+machine — tuile N, mesurée le … », soit un avertissement disant que le
+réglage vient d'une table écrite dans le code, qui s'est déjà révélée
+fausse, et un bouton pour mesurer. `PALIERS_TUILE` reste le repli, et une
+table illisible ne bloque jamais un rendu : la calibration est un confort,
+pas une dépendance.
+
+
 ## La narration par voix clonée (HOS-195)
 
 Chatterbox, cloné depuis un échantillon de l'utilisateur, sous un
