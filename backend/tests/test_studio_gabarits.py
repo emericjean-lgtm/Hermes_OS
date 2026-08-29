@@ -16,6 +16,7 @@ import pytest
 from backend.studio.gabarits import (CATALOGUE, FORMATS, FORMATS_PAR_MOTEUR,
                                      IMAGES_MAX,
                                      MODELES_INTERPOLATION, duree_calcul_s,
+                                     recouvrement_spatial,
                                      PAS_IMAGES, GabaritInvalide, composer,
                                      duree_reelle_s, image_ltx, image_sdxl,
                                      images_pour_duree, plan_video)
@@ -532,3 +533,52 @@ class TestTuileSpatialeAdaptative:
         for n in (49, 257):
             i = plan_video("x", images=n)["12"]["inputs"]
             assert i["overlap"] <= i["tile_size"] // 4
+
+
+class TestRecouvrementSpatial:
+    """Le quadrillage visible venait d'un recouvrement nul (HOS-208).
+
+    L'utilisateur, sur le premier rendu en 1280x704 : « je n'ai pas de
+    probleme de scintillement en revanche l'image forme comme un
+    quadrillage ».
+
+    Le calcul etait `min(32, tuile // 4)`, soit 16 pour une tuile de 64.
+    Le nœud divise cette valeur par la compression spatiale du VAE, qui
+    vaut 32 : `16 // 32` = **zero**. Les carres se juxtaposaient sans le
+    moindre fondu.
+
+    Le defaut ne touchait que la tuile de 64 — donc uniquement les plans
+    lourds ou longs. Les autres paliers tombaient deja sur une latente de
+    recouvrement, ce qui explique que le paysage n'ait jamais quadrille et
+    que le defaut soit passe inapercu jusqu'a ce rendu.
+    """
+
+    COMPRESSION = 32
+
+    def test_chaque_tuile_garde_au_moins_une_latente_de_fondu(self):
+        for tuile in (256, 160, 128, 64):
+            ov = recouvrement_spatial(tuile)
+            assert ov // self.COMPRESSION >= 1, (
+                f"tuile {tuile} : recouvrement {ov}, soit "
+                f"{ov // self.COMPRESSION} latente — les carres se "
+                "juxtaposeraient sans fondu, et la grille redeviendrait "
+                "visible.")
+
+    def test_le_calcul_fautif_ne_revient_pas(self):
+        # min(32, 64 // 4) = 16, et 16 // 32 = 0.
+        assert recouvrement_spatial(64) != 16, (
+            "le recouvrement de la tuile 64 est retombe a 16, qui vaut "
+            "zero latente apres division : c'est la cause mesuree du "
+            "quadrillage.")
+
+    def test_le_recouvrement_ne_depasse_pas_la_moitie_de_la_tuile(self):
+        # Au-dela, les carres se recouvrent plus qu'ils ne couvrent et le
+        # decodage paie deux fois le meme pixel.
+        for tuile in (256, 160, 128, 64):
+            assert recouvrement_spatial(tuile) <= tuile // 2
+
+    def test_tous_les_plans_du_gabarit_ont_un_fondu(self):
+        for fmt in ("paysage", "paysage_large", "portrait"):
+            for n in (49, 121, 217, 257):
+                i = plan_video("x", format_=fmt, images=n)["12"]["inputs"]
+                assert i["overlap"] // self.COMPRESSION >= 1, f"{fmt} {n} img"

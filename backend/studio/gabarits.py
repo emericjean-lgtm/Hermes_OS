@@ -175,6 +175,12 @@ PALIERS_TUILE: list[tuple[float, int]] = [
 ]
 
 
+#: La compression spatiale du VAE LTX, lue sur le fichier lui-meme
+#: (`spacial_compression_decode()`). Le nœud divise `tile_size` ET
+#: `overlap` par cette valeur : tout ce qui est en dessous disparait.
+COMPRESSION_SPATIALE = 32
+
+
 def tuile_spatiale(largeur: int, hauteur: int, images: int) -> int:
     """La plus grande tuile spatiale qui laisse le plan tenir d'un bloc."""
     volume = (int(largeur) * int(hauteur) * max(1, int(images))) / 1_000_000
@@ -182,6 +188,25 @@ def tuile_spatiale(largeur: int, hauteur: int, images: int) -> int:
         if volume <= plafond:
             return tuile
     return PALIERS_TUILE[-1][1]
+
+
+def recouvrement_spatial(tuile: int) -> int:
+    """De combien deux carres voisins se chevauchent, en pixels.
+
+    Au moins une unite latente, toujours (HOS-208). Le calcul precedent
+    — `min(32, tuile // 4)` — donnait 16 pour une tuile de 64, et
+    `16 // 32` vaut **zero** : les carres se juxtaposaient sans le moindre
+    fondu. L'utilisateur a vu le resultat immediatement : « l'image forme
+    comme un quadrillage ».
+
+    Le defaut ne touchait que la tuile de 64, donc les seuls plans lourds
+    ou longs — les autres paliers tombaient deja sur une latente de
+    recouvrement, ce qui explique que le paysage n'ait jamais quadrille.
+
+    Plafonne a la moitie de la tuile : au-dela, les carres se recouvrent
+    plus qu'ils ne couvrent, et le decodage paie deux fois le meme pixel.
+    """
+    return max(COMPRESSION_SPATIALE, min(int(tuile) // 2, int(tuile) // 4))
 
 
 def plan_video(consigne: str, *, format_: str = "paysage",
@@ -344,7 +369,8 @@ def plan_video(consigne: str, *, format_: str = "paysage",
     tuile = tuile_spatiale(l, h, images)
     g["12"] = {"class_type": "VAEDecodeTiled",
                "inputs": {"samples": latent_video, "vae": ["3", 0],
-                          "tile_size": tuile, "overlap": min(32, tuile // 4),
+                          "tile_size": tuile,
+                          "overlap": recouvrement_spatial(tuile),
                           "temporal_size": 4096, "temporal_overlap": 8}}
 
     # ── Interpolation d'images ──
@@ -569,4 +595,4 @@ __all__ = ["CATALOGUE", "COUT_FIXE_S", "COUT_PAR_MPX_IMAGE_S", "FORMATS",
            "PALIERS_TUILE", "PAS_IMAGES",
            "GabaritInvalide", "composer", "duree_calcul_s", "duree_reelle_s",
            "image_ltx", "image_sdxl", "images_pour_duree", "plan_video",
-           "tuile_spatiale"]
+           "recouvrement_spatial", "tuile_spatiale"]

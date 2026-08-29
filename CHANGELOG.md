@@ -1,3 +1,58 @@
+## HOS-208 - Le quadrillage : un recouvrement qui valait zero (2026-08-29)
+
+L'utilisateur, sur le premier rendu en 1280 x 704 issu de HOS-207 : « je
+n'ai pas de probleme de scintillement en revanche l'image forme comme un
+quadrillage ».
+
+Le scintillement etait bien corrige. Mais le correctif en avait introduit
+un autre, dans le meme nœud.
+
+### La cause
+
+`VAEDecodeTiled` divise `overlap` par la compression spatiale du VAE, qui
+vaut 32 — exactement comme il divise `tile_size`. Mon calcul etait
+`min(32, tuile // 4)`, soit **16** pour une tuile de 64. Et `16 // 32`
+vaut **zero** : les carres se juxtaposaient sans le moindre fondu.
+
+| tuile | recouvrement avant | en latentes | apres |
+|---|---|---|---|
+| 256 | 32 | 1 | 2 |
+| 160 | 32 | 1 | 1 |
+| 128 | 32 | 1 | 1 |
+| **64** | **16** | **0 — quadrillage** | **1** |
+
+Le defaut ne touchait donc que la tuile de 64, c'est-a-dire uniquement
+les plans lourds ou longs. Les autres paliers tombaient deja sur une
+latente de fondu, ce qui explique que le paysage n'ait jamais quadrille
+et que le defaut ait passe la validation precedente.
+
+`recouvrement_spatial()` garantit desormais au moins une unite latente,
+et plafonne a la moitie de la tuile — au-dela, les carres se recouvrent
+plus qu'ils ne couvrent et le decodage paie deux fois le meme pixel.
+
+### Ce que cet incident apprend
+
+L'indicateur de dispersion utilise pendant toute cette campagne mesure le
+**deplacement du contenu**. Il est structurellement aveugle a un motif
+**fixe** : une grille immobile ne deplace rien, donc il ne la voit pas.
+Aucune de ces mesures n'aurait pu attraper ce defaut.
+
+C'est la troisieme fois de la campagne que l'œil de l'utilisateur voit ce
+que les chiffres ne peuvent pas voir — apres le comptage des coutures
+(quinze scintillements pour quinze tuiles, correspondance exacte) et
+l'infirmation du gain de `res_multistep`. La lecon vaut d'etre ecrite :
+un instrument ne mesure que ce qu'il a ete construit pour mesurer, et le
+defaut suivant est rarement dans cette dimension-la.
+
+### Temps de generation, mesure
+
+22,7 minutes pour 5 secondes en 1280 x 704, decodage compris. Dans le
+meme temps, le format paysage produit environ quatre plans de 5 secondes
+— vingt secondes de matiere au lieu de cinq.
+
+Quatre gardes-fous nomment l'incident, verifies rouges sur l'ancien
+calcul. Backend 2210 passed, 2 skipped.
+
 ## HOS-207 - Une seule tuile temporelle, a toute longueur (2026-08-29)
 
 HOS-205 avait mis `temporal_size` a 64. **Ce n'etait pas assez.**
