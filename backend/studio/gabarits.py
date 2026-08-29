@@ -167,10 +167,16 @@ MODELES_INTERPOLATION: dict[str, str] = {
 #: Le pas est de 32 parce que le nœud divise `tile_size` par la
 #: compression spatiale du VAE, mesuree a 32 — toute valeur intermediaire
 #: est tronquee sans effet.
+#: Corrige le 2026-08-29 (HOS-209) : le palier 128 monte de 90 a 110.
+#: Une tuile de 64 ne fait que **deux unites latentes**, et le VAE n'a pas
+#: assez de contexte pour decoder un carre aussi petit — l'utilisateur a
+#: vu le resultat immediatement, « l'image forme comme un quadrillage ».
+#: Or 1280x704 en 121 images (volume 109) accepte la tuile 128, mesure :
+#: la table precedente descendait a 64 sans necessite.
 PALIERS_TUILE: list[tuple[float, int]] = [
     (20.0, 256),   # mesure a 15,7
     (40.0, 160),   # mesure a 38,7
-    (90.0, 128),   # mesure a 82,1
+    (110.0, 128),  # mesures a 82,1 et 109,0
     (float("inf"), 64),  # mesure a 195,6
 ]
 
@@ -193,15 +199,20 @@ def tuile_spatiale(largeur: int, hauteur: int, images: int) -> int:
 def recouvrement_spatial(tuile: int) -> int:
     """De combien deux carres voisins se chevauchent, en pixels.
 
-    Au moins une unite latente, toujours (HOS-208). Le calcul precedent
-    — `min(32, tuile // 4)` — donnait 16 pour une tuile de 64, et
-    `16 // 32` vaut **zero** : les carres se juxtaposaient sans le moindre
-    fondu. L'utilisateur a vu le resultat immediatement : « l'image forme
-    comme un quadrillage ».
+    Au moins une unite latente, toujours : le nœud divise cette valeur par
+    la compression spatiale du VAE (32), donc tout ce qui est en dessous
+    disparait. Le calcul precedent — `min(32, tuile // 4)` — donnait 16
+    pour une tuile de 64, soit **zero** apres division.
 
-    Le defaut ne touchait que la tuile de 64, donc les seuls plans lourds
-    ou longs — les autres paliers tombaient deja sur une latente de
-    recouvrement, ce qui explique que le paysage n'ait jamais quadrille.
+    **Ce n'etait pas la cause du quadrillage** (HOS-209). Verifie : le
+    meme plan rendu avec 16 puis 32 donne des pixels *rigoureusement*
+    identiques, ecart maximal nul — seules les metadonnees PNG different,
+    ComfyUI y gravant le graphe. La correction est donc juste sur le fond
+    et sans effet visible ; elle est gardee a ce titre, pas comme remede.
+
+    La vraie cause est la **taille** de la tuile : 64 pixels font deux
+    unites latentes, et le VAE n'a pas assez de contexte pour decoder un
+    carre aussi petit. Voir `PALIERS_TUILE`.
 
     Plafonne a la moitie de la tuile : au-dela, les carres se recouvrent
     plus qu'ils ne couvrent, et le decodage paie deux fois le meme pixel.

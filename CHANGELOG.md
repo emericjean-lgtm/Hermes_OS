@@ -1,4 +1,82 @@
+## HOS-209 - Le quadrillage : HOS-208 se trompait de cause (2026-08-29)
+
+HOS-208 attribuait le quadrillage a un **recouvrement nul** : le calcul
+`min(32, tuile // 4)` donnait 16 pour une tuile de 64, et le nœud divise
+cette valeur par la compression spatiale du VAE (32), donc `16 // 32` = 0.
+Le raisonnement etait juste et le calcul reellement fautif.
+
+**Ce n'etait pas la cause.**
+
+### Comment le defaut de diagnostic a ete trouve
+
+Le meme plan, meme graine, rendu avec un recouvrement de 16 puis de 32 :
+les pixels sont **rigoureusement identiques**, ecart maximal **zero**.
+Seules les metadonnees PNG different — ComfyUI y grave le graphe, qui
+portait bien les deux valeurs distinctes.
+
+Le premier indice etait la taille des deux fichiers video, identique a
+l'octet pres (11 032 Ko). C'est en la trouvant invraisemblable qu'il a
+fallu verifier, exactement comme pour les autres defauts de cette
+campagne : aucun n'a ete trouve en relisant le code.
+
+HOS-208 avait donc ete commite et pousse **en presentant comme solution un
+correctif inoperant**. Sans la demande d'un nouveau rendu, il restait au
+depot comme un fait acquis.
+
+### La vraie cause
+
+La **taille** de la tuile, pas son recouvrement. 64 pixels font deux
+unites latentes seulement, et le VAE n'a pas assez de contexte pour
+decoder un carre aussi petit. Aucun fondu ne rattrape ca.
+
+Et la table de HOS-207 etait **trop prudente** : elle descendait a 64 des
+un volume de 90, alors que la mesure montre que 128 tient a 109 — soit
+precisement le cas signale, 1280 x 704 sur cinq secondes.
+
+| volume | format et longueur | tuile | verdict |
+|---|---|---|---|
+| 82,1 | 768x416, 257 img | 128 | passe |
+| **109,0** | **1280x704, 121 img** | **128** | **passe (437 s)** |
+| 109,0 | 1280x704, 121 img | 96 | passe (245 s) |
+| 195,6 | 1280x704, 217 img | 64 | passe |
+
+Le palier 128 monte donc de 90 a 110. La tuile 64 ne subsiste qu'au-dela
+de sept secondes en format lourd, ou rien d'autre ne tient.
+
+Contre-intuitif, releve au passage : la tuile 96 decode en 245 s contre
+437 s pour la 128. Une tuile plus petite est donc **plus rapide** ici, la
+memoire etant moins sollicitee — le compromis n'est pas « qualite contre
+vitesse » dans le sens attendu.
+
+### Ce qui est garde de HOS-208
+
+Le calcul du recouvrement, corrige. Il est juste sur le fond — un
+recouvrement qui vaut zero apres division ne sert a rien — et il est
+desormais documente comme **sans effet mesurable**, pas comme un remede.
+Le garder coute une ligne ; le presenter comme une solution serait
+mentir.
+
+### Ce que cet incident apprend
+
+Trois defauts de suite ont ete vus par l'utilisateur avant de l'etre par
+la mesure : le comptage des coutures, l'infirmation du gain de
+`res_multistep`, et ce quadrillage. Le point commun est que l'indicateur
+de dispersion mesure le **deplacement du contenu** — il est aveugle a un
+motif fixe, et il l'etait des la construction.
+
+Le correctif de HOS-208, lui, n'a pas ete verifie **avant** d'etre
+pousse : le rendu de confirmation a ete lance apres le commit. L'ordre
+inverse aurait evite de publier une fausse cause.
+
+Backend 2210 passed, 2 skipped.
+
 ## HOS-208 - Le quadrillage : un recouvrement qui valait zero (2026-08-29)
+
+> **Amende par HOS-209 le meme jour : cette cause est fausse.** Le meme
+> plan rendu avec un recouvrement de 16 puis de 32 donne des pixels
+> rigoureusement identiques, ecart maximal zero. Le correctif decrit
+> ci-dessous est juste sur le fond mais **sans effet** sur le defaut
+> signale. La vraie cause est la taille de la tuile — voir HOS-209.
 
 L'utilisateur, sur le premier rendu en 1280 x 704 issu de HOS-207 : « je
 n'ai pas de probleme de scintillement en revanche l'image forme comme un
