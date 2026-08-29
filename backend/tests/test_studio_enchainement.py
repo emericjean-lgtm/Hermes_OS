@@ -260,3 +260,19 @@ def test_une_image_de_rapport_different_est_recadree_et_non_etiree(tmp_path):
                           str(dest / "p01.png")],
                          capture_output=True, text=True).stdout.strip()
     assert out.startswith("704,1280"), out
+
+
+def test_le_relecteur_sait_lire_une_image_fixe(tmp_path):
+    """Une image n'a pas de duree, donc l'extracteur ne rendait rien.
+
+    Consequence vue en production : les sept references SDXL d'une nuit
+    finissaient toutes `indetermine`, jamais confrontees a leur consigne
+    — alors que ce sont elles qui decident du decor de tous les plans qui
+    en decoulent.
+    """
+    from backend.studio import relecteur
+
+    img = tmp_path / "ref.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+    assert relecteur.extraire(str(img), 3) == [str(img)], \
+        "une image fixe est son propre cadre"

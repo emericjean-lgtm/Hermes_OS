@@ -1,3 +1,149 @@
+## HOS-212 - Juger une voix et une image sur ce qu'elles sont, pas sur leur existence (2026-08-30)
+
+Une premiere production reelle a servi de revelateur, comme HOS-211. Trois
+instruments manquaient, et chacun a trouve un defaut des sa premiere
+utilisation.
+
+### La narration n'etait jugee que sur sa duree
+
+Chatterbox rend un WAV valide, d'une duree plausible, **quoi qu'il ait
+prononce**. Une replique ou il boucle sur un groupe de mots, ou bien ou il
+ajoute un mot apres la fin du texte, ne se distingue en rien d'une bonne
+replique : meme format, meme duree approximative, aucune erreur.
+
+L'utilisateur a entendu deux defauts sur la premiere narration clonee :
+« cette nuit » repete dans la premiere replique, et un « ok » ajoute a la
+toute fin. `scripts/verifier_narration.py` transcrit et compare — il les
+retrouve tous les deux, et en trouve un troisieme que personne n'avait
+signale : **« les marais » a la place de « les marees »**. Sur une video
+scientifique, ca change le sens.
+
+La voix precedente sert de temoin, et c'est elle qui rend la mesure
+utilisable : une transcription se trompe sur les homophones, et « les
+marees » transcrit correctement sur la voix temoin prouve que l'ecart
+vient de la voix clonee, pas du transcripteur. Deux autres ecarts —
+« et »/« elle », « remarqueras »/« remarquerais » — sont du bruit de
+transcription, et le temoin le montre aussi.
+
+`faster-whisper` tourne sur processeur : la verification reste donc
+possible pendant un rendu.
+
+### Les reglages de voix ne se transposent pas d'une reference a l'autre
+
+`exaggeration 0.3 / cfg_weight 0.3` avaient ete mesures en HOS-195 sur la
+reference « Michael ». Les reprendre pour une autre voix etait une
+supposition, et elle etait fausse.
+
+Le banc, sur les trois repliques fautives :
+
+| reference | cfg 0,3 | cfg 0,5 | cfg 0,7 |
+|---|---|---|---|
+| brute — finit en pleine parole | « debut » ajoute | derive complete | mot deforme |
+| close — coupee sur un silence | « marais » | **propre** | « marais » |
+
+Aucun des deux leviers ne suffit seul. La reference fournie se terminait
+**en pleine parole** — mesure a -24,1 dB sur la derniere demi-seconde :
+rien n'y signalait qu'un enonce s'acheve, ce qui explique un modele qui
+continue apres le texte. Coupee sur un silence reel avec un fondu et
+350 ms de blanc, et a `cfg_weight 0.5`, les trois defauts disparaissent.
+
+Corriger les defauts **allonge** la parole : 30,04 s contre 26,88 s. Le
+modele ne bacle plus les fins de phrase.
+
+### Un clone se verifie a la mesure
+
+`scripts/hauteur_voix.py` reprend la methode de HOS-195 — hauteur mediane
+par autocorrelation, sur les trames voisees seulement — au lieu de la
+reecrire a chaque changement de voix. La reference fournie est a 85,4 Hz ;
+le clone rend 81,1 / 85,6 / 86,3 Hz. Il s'est bien deplace vers elle, et
+non vers les 157 Hz de la voix par defaut du modele.
+
+Le nombre de trames voisees compte autant que la hauteur : un clone qui
+n'en produit que quatre sur une phrase entiere n'a pas une hauteur
+imprecise, il n'a presque pas de voix. Releve sans conclusion : la
+dispersion de hauteur de ce clone est le double de celle de « Michael »
+(84-109 contre 32-43).
+
+### La synthese sur processeur : possible, et mauvaise
+
+`synthetiser(appareil="cpu")` existe pour narrer pendant qu'une nuit de
+rendu tient les 16 Gio — l'arbitrage refuse alors la carte, a juste
+titre, et attendre deux heures serait absurde. Sur processeur la synthese
+ne reserve rien, puisqu'elle ne prend rien.
+
+Mesure : **une replique en 49 minutes sur processeur, sept en 119 secondes
+sur la carte.** Le repli reste juste en principe ; a ce rapport, mieux
+vaut attendre. C'est ecrit ici pour que personne ne le redecouvre.
+
+### Le relecteur ne savait pas lire une image fixe
+
+`extraire()` demandait la duree du fichier, qui vaut zero pour un PNG, et
+rendait une liste vide : « aucune image n'a pu etre extraite du plan ».
+Vrai au pied de la lettre, faux sur le fond. Les sept references SDXL
+d'une production finissaient `indetermine`, donc jamais confrontees a leur
+consigne — alors que ce sont elles qui decident du decor de tous les plans
+qui en decoulent.
+
+Une image est son propre cadre. Des la correction, le relecteur a rejete
+une reference en nommant deux ecarts reels : un sol pave annonce comme
+asphalte, et une **Lune en croissant** la ou la consigne demandait une
+pleine Lune. Sur une video dont le sujet est la disparition de la Lune, le
+second n'est pas un detail.
+
+Releve sans conclusion : la meme image a recu deux verdicts opposes du
+meme modele a temperature 0,1. Une seule relecture ne fait donc peut-etre
+pas une garde. Non verifie proprement — la carte etait prise, et sonder
+pendant un rendu mesure la contention.
+
+### Un montage amputé rendait `success: true`
+
+Le defaut le plus grave de la nuit. `montage.assembler` verifie que le
+resultat dure ce que les plans **qu'on lui donne** annoncaient. Il n'a
+aucun moyen de savoir combien on aurait du lui en donner.
+
+Il a donc valide une video de **4,0 secondes faite d'un plan sur dix**,
+en releguant au rang d'avertissement une narration de 35,7 s posee
+dessus — un ecart de +31,7 s.
+
+C'est le `success: true` au-dessus de rien que ce depot traque depuis le
+debut, passe par une porte que personne ne gardait. Le refus est pose chez
+l'appelant, qui est le seul a savoir ce qu'il attendait :
+`finaliser_lune.py` refuse d'assembler si un seul plan manque, et traite
+un ecart voix/image au-dela de six secondes comme une erreur.
+
+### Attendre un fichier n'est pas attendre une fin
+
+Meme incident, plus petit : le script de finalisation guettait
+l'apparition du MP4 pour enchainer. Or le fichier est ecrit **avant** la
+relecture. Il a enchaine trop tot, la file suivante a ete refusee — « une
+file de nuit tourne deja » — et toute la production est tombee. On attend
+desormais `en_cours` a faux.
+
+### Les consignes, reecrites sur des defauts constates
+
+L'utilisateur, sur le premier plan rendu : une voiture garee sur le
+trottoir, des passants trop nombreux, trop rapides, qui apparaissent et
+disparaissent. Trois regles en sont sorties, appliquees a tous les plans :
+
+**Nommer ce qui ne bouge pas.** LTX anime tout ce qu'on ne fige pas
+explicitement.
+
+**Dire la vitesse reelle.** Le modele comprime volontiers une action
+entiere dans les quatre secondes qu'on lui donne. « Real-time speed, this
+is not a time-lapse » corrige l'impression d'accelere.
+
+**Interdire les entrees et sorties de cadre.** Un passant qui entre
+pendant le plan n'a aucune histoire avant : le modele le fabrique image
+par image, et il scintille.
+
+Effet de bord mesure : cinq formulations negatives sur la voiture mal
+garee suppriment la **classe d'objet entiere**. La reference corrigee n'a
+plus aucun vehicule, et le relecteur a rejete l'image parce que la
+consigne en demandait encore. C'etait la consigne qui etait fautive.
+
+Backend 2263 passed, 2 skipped.
+
+
 ## HOS-211 - Ce qui manquait pour produire une video, et non plus des plans (2026-08-29)
 
 Un cahier de production reel — dix plans, deux chaines de continuite, une

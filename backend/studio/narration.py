@@ -141,6 +141,7 @@ def synthetiser(
     reserver: Optional[Any] = None,
     appeler: Optional[Any] = None,
     minutes: float = MINUTES_PAR_LOT,
+    appareil: str = "",
 ) -> Narration:
     """Synthétiser plusieurs répliques avec la voix clonée.
 
@@ -152,6 +153,12 @@ def synthetiser(
     Sans elle, la synthèse part sans arbitrage — ce que seul un test doit
     faire, jamais un appel réel : c'est exactement le manque que ce module
     corrige par rapport à un script isolé.
+
+    `appareil="cpu"` force la synthèse sur le processeur **et se passe
+    d'arbitrage**, puisqu'elle ne touche alors pas la carte (HOS-212).
+    C'est ce qui permet de narrer pendant qu'une nuit de rendu tient les
+    16 Gio : sinon la réservation refuse, à juste titre, et il faut
+    attendre deux heures. Plus lent, mais disponible.
     """
     if not voix_michael_disponible() and reference == VOIX_MICHAEL_REFERENCE:
         raise ChatterboxIndisponible(
@@ -169,9 +176,14 @@ def synthetiser(
         "exaggeration": r.get("exaggeration", 0.5),
         "cfg_weight": r.get("cfg_weight", 0.5),
     }
+    if appareil:
+        requete["appareil"] = appareil
     appel = appeler or _appeler_ouvrier
 
-    contexte = reserver(BESOIN_NARRATION_OCTETS) if reserver else None
+    # Sur processeur, rien n'est pris à la carte : réserver reviendrait à
+    # refuser une synthèse qui n'aurait dérangé personne.
+    sur_carte = appareil.lower() != "cpu"
+    contexte = reserver(BESOIN_NARRATION_OCTETS) if (reserver and sur_carte) else None
     try:
         if contexte is not None:
             with contexte as occ:

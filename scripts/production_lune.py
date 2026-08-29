@@ -67,23 +67,71 @@ GRAINES = {
     "img07": 107, "img08": 108,
 }
 
-#: Ce que tous les plans refusent, en plus du négatif par défaut. Le
-#: cahier des charges les énumère ; les mettre ici évite de les répéter
-#: treize fois et d'en oublier un.
-NEGATIF = ("cartoon, anime, illustration, fantasy, science fiction, "
-           "hyper-saturated colors, oversaturated, glowing artifacts, "
-           "lens flare, explosion, floating objects, distorted anatomy, "
-           "deformed hands, extra limbs, text, logo, watermark, subtitles, "
-           "blurry, low quality, jpeg artifacts")
+#: Ce que tous les plans refusent. La seconde moitié vient des défauts
+#: **constatés** sur le premier rendu, pas d'une liste de précaution :
+#: une voiture garée sur le trottoir, des passants trop nombreux et trop
+#: rapides, qui apparaissaient et disparaissaient d'un instant à l'autre.
+#:
+#: Chaque terme répond à l'un d'eux. Les garder groupés ici évite de les
+#: répéter treize fois et d'en oublier un.
+#:
+#: **Effet de bord mesuré** : les cinq formulations sur la voiture mal
+#: garée suppriment la classe d'objet entière — la référence corrigée
+#: n'a plus aucun véhicule. Les consignes le disent donc désormais
+#: aussi. Elles demandaient des voitures que le négatif interdisait, et
+#: le relecteur a rejeté l'image pour cette contradiction, à raison :
+#: c'est la consigne qui était fautive, pas l'image.
+NEGATIF = (
+    # Style
+    "cartoon, anime, illustration, fantasy, science fiction, "
+    "hyper-saturated colors, oversaturated, glowing artifacts, lens flare, "
+    "explosion, floating objects, text, logo, watermark, subtitles, "
+    "blurry, low quality, jpeg artifacts, "
+    # La voiture sur le trottoir
+    "car parked on the sidewalk, vehicle on the pavement, car on footpath, "
+    "vehicle blocking the walkway, badly parked car, "
+    # La foule illisible
+    "crowd, many people, busy street, heavy traffic, "
+    "group of pedestrians, cluttered composition, "
+    # La phase de la Lune. Le modele a rendu un croissant deux fois de
+    # suite la ou la consigne demandait une pleine Lune. Sur un sujet qui
+    # est *la disparition de la Lune*, ce n'est pas un detail de rendu :
+    # c'est le sujet.
+    "crescent moon, half moon, gibbous moon, quarter moon, moon phase, "
+    "partially lit moon, lunar eclipse, dark moon, ring of light, "
+    # La vitesse et l'incohérence des déplacements
+    "time-lapse, timelapse, sped-up footage, fast motion, hyperlapse, "
+    "people appearing and disappearing, flickering figures, "
+    "morphing people, duplicated limbs, distorted anatomy, deformed hands, "
+    "extra limbs, teleporting subjects, popping objects")
 
 STYLE = ("photorealistic, cinematic, documentary realism, physically "
          "believable lighting, natural composition, realistic human "
          "proportions, high-end cinematic photography, no text, no logos, "
          "no watermark")
 
-CONTINUITE = ("stable architecture, coherent environment, consistent "
-              "lighting throughout the shot, smooth continuous camera "
-              "motion, no sudden cuts, natural parallax")
+#: La leçon du premier rendu, en une phrase par défaut constaté.
+#:
+#: **Nommer ce qui ne bouge pas.** LTX anime tout ce qu'on ne fige pas
+#: explicitement. L'architecture, les voitures garées et le mobilier
+#: urbain doivent être déclarés immobiles, sinon ils respirent.
+#:
+#: **Dire la vitesse réelle.** Le modèle comprime volontiers une action
+#: entière dans les quatre secondes qu'on lui donne, ce qui produit
+#: exactement l'impression d'accéléré signalée. « Real-time speed » et
+#: « not a time-lapse » sont les deux formules qui la corrigent.
+#:
+#: **Interdire les entrées et sorties de cadre.** Un passant qui entre
+#: pendant le plan n'a aucune histoire avant : le modèle le fabrique
+#: image par image, et il scintille. C'est la cause des apparitions et
+#: disparitions.
+CONTINUITE = (
+    "The architecture, the street furniture and the ground stay "
+    "perfectly static and never change shape. No object and "
+    "no person enters or leaves the frame during the shot. Real-time "
+    "speed, this is not a time-lapse and nothing is sped up. One single "
+    "continuous take, stable framing, consistent lighting throughout, "
+    "natural parallax, no sudden cuts")
 
 
 def _image(identifiant: str, consigne: str) -> dict:
@@ -114,111 +162,133 @@ def _clip(identifiant: str, consigne: str, depend_de: str,
 
 PLANS: list[dict] = [
     # ── Séquence ville : 01 → 02A → 02B ──────────────────────────────
+    #
+    # La rue est **déserte**. Ce n'est pas un appauvrissement : les
+    # passants du premier rendu apparaissaient et disparaissaient parce
+    # qu'ils faisaient trop peu de pixels pour que le modèle garde leur
+    # identité d'une image à l'autre. Une rue vide à trois heures du
+    # matin est plausible, plus calme — donc plus juste pour le sujet —
+    # et techniquement stable. Le seul humain de la séquence arrive au
+    # plan 02B, immobile, quand il faut une réaction.
     _image("ref01",
-           "night view of a modern Parisian street, realistic apartment "
-           "buildings, wet pavement reflecting warm street lights, a few "
-           "pedestrians walking, distant cars, clear dark blue night sky, "
-           "a large bright full Moon clearly visible above the city, "
-           "moonlight illuminating rooftops, subtle atmospheric haze"),
+           "a large perfectly round fully lit full Moon, a complete "
+           "bright white disc high in a clear dark blue night sky, above "
+           "a quiet Parisian street. The street is completely deserted, "
+           "no pedestrians and no vehicles at all. Haussmann stone "
+           "apartment buildings on both sides, warm sodium street lamps, "
+           "wet cobblestone road reflecting the lamps, empty clean "
+           "pavements, zinc rooftops. Cold moonlight on the roofs, still "
+           "and silent atmosphere. Full-frame camera, 35 mm lens, long "
+           "exposure, natural night colours"),
     _clip("p01",
-          "Continue naturally from the reference image. A slow cinematic "
-          "camera movement forward through the quiet Parisian street at "
-          "night. Pedestrians and cars move naturally and subtly. The "
-          "bright full Moon remains clearly visible in the sky. Realistic "
-          "atmospheric movement, natural reflections on wet pavement.",
+          "Continue from the reference image. The camera drifts forward "
+          "along the empty street at walking pace, an almost "
+          "imperceptible dolly. The street stays deserted for the whole "
+          "shot. The only things that move are the camera itself, the "
+          "faint reflections shifting on the wet cobblestones, and a "
+          "thin "
+          "wisp of haze. The full Moon holds its exact position and size "
+          "in the sky.",
           depend_de="ref01"),
     _clip("p02a",
-          "Continue directly from the provided reference frame with "
-          "exactly the same city, architecture, lighting and camera "
-          "position. The camera slowly tilts upward toward the full Moon. "
-          "The night remains calm. The Moon is visually stable and "
-          "detailed while subtle clouds move naturally across the sky.",
+          "Continue from the reference frame with exactly the same "
+          "street, the same buildings and the same lighting. The camera "
+          "tilts upward slowly and evenly toward the full Moon, ending "
+          "on the sky above the rooftops. The Moon keeps its exact shape "
+          "and brightness. A few thin clouds drift slowly across it. "
+          "Nothing else in the frame moves.",
           depend_de="p01"),
     # La disparition n'est pas demandée au modèle : la caméra redescend,
-    # la Lune sort du cadre, le ciel est décrit vide et sombre. C'est la
-    # coupe entre 02A et 02B qui la porte.
+    # la Lune sort du cadre par le mouvement, et c'est la coupe entre 02A
+    # et 02B qui la porte. Un seul humain, immobile — le mouvement humain
+    # le plus sûr qu'on puisse demander.
     _clip("p02b",
-          "Continue directly from the reference frame. The camera slowly "
-          "tilts back down from the empty sky toward the street below. "
-          "The sky above the city is now completely empty and much "
-          "darker, with no bright light source in it. The street is lit "
-          "only by its own street lamps, and the rooftops have lost their "
-          "pale illumination. A few pedestrians below slow down and look "
-          "upward. Realistic lighting transition, physically believable "
-          "illumination change, no magical effects.",
+          "Continue from the reference frame. The camera tilts slowly "
+          "back down from the sky toward the street below. The sky above "
+          "the city is completely empty and much darker, with no bright "
+          "light source anywhere in it. The rooftops have lost their "
+          "pale illumination and the street is lit only by its own "
+          "sodium lamps. One single person stands motionless on the "
+          "pavement, seen from behind, head tilted up toward the empty "
+          "sky. That person does not walk and does not turn.",
           depend_de="p02a"),
 
     # ── Transition espace : image fixe animée au montage ─────────────
     _image("img03",
-           "view of planet Earth from space at night, realistic "
-           "continents and oceans, dense city lights on the visible side "
-           "of the planet, thin blue atmospheric layer, deep black space, "
-           "stars, no Moon anywhere in the scene, NASA-inspired "
-           "photographic realism, scientifically plausible"),
+           "planet Earth seen from space at night, realistic continents "
+           "and oceans, dense warm city lights on the dark side, thin "
+           "blue atmospheric limb, deep black space with faint stars, no "
+           "Moon anywhere in the frame, NASA orbital photography, "
+           "scientifically plausible, no lens flare"),
 
     # ── Séquence océan : 04A → 04B ──────────────────────────────────
     _image("ref04",
-           "aerial view of a European Atlantic coastline at night "
-           "transitioning toward dawn, enormous dark ocean extending to "
-           "the horizon, realistic waves approaching the shore, rocky "
-           "coastline, small coastal lights in the distance, physically "
-           "accurate water reflections, atmospheric mist"),
+           "aerial night photograph of a European Atlantic coastline "
+           "just before dawn, a vast dark ocean stretching to the "
+           "horizon, long regular swell rolling toward a rocky shore, "
+           "dark granite rocks, two or three small distant lights on the "
+           "coast, physically accurate water reflections, low "
+           "atmospheric mist, deep blue hour colours, aerial documentary "
+           "photography"),
     _clip("p04a",
-          "Continue naturally from the reference image. Slow aerial "
-          "cinematic camera movement following the coastline. Ocean waves "
-          "move naturally toward the shore while the camera advances "
-          "smoothly. The water surface remains coherent across frames "
-          "with stable coastline geometry and realistic wave motion.",
+          "Continue from the reference image. The camera advances "
+          "smoothly and slowly above the coastline, following the shore. "
+          "The swell rolls toward the rocks at the speed of real ocean "
+          "waves, each wave keeping its shape as it travels. The "
+          "coastline geometry and the rocks are completely fixed.",
           depend_de="ref04"),
     _clip("p04b",
-          "Continue directly from the reference frame. The camera "
-          "gradually pulls higher above the coastline, revealing a larger "
-          "portion of the ocean. The waves continue their natural "
-          "movement, but the overall tidal motion appears unusually "
-          "subdued and calm. Maintain the exact same coastline, lighting "
-          "and atmosphere from the reference image. Realistic water "
-          "physics, no tsunami, no exaggerated waves.",
+          "Continue from the reference frame. The camera rises slowly "
+          "and steadily, revealing more of the open ocean. The same "
+          "coastline, the same light and the same atmosphere as the "
+          "reference. The swell keeps moving but stays low and unusually "
+          "calm, with small gentle waves, no breaking surf, no "
+          "whitewater walls and no tsunami.",
           depend_de="p04a"),
 
     # ── La nuit plus sombre : image fixe animée ─────────────────────
     _image("img05",
-           "night landscape with an exceptionally dark natural sky, "
-           "remote European countryside, mountains and forests visible "
-           "only as subtle silhouettes, an extraordinarily clear star "
-           "field, natural darkness, faint distant horizon glow, "
-           "high-end astrophotography combined with cinematic landscape "
-           "photography, no Moon, no artificial lights"),
+           "night landscape under an exceptionally dark sky, remote "
+           "European countryside, low mountains and forest visible only "
+           "as soft silhouettes against the horizon, an extraordinarily "
+           "dense star field, natural darkness with no moonlight, faint "
+           "airglow near the horizon, long-exposure astrophotography "
+           "combined with landscape photography, no Moon, no artificial "
+           "lights, no light pollution"),
 
     # ── L'humain face au nouveau ciel ──────────────────────────────
     _image("ref06",
-           "a lone person standing on a quiet hill overlooking a dark "
-           "European landscape at night, seen from behind, looking upward "
-           "toward an unusually dark moonless sky filled with stars, "
-           "subtle silhouette, realistic clothing, gentle wind moving "
-           "clothing slightly, deep natural darkness, emotional but "
-           "restrained documentary cinematography"),
+           "one lone person standing on a quiet grassy hill at night, "
+           "seen from behind, full body, looking up at an unusually dark "
+           "moonless sky filled with stars, dark simple coat, natural "
+           "human proportions, deep natural darkness, a dark European "
+           "landscape far below, restrained documentary photography, "
+           "single subject, nobody else in the frame"),
     _clip("p06",
-          "Continue naturally from the reference image. The camera slowly "
-          "moves closer to the person from behind while the person "
-          "remains looking toward the dark star-filled sky. Subtle "
-          "natural wind moves the clothing and nearby grass. The night "
-          "sky remains stable. Maintain the exact character silhouette, "
-          "environment and lighting from the reference image.",
+          "Continue from the reference image. The camera moves toward "
+          "the person very slowly from behind. The person stays exactly "
+          "where they are, facing away, head tilted up at the sky, and "
+          "does not walk or turn around. A light wind moves the fabric "
+          "of the coat and the grass around them. The star field stays "
+          "fixed. Nobody else appears at any point.",
           depend_de="ref06"),
 
     # ── Conclusion et boucle : images fixes animées ────────────────
     _image("img07",
-           "view of planet Earth from deep space, illuminated by distant "
-           "sunlight, no Moon anywhere in the scene, thin blue "
-           "atmosphere, realistic cloud systems, natural planetary "
-           "proportions, subtle terminator line between day and night, "
-           "vast deep black space, elegant cinematic composition"),
+           "planet Earth seen from deep space, lit by distant sunlight, "
+           "no Moon anywhere in the frame, thin blue atmosphere, "
+           "realistic cloud systems, natural planetary proportions, a "
+           "soft terminator line between day and night, vast black "
+           "space, elegant simple composition, no science fiction "
+           "elements"),
     _image("img08",
-           "night view of the same modern Parisian street, almost "
-           "identical framing to the opening scene, wet pavement "
-           "reflecting warm street lights, realistic buildings, quiet "
-           "atmosphere, very dark empty sky, no Moon visible, subtle "
-           "atmospheric haze"),
+           "night photograph of the same quiet Parisian street, almost "
+           "identical framing to the opening shot, completely deserted, "
+           "no pedestrians, no vehicles, the same Haussmann buildings, "
+           "the same street lamps, wet cobblestones reflecting them, "
+           "and a "
+           "completely empty very dark sky above the rooftops with no "
+           "Moon anywhere"),
 ]
 
 #: L'ordre du montage, et la façon dont chaque plan y arrive. Les plans

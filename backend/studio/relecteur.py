@@ -172,6 +172,17 @@ def extraire(video: str, combien: int = 3) -> list[str]:
     if not binaire or not os.path.exists(video):
         return []
 
+    # Une image fixe **est** son propre cadre. Sans ce cas, `duree_s` rend
+    # zéro et la relecture répond « aucune image n'a pu être extraite » —
+    # ce qui est vrai au pied de la lettre et faux sur le fond : les sept
+    # références SDXL d'une production sont alors toutes `indetermine`,
+    # donc jamais confrontées à leur consigne, alors que ce sont elles qui
+    # décident du décor de tous les plans qui en découlent.
+    from backend.studio.enchainement import IMAGES
+
+    if os.path.splitext(video)[1].lower() in IMAGES:
+        return [video]
+
     combien = max(1, min(combien, len(INSTANTS)))
     duree = duree_s(video)
     if duree <= 0:

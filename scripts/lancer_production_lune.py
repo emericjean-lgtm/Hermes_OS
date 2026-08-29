@@ -39,11 +39,23 @@ API = "http://127.0.0.1:8010/api/v1"
 SORTIE = r"E:\YouTube\Generations\lune"
 RAPPORT = os.path.join(SORTIE, "rapport_production.json")
 
-#: Le silence après chaque réplique. Ajusté après mesure de la voix : la
-#: narration lue d'affilée dure environ 25 s pour 38 s d'image, et ces
-#: respirations sont ce qui rapproche les deux — en même temps qu'elles
-#: sont ce que le cahier des charges demande pour le ton.
-PAUSES_S = [1.6, 1.9, 1.5, 1.4, 1.6, 1.5]
+#: Le silence après chaque réplique, calé sur la voix **mesurée** et non
+#: sur une estimation.
+#:
+#: La voix clonée aux réglages retenus (référence close, cfg_weight 0,5)
+#: parle 30,04 s pour 38,24 s d'image — contre 26,88 s aux réglages
+#: précédents. Corriger les défauts a **allongé** la parole : le modèle
+#: ne bâcle plus les fins de phrase. Le budget de silences passe donc de
+#: 8,6 à 5,7 s.
+#:
+#: Les quatre pauses que le cahier des charges marque nommément — après
+#: « cette nuit », « elle disparaît simplement », « le vrai problème
+#: serait ailleurs » et « considérablement » — restent les plus longues.
+#: Les deux autres sont de simples respirations de phrase.
+#:
+#: Total 35,74 s. Les 2,5 s qui restent laissent le dernier plan — la rue
+#: sans Lune, le rappel de l'ouverture — se jouer en silence.
+PAUSES_S = [1.1, 1.2, 0.6, 1.1, 1.1, 0.6]
 
 
 def _appel(chemin: str, corps: dict | None = None, *,
@@ -64,7 +76,12 @@ def _dire(*mots: Any) -> None:
 
 # ── 1. La nuit ────────────────────────────────────────────────────────
 
-def lancer_la_nuit() -> dict:
+def lancer_la_nuit() -> tuple[dict, float]:
+    # L'instant du lancement sert à écarter le journal de la nuit
+    # précédente : il est encore sur le disque au moment où la nouvelle
+    # démarre, et le lire donnerait un compte qui n'a rien à voir — vu
+    # une fois, « 3/13 » avant le premier plan.
+    depart = time.time()
     reponse = _appel("/studio/night", {
         "plans": P.PLANS,
         # 45 min : un plan qui dépasse ça ne rampe pas, il est en panne.
@@ -75,33 +92,40 @@ def lancer_la_nuit() -> dict:
     if not reponse.get("success"):
         raise SystemExit(f"la nuit n'a pas démarré : {reponse}")
     _dire(f"nuit lancée — {reponse['plans']} plans, journal {reponse['journal']}")
-    return reponse
+    return reponse, depart
 
 
-def attendre_la_nuit(periode_s: float = 60.0) -> dict:
+def attendre_la_nuit(depuis: float, periode_s: float = 60.0) -> dict:
     """Suivre le journal, pas une variable en mémoire.
 
     Le journal est écrit après chaque plan et survit à un redémarrage du
     backend. C'est la seule source qui reste vraie dans tous les cas.
     """
+    attendu = len(P.PLANS)
     dernier = -1
     while True:
         etat = _appel("/studio/night")
-        plans = etat.get("plans") or []
-        finis = sum(1 for p in plans
-                    if p.get("etat") not in ("en_attente",))
+        # Les plans vivent sous `rapport`, pas à la racine : la route rend
+        # `{en_cours, rapport}`. Lire `etat["plans"]` rendait une liste
+        # vide, donc « zéro plan traité » à jamais — et la boucle aurait
+        # tourné toute la nuit sans rien voir avancer.
+        rapport = etat.get("rapport") or {}
+        if float(rapport.get("debut") or 0) < depuis - 5:
+            # Journal antérieur au lancement : celui de la nuit d'avant.
+            rapport = {}
+        plans = rapport.get("plans") or []
+        finis = sum(1 for p in plans if p.get("etat") != "en_attente")
         if finis != dernier:
-            _dire(f"nuit : {finis}/{len(plans)} plans traités")
+            _dire(f"nuit : {finis}/{attendu} plans traités")
             dernier = finis
-        if not etat.get("en_cours") and finis and finis >= len(plans):
-            return etat
-        if not etat.get("en_cours") and dernier >= 0 and finis == dernier:
-            # Le fil est mort sans avoir tout traité : ne pas boucler
-            # indéfiniment sur un journal qui ne bougera plus.
-            if finis >= len(plans):
-                return etat
-            _dire("le fil de nuit s'est arrêté avant la fin")
-            return etat
+
+        if not etat.get("en_cours"):
+            if finis >= attendu:
+                return rapport
+            # Le fil est mort avant la fin : ne pas boucler sur un journal
+            # qui ne bougera plus.
+            _dire(f"le fil de nuit s'est arrêté à {finis}/{attendu}")
+            return rapport
         time.sleep(periode_s)
 
 
@@ -194,13 +218,13 @@ def main() -> int:
     os.makedirs(SORTIE, exist_ok=True)
     debut = time.time()
 
-    lancer_la_nuit()
-    etat = attendre_la_nuit()
+    _, depart_nuit = lancer_la_nuit()
+    rapport_nuit = attendre_la_nuit(depart_nuit)
 
-    rendus = {p["identifiant"]: p.get("fichiers") or []
-              for p in etat.get("plans", [])}
+    plans_rendus = rapport_nuit.get("plans") or []
+    rendus = {p["identifiant"]: p.get("fichiers") or [] for p in plans_rendus}
     _dire("nuit terminée : " + json.dumps(
-        {p["identifiant"]: p.get("etat") for p in etat.get("plans", [])},
+        {p["identifiant"]: p.get("etat") for p in plans_rendus},
         ensure_ascii=False))
 
     clips = {e["plan"]: rendus[e["plan"]][-1]
@@ -215,7 +239,7 @@ def main() -> int:
 
     rapport = {
         "debut": debut, "duree_s": round(time.time() - debut, 1),
-        "nuit": etat, "clips": clips, "narration": voix,
+        "nuit": rapport_nuit, "clips": clips, "narration": voix,
         "sous_titres": srt, "montage": montage,
     }
     with open(RAPPORT, "w", encoding="utf-8") as f:

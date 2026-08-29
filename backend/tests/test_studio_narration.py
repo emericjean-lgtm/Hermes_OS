@@ -176,3 +176,61 @@ def test_une_reference_introuvable_cote_ouvrier_est_rapportee():
                     appeler=sans_reference)
     assert not n.reussie
     assert "introuvable" in n.erreur
+
+
+def test_sur_processeur_la_synthese_ne_reserve_pas_la_carte():
+    """Reserver reviendrait a refuser une synthese qui ne derange personne.
+
+    Le cas reel : pendant une nuit de rendu, ComfyUI detient 11 Gio et la
+    synthese en demande 4,4 — l'arbitrage la refuse, a juste titre. Sur
+    processeur elle ne touche pas la carte, et attendre deux heures pour
+    rien serait absurde.
+    """
+    from backend.studio import narration
+
+    reservations = []
+
+    def reserver(besoin):
+        reservations.append(besoin)
+        raise AssertionError("la carte ne doit pas etre reservee sur processeur")
+
+    vu = {}
+
+    def appeler(requete, minutes):
+        vu.update(requete)
+        return {"appareil": "cpu", "charge_s": 1.0,
+                "resultats": [{"id": "a", "chemin": "x.wav", "duree_s": 1.0}]}
+
+    n = narration.synthetiser([("a", "bonjour")], "dossier",
+                              reference=__file__, reserver=reserver,
+                              appeler=appeler, appareil="cpu")
+    assert reservations == []
+    assert vu["appareil"] == "cpu"
+    assert n.appareil == "cpu"
+
+
+def test_sur_carte_la_synthese_reserve_toujours():
+    # Le symetrique : sans cette garde, la correction ci-dessus aurait pu
+    # desarmer l'arbitrage pour tout le monde.
+    from backend.studio import narration
+
+    reservations = []
+
+    class _Occ:
+        obtenu = True
+        liberation_douteuse = False
+
+    class _Ctx:
+        def __enter__(self): return _Occ()
+        def __exit__(self, *a): return False
+
+    def reserver(besoin):
+        reservations.append(besoin)
+        return _Ctx()
+
+    narration.synthetiser(
+        [("a", "bonjour")], "dossier", reference=__file__, reserver=reserver,
+        appeler=lambda r, m: {"appareil": "cuda", "charge_s": 1.0,
+                              "resultats": [{"id": "a", "chemin": "x.wav",
+                                             "duree_s": 1.0}]})
+    assert reservations == [narration.BESOIN_NARRATION_OCTETS]

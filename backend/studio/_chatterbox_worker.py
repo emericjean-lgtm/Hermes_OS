@@ -52,7 +52,16 @@ def main() -> None:
     import torch
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
-    appareil = "cuda" if torch.cuda.is_available() else "cpu"
+    # `appareil` impose l'emporte sur la detection (HOS-212). Ce n'est pas
+    # un reglage de confort : pendant une nuit de rendu, ComfyUI detient
+    # 11 Gio et la synthese en demande 4,4 — l'arbitrage la refuse, a
+    # raison. Le processeur la rend possible quand meme, plus lentement,
+    # sans jamais disputer la carte au rendu en cours.
+    impose = str(requete.get("appareil") or "").strip().lower()
+    if impose in ("cpu", "cuda"):
+        appareil = impose
+    else:
+        appareil = "cuda" if torch.cuda.is_available() else "cpu"
     t0 = time.time()
     modele = ChatterboxMultilingualTTS.from_pretrained(device=appareil)
     charge_s = time.time() - t0
