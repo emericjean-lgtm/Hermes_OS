@@ -1535,6 +1535,79 @@ table illisible ne bloque jamais un rendu : la calibration est un confort,
 pas une dépendance.
 
 
+## De plans a une video (HOS-211)
+
+Un cahier de production reel — dix plans, deux chaines de continuite, une
+narration, des sous-titres — a servi de revelateur. Le Studio savait
+rendre des plans ; il ne savait pas en faire une video. Detail complet
+dans le CHANGELOG ; l'essentiel tient en cinq points.
+
+### L'enchainement, et pourquoi il n'existait pas
+
+La file de nuit recevait des graphes **deja composes**. Un plan dont
+l'image de depart est la derniere image du plan precedent etait donc
+inexprimable : ce fichier n'existe pas quand on decrit la nuit.
+
+Un plan se decrit desormais par `gabarit` + `parametres`, se compose au
+moment de son rendu, et declare `depend_de`.
+
+Ce qui compte n'est pas la resolution mais l'echec. Un plan dont le
+predecesseur n'a rien produit **ne doit pas etre rendu** : il repartirait
+du bruit, produirait un MP4 valide, et la rupture ne se verrait qu'au
+montage. Il est `abandonne`, en nommant le plan manquant — et sans
+compter comme un echec de rendu, sinon trois plans dependant d'un meme
+absent arreteraient la file entiere.
+
+### Le pont vers l'entree de ComfyUI
+
+SDXL ecrit dans le dossier de sortie ; `LoadImage` ne lit que le `input`.
+`enchainement.preparer_depart()` fait le pont dans les deux sens — une
+video donne sa derniere image, une image est copiee — et refuse une
+extension inconnue plutot que de la deviner.
+
+Il **recadre** aussi, et ce n'est pas un confort : `LTXVImgToVideo` recoit
+les dimensions du plan et redimensionne sans recadrer. Une reference SDXL
+en 768 x 1344 donnee a un plan en 704 x 1280 serait etiree, visiblement
+sur un visage, et rien ne le dirait.
+
+### L'image fixe qui devient un plan
+
+`concat` enchaine des flux video : un PNG n'en est pas un, et il exige que
+tous les plans partagent leur resolution. `montage.animer()` rend un clip
+au format exact des autres — un plan qui differerait ferait echouer
+l'assemblage a la toute fin, apres deux heures de rendu.
+
+Le `zoompan` travaille sur une image agrandie huit fois. Sur l'image a sa
+taille finale, le cadre saute d'un pixel entier d'une image a l'autre : la
+saccade se voit, et c'est precisement le defaut que toute la campagne
+HOS-200..209 a servi a eliminer ailleurs.
+
+### La voix, recollee avec ses respirations
+
+Chatterbox lit ce qu'on lui donne. Les pauses n'existent que si quelque
+chose les intercale : des entrees `lavfi` reelles, et non un `apad` qui
+allongerait la derniere replique et accumulerait le decalage.
+
+### Le defaut trouve en eprouvant le reste
+
+`assembler` portait `-shortest` avec le commentaire « l'image commande ».
+Il coupe bien une narration trop longue — et coupe aussi **l'image**
+quand la voix est plus courte. Mesure : trois plans de 6,0 s avec une voix
+de 5,4 s rendaient une video de 5,4 s, six dixiemes d'image absents sans
+erreur. `apad` complete l'audio, `-shortest` coupe alors sur l'image.
+
+Le defaut datait de HOS-191. Il n'avait jamais ete vu parce qu'aucune
+narration n'avait ete plus courte que l'image — un cas qu'aucun test
+n'explorait, et qu'un cahier de production reel a produit du premier coup.
+
+### Surfaces
+
+`POST /studio/assemble`, `POST /studio/animate`, `POST /studio/start-frame`.
+Le cahier de production lui-meme est un fichier lisible,
+`scripts/production_lune.py` : il decrit des plans et des dependances, il
+ne raisonne pas.
+
+
 ## La narration par voix clonée (HOS-195)
 
 Chatterbox, cloné depuis un échantillon de l'utilisateur, sous un

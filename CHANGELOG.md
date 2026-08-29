@@ -1,3 +1,90 @@
+## HOS-211 - Ce qui manquait pour produire une video, et non plus des plans (2026-08-29)
+
+Un cahier de production reel — dix plans, deux chaines de continuite, une
+narration, des sous-titres — a servi de revelateur. Le Studio savait
+rendre des plans ; il ne savait pas en faire une video.
+
+### Cinq manques, dont un structurel
+
+**La file de nuit ne savait pas enchainer.** `POST /studio/night`
+composait **tous** les graphes a la soumission. Un plan dont l'image de
+depart est la derniere image du plan precedent etait donc inexprimable :
+ce fichier n'existe pas quand on decrit la nuit. Toute continuite
+visuelle — meme decor, meme lumiere, meme personnage d'un plan au suivant
+— etait hors de portee d'une nuit.
+
+Un plan peut desormais etre decrit par `gabarit` + `parametres`, compose
+**au moment de son rendu**, et declarer `depend_de`.
+
+Le point delicat n'est pas la resolution, c'est l'echec. Un plan dont le
+predecesseur n'a rien produit repartirait du bruit, rendrait un MP4
+parfaitement valide, et la rupture ne se verrait qu'au montage — apres la
+nuit. C'est la forme de defaut que ce depot paie le plus cher :
+`success: True` au-dessus de rien. Il est donc `abandonne`, en nommant le
+plan manquant, et sans compter comme un echec de rendu : trois plans
+dependant d'un meme absent arreteraient sinon la file entiere alors qu'un
+seul defaut est en cause.
+
+**Rien ne transportait une image vers l'entree de LTX.** SDXL ecrit dans
+`E:\YouTube\Generations` ; `LoadImage` ne lit que le `input` de ComfyUI.
+`/studio/last-frame` ne savait extraire que depuis une video.
+`enchainement.preparer_depart()` fait les deux et refuse une extension
+inconnue plutot que de la deviner.
+
+**Une image de rapport different aurait ete etiree, en silence.**
+`LTXVImgToVideo` recoit les dimensions du plan et redimensionne **sans
+recadrer**. Une reference SDXL en 768 x 1344 (rapport 0,571) donnee a un
+plan en 704 x 1280 (0,550) est deformee — visible sur un visage, et rien
+ne le dit. Le recadrage est centre, coute 3,8 % de champ lateral, et les
+dimensions visees voyagent avec la demande.
+
+**Aucune image fixe ne devenait une video.** Quatre plans sur dix sont des
+images avec un mouvement lent. `concat` enchaine des flux video : un PNG
+n'en est pas un. `montage.animer()` produit un clip au format exact des
+autres — meme taille, meme cadence, meme profil — parce qu'un plan qui
+differerait ferait echouer l'assemblage a la toute fin, apres deux heures
+de rendu. Le `zoompan` travaille sur une image agrandie huit fois : sur
+l'image a sa taille finale, le cadre saute d'un pixel entier d'une image
+a l'autre et la saccade se voit.
+
+**La narration n'avait pas de respirations.** Chatterbox lit ce qu'on lui
+donne. `montage.coller_voix()` intercale des silences reels — des entrees
+`lavfi` et non un `apad`, qui allongerait la derniere replique et
+accumulerait le decalage sans qu'aucune duree ne le dise.
+
+### Le defaut trouve en eprouvant le reste
+
+`assembler` portait `-shortest` avec le commentaire « l'image commande ».
+Il fait la moitie du travail : il coupe bien une narration trop longue,
+mais il coupe aussi **l'image** quand la voix est plus courte. Mesure :
+trois plans de 6,0 s avec une voix de 5,4 s rendaient une video de 5,4 s
+— six dixiemes de seconde d'image simplement absents, sans erreur.
+
+`apad` complete l'audio de silence et `-shortest` coupe alors sur
+l'image. C'est ainsi que la phrase devient vraie dans les deux sens.
+
+Ce defaut existait depuis HOS-191. Il n'a jamais ete vu parce qu'aucune
+narration n'avait ete plus courte que l'image.
+
+### Ce qui s'ajoute au montage
+
+Un lit sonore mixe **sous** la voix, boucle et coupe sur la duree de
+l'image ; et une mise a l'echelle en sortie. 704 x 1280 vers 1080 x 1920
+est un facteur 1,53 en lanczos, sans information nouvelle : c'est ce que
+demandent les plateformes, qui reencodent de toute facon. L'appeler un
+upscale serait mentir sur ce qu'on livre.
+
+Les sous-titres sont incrustes **avant** l'agrandissement : les poser sur
+l'image agrandie les garde nets.
+
+### Surfaces
+
+`POST /studio/assemble`, `POST /studio/animate`, `POST /studio/start-frame`.
+`montage.assembler` existait depuis HOS-191 mais n'etait joignable que
+depuis Python : une production lancee la nuit ne pouvait donc pas se
+terminer toute seule.
+
+
 ## HOS-210 - Le reglage du decodeur se mesure au lieu de se supposer (2026-08-29)
 
 Trois fois de suite — HOS-205, HOS-208, HOS-209 — le defaut visible venait

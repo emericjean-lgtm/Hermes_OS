@@ -35,6 +35,25 @@ par `arbitrage.carte_reservee`.
 **Elle ne perd pas la nuit sur un défaut répété.** Trois échecs consécutifs
 arrêtent la file : au-delà, ce n'est plus un aléa, et continuer coûterait
 huit heures pour confirmer ce que le troisième échec disait déjà.
+
+## L'enchaînement, et pourquoi il ne pouvait pas exister avant (HOS-211)
+
+Jusqu'ici la file recevait des graphes **déjà composés**. Un plan dont
+l'image de départ est la dernière image du plan précédent était donc
+inexprimable : ce fichier n'existe pas au moment où on décrit la nuit.
+Toute continuité visuelle — même décor, même lumière, même personnage
+d'un plan au suivant — était hors de portée d'une nuit.
+
+Un plan peut désormais être décrit par `gabarit` + `parametres`, composé
+**au moment de son rendu**, et déclarer `depend_de` : l'identifiant du
+plan dont il reprend l'image. La file résout alors le départ juste avant
+de composer.
+
+Le point délicat n'est pas la résolution, c'est l'échec. Un plan dont le
+prédécesseur n'a rien produit **ne doit pas être rendu** : il partirait du
+bruit, produirait un MP4 parfaitement valide, et la rupture de continuité
+ne se verrait qu'au montage — après la nuit. Il est donc `abandonne`, en
+nommant le plan manquant.
 """
 
 from __future__ import annotations
@@ -74,11 +93,27 @@ class Etat(str, Enum):
 
 @dataclass
 class Plan:
-    """Un plan à rendre, et ce qu'il est devenu."""
+    """Un plan à rendre, et ce qu'il est devenu.
+
+    Deux façons de décrire ce qu'il faut rendre, et une seule est
+    obligatoire :
+
+    - `graphe` : composé d'avance. C'est la voie de Hermes Agent, intacte.
+    - `gabarit` + `parametres` : composé **au moment du rendu**. C'est ce
+      qui permet à un plan de dépendre du précédent, puisque son image de
+      départ n'existe pas encore quand la nuit est décrite.
+
+    `depend_de` nomme le plan dont celui-ci reprend l'image. La file en
+    tire l'image de départ et l'injecte dans `parametres`.
+    """
 
     identifiant: str
     consigne: str
-    graphe: dict[str, Any]
+    graphe: dict[str, Any] | None = None
+    gabarit: str = ""
+    parametres: dict[str, Any] = field(default_factory=dict)
+    #: L'identifiant d'un plan **précédent** dans la même file.
+    depend_de: str = ""
     etat: Etat = Etat.EN_ATTENTE
     fichiers: list[str] = field(default_factory=list)
     duree_s: float = 0.0
@@ -123,6 +158,8 @@ def derouler(
     reserver: Optional[Callable[[int], Any]] = None,
     besoin_octets: int = BESOIN_RENDU_OCTETS,
     journal: Optional[str] = None,
+    composer: Optional[Callable[..., dict]] = None,
+    preparer_depart: Optional[Callable[[str, str], str]] = None,
 ) -> Rapport:
     """Rendre chaque plan, le relire, et consigner.
 
@@ -141,6 +178,11 @@ def derouler(
     `journal` écrit le rapport après **chaque** plan, pas à la fin : une
     nuit interrompue à la sixième heure doit laisser une trace des cinq
     premières.
+
+    `composer` et `preparer_depart` ne servent qu'aux plans décrits par
+    gabarit : le premier rend le graphe, le second l'image dont le plan
+    repart. Injectés comme le reste, pour que l'enchaînement soit
+    éprouvable sans ffmpeg ni ComfyUI.
     """
     rapport = Rapport(debut=time.time())
     rapport.plans = list(plans)
@@ -150,6 +192,25 @@ def derouler(
         if echecs >= ECHECS_AVANT_ARRET:
             plan.etat = Etat.ABANDONNE
             plan.raison = f"{echecs} échecs consécutifs avant ce plan"
+            continue
+
+        try:
+            _preparer_le_plan(plan, rapport.plans, composer, preparer_depart)
+        except _DependanceRompue as e:
+            # Pas un échec de rendu : rien n'a été tenté. Ne pas incrémenter
+            # `echecs` — trois plans qui dépendent d'un même prédécesseur
+            # manquant arrêteraient la file entière alors qu'un seul défaut
+            # est en cause, et les plans indépendants qui suivent seraient
+            # perdus pour rien.
+            plan.etat = Etat.ABANDONNE
+            plan.raison = str(e)
+            _consigner(journal, rapport)
+            continue
+        except Exception as e:
+            plan.etat = Etat.ECHOUE
+            plan.raison = f"composition : {type(e).__name__}: {str(e)[:160]}"
+            echecs += 1
+            _consigner(journal, rapport)
             continue
 
         garde = reserver(besoin_octets) if reserver is not None else nullcontext(None)
@@ -195,6 +256,88 @@ def derouler(
             "de passer la nuit à confirmer le même défaut")
     _consigner(journal, rapport)
     return rapport
+
+
+def _taille_visee(parametres: dict[str, Any]) -> dict[str, int]:
+    """Ce que le plan va rendre, pour que son image de départ y corresponde.
+
+    Rendu vide plutôt que devinant quand le format est inconnu : recadrer
+    au mauvais rapport serait pire que ne pas recadrer du tout.
+    """
+    try:
+        from backend.studio.gabarits import FORMATS
+
+        l, h = parametres.get("largeur"), parametres.get("hauteur")
+        if l and h:
+            return {"largeur": int(l), "hauteur": int(h)}
+        f = parametres.get("format_")
+        if f in FORMATS:
+            l, h = FORMATS[f]
+            return {"largeur": l, "hauteur": h}
+    except Exception:
+        logger.debug("taille visée illisible", exc_info=True)
+    return {}
+
+
+class _DependanceRompue(RuntimeError):
+    """Le plan dont celui-ci repart n'a rien laissé d'exploitable."""
+
+
+def _preparer_le_plan(
+    plan: Plan,
+    tous: list[Plan],
+    composer: Optional[Callable[..., dict]],
+    preparer_depart: Optional[Callable[[str, str], str]],
+) -> None:
+    """Résoudre la dépendance et composer le graphe, dans cet ordre.
+
+    Rien n'est fait pour un plan qui porte déjà son graphe : la voie de
+    Hermes Agent reste exactement ce qu'elle était.
+
+    L'ordre compte. Composer d'abord puis injecter l'image obligerait à
+    connaître la forme du graphe ici, alors que `gabarits` est le seul
+    endroit qui doive la connaître.
+    """
+    if plan.graphe:
+        return
+    if not plan.gabarit:
+        raise ValueError("ni graphe ni gabarit")
+    if composer is None:
+        raise ValueError("plan décrit par gabarit mais aucun compositeur")
+
+    parametres = dict(plan.parametres)
+
+    if plan.depend_de:
+        source = next((p for p in tous if p.identifiant == plan.depend_de), None)
+        if source is None:
+            raise _DependanceRompue(
+                f"dépend de « {plan.depend_de} », qui n'est pas dans cette file")
+        # `is` sur la liste : un plan ne peut dépendre que de ce qui est
+        # déjà rendu, donc d'un plan placé avant lui. Une dépendance vers
+        # l'aval attendrait un fichier qui n'existera jamais.
+        if tous.index(source) >= tous.index(plan):
+            raise _DependanceRompue(
+                f"dépend de « {plan.depend_de} », qui vient après lui")
+        if source.etat not in (Etat.RENDU, Etat.RETENU, Etat.INDETERMINE):
+            raise _DependanceRompue(
+                f"« {plan.depend_de} » n'a pas abouti ({source.etat.value}) — "
+                "ce plan repartirait du bruit, et la rupture de continuité "
+                "ne se verrait qu'au montage")
+        if not source.fichiers:
+            raise _DependanceRompue(
+                f"« {plan.depend_de} » n'a produit aucun fichier")
+        if preparer_depart is None:
+            raise ValueError("plan enchaîné mais aucun préparateur de départ")
+        # Les dimensions visées voyagent avec la demande : sans elles, une
+        # image de rapport différent — une référence SDXL, typiquement —
+        # serait **étirée** par `LTXVImgToVideo`, qui redimensionne sans
+        # recadrer. Rien ne le dirait, et ça se verrait sur un visage.
+        parametres["image_depart"] = preparer_depart(
+            source.fichiers[-1], f"depart_{plan.identifiant}",
+            **_taille_visee(parametres))
+
+    plan.parametres = parametres
+    plan.graphe = composer(plan.gabarit, plan.consigne, **parametres)
 
 
 def _carte_utilisable(plan: Plan, occupation: Any) -> bool:
@@ -284,6 +427,8 @@ def atelier(
     """
     from backend.studio.arbitrage import carte_reservee, pic_gpu_du_processus
     from backend.studio.comfyui import ComfyUI, pid_du_serveur
+    from backend.studio.enchainement import preparer_depart
+    from backend.studio.gabarits import composer
     from backend.studio.relecteur import relire
 
     comfy = ComfyUI(base_comfy)
@@ -305,6 +450,8 @@ def atelier(
             besoin, attente_max_s=attente_carte_s),
         besoin_octets=besoin_octets,
         journal=journal,
+        composer=composer,
+        preparer_depart=preparer_depart,
     )
 
 

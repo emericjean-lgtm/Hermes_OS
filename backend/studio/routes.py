@@ -236,32 +236,61 @@ def nuit(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         return {"success": False, "error": "aucun plan"}
 
     plans: list[Plan] = []
+    identifiants: list[str] = []
     for i, b in enumerate(bruts):
         b = b or {}
         graphe = b.get("graphe")
+        gabarit = str(b.get("gabarit") or "")
         consigne = str(b.get("consigne") or "")
+        depend_de = str(b.get("depend_de") or "")
+        parametres = b.get("parametres") or {}
+        if not isinstance(parametres, dict):
+            return {"success": False,
+                    "error": f"plan {i} : parametres doit être un objet"}
 
-        if not graphe and b.get("gabarit"):
-            parametres = b.get("parametres") or {}
-            if not isinstance(parametres, dict):
-                return {"success": False,
-                        "error": f"plan {i} : parametres doit être un objet"}
+        if not graphe and gabarit and not depend_de:
+            # Composé tout de suite quand rien n'en dépend : une consigne
+            # fautive doit être refusée à la soumission, pas découverte à
+            # trois heures du matin. Un plan enchaîné, lui, ne peut pas
+            # l'être — son image de départ n'existe pas encore.
             try:
-                graphe = composer(str(b["gabarit"]), consigne, **parametres)
+                graphe = composer(gabarit, consigne, **parametres)
             except GabaritInvalide as e:
                 return {"success": False, "raison": "gabarit_invalide",
                         "error": f"plan {i} : {e}"}
 
         if not isinstance(graphe, dict) or not graphe:
-            return {"success": False,
-                    "error": f"plan {i} : il faut un `graphe` ou un `gabarit`"}
+            if not gabarit:
+                return {"success": False,
+                        "error": f"plan {i} : il faut un `graphe` ou un `gabarit`"}
+            graphe = None
+
+        identifiant = str(b.get("identifiant") or f"plan_{i}")
+        if identifiant in identifiants:
+            # Deux plans homonymes rendraient `depend_de` ambigu, et la
+            # file résoudrait sur le premier venu sans rien dire.
+            return {"success": False, "raison": "identifiant_double",
+                    "error": f"plan {i} : « {identifiant} » est déjà pris"}
+        if depend_de and depend_de not in identifiants:
+            # Refusé ici plutôt qu'à l'exécution : une dépendance vers
+            # l'aval, ou vers un plan inexistant, n'aboutira jamais — la
+            # dire maintenant coûte une requête, la découvrir la nuit
+            # coûte la nuit.
+            return {"success": False, "raison": "dependance_inconnue",
+                    "error": (f"plan {i} : dépend de « {depend_de} », qui ne "
+                              "figure pas parmi les plans déjà décrits")}
+        identifiants.append(identifiant)
+
         plans.append(Plan(
-            identifiant=str((b.get("identifiant") or f"plan_{i}")),
+            identifiant=identifiant,
             # La consigne sert au relecteur. Sans elle il n'a rien à quoi
             # comparer, et le plan finira `indetermine` — ce qui est
             # correct, mais coûte un rendu pour rien.
             consigne=consigne,
-            graphe=graphe))
+            graphe=graphe,
+            gabarit=gabarit,
+            parametres=parametres,
+            depend_de=depend_de))
 
     minutes = float(payload.get("minutes_par_plan") or 45.0)
     besoin = int(payload.get("besoin_octets") or BESOIN_DEFAUT)
@@ -417,6 +446,100 @@ def derniere_image(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
     return {"success": True, "nom": nom, "chemin": cible,
             "octets": os.path.getsize(cible)}
+
+
+@router.post("/assemble")
+def assembler_montage(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Monter des plans en une vidéo finie (HOS-211).
+
+    `montage.assembler` existait depuis HOS-191 mais n'était joignable que
+    depuis Python : une production lancée la nuit ne pouvait donc pas se
+    terminer toute seule. C'était la dernière étape manuelle.
+
+    N'occupe pas la carte : ffmpeg travaille sur le processeur. Le passer
+    par `carte_reservee` ferait attendre un montage derrière un rendu sans
+    aucune raison.
+    """
+    from backend.studio.montage import assembler
+
+    plans = payload.get("plans")
+    if not isinstance(plans, list) or not plans:
+        return {"success": False, "error": "il faut au moins un plan"}
+    sortie = str(payload.get("sortie") or "").strip()
+    if not sortie:
+        return {"success": False, "error": "il faut un chemin de sortie"}
+
+    echelle = payload.get("echelle")
+    if echelle is not None:
+        if (not isinstance(echelle, (list, tuple)) or len(echelle) != 2):
+            return {"success": False,
+                    "error": "echelle doit être [largeur, hauteur]"}
+        echelle = (int(echelle[0]), int(echelle[1]))
+
+    m = assembler(
+        [str(p) for p in plans], sortie,
+        narration=(str(payload["narration"]) if payload.get("narration") else None),
+        srt=(str(payload["srt"]) if payload.get("srt") else None),
+        ambiance=(str(payload["ambiance"]) if payload.get("ambiance") else None),
+        fps=float(payload.get("fps") or 24.0),
+        echelle=echelle)
+
+    return {"success": m.reussi, "chemin": m.chemin, "duree_s": m.duree_s,
+            "duree_attendue_s": m.duree_attendue_s, "plans": m.plans,
+            "sous_titres": m.sous_titres, "ambiance": m.ambiance,
+            "echelle": list(m.echelle) if m.echelle else None,
+            "ecart_voix_s": m.ecart_voix_s,
+            "avertissements": m.avertissements, "error": m.erreur}
+
+
+@router.post("/animate")
+def animer_image(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Faire un plan vidéo d'une image fixe, avec un mouvement lent.
+
+    Quatre plans du cahier de production sont des images fixes. Sans ça
+    elles ne peuvent même pas entrer au montage : `concat` enchaîne des
+    flux vidéo, et un PNG n'en est pas un.
+    """
+    from backend.studio.montage import animer
+
+    image = str(payload.get("image") or "").strip()
+    sortie = str(payload.get("sortie") or "").strip()
+    if not image or not sortie:
+        return {"success": False, "error": "il faut `image` et `sortie`"}
+
+    from backend.studio.gabarits import FORMATS
+
+    l, h = FORMATS.get(str(payload.get("format") or "portrait"), (704, 1280))
+    m = animer(image, sortie,
+               duree_s=float(payload.get("duree_s") or 4.0),
+               largeur=int(payload.get("largeur") or l),
+               hauteur=int(payload.get("hauteur") or h),
+               fps=float(payload.get("fps") or 24.0),
+               zoom=float(payload.get("zoom") or 1.06),
+               sens=str(payload.get("sens") or "avant"))
+    return {"success": m.reussi, "chemin": m.chemin, "duree_s": m.duree_s,
+            "error": m.erreur}
+
+
+@router.post("/start-frame")
+def preparer_image_de_depart(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Déposer une image de départ là où `LoadImage` sait la lire.
+
+    Une vidéo donne sa dernière image, une image est copiée. C'est le pont
+    qui manquait entre ce que SDXL produit — dans le dossier de sortie —
+    et le seul dossier que `LoadImage` sache nommer.
+    """
+    from backend.studio.enchainement import DepartImpossible, preparer_depart
+
+    source = str(payload.get("source") or "").strip()
+    if not source:
+        return {"success": False, "error": "il faut le chemin d'une source"}
+    try:
+        nom = preparer_depart(source, str(payload.get("nom") or "") or None)
+    except DepartImpossible as e:
+        return {"success": False, "raison": "depart_impossible", "error": str(e)}
+    return {"success": True, "nom": nom,
+            "chemin": os.path.join(DOSSIER_ENTREE_COMFY, nom)}
 
 
 @router.get("/calibration")

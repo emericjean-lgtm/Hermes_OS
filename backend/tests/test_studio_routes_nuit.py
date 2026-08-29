@@ -72,12 +72,15 @@ def test_la_consigne_passe_au_gabarit_et_au_relecteur(monkeypatch):
     # finit `indetermine` : un rendu paye pour rien.
     _sans_thread(monkeypatch)
     vus = {}
-    vrai = routes.__dict__.get("nuit")
     from backend.studio import file_de_nuit
     class Espion(file_de_nuit.Plan):
-        def __init__(self, identifiant, consigne, graphe):
-            vus["consigne"] = consigne
-            super().__init__(identifiant=identifiant, consigne=consigne, graphe=graphe)
+        # `**kw` et non la signature exacte : ce test garde le passage de
+        # la consigne, pas la forme du constructeur. Il tombait au premier
+        # champ ajoute a `Plan`, en signalant une regression qui n'en
+        # etait pas une.
+        def __init__(self, **kw):
+            vus.update(kw)
+            super().__init__(**kw)
     monkeypatch.setattr(file_de_nuit, "Plan", Espion)
     routes.nuit({"plans": [{"gabarit": "plan_video", "consigne": "une rue de nuit"}]})
     assert vus["consigne"] == "une rue de nuit"
