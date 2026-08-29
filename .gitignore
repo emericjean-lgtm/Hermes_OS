@@ -53,3 +53,7 @@ config/hooks/*.log
 /t_fixe/
 /t_zoom/
 /tz_*/
+# Sorties des sondes de mesure (HOS-207) : elles appartiennent au
+# scratchpad, jamais au depot.
+/limites.json
+/table_tuiles.json

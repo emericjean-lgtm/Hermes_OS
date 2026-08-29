@@ -473,3 +473,62 @@ class TestDecoupageTemporelDuVAE:
         # memory`, 10,51 Gio demandes d'un bloc, re-mesure en HOS-205. Le
         # correctif elargit la tuile, il ne la supprime pas.
         assert plan_video("une rue")["12"]["class_type"] == "VAEDecodeTiled"
+
+
+class TestTuileSpatialeAdaptative:
+    """Une seule tuile temporelle, a toute longueur (HOS-207).
+
+    `temporal_size` a 64 (HOS-205) ne suffisait qu'aux plans de deux
+    secondes : a cinq secondes il laissait encore trois coutures, et
+    l'utilisateur en comptait trois scintillements. Un par couture, sans
+    exception — c'est le diagnostic le plus net de toute la campagne.
+
+    Il en faut donc UNE, pas « moins ». 4096 la garantit partout ; le prix
+    se paie sur la tuile spatiale, dont les coutures tombent au meme
+    endroit a chaque image et ne scintillent pas.
+    """
+
+    def test_le_decodage_tient_toujours_en_un_seul_bloc_temporel(self):
+        # 4096 / 8 = 512 latentes par tuile, contre 33 pour le plan le
+        # plus long du gabarit. Une tuile, quelle que soit la longueur.
+        for n in (49, 121, 217, 257):
+            g = plan_video("une rue", images=n)
+            assert g["12"]["inputs"]["temporal_size"] == 4096
+
+    def test_les_reglages_qui_laissaient_des_coutures_ne_reviennent_pas(self):
+        ts = plan_video("une rue", images=121)["12"]["inputs"]["temporal_size"]
+        assert ts not in (16, 64), (
+            f"temporal_size={ts} est revenu. A 121 images il laisse "
+            f"{'quinze' if ts == 16 else 'trois'} coutures, donc autant de "
+            "scintillements — comptes a l'oeil par l'utilisateur.")
+
+    def test_la_tuile_retrecit_quand_le_plan_s_alourdit(self):
+        # Sans cela, le bloc unique deborde : mesure a 13,13 Gio sur
+        # 768x416 en 257 images avec une tuile de 160.
+        leger = plan_video("x", format_="paysage", images=49)["12"]["inputs"]["tile_size"]
+        lourd = plan_video("x", format_="paysage", images=257)["12"]["inputs"]["tile_size"]
+        tres_lourd = plan_video("x", format_="portrait", images=257)["12"]["inputs"]["tile_size"]
+        assert leger > lourd > tres_lourd
+
+    def test_les_couples_mesures_recoivent_ce_qui_avait_ete_mesure(self):
+        # Chaque ligne est un rendu reel. Le tableau du module les cite ;
+        # ce test les fait valoir.
+        for fmt, images, attendu in (("paysage", 49, 256),
+                                     ("paysage", 121, 160),
+                                     ("paysage", 257, 128)):
+            t = plan_video("x", format_=fmt, images=images)["12"]["inputs"]["tile_size"]
+            assert t == attendu, f"{fmt} {images} images : tuile {t}, attendu {attendu}"
+
+    def test_aucune_tuile_ne_depasse_ce_qui_a_debordé(self):
+        # 1280x704 en 256 deborde des 49 images (12,81 Gio mesures) : la
+        # regle ne doit jamais proposer cette valeur pour ce format.
+        for n in (49, 121, 217, 257):
+            t = plan_video("x", format_="paysage_large", images=n)["12"]["inputs"]["tile_size"]
+            assert t <= 128, f"{n} images en paysage_large : tuile {t}, trop grande"
+
+    def test_le_recouvrement_suit_la_tuile(self):
+        # Un recouvrement plus grand que le quart de la tuile ferait se
+        # chevaucher les carres au point de couter plus que de servir.
+        for n in (49, 257):
+            i = plan_video("x", images=n)["12"]["inputs"]
+            assert i["overlap"] <= i["tile_size"] // 4

@@ -1,3 +1,93 @@
+## HOS-207 - Une seule tuile temporelle, a toute longueur (2026-08-29)
+
+HOS-205 avait mis `temporal_size` a 64. **Ce n'etait pas assez.**
+L'utilisateur a compte les coutures a l'oeil : quinze scintillements sur
+un plan que le code decoupait en quinze morceaux, trois sur celui qu'il
+decoupait en trois. Un par couture, sans exception.
+
+Il en faut donc **une**, pas « moins ». 64 ne donnait un bloc unique
+qu'aux plans de deux secondes ; a cinq secondes il en laissait trois.
+
+### Le prix, et pourquoi c'est le bon echange
+
+`temporal_size` vaut desormais 4096 — 512 images latentes par tuile,
+contre 33 pour le plan le plus long du gabarit. Le bloc est unique
+quelle que soit la longueur.
+
+Ce bloc coute de la memoire, et la seule variable qui reste pour la payer
+est la taille des carres **spatiaux**. L'echange est favorable : une
+couture spatiale tombe au meme endroit a chaque image, donc elle ne
+scintille pas. C'est toute la difference entre les deux decoupages, que
+mon vocabulaire avait confondus pendant une partie de la campagne.
+
+### La table, mesuree
+
+Volume = `pixels x images`, en millions. Decodage en un bloc.
+
+| volume | format et longueur | tuile | verdict |
+|---|---|---|---|
+| 15,7 | 768x416, 49 img | 256 | passe |
+| 38,7 | 768x416, 121 img | 160 | passe |
+| 44,2 | 1280x704, 49 img | 256 | **deborde** (12,81 Gio) |
+| 82,1 | 768x416, 257 img | 160 | **deborde** (13,13 Gio) |
+| 82,1 | 768x416, 257 img | 128 | passe |
+| 195,6 | 1280x704, 217 img | 64 | passe |
+
+`tuile_spatiale()` choisit d'apres ce volume. Les paliers sont poses
+**sous** la premiere mesure qui deborde, jamais entre deux mesures : une
+extrapolation optimiste transformerait un rendu mediocre en rendu absent,
+ce qui est bien pire.
+
+### Longueur maximale par format
+
+| format | longueur max, un seul bloc | tuile |
+|---|---|---|
+| 768 x 416 | **10 s** (257 img) | 128 |
+| 1280 x 704 | **9 s** (217 img) | 64 |
+| 704 x 1280 | 9 s (meme volume, grille transposee) | 64 |
+
+Le 257 images en format lourd n'est pas un debordement mais un
+**indetermine** : trente minutes de decodage sans aboutir. Rapporte comme
+tel — confondre « la carte ne peut pas » et « je n'ai pas attendu assez »
+est l'erreur qui a produit trois resultats faux pendant cette campagne.
+
+### Le cout, qu'il faut connaitre avant de choisir un format
+
+Decodage seul, format 1280 x 704, bloc unique :
+
+| longueur | decodage |
+|---|---|
+| 7 s (169 img) | 253 s |
+| 9 s (217 img) | **806 s** |
+| 10 s (257 img) | ne finit pas en 30 min |
+
+Le saut entre 7 et 9 secondes est brutal. Conclusion pratique, et c'est
+celle de l'utilisateur : mieux vaut cinq plans de cinq secondes en
+paysage qu'un plan de neuf secondes en format lourd — meme temps total,
+cinq fois plus de matiere.
+
+### Trois instruments de mesure jetes en route
+
+La campagne a demande trois versions de la sonde, les deux premieres
+ayant rendu des verdicts faux :
+
+1. **Delai confondu avec debordement.** Un delai de 420 s plus court que
+   certaines sondes (374 s mesurees) faisait compter tout depassement
+   comme un manque de memoire. Elle a annonce qu'aucune tuile ne passait
+   a 97 images, la ou un vrai rendu a 121 avait abouti.
+2. **Deconnexion prise pour un delai.** ComfyUI ferme parfois la
+   connexion en gerant un `out of memory` ; la boucle mourait dessus et
+   rendait « delai » alors que l'historique portait un debordement
+   lisible.
+3. La troisieme reessaie, lit l'erreur reelle, et cherche en montant
+   depuis les petites tuiles — descendre depuis 256 coutait vingt-cinq
+   minutes avant le moindre verdict.
+
+Aucun de ces defauts n'a ete trouve en relisant le code. Tous l'ont ete
+sur un chiffre invraisemblable.
+
+Backend 2206 passed, 2 skipped.
+
 ## HOS-206 - La file de nuit se lance enfin depuis l'ecran (2026-08-28)
 
 L'utilisateur : « peux-tu m'expliquer a quoi sert l'interface nuit de

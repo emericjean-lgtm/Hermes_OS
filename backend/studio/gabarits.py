@@ -139,6 +139,51 @@ MODELES_INTERPOLATION: dict[str, str] = {
 }
 
 
+#: La tuile spatiale du decodeur, choisie selon le poids du plan
+#: (HOS-207).
+#:
+#: Le decodage doit tenir en **un seul bloc temporel**, sans quoi chaque
+#: couture produit un scintillement — l'utilisateur en a compte quinze sur
+#: un plan que le code decoupait en quinze morceaux. Ce bloc unique coute
+#: de la memoire, et la seule variable qui reste pour la payer est la
+#: taille des carres spatiaux : leurs coutures, elles, tombent au meme
+#: endroit a chaque image et ne scintillent pas.
+#:
+#: Le seuil est le volume `pixels x images`, en millions. Mesures reelles
+#: (decodage en un bloc, `temporal_size` a 4096) :
+#:
+#: | volume | format et longueur | tuile | verdict |
+#: |---|---|---|---|
+#: | 15,7 | 768x416, 49 img | 256 | passe |
+#: | 38,7 | 768x416, 121 img | 160 | passe |
+#: | 44,2 | 1280x704, 49 img | 256 | **deborde** (12,81 Gio) |
+#: | 82,1 | 768x416, 257 img | 160 | **deborde** (13,13 Gio) |
+#: | 82,1 | 768x416, 257 img | 128 | passe |
+#: | 195,6 | 1280x704, 217 img | 64 | passe |
+#:
+#: Les paliers ci-dessous sont poses **sous** la premiere mesure qui
+#: deborde, jamais entre deux mesures : une extrapolation optimiste
+#: transformerait un rendu mediocre en rendu absent, ce qui est bien pire.
+#: Le pas est de 32 parce que le nœud divise `tile_size` par la
+#: compression spatiale du VAE, mesuree a 32 — toute valeur intermediaire
+#: est tronquee sans effet.
+PALIERS_TUILE: list[tuple[float, int]] = [
+    (20.0, 256),   # mesure a 15,7
+    (40.0, 160),   # mesure a 38,7
+    (90.0, 128),   # mesure a 82,1
+    (float("inf"), 64),  # mesure a 195,6
+]
+
+
+def tuile_spatiale(largeur: int, hauteur: int, images: int) -> int:
+    """La plus grande tuile spatiale qui laisse le plan tenir d'un bloc."""
+    volume = (int(largeur) * int(hauteur) * max(1, int(images))) / 1_000_000
+    for plafond, tuile in PALIERS_TUILE:
+        if volume <= plafond:
+            return tuile
+    return PALIERS_TUILE[-1][1]
+
+
 def plan_video(consigne: str, *, format_: str = "paysage",
                largeur: int | None = None, hauteur: int | None = None,
                images: int = 49, etapes: int = 8, graine: int = 0,
@@ -283,17 +328,24 @@ def plan_video(consigne: str, *, format_: str = "paysage",
     # changement inter-image en moins.
     #
     # 16 n'etait pas arbitraire — le decodage non tuile echoue vraiment
-    # ici (`CUDA out of memory`, 10,51 Gio d'un bloc, re-mesure). Mais il
-    # etait bien plus agressif que necessaire : 64 tient sans deborder.
+    # ici (`CUDA out of memory`, 10,51 Gio d'un bloc, re-mesure).
     #
-    # Pourquoi pas 4096, qui donnerait une tuile unique a toute longueur :
-    # non mesure encore sur les plans longs, et un debordement y
-    # transformerait un rendu mediocre en rendu absent. 64 est meilleur a
-    # toutes les longueurs deja testees, sans ce risque.
+    # `temporal_size` vaut desormais 4096 et non 64 (HOS-207) : 64 ne
+    # suffisait qu'aux plans de deux secondes. L'utilisateur a COMPTE les
+    # coutures — quinze scintillements sur un plan que le code decoupait
+    # en quinze, trois sur celui qu'il decoupait en trois. Il en faut donc
+    # UNE, pas « moins ». 4096 la garantit a toute longueur.
+    #
+    # Le prix se paie sur la tuile SPATIALE, choisie par
+    # `tuile_spatiale()` : plus le plan est lourd, plus il faut retrecir
+    # les carres pour s'offrir le bloc temporel unique. C'est le bon
+    # echange, parce qu'une couture spatiale tombe au meme endroit a
+    # chaque image et ne scintille pas.
+    tuile = tuile_spatiale(l, h, images)
     g["12"] = {"class_type": "VAEDecodeTiled",
                "inputs": {"samples": latent_video, "vae": ["3", 0],
-                          "tile_size": 256, "overlap": 32,
-                          "temporal_size": 64, "temporal_overlap": 8}}
+                          "tile_size": tuile, "overlap": min(32, tuile // 4),
+                          "temporal_size": 4096, "temporal_overlap": 8}}
 
     # ── Interpolation d'images ──
     # Placée après le décodage, donc sur des images et non des latents :
@@ -514,6 +566,7 @@ def composer(gabarit: str, consigne: str, **parametres: Any) -> dict[str, Any]:
 
 __all__ = ["CATALOGUE", "COUT_FIXE_S", "COUT_PAR_MPX_IMAGE_S", "FORMATS",
            "FORMATS_PAR_MOTEUR", "IMAGES_MAX", "MODELES_INTERPOLATION",
-           "PAS_IMAGES",
+           "PALIERS_TUILE", "PAS_IMAGES",
            "GabaritInvalide", "composer", "duree_calcul_s", "duree_reelle_s",
-           "image_ltx", "image_sdxl", "images_pour_duree", "plan_video"]
+           "image_ltx", "image_sdxl", "images_pour_duree", "plan_video",
+           "tuile_spatiale"]
