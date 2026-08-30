@@ -122,6 +122,23 @@ repondu, verifie a `/api/ps`. Il travaille **entre** deux rendus sur une
 carte qui n'en supporte qu'un ; rester charge n'avait aucun interet et
 coutait le plan suivant.
 
+Les chiffres se referment exactement :
+
+| | |
+|---|---|
+| pic de VRAM d'un rendu, mesure sur `p02a` | **13,98 Gio** |
+| carte | 15,98 Gio |
+| marge disponible | **2,00 Gio** |
+| ce que le relecteur retenait | **2,41 Gio** |
+
+Il manquait 0,41 Gio. Le rendu ne debordait pas d'un peu : il debordait
+de tres exactement ce qu'un modele de 2,41 Gio prend a une marge de 2,00.
+
+Corrobore par le resultat : `p02a`, qui avait tenu 2 404 s sans aboutir,
+passe en **1 365 s** — le meme temps que `p01` a 1 358 s. Le second plan
+n'etait pas plus lourd que le premier ; il etait le premier a subir le
+relecteur.
+
 ### Un montage amputé rendait `success: true`
 
 Le defaut le plus grave de la nuit. `montage.assembler` verifie que le
