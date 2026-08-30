@@ -202,3 +202,40 @@ def test_un_plan_de_duree_inconnue_ne_produit_pas_dimages(monkeypatch):
     monkeypatch.setattr(relecteur.os.path, "exists", lambda p: True)
     monkeypatch.setattr(relecteur, "duree_s", lambda v: 0.0)
     assert relecteur.extraire("/faux/plan.mp4", 3) == []
+
+
+def test_le_relecteur_rend_la_carte_des_qu_il_a_repondu():
+    """Sinon il coute le plan suivant, et rien ne le dit.
+
+    Ollama garde un modele resident cinq minutes par defaut. La relecture
+    d'un plan tombe juste avant que le suivant ne charge ses poids : sur
+    une carte de 16 Gio qui n'accepte qu'un locataire lourd, le rendu
+    suivant bascule sur la memoire partagee et rampe.
+
+    Mesure du 2026-08-30 : `p01` rendu en 1 358 s, relu, puis `p02a`
+    lance 90 secondes plus tard a tenu 2 404 s sans aboutir. Le rendu ne
+    debordait pas tout seul — il debordait de ce que le relecteur tenait
+    encore.
+    """
+    import json
+    from unittest.mock import patch
+
+    from backend.studio import relecteur
+
+    vu = {}
+
+    class _Reponse:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return json.dumps({"response": "{}"}).encode()
+
+    def _urlopen(req, timeout=0):
+        vu.update(json.loads(req.data.decode()))
+        return _Reponse()
+
+    with patch("urllib.request.urlopen", _urlopen):
+        relecteur._interroger("m", "consigne", __file__,
+                              "http://127.0.0.1:11434", 10.0)
+
+    assert vu.get("keep_alive") == 0, \
+        "le relecteur doit rendre la carte, pas la garder cinq minutes"

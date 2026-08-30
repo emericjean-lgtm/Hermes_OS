@@ -95,6 +95,33 @@ meme modele a temperature 0,1. Une seule relecture ne fait donc peut-etre
 pas une garde. Non verifie proprement — la carte etait prise, et sonder
 pendant un rendu mesure la contention.
 
+### Le relecteur empoisonnait le rendu suivant
+
+Trouve en cherchant pourquoi un plan sur deux rampait. Le motif etait
+net et je ne le lisais pas : **le premier rendu apres un redemarrage
+passe toujours, le second tient quarante minutes sans aboutir.**
+
+La file relit chaque plan avec un modele de vision servi par Ollama.
+Ollama garde un modele **resident cinq minutes** par defaut, et le plan
+suivant demarre bien avant.
+
+| mesure | valeur |
+|---|---|
+| ce que le relecteur retient | **2,41 Gio de VRAM** |
+| expiration par defaut | 5 minutes |
+| ecart relecture de p01 / depart de p02a | **90 secondes** |
+
+Sur 15,98 Gio dont un decodage reclame pres de 13, ces 2,41 Gio suffisent
+a faire basculer le rendu entier sur la memoire partagee. Le rendu ne
+debordait pas tout seul : il debordait de ce que le relecteur tenait
+encore.
+
+Trois plans perdus avant de le voir — 39 min, 40 min, puis un abandon en
+cascade. `keep_alive: 0` : le relecteur rend la carte des qu'il a
+repondu, verifie a `/api/ps`. Il travaille **entre** deux rendus sur une
+carte qui n'en supporte qu'un ; rester charge n'avait aucun interet et
+coutait le plan suivant.
+
 ### Un montage amputé rendait `success: true`
 
 Le defaut le plus grave de la nuit. `montage.assembler` verifie que le

@@ -224,6 +224,19 @@ def _interroger(modele: str, consigne: str, image: str, url: str,
         "stream": False,
         # Pas de `num_predict` : borné, ce modèle rend une réponse vide.
         "options": {"temperature": 0.1},
+        # Rendre la carte tout de suite (HOS-212). Ollama garde un modèle
+        # résident cinq minutes par défaut — et la relecture d'un plan
+        # tombe juste avant que le suivant ne charge ses poids.
+        #
+        # Mesuré : `p01` rendu en 1 358 s, relu, puis `p02a` lancé
+        # 90 secondes plus tard a tenu 2 404 s sans aboutir, en rampant
+        # sur la mémoire partagée. Le rendu ne déborde pas tout seul : il
+        # déborde de ce que le relecteur tient encore.
+        #
+        # Le relecteur travaille **entre** deux rendus sur une carte qui
+        # n'en supporte qu'un : rester chargé n'a aucun intérêt ici, et
+        # coûte le plan suivant.
+        "keep_alive": 0,
     }).encode()
 
     req = request.Request(f"{url.rstrip('/')}/api/generate", data=corps,
