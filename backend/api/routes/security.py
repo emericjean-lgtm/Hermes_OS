@@ -88,13 +88,33 @@ async def list_approvals(status: str | None = None, project_id: str | None = Non
 
 class ApprovalDecision(BaseModel):
     approved: bool
+    #: HOS-224. Absente, la décision reste ce qu'elle était : un accord
+    #: exact, à usage unique. Une portée doit être demandée, et nommer
+    #: sa racine — le corps de requête ne peut pas en obtenir une par
+    #: omission.
+    portee: str = "action"
+    portee_racine: str | None = None
+    usages: int | None = None
 
 
 @router.post("/security/approvals/{approval_id}")
 async def decide_approval(approval_id: str, decision: ApprovalDecision) -> dict:
-    """Relay a human yes/no. Single-use and time-limited: it authorises
-    one later retry of that exact action, never a standing permission."""
-    result = _aegis().decide_approval(approval_id, approved=decision.approved)
+    """Relay a human yes/no.
+
+    Par défaut : usage unique, limité dans le temps, pour cette action
+    exacte — jamais une permission permanente.
+
+    Avec `portee: "arborescence"` et une `portee_racine`, l'accord couvre
+    un type d'action sous un dossier, avec un budget d'usages plafonné et
+    une expiration plus courte (HOS-224). Une racine manquante est un
+    400, pas un accord silencieusement plus large.
+    """
+    try:
+        result = _aegis().decide_approval(
+            approval_id, approved=decision.approved, portee=decision.portee,
+            portee_racine=decision.portee_racine, usages=decision.usages)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail=f"No approval {approval_id!r}")
     return result

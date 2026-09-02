@@ -34,6 +34,16 @@ class ActionRequest:
     requesting_agent: str = "unknown"  # message bus "from" — see agents/aegis.py
     task_id: str | None = None  # message bus "task_id", when this action is part of a task
     project_id: str | None = None  # message bus "project_id", when this action is project-scoped
+    # HOS-224 : ce qui distingue deux actions par ailleurs identiques,
+    # sous forme structuree. Une paire de tuples plutot qu'un dict :
+    # cette classe est `frozen=True`, donc hachable, et un dict la
+    # rendrait inhachable pour tous ses usages presents et futurs.
+    #
+    # Existe parce que l'empreinte d'approbation ne hache plus la
+    # description : `git_tools` portait la branche dans sa phrase
+    # (« Commit on main »), et sans discriminant une approbation de
+    # commit sur `feature/x` autoriserait un push sur `main`.
+    discriminants: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

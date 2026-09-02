@@ -429,7 +429,7 @@ globale · notifications · Operator · palette de commandes · Mission DAG ·
 | Point | Ce qui manque |
 |---|---|
 | Evidence graph | états à deux valeurs au lieu de quatre |
-| Approbation | ni hash canonique, ni portée, ni expiration ; appelée depuis un seul fichier |
+| Approbation | ✅ HOS-224 — le diagnostic était faux sur deux points : l'expiration existait, et le module *est* branché dans `AegisAgent`. Le vrai manque était la canonisation et la portée |
 | Abstraction cloud | `OpenRouterClient` réel (287 l.) mais **zéro test**, pas d'interface `CloudProvider` |
 | Quota / disjoncteurs | présents, **zéro test**, pas de `QuotaBroker` |
 | Secret broker | un fichier, pas de redaction systématique |
@@ -507,7 +507,7 @@ que trois manques que j'avais classés « confort » sont des **contrôles**
 | 5 | ✅ **Fait (HOS-221)** — Contract tri-état + Run Ledger + lignée, branchés sur `MissionExecutor` | le manque le plus coûteux, démontré en production | 56 gardes |
 | 6 | ✅ **Fait (HOS-222)** — verdict tri-état, instantané qui sait dire qu'il n'a pas lu | un « on ne sait pas » n'est pas un « c'est bon » — ni un « c'est mauvais » | 19 gardes |
 | 7 | ✅ **Fait (HOS-223)** — commit détaché + repli vérifié, couplé à l'état de mission | Hermes ne savait pas annuler une modification | 28 gardes |
-| 8 | Approbation : hash canonique, portée, expiration | `approval_engine` est complet et **débranché** — le rebrancher coûte moins que de l'écrire | moyen |
+| 8 | ✅ **Fait (HOS-224)** — empreinte canonique + discriminants + portée d'arborescence bornée | l'expiration existait ; la description entrait dans l'identité, et deux appelants la font écrire par le modèle. `approval_engine` reste **délibérément** débranché : deux portes vivantes valent moins qu'une | 37 gardes |
 | 9 | Taxonomie d'échecs + retry par cause | trois incidents identiques ont eu trois réponses manuelles | moyen |
 | 10 | `CloudProvider` + OpenRouter en adaptateur + **tests** | le client existe sans un seul test | moyen |
 | 11 | Cloud Data Firewall | prérequis de tout usage cloud réel | **gros, à isoler** |

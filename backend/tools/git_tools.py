@@ -326,6 +326,7 @@ def _check_write(
     repo_path: str,
     description: str,
     project_id: str | None,
+    discriminants: tuple[tuple[str, str], ...] = (),
 ) -> tuple[bool, str, str]:
     """Ask Aegis about a mutating git action.
 
@@ -334,6 +335,14 @@ def _check_write(
     `action_type` is "git_operation" or "git_critical" — never
     "file_write", because a git mutation is not confined to one path and
     the path-based whitelist would give a false sense of narrowing.
+
+    `discriminants` porte ce qui distingue deux opérations git sur le
+    **même dépôt** (HOS-224) : la branche, la cible d'un push, le sha
+    d'un revert. Ces cinq appels le mettaient dans leur phrase — « Commit
+    on main in C:/r » — et l'empreinte d'approbation hachait la phrase.
+    Elle ne la hache plus, parce que deux autres appelants la font écrire
+    par le modèle ; sans discriminant, une approbation de commit sur
+    `feature/x` autoriserait donc un push sur `main`.
     """
     decision = aegis.evaluate(
         ActionRequest(
@@ -342,6 +351,7 @@ def _check_write(
             target_path=repo_path,
             requesting_agent="atlas",
             project_id=project_id,
+            discriminants=discriminants,
         )
     )
     allowed = decision.verdict is Verdict.ALLOW
@@ -375,7 +385,8 @@ def create_branch(
         )
 
     allowed, verdict, reason = _check_write(
-        aegis, "git_operation", repo_path, f"Create branch {name} in {repo_path}", project_id
+        aegis, "git_operation", repo_path, f"Create branch {name} in {repo_path}",
+        project_id, (("op", "create_branch"), ("branch", name))
     )
     if not allowed:
         return GitWriteResult(
@@ -430,7 +441,8 @@ def commit(
         )
 
     allowed, verdict, reason = _check_write(
-        aegis, "git_operation", repo_path, f"Commit on {branch} in {repo_path}", project_id
+        aegis, "git_operation", repo_path, f"Commit on {branch} in {repo_path}",
+        project_id, (("op", "commit"), ("branch", branch))
     )
     if not allowed:
         return GitWriteResult(
@@ -496,6 +508,7 @@ def push(
         repo_path,
         f"Push {target} to {remote} from {repo_path}",
         project_id,
+        (("op", "push"), ("remote", remote), ("target", target)),
     )
     if not allowed:
         return GitWriteResult(
@@ -538,7 +551,8 @@ def revert_commit(
         )
 
     allowed, verdict, reason = _check_write(
-        aegis, "git_operation", repo_path, f"Revert {sha} in {repo_path}", project_id
+        aegis, "git_operation", repo_path, f"Revert {sha} in {repo_path}",
+        project_id, (("op", "revert"), ("sha", sha))
     )
     if not allowed:
         return GitWriteResult(
@@ -587,6 +601,7 @@ def create_pull_request(
         repo_path,
         f"Open pull request {head} -> {base} for {repo_path}",
         project_id,
+        (("op", "pull_request"), ("head", head), ("base", base)),
     )
     if not allowed:
         return GitWriteResult(

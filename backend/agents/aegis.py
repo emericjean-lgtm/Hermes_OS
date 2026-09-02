@@ -158,12 +158,27 @@ class AegisAgent:
                 )
             ]
 
-    def decide_approval(self, approval_id: str, *, approved: bool) -> dict | None:
-        """Record a human yes/no. An approval authorises exactly one later
-        retry of the same action and then expires — it never becomes a
-        standing permission."""
+    def decide_approval(self, approval_id: str, *, approved: bool,
+                        portee: str = approvals.PORTEE_ACTION,
+                        portee_racine: str | None = None,
+                        usages: int | None = None) -> dict | None:
+        """Record a human yes/no.
+
+        Par défaut, exactement ce que c'était : un accord pour une seule
+        reprise de la même action, qui expire ensuite et ne devient
+        jamais une permission permanente.
+
+        Une **portée** (HOS-224) doit être demandée explicitement, avec
+        sa racine ; elle reste bornée par un budget d'usages et une
+        expiration plus courte. Elle existe parce que trente écritures
+        dans un dossier demandaient trente approbations — et qu'une
+        fonctionnalité qui exige trente clics est une fonctionnalité
+        désactivée.
+        """
         with self._session_factory() as session:
-            entry = approvals.decide(session, approval_id, approved=approved)
+            entry = approvals.decide(session, approval_id, approved=approved,
+                                     portee=portee, portee_racine=portee_racine,
+                                     usages=usages)
             return approvals.to_dict(entry) if entry is not None else None
 
     def evaluate(self, action: ActionRequest) -> AegisDecision:
@@ -213,11 +228,13 @@ class AegisAgent:
             return decision
 
         with self._session_factory() as session:
+            discriminants = dict(action.discriminants)
             consumed = approvals.consume_approval(
                 session,
                 action_type=action.action_type,
                 target_path=action.target_path,
                 description=action.description,
+                discriminants=discriminants,
             )
             if consumed is not None:
                 return AegisDecision(
@@ -238,6 +255,7 @@ class AegisAgent:
                 requesting_agent=action.requesting_agent,
                 task_id=action.task_id,
                 project_id=action.project_id,
+                discriminants=discriminants,
             )
 
         return decision

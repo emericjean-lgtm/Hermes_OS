@@ -46,19 +46,47 @@ def test_fingerprint_is_stable_for_the_same_action():
 
 
 @pytest.mark.parametrize(
-    ("action_type", "path", "description"),
+    ("action_type", "path", "discriminants"),
     [
-        ("file_delete", "/x/a.txt", "Write to /x/a.txt"),  # different action
-        ("file_write", "/x/b.txt", "Write to /x/a.txt"),  # different target
-        ("file_write", "/x/a.txt", "Commit on main"),  # different intent
+        ("file_delete", "/x/a.txt", None),  # different action
+        ("file_write", "/x/b.txt", None),  # different target
+        ("file_write", "/x/a.txt", {"branch": "main"}),  # different intent
     ],
 )
-def test_a_different_action_gets_a_different_fingerprint(action_type, path, description):
+def test_a_different_action_gets_a_different_fingerprint(
+    action_type, path, discriminants
+):
     """Approving "commit on feature/x" must never authorise "commit on
-    main" — the description is part of the identity for that reason."""
-    baseline = fingerprint_for("file_write", "/x/a.txt", "Write to /x/a.txt")
+    main".
 
-    assert fingerprint_for(action_type, path, description) != baseline
+    La propriété n'a pas changé ; ce qui la porte, si. Le troisième cas
+    passait la distinction dans la **description** — et le module hachait
+    la description sur la foi d'une hypothèse fausse pour deux de ses
+    appelants (l'outil MCP `aegis_check` et
+    `POST /api/v1/security/evaluate`, où elle vient du modèle ou du corps
+    de la requête). Deux reformulations donnaient deux empreintes, donc
+    un « oui » humain qui ne s'appliquait jamais.
+
+    La distinction passe maintenant par un discriminant nommé
+    (HOS-224) : elle ne dépend plus de la formulation, dans un sens
+    comme dans l'autre.
+    """
+    baseline = fingerprint_for("file_write", "/x/a.txt")
+
+    assert fingerprint_for(action_type, path,
+                           discriminants=discriminants) != baseline
+
+
+def test_la_reformulation_ne_casse_plus_un_accord():
+    """Le défaut mesuré, et sa réparation.
+
+    « Write to config.json to fix the port » et « Write config.json
+    (port fix) » sont la même action. Elles donnaient deux empreintes.
+    """
+    a = fingerprint_for("file_write", "/x/a.txt", "Write to a.txt to fix the port")
+    b = fingerprint_for("file_write", "/x/a.txt", "a.txt (correction du port)")
+
+    assert a == b
 
 
 # ── queueing ─────────────────────────────────────────────────────────
