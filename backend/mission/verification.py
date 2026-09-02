@@ -58,6 +58,20 @@ class WorkspaceSnapshot:
 
     root: str
     entries: dict[str, str] = field(default_factory=dict)
+    #: Faux quand l'arbre n'a pas pu être parcouru — racine absente, pas un
+    #: dossier, ou erreur système pendant la marche (HOS-222).
+    #:
+    #: Sans ce drapeau, un arbre illisible rendait un instantané **vide**,
+    #: indiscernable d'un dossier réellement vide. Mesuré : un workspace de
+    #: deux fichiers devenu illisible se lisait « 2 supprimés », donc
+    #: `touched_anything`, donc **`verified: True`**. Le module produisait
+    #: le faux positif qu'il existe pour attraper.
+    lisible: bool = True
+    #: Les fichiers présents mais dont l'empreinte n'a pas pu être prise.
+    #: Ils sortent de `entries` : y laisser un marqueur constant faisait
+    #: comparer égaux deux fichiers différents, et faisait passer pour
+    #: inchangé un fichier réécrit qu'on n'a jamais lu.
+    illisibles: tuple[str, ...] = ()
 
     @property
     def file_count(self) -> int:
@@ -71,25 +85,41 @@ class WorkspaceDiff:
     created: tuple[str, ...] = ()
     modified: tuple[str, ...] = ()
     deleted: tuple[str, ...] = ()
+    #: Les fichiers dont on ne sait rien : illisibles d'un côté ou de
+    #: l'autre. Ni créés, ni modifiés, ni supprimés — **on ne sait pas**
+    #: (HOS-222). Les ranger dans l'une des trois autres cases était le
+    #: défaut : « illisible avant, lisible après » comptait comme créé.
+    indetermines: tuple[str, ...] = ()
 
     @property
     def touched_anything(self) -> bool:
+        """A-t-on constaté un changement ?
+
+        `indetermines` n'y entre pas : on ne peut pas compter comme preuve
+        de travail un fichier qu'on n'a pas su lire.
+        """
         return bool(self.created or self.modified or self.deleted)
 
     def summary(self) -> str:
-        if not self.touched_anything:
-            return "no file was created, modified or deleted"
         parts = []
         for label, items in (("created", self.created), ("modified", self.modified),
-                             ("deleted", self.deleted)):
+                             ("deleted", self.deleted),
+                             ("unreadable", self.indetermines)):
             if items:
                 shown = ", ".join(sorted(items)[:5])
                 more = f" (+{len(items) - 5} more)" if len(items) > 5 else ""
                 parts.append(f"{len(items)} {label}: {shown}{more}")
+        if not parts:
+            return "no file was created, modified or deleted"
+        if not self.touched_anything:
+            # Sans cette phrase, un rapport ne portant que des indéterminés
+            # se lisait « rien n'a changé » — une affirmation qu'on n'est
+            # pas en position de faire.
+            return ("no change could be established; " + "; ".join(parts))
         return "; ".join(parts)
 
 
-def _fingerprint(path: Path) -> str:
+def _fingerprint(path: Path) -> Optional[str]:
     """Cheap, collision-resistant enough to answer "did this change".
 
     Size and mtime alone miss a same-length rewrite within the filesystem's
@@ -100,12 +130,19 @@ def _fingerprint(path: Path) -> str:
     try:
         stat = path.stat()
     except OSError:
-        return "unreadable"
+        # Rendait `"unreadable"` — une empreinte **constante**, donc deux
+        # fichiers différents comparés égaux, et un fichier illisible des
+        # deux côtés déclaré inchangé alors qu'on ne l'a jamais lu
+        # (HOS-222). `None` force l'appelant à le ranger dans les
+        # indéterminés.
+        return None
     if stat.st_size > _HASH_LIMIT_BYTES:
         return f"size:{stat.st_size}:mtime:{int(stat.st_mtime)}"
     try:
         return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
+        # Le fichier est là et sa taille est connue : c'est une mesure
+        # plus faible, pas une absence de mesure.
         return f"size:{stat.st_size}:mtime:{int(stat.st_mtime)}"
 
 
@@ -119,9 +156,13 @@ def snapshot(root: str) -> WorkspaceSnapshot:
     """
     base = Path(root)
     entries: dict[str, str] = {}
+    illisibles: list[str] = []
     try:
         if not base.is_dir():
-            return WorkspaceSnapshot(root=root)
+            # Un arbre absent n'est pas un arbre vide. Rendre un instantané
+            # vide et « lisible » faisait lire ses fichiers d'avant comme
+            # supprimés, donc comme du travail accompli.
+            return WorkspaceSnapshot(root=root, lisible=False)
         for path in base.rglob("*"):
             if any(part in _IGNORED_DIRS for part in path.parts):
                 continue
@@ -131,15 +172,33 @@ def snapshot(root: str) -> WorkspaceSnapshot:
                 relative = str(path.relative_to(base))
             except ValueError:  # pragma: no cover - symlink escaping the root
                 continue
-            entries[relative] = _fingerprint(path)
+            empreinte = _fingerprint(path)
+            if empreinte is None:
+                illisibles.append(relative)
+            else:
+                entries[relative] = empreinte
     except OSError:
         logger.debug("snapshot of %r failed", root, exc_info=True)
-    return WorkspaceSnapshot(root=root, entries=entries)
+        # Une marche interrompue laisse un instantané **partiel**, et un
+        # instantané partiel comparé à un complet invente des suppressions.
+        return WorkspaceSnapshot(root=root, entries=entries, lisible=False,
+                                 illisibles=tuple(sorted(illisibles)))
+    return WorkspaceSnapshot(root=root, entries=entries,
+                             illisibles=tuple(sorted(illisibles)))
 
 
 def diff(before: WorkspaceSnapshot, after: WorkspaceSnapshot) -> WorkspaceDiff:
-    """What changed between two snapshots of the same workspace."""
-    before_keys, after_keys = set(before.entries), set(after.entries)
+    """What changed between two snapshots of the same workspace.
+
+    Un fichier illisible d'un côté ou de l'autre ne va dans **aucune** des
+    trois cases de constat : il va dans `indetermines`. Le compter comme
+    créé — ce que faisait la version précédente pour « illisible avant,
+    lisible après » — aurait donné une preuve de travail à partir d'une
+    permission qui a changé.
+    """
+    inconnus = set(before.illisibles) | set(after.illisibles)
+    before_keys = set(before.entries) - inconnus
+    after_keys = set(after.entries) - inconnus
     return WorkspaceDiff(
         created=tuple(sorted(after_keys - before_keys)),
         deleted=tuple(sorted(before_keys - after_keys)),
@@ -147,6 +206,7 @@ def diff(before: WorkspaceSnapshot, after: WorkspaceSnapshot) -> WorkspaceDiff:
             k for k in before_keys & after_keys
             if before.entries[k] != after.entries[k]
         )),
+        indetermines=tuple(sorted(inconnus)),
     )
 
 
@@ -383,6 +443,50 @@ class MissionVerification:
                 and not self.manifeste_manque)
 
     @property
+    def mesure_impossible(self) -> bool:
+        """Un workspace était lié, et on n'a pas su le lire (HOS-222).
+
+        À distinguer soigneusement de « rien à mesurer ». Une mission sans
+        workspace lié est le cas **normal et fréquent** ; en faire une
+        alarme donnerait une alarme qui sonne tout le temps, donc une
+        alarme débranchée dans la semaine — la leçon du canary (HOS-218).
+
+        Celui-ci est différent : quelque chose devait être mesurable et ne
+        l'a pas été. C'est un défaut d'instrument, et un instrument muet
+        se répare, il ne s'ignore pas.
+        """
+        return bool(self.workspace) and not self.measured
+
+    @property
+    def verdict(self) -> "Verdict":
+        """Le verdict, en trois états nommés (HOS-222).
+
+        `verified` et `contradicted` disent déjà la bonne chose, mais en
+        **deux booléens** — et un appelant qui n'en lit qu'un range le
+        troisième état du mauvais côté. Lire `verified` seul fait passer
+        « on n'a pas pu mesurer » pour un échec ; lire `contradicted`
+        seul le fait passer pour un succès. Le second sens est celui qui
+        coûte cher, et c'est celui que `mission.unverified` prenait :
+        l'événement n'est pas émis quand rien n'a été mesuré.
+
+        Le vocabulaire est celui du contrat de mission (HOS-221) — même
+        tri-état, même règle : `INDISPONIBLE` n'est jamais `REUSSI`. En
+        inventer un second aurait donné deux façons de dire « on ne sait
+        pas », donc une de trop.
+        """
+        from backend.runs.contrat import Verdict
+
+        if not self.measured:
+            return Verdict.INDISPONIBLE
+        if self.contradicted:
+            return Verdict.ECHOUE
+        if self.verified:
+            return Verdict.REUSSI
+        # Mesuré, ni vérifié ni contredit : une mission qui s'annonce
+        # échouée. Le disque n'a rien à confirmer ni à démentir.
+        return Verdict.INDISPONIBLE
+
+    @property
     def contradicted(self) -> bool:
         """Reported success, changed nothing — the exact false positive that
         hid five separate defects. Only ever claimed when we actually
@@ -434,10 +538,17 @@ class MissionVerification:
             "measured": self.measured,
             "verified": self.verified,
             "contradicted": self.contradicted,
+            # Le tri-état nommé, à côté des deux booléens plutôt qu'à
+            # leur place : les appelants existants continuent de lire ce
+            # qu'ils lisaient, et un nouveau n'a plus à recomposer le
+            # troisième état à partir des deux autres.
+            "verdict": self.verdict.value,
+            "mesure_impossible": self.mesure_impossible,
             "workspace": self.workspace,
             "created": list(self.changes.created),
             "modified": list(self.changes.modified),
             "deleted": list(self.changes.deleted),
+            "indetermines": list(self.changes.indetermines),
             "summary": self.changes.summary(),
             "tests": self.tests,
             "manifeste": self.manifeste,
@@ -516,6 +627,21 @@ def verify(
         return MissionVerification(
             mission_id=mission_id, reported_success=reported_success,
             workspace=workspace, changes=WorkspaceDiff(), measured=False,
+        )
+    if not (before.lisible and after.lisible):
+        # HOS-222. Deux faux verdicts partaient d'ici, en sens opposés :
+        # un workspace devenu illisible rendait ses fichiers d'avant comme
+        # « supprimés », donc `verified: True` sur une mission qui n'avait
+        # rien fait ; et deux instantanés illisibles rendaient « rien n'a
+        # changé », donc `contradicted: True` sur une mission qui avait
+        # peut-être travaillé. Les deux se réparent au même endroit, et
+        # avec la même phrase : on ne conclut pas de ce qu'on n'a pas lu.
+        return MissionVerification(
+            mission_id=mission_id, reported_success=reported_success,
+            workspace=workspace,
+            changes=WorkspaceDiff(indetermines=tuple(sorted(
+                set(before.illisibles) | set(after.illisibles)))),
+            measured=False,
         )
     from backend.mission import imports_locaux as _imports
     from backend.mission import faux_paquets as _faux

@@ -1,3 +1,83 @@
+## HOS-222 — Ce qu'on n'a pas pu lire n'est ni vert ni rouge (2026-09-03)
+
+Le jalon 6. `verification.py` était déjà exceptionnellement prudent sur
+le « on ne sait pas » — `tests_echouent`, `manifeste_manque`,
+`travail_deja_fait` distinguent tous soigneusement l'absence de mesure du
+constat d'échec. Mais l'instrument lui-même ne savait pas dire qu'il
+n'avait pas pu regarder, et deux faux verdicts en sortaient, **en sens
+opposés**.
+
+### Le faux positif : un workspace disparu passait pour du travail
+
+`snapshot()` rendait un instantané **vide** pour un arbre illisible,
+indiscernable d'un dossier réellement vide. Mesuré : un workspace de deux
+fichiers devenu illisible se lisait « 2 supprimés », donc
+`touched_anything`, donc **`verified: True`**.
+
+Le module produisait exactement le faux positif qu'il existe pour
+attraper. Une mission qui n'a rien fait, dans un workspace qu'on ne sait
+plus lire, se déclarait vérifiée.
+
+### Le faux négatif : deux instantanés muets devenaient une accusation
+
+Le même défaut dans l'autre sens : deux instantanés illisibles se lisaient
+« rien n'a changé », donc `contradicted: True`, donc `mission.unverified`
+et une reprise suggérée — sur une mission qui avait peut-être travaillé.
+
+C'est le jumeau de la règle centrale du dépôt. « Ne jamais croire un
+succès sur parole » et « ni un échec sur parole » ont ici la même cause
+et se réparent avec la même phrase : **on ne conclut pas de ce qu'on n'a
+pas lu.**
+
+### Et une empreinte constante pour tout ce qui ne se lit pas
+
+`_fingerprint` rendait la chaîne `"unreadable"` — la même pour tous. Deux
+fichiers différents comparaient donc égaux, et un fichier réécrit mais
+resté illisible passait pour **inchangé**, alors qu'on ne l'avait jamais
+ouvert. Elle rend `None` désormais, ce qui force l'appelant à ranger le
+fichier ailleurs que dans un constat.
+
+### Ce qui est ajouté
+
+`WorkspaceSnapshot` porte `lisible` et `illisibles`. `WorkspaceDiff` porte
+`indetermines` — une quatrième case, ni créé, ni modifié, ni supprimé.
+Un fichier illisible d'un côté ou de l'autre y va : le compter comme créé,
+ce que faisait la version précédente pour « illisible avant, lisible
+après », donnait une preuve de travail à partir d'une permission qui
+change. `touched_anything` ne les compte pas, et `summary()` ne dit plus
+« rien n'a changé » quand il ne sait pas — une affirmation qu'on n'était
+pas en position de faire.
+
+`MissionVerification.verdict` nomme enfin le tri-état, et **réutilise le
+vocabulaire du contrat de mission** (HOS-221) : `reussi | echoue |
+indisponible`. En inventer un second aurait donné deux façons de dire
+« on ne sait pas », donc une de trop, et la question « laquelle croire ? »
+à chaque lecture. `verified` et `contradicted` restent à côté : les
+appelants existants ne changent pas, un nouveau n'a plus à recomposer le
+troisième état à partir des deux autres.
+
+### Une alarme, et une qu'on refuse de poser
+
+`mesure_impossible` distingue « rien à mesurer » de « ça devait être
+mesurable et ça ne l'a pas été ». Seul le second émet
+`mission.non_mesuree`.
+
+Une mission sans workspace lié est le cas **normal et fréquent** ; en
+faire une alarme donnerait une alarme qui sonne tout le temps, donc une
+alarme débranchée dans la semaine. C'est la leçon du canary (HOS-218), et
+elle vaut ici aussi. Un workspace lié qu'on n'a pas su lire, en revanche,
+est un défaut d'instrument — et un instrument muet se répare.
+
+L'événement est distinct de `mission.unverified` : celui-là dit « le
+disque contredit », celui-ci dit « le disque n'a rien dit ». Les
+confondre ferait passer un instrument muet pour un verdict.
+
+### Mesures
+
+19 gardes ajoutées ; les 48 gardes existantes de la vérification tiennent
+sans modification. Suite complète : **5 008 vertes**, 3 ignorées.
+
+
 ## HOS-220 et HOS-221 — Le contrat, le registre, et la lignée (2026-09-03)
 
 Le jalon 5 : « qu'est-ce qui devait être vrai à la fin ? » et « qu'est-ce

@@ -196,6 +196,14 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # HOS-099: carries the brief that would make a second attempt differ from
     # the first — the filesystem evidence, not just "try again".
     "mission.retry_suggested",
+    # HOS-222 : un workspace etait lie et n'a pas pu etre lu. Distinct de
+    # `mission.unverified`, qui dit « le disque contredit » : celui-ci dit
+    # « le disque n'a rien dit ». Confondre les deux ferait passer un
+    # instrument muet pour un verdict, dans un sens ou dans l'autre.
+    #
+    # Deliberement pas emis pour une mission sans workspace lie — le cas
+    # normal et frequent. Une alarme qui sonne tout le temps se debranche.
+    "mission.non_mesuree",
     # ohmypi
     "ohmypi.ast.analyzed",
     "ohmypi.lsp.diagnostics",

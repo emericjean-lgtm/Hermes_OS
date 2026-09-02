@@ -329,6 +329,17 @@ class GraphExecutor:
                             if verification is not None and verification.get("contradicted"):
                                 self._on_event("mission.unverified", verification,
                                                severity="warning")
+                            # HOS-222 : « on n'a pas pu regarder » n'est ni
+                            # le vert ni le rouge. Sans cet événement, une
+                            # mission dont le workspace était illisible se
+                            # lisait exactement comme une mission propre —
+                            # et avant HOS-222 elle se lisait carrément
+                            # `verified: true`, ses fichiers d'avant
+                            # comptant comme supprimés.
+                            elif (verification is not None
+                                  and verification.get("mesure_impossible")):
+                                self._on_event("mission.non_mesuree", verification,
+                                               severity="warning")
 
             # Notify newly ready nodes
             new_ready = self._resolver.get_ready_nodes(mission)
