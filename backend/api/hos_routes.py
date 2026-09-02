@@ -748,17 +748,94 @@ async def system_statistics(request: Request) -> JSONResponse:
 
 
 async def system_version(request: Request) -> JSONResponse:
-    """GET /api/v1/version."""
+    """GET /api/v1/version.
+
+    HOS-234 : rendait `"0.1.0"` en dur, avec une liste de modules
+    arrêtée à HOS-028 — donc une version qui ne désignait rien et une
+    liste qui n'a plus été juste depuis deux cents jalons.
+
+    La version produit existe depuis HOS-232, et la version **installée**
+    depuis HOS-233. Les deux sont rendues, et elles peuvent différer :
+    c'est précisément ce qu'on veut voir après une mise à jour dont le
+    marquage n'a pas eu lieu.
+    """
+    from backend.maj.version import VERSION, lire_version_installee
+
+    installee = lire_version_installee()
     return JSONResponse({
-        "version": "0.1.0",
-        "build": "HOS-028",
-        "modules": [
-            "HOS-009", "HOS-010", "HOS-011", "HOS-012", "HOS-013",
-            "HOS-014", "HOS-015", "HOS-016", "HOS-017", "HOS-018",
-            "HOS-019", "HOS-020", "HOS-021", "HOS-022", "HOS-023",
-            "HOS-024", "HOS-025", "HOS-026", "HOS-027", "HOS-028",
-        ],
+        "version": VERSION,
+        # `None` et non la version du code : les confondre masquerait
+        # exactement l'écart qu'on cherche.
+        "version_installee": installee or None,
+        "a_jour": bool(installee) and installee == VERSION,
     })
+
+
+async def operations_apercu(request: Request) -> JSONResponse:
+    """GET /api/v1/operations — ce que douze jalons ont produit.
+
+    Registre des runs, fournisseurs et leurs écarts, approbations et
+    leurs portées, points de reprise, version installée et santé. Rien
+    n'était exposé avant HOS-234.
+    """
+    from backend.services import vue_operations
+
+    return JSONResponse(vue_operations.vue_d_ensemble())
+
+
+async def operations_runs(request: Request, mission: str) -> JSONResponse:
+    """GET /api/v1/operations/missions/{mission}/runs."""
+    from backend.services import vue_operations
+
+    return JSONResponse(vue_operations.runs_de_la_mission(mission))
+
+
+async def operations_lignee(request: Request, run: str) -> JSONResponse:
+    """GET /api/v1/operations/runs/{run}/lignee.
+
+    « Avec quel modèle, et pourquoi le premier essai a raté ? » — la
+    question à laquelle la nuit du 29 au 30 août n'a pas su répondre.
+    """
+    from backend.services import vue_operations
+
+    return JSONResponse(vue_operations.lignee(run))
+
+
+async def operations_contrat(request: Request, run: str) -> JSONResponse:
+    """GET /api/v1/operations/runs/{run}/contrat."""
+    from backend.services import vue_operations
+
+    return JSONResponse(vue_operations.contrat_du_run(run))
+
+
+async def operations_checkpoints(request: Request,
+                                 workspace: Optional[str] = Query(None)
+                                 ) -> JSONResponse:
+    """GET /api/v1/operations/checkpoints."""
+    from backend.services import vue_operations
+
+    return JSONResponse(vue_operations.points_de_reprise(workspace))
+
+
+async def operations_fournisseurs(request: Request) -> JSONResponse:
+    """GET /api/v1/operations/fournisseurs."""
+    from backend.services import vue_operations
+
+    return JSONResponse(vue_operations.fournisseurs())
+
+
+async def operations_approbations(request: Request) -> JSONResponse:
+    """GET /api/v1/operations/approbations."""
+    from backend.services import vue_operations
+
+    return JSONResponse(vue_operations.approbations())
+
+
+async def operations_installation(request: Request) -> JSONResponse:
+    """GET /api/v1/operations/installation."""
+    from backend.services import vue_operations
+
+    return JSONResponse(vue_operations.installation())
 
 
 async def system_tick(request: Request) -> JSONResponse:

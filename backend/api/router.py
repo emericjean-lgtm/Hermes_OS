@@ -246,6 +246,38 @@ class MissionControlRouter:
             summary="Advance all running missions by one step",
         )
 
+        # ── Opérations (HOS-234) ──
+        #
+        # Ce que les jalons 5 à 16 ont produit, et que **rien n'exposait**
+        # : registre des runs, lignée, contrat, points de reprise,
+        # fournisseurs et leurs écarts, approbations et leurs portées,
+        # version installée et santé.
+        #
+        # Toutes en `GET` seulement. Mission Control est une **vue** du
+        # runtime, jamais un second runtime — une vue qui écrit devient
+        # un second chemin vers l'état, et deux chemins vers l'état,
+        # c'est la question « lequel fait foi ? » à chaque incident.
+        for chemin, fonction, resume in (
+            ("/operations", hos_routes.operations_apercu,
+             "Vue d'ensemble des opérations"),
+            ("/operations/missions/{mission}/runs", hos_routes.operations_runs,
+             "Les tentatives d'une mission"),
+            ("/operations/runs/{run}/lignee", hos_routes.operations_lignee,
+             "La chaîne des tentatives, de la première à celle-ci"),
+            ("/operations/runs/{run}/contrat", hos_routes.operations_contrat,
+             "Ce qui devait être vrai à la fin"),
+            ("/operations/checkpoints", hos_routes.operations_checkpoints,
+             "Les points de reprise"),
+            ("/operations/fournisseurs", hos_routes.operations_fournisseurs,
+             "Fournisseurs cloud, écarts et disjoncteurs"),
+            ("/operations/approbations", hos_routes.operations_approbations,
+             "Approbations en attente et portées vivantes"),
+            ("/operations/installation", hos_routes.operations_installation,
+             "Version installée et auto-vérification"),
+        ):
+            self.router.add_api_route(chemin, fonction, methods=["GET"],
+                                      summary=resume)
+
     def _register_websocket(self) -> None:
         """Register the WebSocket event stream endpoint."""
 

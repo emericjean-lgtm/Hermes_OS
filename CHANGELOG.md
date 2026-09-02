@@ -1,3 +1,107 @@
+## HOS-234 — Ce que douze jalons ont produit, enfin lisible (2026-09-03)
+
+Le jalon 17. Prémisse mesurée avant d'écrire : **aucune route n'exposait**
+le registre des runs (J5), le contrat, les points de reprise (J7), la
+portée des approbations (J8), les causes d'échec (J9), le pare-feu (J11),
+le courtier (J12), le relais (J13), la boucle (J14) ni la mise à jour
+(J16). Douze jalons de travail, invisibles à toute interface.
+
+### Ce qui existait, et qu'il ne fallait pas refaire
+
+`MissionControlService` — 1 242 lignes — et son `MissionControlAPI`, avec
+un WebSocket d'événements. La première recherche donnait « 2 routes pour
+le registre, 2 pour la boucle » : c'étaient des **commentaires**, l'un
+sur le registre de sessions ACP, l'autre sur la boucle d'événements
+asyncio. Encore un faux positif de sous-chaîne, et la raison pour
+laquelle la mesure s'est poursuivie jusqu'à trouver la vraie surface.
+
+Les huit routes de ce jalon s'y branchent. Aucun service neuf, aucun
+magasin neuf.
+
+### Ce que le frontend faisait déjà bien
+
+Contrairement à ce qu'on pouvait craindre, il ne fabrique plus de
+compteurs. Les `Math.random()` restants sont des identifiants, une graine
+de studio, ou des **commentaires documentant des fabrications retirées** :
+`deployment-center` dormait 1 500 ms et rendait `Math.random() * 20 + 30`,
+`model-intelligence-center` attendait 600–1 000 ms avant de répondre. Le
+commentaire de `telemetry-trace.tsx` dit ce qu'on en a retenu —
+« `Math.random()` would have made a prettier picture and a dishonest
+one ».
+
+Une garde le vérifie désormais plutôt que de l'espérer, en exemptant les
+graines : un aléa **demandé** est le contraire d'une mesure inventée, et
+la distinction est dans l'intention, donc dans le nom.
+
+### Une vue, jamais un second runtime
+
+Les huit routes sont en `GET` seulement, et deux gardes sur l'arbre
+syntaxique le tiennent : le modèle de lecture n'appelle rien qui écrive —
+`ouvrir`, `terminer`, `prendre`, `restaurer`, `appliquer`, `decide`,
+`signaler_echec` — et n'importe aucun magasin.
+
+La raison n'est pas esthétique. Une vue qui écrit devient un second
+chemin vers l'état, et deux chemins vers l'état, c'est la question
+« lequel fait foi ? » à chaque incident.
+
+### Chaque section dit d'où elle vient
+
+`source` accompagne chaque bloc : `backend.runs.registre`,
+`backend.ral.courtier`, `backend.security.approvals`,
+`backend.checkpoints`, `backend.maj`. Une vue qui nomme ses sources rend
+la fabrication visible au relecteur suivant.
+
+### Ce qui est absent est dit absent
+
+Un système indisponible rend `disponible: false` **avec sa raison**,
+jamais un zéro. Un zéro se lit « rien ne s'est passé » ; une
+indisponibilité se lit « on ne sait pas ». C'est la règle tri-état de
+HOS-222 appliquée à l'affichage — et c'est là qu'elle compte le plus,
+parce que c'est là qu'un humain décide.
+
+Une section qui lève ne fait pas tomber la vue : les autres sont
+justement ce qu'on regarde quand une chose va mal.
+
+Et « aucun fournisseur configuré » est marqué comme un **état normal** :
+aucune clé n'est posée par défaut, et le taire le ferait lire comme une
+panne.
+
+### Le vocabulaire des jalons traverse jusqu'à l'affichage
+
+Une cause non démontrée reste `null`, jamais « inconnue » (HOS-225). Les
+critères invérifiables sont **séparés** des critères violés (HOS-222). Un
+point de reprise dit s'il porte l'état de mission, parce que sans lui il
+ne ramène que la moitié (HOS-223). Les portées d'approbation vivantes
+sont listées à part des accords exacts, parce qu'une ligne qui autorise
+un dossier entier ne se lit pas comme une qui autorise une action
+(HOS-224).
+
+### Une version fabriquée, retirée
+
+`GET /api/v1/version` rendait `"0.1.0"` en dur, avec une liste de modules
+arrêtée à `HOS-028` — donc une version qui ne désignait rien et une liste
+fausse depuis deux cents jalons.
+
+Elle rend maintenant la version produit (HOS-232) **et** la version
+installée (HOS-233), qui peuvent différer : c'est précisément l'écart
+qu'on veut voir après une mise à jour dont le marquage n'a pas eu lieu.
+Le test qui gardait `"0.1.0"` est **amendé, pas supprimé** — même
+propriété, valeur réelle.
+
+### Ce qui reste hors périmètre
+
+Les **vues React** — Agent Control Rooms, trace d'exécution vivante,
+analytiques. Elles sont une pièce en soi, et elles n'étaient pas
+constructibles avant : il n'y avait rien à afficher. C'est maintenant le
+cas.
+
+### Mesures
+
+Vérifié sur l'installation réelle : 206 approbations en attente, 3 points
+de reprise, 10 contrôles de santé, 0 fournisseur configuré. 20 gardes
+ajoutées, 1 amendée. Suite complète : **5 340 vertes**, 3 ignorées.
+
+
 ## HOS-233 — Le moteur de mise à jour, pour de bon (2026-09-03)
 
 J16.1. HOS-232 sauvegardait l'état et le restaurait ; il ne touchait pas

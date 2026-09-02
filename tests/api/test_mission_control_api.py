@@ -608,9 +608,24 @@ class TestSystemEndpoints:
         assert "uptime_seconds" in data
 
     def test_version(self, client: TestClient):
+        """La version rendue est celle du produit, plus une constante.
+
+        Ce test gardait `"0.1.0"` — une chaîne écrite en dur dans la
+        route, qui ne désignait rien et n'avait pas bougé depuis
+        HOS-028. La version produit existe depuis HOS-232 ; la route la
+        rend depuis HOS-234, avec la version **installée** à côté, parce
+        que les deux peuvent différer et que c'est justement l'écart
+        qu'on veut voir après une mise à jour dont le marquage n'a pas
+        eu lieu.
+        """
+        from backend.maj.version import VERSION
+
         resp = client.get("/api/v1/version")
         assert resp.status_code == 200
-        assert resp.json()["version"] == "0.1.0"
+        donnees = resp.json()
+        assert donnees["version"] == VERSION
+        assert "version_installee" in donnees
+        assert "a_jour" in donnees
 
     def test_tick(self, client: TestClient):
         resp = client.post("/api/v1/tick")
