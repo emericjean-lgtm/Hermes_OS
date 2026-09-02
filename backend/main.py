@@ -335,7 +335,21 @@ def create_app() -> FastAPI:
                 except Exception:
                     logger.warning("EventBus stop failed", exc_info=True)
 
-    app = FastAPI(title="Hermes OS", version="1.0.0-rc1", lifespan=lifespan)
+    # HOS-239 : la version d'OpenAPI est **celle du produit**.
+    #
+    # Elle valait `"1.0.0-rc1"`, écrite en dur — une troisième valeur, à
+    # côté de `frontend/package.json` (`0.1.0`) et de la version produit
+    # de HOS-232 (`1.0.0`). C'est celle que tout client lit dans
+    # `/openapi.json`, et elle contredisait les deux autres.
+    #
+    # `package.json` garde la sienne, et c'est légitime : elle versionne
+    # le **paquet npm**, pas le produit. Les rôles sont distincts et
+    # documentés ; les valeurs, elles, ne doivent pas se contredire sur
+    # ce qu'est Hermes OS.
+    from backend.maj.version import VERSION as _VERSION_PRODUIT
+
+    app = FastAPI(title="Hermes OS", version=_VERSION_PRODUIT,
+                  lifespan=lifespan)
     app.state.bootstrap = bootstrap
     app.state.container = bootstrap.container
 

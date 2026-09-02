@@ -1,3 +1,58 @@
+## HOS-239 — Consolidation post-audit : trois défauts, une cartographie (2026-09-03)
+
+Première passe de la mission de consolidation. Trois défauts corrigés,
+chacun **observé rouge** avant correction, et une cartographie mesurée.
+
+### La version d'OpenAPI contredisait la version produit
+
+`FastAPI(version="1.0.0-rc1")`, écrite en dur. Une troisième valeur, à
+côté de `frontend/package.json` (`0.1.0`) et de la version produit de
+HOS-232 (`1.0.0`) — et c'est celle que **tout client lit** dans
+`/openapi.json`.
+
+Elle vient maintenant de `backend.maj.version`. `package.json` garde la
+sienne, et c'est légitime : elle versionne le **paquet npm**, pas le
+produit. Les rôles sont distincts ; les valeurs ne doivent pas se
+contredire sur ce qu'est Hermes OS. Une garde AST interdit tout littéral
+de version dans `main.py`.
+
+### La cartographie backend → frontend, mesurée
+
+25 sujets confrontés : ce que l'application sert vraiment contre ce que
+`client.ts` appelle vraiment.
+
+- **20 réellement raccordés** ;
+- **3 servis sans consommateur** : `documents`, `logs`, `snapshots` ;
+- **0 orphelin côté frontend** — aucun appel vers une route absente.
+
+**Mon propre détecteur a produit cinq faux négatifs.** Il annonçait
+approbations, points de reprise, Control Rooms, fournisseurs et
+installation comme « backend seul » ; ils sont consommés, mais par
+`operationsClient` en appels nommés que la recherche d'expression n'a pas
+vus. Vérifié avant de le rapporter comme un manque — c'est exactement
+l'erreur que cette mission interdit, et je l'ai commise dans l'outil de
+mesure lui-même.
+
+### Les couches événementielles, mesurées
+
+Six noms existent. Comptés par fichiers et par publications réelles :
+`SystemEventBus` (1 publication), `EventHub` (2), et quatre —
+`EventDispatcher`, `EventBusImpl`, `MessageBus`, `RuntimeEventBus` — qui
+**n'appellent jamais `publish` directement** dans le code de production.
+
+Ce n'est pas six vérités concurrentes : c'est un bus durable
+(`EventBusImpl`, sous la racine d'état depuis HOS-237), un concentrateur
+que le frontend écoute (`EventHub`), et des façades qui délèguent. La
+phrase qui l'explique tient : **un seul journal durable, un seul point de
+diffusion, et des adaptateurs qui y écrivent.** Le reste du travail —
+documenter producteur et consommateur pour chacun — reste à faire.
+
+### Mesures
+
+2 gardes ajoutées. Suite complète : **5 382 vertes**, 3 ignorées.
+Frontend : 126 vertes, typecheck propre.
+
+
 ## HOS-236 — Les Control Rooms, et le 100 % qui n'existait pas (2026-09-03)
 
 J17 final. Deux causes maintenaient le 🟠 : les Control Rooms, et une

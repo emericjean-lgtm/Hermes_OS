@@ -448,3 +448,42 @@ def test_un_agent_inconnu_est_une_absence_pas_un_agent_vide(application):
         "/api/v1/operations/agents/jamais-vu").json()["donnees"]
     assert donnees["connu"] is False
     assert donnees["identite"] is None
+
+
+# ═══ La version produit est unique (HOS-239) ═════════════════════════
+
+def test_openapi_porte_la_version_produit(application):
+    """Elle valait `"1.0.0-rc1"`, écrite en dur.
+
+    Une troisième valeur, à côté de `frontend/package.json` (`0.1.0`) et
+    de la version produit de HOS-232 (`1.0.0`) — et c'est celle que tout
+    client lit dans `/openapi.json`.
+    """
+    from backend.maj.version import VERSION
+
+    assert application.get("/openapi.json").json()["info"]["version"] == VERSION
+
+
+def test_aucune_version_de_produit_ecrite_en_dur_dans_main():
+    """Sur l'arbre syntaxique : un littéral de version dans `main.py`
+    recréerait la divergence.
+
+    `package.json` garde la sienne — elle versionne le **paquet npm**,
+    pas le produit — mais elle ne doit pas être recopiée ici.
+    """
+    import ast
+    import io
+    import re
+    from pathlib import Path
+
+    racine = Path(__file__).resolve().parents[2]
+    source = io.open(racine / "backend" / "main.py", encoding="utf-8").read()
+    arbre = ast.parse(source)
+
+    semver = re.compile(r"^\d+\.\d+\.\d+")
+    litteraux = [n.value for n in ast.walk(arbre)
+                 if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                 and semver.match(n.value)]
+    assert not litteraux, (
+        f"version(s) écrite(s) en dur dans main.py : {litteraux} — "
+        "la version produit vient de `backend.maj.version`")
