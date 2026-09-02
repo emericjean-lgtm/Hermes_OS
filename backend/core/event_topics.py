@@ -204,6 +204,14 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # Deliberement pas emis pour une mission sans workspace lie — le cas
     # normal et frequent. Une alarme qui sonne tout le temps se debranche.
     "mission.non_mesuree",
+    # HOS-223 : un point de reprise a ete pose avant que la mission
+    # touche au disque, et par quel mecanisme.
+    "mission.checkpoint",
+    # Et son symetrique, qui compte davantage : la mission part **sans
+    # filet**. Dit plutot que taise — un point de reprise absent en
+    # silence laisse partir avec le meme aplomb, et l'absence ne se
+    # decouvre qu'en tombant.
+    "mission.sans_filet",
     # ohmypi
     "ohmypi.ast.analyzed",
     "ohmypi.lsp.diagnostics",

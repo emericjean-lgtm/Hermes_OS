@@ -405,8 +405,53 @@ class GraphExecutor:
             root = self._workspace_root(mission)
             if root:
                 self._snapshots[mission.mission_id] = snapshot(root)
+                self._prendre_le_filet(mission, root)
         except Exception:  # pragma: no cover - diagnostics never block a run
             logger.debug("workspace snapshot failed", exc_info=True)
+
+    def _prendre_le_filet(self, mission: Mission, root: str) -> None:
+        """Poser un point de reprise avant que la mission touche au disque.
+
+        L'instantané pris juste au-dessus répond à « qu'est-ce qui a
+        changé ? » ; celui-ci répond à « comment revenir en arrière ? ».
+        Deux questions, deux mécanismes : l'un ne garde que des
+        empreintes, l'autre garde le contenu.
+
+        **On dit toujours ce qu'on a, y compris quand on n'a rien.** Un
+        point de reprise absent en silence est le pire des cas : la
+        mission part avec le même aplomb, et l'absence de filet ne se
+        découvre qu'en tombant. C'est la règle du tri-état (HOS-222)
+        appliquée à la protection plutôt qu'à la mesure.
+        """
+        from backend.checkpoints import checkpoint as _checkpoint
+
+        objectif = mission.objective or mission.description or mission.title
+        try:
+            point = _checkpoint.prendre(
+                root, motif=f"avant la mission : {(objectif or '')[:160]}",
+                mission=mission.mission_id, avec_etat=False)
+        except Exception as exc:
+            # Ne bloque pas la mission : l'utilisateur a demandé un
+            # travail, pas une sauvegarde. Mais il doit savoir qu'il part
+            # sans filet.
+            logger.warning("aucun point de reprise pour %s : %s",
+                           mission.mission_id, exc)
+            if self._on_event:
+                self._on_event("mission.sans_filet", {
+                    "mission_id": mission.mission_id,
+                    "workspace": root,
+                    "raison": str(exc),
+                }, severity="warning")
+            return
+
+        mission.metadata["checkpoint"] = point.identifiant
+        if self._on_event:
+            self._on_event("mission.checkpoint", {
+                "mission_id": mission.mission_id,
+                "checkpoint": point.identifiant,
+                "workspace": root,
+                "mecanisme": point.mecanisme,
+            }, severity="info")
 
     @staticmethod
     def _fermer_session_de_mission(mission_id: str) -> None:

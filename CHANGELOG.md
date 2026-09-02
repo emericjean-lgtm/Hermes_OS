@@ -1,3 +1,113 @@
+## HOS-223 — Hermes sait annuler une modification (2026-09-03)
+
+Le jalon 7. Trois constats, mesurés dans le code avant d'écrire une
+ligne :
+
+- `propose_write` déposait une sauvegarde horodatée à chaque écrasement,
+  la rendait à l'appelant et la publiait dans un événement — et **rien,
+  nulle part, ne la relisait**. Aucune fonction du dépôt ne restaurait
+  depuis un `backup_path`. C'était un quatrième orphelin, après
+  `approvals.py`, `DatabaseManager` et `MigrationManager`.
+- `delete()` faisait `shutil.rmtree()` sur un répertoire sans rien
+  garder du tout. `move()` non plus.
+- `snapshot_manager` sauve l'état de mission et dit **explicitement**
+  qu'il ne copie pas les fichiers, en déléguant à ces sauvegardes. La
+  délégation pointait vers un mécanisme sans retour.
+
+### Le chemin git, et la pièce qui détruirait du travail si elle cédait
+
+Un point de reprise est un commit détaché sous
+`refs/hermes/checkpoints/<id>`. Git fait le reste : stockage par contenu
+qui déduplique, objet immuable, référence qui protège du ramasse-miettes,
+et `.gitignore` honoré gratuitement — un `node_modules/` de 400 Mio
+n'entre pas sans qu'on ait écrit une règle.
+
+**Le dépôt de l'utilisateur ne sent rien.** Ni son index, ni sa branche,
+ni son `HEAD`, ni son stash. Un `git add -A` sur l'index réel détruirait
+le travail en cours de quelqu'un — au moment précis où il s'apprête à
+lancer une mission risquée. D'où `GIT_INDEX_FILE` sur un fichier
+temporaire, la pièce d'Agent OS qui vaut d'être reprise telle quelle.
+Mesuré : index, `HEAD` et branche identiques avant et après.
+
+Écart avec eux : le commit prend `HEAD` pour **parent**. Détaché sans
+parent, un point de reprise n'est diffable contre rien.
+
+Et restaurer, c'est effacer. `git checkout-index` réécrit ce qui était
+là, mais ne supprime pas ce qui est apparu depuis — une restauration qui
+les laisserait ne restaurerait rien, elle mélangerait deux états. Les
+trois cas sont donc calculés et traités séparément.
+
+### Le repli, pour les workspaces sans git
+
+La production du 30 août tournait dans un dossier sans `.git`. Ne
+protéger que les dépôts reviendrait à ne protéger que ce qui l'était
+déjà.
+
+Copie avec **manifeste de contenu** et vérification d'intégrité par
+**re-hachage** — les deux sont d'Agent OS et les deux comptent : une
+copie sans manifeste ne sait pas ce qu'elle devait contenir, un manifeste
+jamais revérifié n'est qu'une déclaration. L'intégrité est vérifiée
+**avant** d'écrire quoi que ce soit ; restaurer à moitié depuis une copie
+abîmée laisserait un troisième état, ni l'ancien ni le nouveau.
+
+Deux ajouts tirés de ce dépôt. Les répertoires ignorés sont ceux de
+`verification.py` — une seconde liste divergerait. Et un fichier
+illisible **fait échouer la prise**, il n'est pas passé sous silence :
+c'est la leçon de HOS-222, un point de reprise partiel est pire
+qu'absent, parce qu'on croit avoir un filet et qu'on ne l'apprend qu'en
+tombant. Même raison pour le plafond de 500 Mo : lever plutôt que
+dépenser silencieusement des gigaoctets à chaque mission.
+
+### Ce que Hermes ajoute : le couple
+
+Un checkpoint Agent OS est un état de fichiers. `snapshot_manager` sauve
+l'état de mission, ce qu'ils ne font pas. Un point de reprise Hermes est
+le **couple**, pris et repris ensemble.
+
+Restaurer les fichiers sans l'état laisse une mission qui croit avoir
+fini un travail que le disque ne porte plus, et qui repartira de là.
+Restaurer l'état sans les fichiers fait l'inverse. L'un ou l'autre seul
+fabrique une incohérence — le genre que ce dépôt met des semaines à
+retrouver.
+
+Quand l'état n'a pas pu être repris, `Restauration` le **dit** au lieu de
+rendre un succès partiel : les fichiers sont déjà revenus à ce
+moment-là, et lever laisserait l'appelant persuadé que rien n'a eu lieu.
+
+### Restaurer efface, et c'est traité comme tel
+
+Même contrat que `snapshot_manager.restore_snapshot` : un aperçu d'abord,
+Aegis en `data_migration` ensuite — que `config/security.yaml` classe en
+`mandatory_validation: true` à tous les niveaux d'autonomie. Et `Ecart`
+garde **trois listes séparées** : fondre le destructif dans un
+« 12 fichiers touchés » cacherait la seule qui détruise du travail.
+
+### Branché, et le disant quand il ne l'est pas
+
+`graph_executor` pose le filet avant que la mission touche au disque.
+L'instantané qui existait déjà répond à « qu'est-ce qui a changé ? » ;
+celui-ci répond à « comment revenir en arrière ? ».
+
+Quand la prise échoue, la mission part quand même — l'utilisateur a
+demandé un travail, pas une sauvegarde — mais `mission.sans_filet` le
+dit. Un point de reprise absent en silence laisse partir avec le même
+aplomb, et l'absence ne se découvre qu'en tombant. C'est la règle du
+tri-état de HOS-222, appliquée à la protection plutôt qu'à la mesure.
+
+### Deux défauts de test, dont un que j'avais déjà commis
+
+Mes deux fixtures partageaient `tmp_path` : `depot` initialisait un dépôt
+git dans le dossier que `dossier` déclarait n'en pas avoir. Et
+l'assertion du `.gitignore` cherchait la sous-chaîne « ignore », que
+`.gitignore` contient — **le faux positif de sous-chaîne**, exactement
+celui que j'avais reproché au sondage du cahier six jours plus tôt. Elle
+porte maintenant sur le chemin exact.
+
+### Mesures
+
+28 gardes ajoutées. Suite complète : **5 036 vertes**, 3 ignorées.
+
+
 ## HOS-222 — Ce qu'on n'a pas pu lire n'est ni vert ni rouge (2026-09-03)
 
 Le jalon 6. `verification.py` était déjà exceptionnellement prudent sur

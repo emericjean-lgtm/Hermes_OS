@@ -506,7 +506,7 @@ que trois manques que j'avais classés « confort » sont des **contrôles**
 | 4 | ✅ **Fait (HOS-218)** — canary, report 512, silence, coût | répond à §14 et §22 d'un coup ; transposable presque tel quel | moyen |
 | 5 | ✅ **Fait (HOS-221)** — Contract tri-état + Run Ledger + lignée, branchés sur `MissionExecutor` | le manque le plus coûteux, démontré en production | 56 gardes |
 | 6 | ✅ **Fait (HOS-222)** — verdict tri-état, instantané qui sait dire qu'il n'a pas lu | un « on ne sait pas » n'est pas un « c'est bon » — ni un « c'est mauvais » | 19 gardes |
-| 7 | Checkpoint de **fichiers** par référence git | Hermes ne sait pas annuler une modification | moyen |
+| 7 | ✅ **Fait (HOS-223)** — commit détaché + repli vérifié, couplé à l'état de mission | Hermes ne savait pas annuler une modification | 28 gardes |
 | 8 | Approbation : hash canonique, portée, expiration | `approval_engine` est complet et **débranché** — le rebrancher coûte moins que de l'écrire | moyen |
 | 9 | Taxonomie d'échecs + retry par cause | trois incidents identiques ont eu trois réponses manuelles | moyen |
 | 10 | `CloudProvider` + OpenRouter en adaptateur + **tests** | le client existe sans un seul test | moyen |
