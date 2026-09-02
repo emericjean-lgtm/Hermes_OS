@@ -1,4 +1,9 @@
-"""Mettre à jour sans perdre ce que quinze jalons ont construit (HOS-232).
+"""HOS-233 : `appliquer()` prend désormais un **paquet** en premier
+argument, la version étant nommée. Ces gardes-ci portent sur la moitié
+« état » — sauvegarde, restauration, version — qu'elles mesurent sans
+paquet ; celles du moteur complet sont dans `test_mise_a_jour_moteur.py`.
+
+Mettre à jour sans perdre ce que quinze jalons ont construit (HOS-232).
 
 ## Le défaut trouvé en mesurant la prémisse
 
@@ -166,15 +171,19 @@ def test_la_version_installee_vit_hors_du_depot(etat):
 
 def test_une_mise_a_jour_reussie_marque_la_version(etat):
     issue = MiseAJour(installer=lambda: None,
-                      valider=lambda: True).appliquer("1.0.0")
+                      valider=lambda: True).appliquer(vers="1.0.0")
     assert issue.reussie is True
-    assert issue.etapes == [Etape.SAUVEGARDE.value, Etape.INSTALLATION.value,
-                            Etape.VALIDATION.value, Etape.MARQUAGE.value]
+    # `compatibilite` en tête depuis HOS-233 : aucune mise à jour aveugle,
+    # et la vérification passe **avant** la sauvegarde pour qu'un refus
+    # ne laisse pas de sauvegarde orpheline.
+    assert issue.etapes == [Etape.COMPATIBILITE.value, Etape.SAUVEGARDE.value,
+                            Etape.INSTALLATION.value, Etape.VALIDATION.value,
+                            Etape.MARQUAGE.value]
     assert lire_version_installee(etat) == "1.0.0"
 
 
 def test_la_sauvegarde_prend_tout_le_preserve_set(etat):
-    issue = MiseAJour(valider=lambda: True).appliquer("1.0.0")
+    issue = MiseAJour(valider=lambda: True).appliquer(vers="1.0.0")
     assert "checkpoints" in issue.sauvegarde.dossiers
     assert "db" in issue.sauvegarde.dossiers
 
@@ -193,7 +202,9 @@ def test_la_marque_de_version_est_posee_en_dernier():
     # des positions qui ne voulaient rien dire.
     lignes = {ast.unparse(n.func): n.lineno
               for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Call)}
-    assert lignes["self._valider"] < lignes["ecrire_version_installee"]
+    # `self._verifier` depuis HOS-233 : le self-check rend un rapport
+    # structuré, pas un booléen, et l'appel a changé de nom avec lui.
+    assert lignes["self._verifier"] < lignes["ecrire_version_installee"]
 
 
 # ═══ Le retour arrière ═══════════════════════════════════════════════
@@ -206,7 +217,7 @@ def test_une_installation_qui_casse_est_annulee(etat):
         (etat / "checkpoints" / "cp1.json").unlink()
         raise RuntimeError("paquet corrompu")
 
-    issue = MiseAJour(installer=casse, valider=lambda: True).appliquer("1.1.0")
+    issue = MiseAJour(installer=casse, valider=lambda: True).appliquer(vers="1.1.0")
     assert issue.reussie is False
     assert issue.revenue is True
     assert (etat / "db" / "hermes.db").read_text(encoding="utf-8") == "les données"
@@ -222,7 +233,7 @@ def test_une_validation_qui_echoue_annule_aussi(etat):
     def abime():
         (etat / "db" / "hermes.db").write_text("autre chose", encoding="utf-8")
 
-    issue = MiseAJour(installer=abime, valider=lambda: False).appliquer("1.2.0")
+    issue = MiseAJour(installer=abime, valider=lambda: False).appliquer(vers="1.2.0")
     assert issue.revenue is True
     assert (etat / "db" / "hermes.db").read_text(encoding="utf-8") == "les données"
 
@@ -235,7 +246,7 @@ def test_un_retour_arriere_ne_laisse_pas_la_nouvelle_version(etat):
     def casse():
         raise RuntimeError("non")
 
-    MiseAJour(installer=casse, valider=lambda: True).appliquer("1.1.0")
+    MiseAJour(installer=casse, valider=lambda: True).appliquer(vers="1.1.0")
     assert lire_version_installee(etat) == "1.0.0"
 
 
@@ -248,7 +259,7 @@ def test_le_retour_arriere_retire_avant_de_copier(etat):
                                                encoding="utf-8")
         raise RuntimeError("non")
 
-    MiseAJour(installer=casse, valider=lambda: True).appliquer("1.1.0")
+    MiseAJour(installer=casse, valider=lambda: True).appliquer(vers="1.1.0")
     assert not (etat / "db" / "intrus.db").exists()
 
 
@@ -262,7 +273,7 @@ def test_sans_sauvegarde_on_n_installe_pas(etat, monkeypatch):
 
     monkeypatch.setattr(MiseAJour, "sauvegarder", sauvegarde_impossible)
     issue = MiseAJour(installer=lambda: installee.append(1),
-                      valider=lambda: True).appliquer("1.1.0")
+                      valider=lambda: True).appliquer(vers="1.1.0")
     assert issue.reussie is False
     assert installee == [], "installé sans filet"
     assert "sauvegarde impossible" in issue.raison
@@ -287,7 +298,7 @@ def test_un_retour_arriere_impossible_est_dit_fort(etat):
         return sauvegarde
 
     moteur.sauvegarder = sauver_puis_disparaitre
-    issue = moteur.appliquer("1.1.0")
+    issue = moteur.appliquer(vers="1.1.0")
     assert issue.revenue is False
     assert "retour arrière a échoué" in issue.raison
 

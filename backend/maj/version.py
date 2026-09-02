@@ -105,5 +105,85 @@ def ecrire_version_installee(version: str, racine: Path | None = None) -> None:
                                   indent=2), encoding="utf-8")
 
 
-__all__ = ["NOM_FICHIER", "VERSION", "Version", "comparer",
-           "ecrire_version_installee", "lire_version_installee"]
+
+
+# ── La compatibilité (HOS-233) ───────────────────────────────────────
+
+#: La version installée la plus ancienne depuis laquelle ce code sait
+#: reprendre. En dessous, la migration n'a pas été écrite et l'installer
+#: quand même produirait un état que rien ne sait lire.
+#:
+#: `0.0.0` aujourd'hui : Hermes n'a jamais été distribué, donc toutes les
+#: installations existantes sont antérieures au versionnement et doivent
+#: pouvoir se mettre à jour. La faire monter est une décision, pas un
+#: réglage — elle rend des installations non migrables.
+MINIMUM_MIGRABLE = "0.0.0"
+
+
+class IncompatibiliteVersion(RuntimeError):
+    """La mise à jour est refusée, en le disant.
+
+    Refusée et non « tentée quand même » : une mise à jour aveugle est
+    exactement ce que le cahier interdit, et l'échec se verrait au
+    redémarrage suivant plutôt qu'ici.
+    """
+
+
+def verifier_la_compatibilite(installee: str, cible: str, *,
+                              depuis_au_moins: str = "",
+                              minimum: str = MINIMUM_MIGRABLE) -> str:
+    """Peut-on aller de `installee` à `cible` ? Rend une note, ou lève.
+
+    Quatre cas, et chacun a été décidé :
+
+    **Version installée inconnue** (chaîne vide) : on accepte. C'est une
+    installation antérieure au versionnement — toutes celles qui existent
+    aujourd'hui — et la refuser interdirait la première mise à jour à
+    tout le monde.
+
+    **Trop ancienne** : refusé. Sous `minimum`, ou sous le
+    `depuis_au_moins` que le paquet déclare, la migration n'a pas été
+    écrite.
+
+    **Retour en arrière** : refusé par cette porte. Revenir à une version
+    antérieure est un `restaurer()`, pas un `appliquer()` — le second
+    n'a pas les migrations descendantes, et faire passer l'un pour
+    l'autre laisserait un schéma neuf sous un code ancien.
+
+    **Identique** : accepté, et dit. Réinstaller la même version est une
+    réparation légitime.
+    """
+    if not (cible or "").strip():
+        raise IncompatibiliteVersion("aucune version cible")
+
+    v_cible = Version.depuis(cible)
+    if v_cible.rang == (0, 0, 0):
+        raise IncompatibiliteVersion(f"version cible illisible : {cible!r}")
+
+    if not (installee or "").strip():
+        return ("installation antérieure au versionnement — acceptée, "
+                "c'est le cas de toutes celles qui existent aujourd'hui")
+
+    v_installee = Version.depuis(installee)
+
+    plancher = Version.depuis(depuis_au_moins or minimum)
+    if v_installee.rang < plancher.rang and plancher.rang > (0, 0, 0):
+        raise IncompatibiliteVersion(
+            f"version installée {installee} antérieure au minimum "
+            f"{plancher} — la migration depuis là n'a pas été écrite")
+
+    if v_cible.rang < v_installee.rang:
+        raise IncompatibiliteVersion(
+            f"{cible} est antérieure à {installee} : revenir en arrière "
+            "est une restauration, pas une mise à jour — cette porte n'a "
+            "pas les migrations descendantes")
+
+    if v_cible.rang == v_installee.rang:
+        return f"réinstallation de {cible}"
+    return f"{installee} → {cible}"
+
+
+
+__all__ = ["IncompatibiliteVersion", "MINIMUM_MIGRABLE", "NOM_FICHIER",
+           "VERSION", "Version", "comparer", "ecrire_version_installee",
+           "lire_version_installee", "verifier_la_compatibilite"]

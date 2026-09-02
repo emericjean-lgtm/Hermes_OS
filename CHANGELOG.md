@@ -1,3 +1,162 @@
+## HOS-233 — Le moteur de mise à jour, pour de bon (2026-09-03)
+
+J16.1. HOS-232 sauvegardait l'état et le restaurait ; il ne touchait pas
+au code. Le moteur n'était donc pas un moteur de mise à jour — c'était un
+filet. Audit d'abord, trois défauts mesurés, puis le reste.
+
+### Le défaut que la garde de J16 n'a pas vu
+
+`workflows` vit sous la racine d'état **réelle** — huit dossiers sur le
+disque, sept déclarés dans `SOUS_DOSSIERS`. Un résidu de la migration
+HOS-215, dont la classification a été annulée depuis mais dont la copie
+est restée.
+
+La garde de HOS-232 ne l'a pas trouvé **parce qu'elle lit le code et non
+le disque**. Elle cherchait `racine() / "..."` dans les sources : un
+dossier créé par un chemin qui n'a plus de producteur lui est invisible.
+
+D'où les **trois sources** du jalon :
+
+1. la liste déclarative, `preserve_set()` ;
+2. l'**observation du disque** — tout répertoire présent sous la racine
+   et absent de la liste est sauvegardé quand même, et signalé ;
+3. le **manifeste** de la sauvegarde, qui porte les deux et fait foi au
+   retour arrière.
+
+Perdre la donnée serait pire que la sauver sans l'avoir déclarée. Mais
+le silence serait pire encore — c'est ainsi que `checkpoints` est passé,
+puis `workflows`.
+
+### Le secret de l'utilisateur vit dans l'arbre de code
+
+Mesuré : `SettingsConfigDict(env_file=".env")` résout depuis le
+répertoire courant, donc **à la racine du dépôt**. La clé OpenRouter vit
+dans l'arbre que la mise à jour remplace, et un remplacement naïf
+l'aurait détruite.
+
+Elle est donc **préservée en place** : ni copiée, ni remplacée. Pas
+copiée parce qu'une sauvegarde de secret est un secret de plus, en clair,
+dans un dossier que personne ne surveille. Pas remplacée parce qu'elle
+est à l'utilisateur. Quatre gardes négatives vérifient qu'un secret de
+test ne se retrouve ni dans la sauvegarde, ni dans le manifeste, ni dans
+les journaux, ni dans le rapport de santé — le **nom** `.env` y figure,
+lui, pour qu'un lecteur puisse vérifier qu'il a été protégé.
+
+### Le remplacement, et ce que Hermes doit protéger en plus
+
+Le patron vient d'Agent OS, dont l'`UPDATE.md` le dit sans détour :
+*« what an update DOES replace: the app code itself »*, avec une
+sauvegarde datée de l'ancienne version à côté.
+
+Trois choses qu'ils n'ont pas à protéger, et Hermes si :
+
+- **le dépôt git** — leur dossier d'application n'en est pas un. Ici
+  `.git` porte l'historique, la branche, l'index et le travail non
+  commité. Un test avant/après vérifie que `HEAD`, la branche, l'index
+  et un fichier non commité survivent à une mise à jour réussie ;
+- **le `.env`**, ci-dessus ;
+- **`.venv` et `node_modules`** — des gigaoctets qui se reconstruisent.
+  Les sauver ferait de chaque mise à jour une copie de plusieurs minutes,
+  donc une mise à jour qu'on ne lance pas.
+
+La règle tient en une phrase : **ce qui est remplacé est sauvegardé ; ce
+qui est préservé en place n'est ni sauvegardé ni remplacé.** Il n'y a pas
+de troisième catégorie, et c'est ce qui rend le retour arrière exact.
+
+### L'ordre, et ce qu'il coûte de se tromper
+
+    paquet → compatibilité → sauvegarde état → sauvegarde code
+          → remplacement → migration → self-check → marquage
+                                    ↘ échec → retour arrière (code puis état)
+
+Le **paquet est validé avant toute sauvegarde** : un paquet refusé ne
+doit rien coûter, et surtout pas laisser une sauvegarde orpheline.
+Mesuré : un paquet sans `hermes.json` produit zéro étape et zéro
+sauvegarde.
+
+Le retour arrière remet le **code d'abord**, l'état ensuite : restaurer
+un état ancien sous un code neuf donnerait le seul état que rien ne sait
+lire.
+
+### Un défaut trouvé par un test que j'écrivais
+
+`restaurer()` sautait les dossiers absents de la sauvegarde. Une
+sauvegarde vidée restaurait donc **zéro dossier** et se déclarait
+réussie : une perte de données silencieuse déguisée en retour arrière.
+
+Le test `un_echec_de_retour_arriere_est_fatal` l'a pris en défaut avant
+que quiconque s'en serve. `restaurer()` vérifie maintenant, **avant
+d'écrire**, que tout ce que le manifeste annonce est présent, et lève
+sinon. Un backup non restauré n'est pas une preuve de rollback.
+
+### La compatibilité : aucune mise à jour aveugle
+
+Quatre cas décidés. Une **installation sans version** est acceptée —
+c'est le cas de toutes celles qui existent, et la refuser interdirait la
+première mise à jour à tout le monde. Une version **trop ancienne** est
+refusée. Un **retour en arrière** est refusé par cette porte : c'est un
+`restaurer()`, pas un `appliquer()`, et cette porte n'a pas les
+migrations descendantes. **Réinstaller la même version** est permis :
+c'est une réparation légitime.
+
+### Les migrations : le cas A constaté, le cas B gardé
+
+**Le mécanisme vivant est `memory/db.py::_add_missing_columns`.** Il
+tourne à chaque `init_db()`, ajoute les colonnes nullables que les
+modèles déclarent, et **refuse bruyamment** les non-nullables —
+« Schema drift needs a real migration ». C'est lui qui a porté les
+colonnes de portée d'approbation (HOS-224) sur les bases existantes. Il
+est dans le self-check, puisque celui-ci appelle `init_db`.
+
+**`MigrationManager` reste dormant.** Il a un vrai `migrate()` et des
+migrations codées en dur à la version 1, et il est orphelin depuis
+HOS-221. Deux moteurs de schéma sur la même base, c'est la question
+« lequel fait foi ? » à chaque incident. Un test tombe si quelqu'un le
+rebranche.
+
+Aucun troisième moteur n'est écrit : il n'y a pas de besoin réel, et en
+écrire un sans besoin produirait du code que rien n'exerce.
+
+### Le self-check touche à dix invariants
+
+Racine d'état, registre des runs, base applicative, approbations,
+configuration, bus d'événements, RAL, instantanés de mission, points de
+reprise, interpréteur de Hermes Agent. Chacun **ouvre** ce qu'il vérifie.
+
+Il rend un rapport **structuré** et non un booléen : « ça ne va pas » ne
+dit ni quoi restaurer ni quoi réparer. Et chaque contrôle est tri-état —
+`INDISPONIBLE` n'est pas un échec, parce qu'une installation neuve n'a
+pas de points de reprise et qu'en exiger un ferait échouer la première
+mise à jour de tout le monde.
+
+Sur l'installation réelle : neuf `ok`, un `sans objet`.
+
+### L'état opérationnel est recalculé, pas restauré
+
+Un cooldown de fournisseur décrit **maintenant**, et un retour arrière
+change ce maintenant. Le restaurer réappliquerait un écart décidé pour un
+incident qui appartenait à l'installation d'avant.
+
+Constaté sur le code plutôt que décrété : le courtier (HOS-228) est déjà
+sans état persistant, et son propre commentaire le dit. Il est remis à
+zéro explicitement après un retour arrière, plutôt que de compter sur un
+redémarrage qui n'aura peut-être pas lieu.
+
+### Ce qui reste hors périmètre, et pourquoi
+
+Le **téléchargement**. `appliquer()` reçoit un chemin vers un répertoire
+local déjà extrait. D'où vient ce chemin est la question du canal de
+distribution, qui n'existe pas — et une archive poserait en plus la
+question de ce qu'on fait d'un `..` à l'intérieur, qui est un problème de
+sécurité à part entière. Un test vérifie que les trois modules n'ont
+gagné ni `httpx`, ni `urllib`, ni `subprocess`, ni `socket`.
+
+### Mesures
+
+46 gardes ajoutées, 26 amendées ou conservées. Suite complète :
+**5 320 vertes**, 3 ignorées.
+
+
 ## HOS-232 — Mettre à jour sans perdre ce que quinze jalons ont construit (2026-09-03)
 
 Le jalon 16. La prémisse était juste — `installer/` fait 378 lignes et ne
