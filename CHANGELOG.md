@@ -1,3 +1,92 @@
+## HOS-229 — Ce qui doit survivre au changement de modèle (2026-09-03)
+
+Le jalon 13. Deux manques mesurés avant d'écrire une ligne.
+
+**Le contrat n'arrivait jamais au modèle.** HOS-221 a créé `Contrat` —
+ce qui doit être vrai à la fin — **et** la colonne `contrat` du registre
+des runs. Vérifié : rien n'y écrivait, rien ne l'y relisait, et
+`backend.runs.contrat` n'était importé que par `verification.py`, pour
+son énumération `Verdict`. Le modèle chargé de satisfaire des critères ne
+les voyait pas.
+
+**Aucune preuve de vérification n'atteignait un prompt.** `retry_policy`
+construit bien un mémoire de reprise à partir du verdict, mais au niveau
+de la *mission* et seulement sur contradiction. Une tâche qui vient
+d'être vérifiée ne sait pas ce que la vérification a dit.
+
+### Un relais, et pas une session
+
+`_upstream_results_for` portait déjà la règle dans son commentaire :
+« carried as plain text on purpose: it has to survive the model being
+swapped between two tasks, which anything held as KV cache or a provider
+session would not ». Le relais l'applique aux **phases**.
+
+Sur 16 Gio, Hermes ne fait pas tourner quatre modèles à la fois ; il
+enchaîne — planificateur cloud, exécutant local, vérificateur cloud,
+réparateur local. Entre deux flèches, le modèle change, le fournisseur
+peut changer, et le processus distant n'a aucune mémoire du tour
+précédent. **Ce qui n'est pas écrit dans le relais n'existe pas au tour
+suivant.**
+
+### Chaque phase reçoit ce dont elle a besoin, et pas le reste
+
+Un relais qui donnerait tout à tout le monde serait un prompt géant, et
+un prompt géant sur 16 Gio est une fenêtre qui se ferme.
+
+- **planification** : l'objectif et les outils. **Pas le contrat** — elle
+  est censée le produire, et le lui donner ferait planifier contre des
+  critères qu'on lui demande d'établir.
+- **exécution** : le contrat, les résultats amont, les outils. Pas
+  l'échec du tour précédent : une première exécution n'a rien raté.
+- **vérification** : le contrat, les artefacts, les preuves — et **pas**
+  le contexte de l'exécutant. Un vérificateur à qui l'on montre
+  l'intention juge l'intention : c'est exactement le défaut du
+  2026-08-30, où le relecteur a accepté l'image conforme au prompt et
+  rejeté la bonne.
+- **réparation** : tout cela, plus **ce qui a échoué** et sa cause.
+
+Les décisions déjà prises vont à toutes les phases : une phase qui ignore
+qu'une approbation a été refusée reproposera la même action.
+
+Et « aucun artefact » est écrit comme un constat à faire remonter, pas
+comme un silence.
+
+### Le rôle `double_check`, enfin routé
+
+Les rôles de `config/models.yaml` existaient tous — `swift`, `standard`,
+`code`, `reasoning`, `double_check`… — et étaient choisis par **type de
+tâche**. Rien ne les reliait à une **phase**. `double_check` est le cas
+qui le montre : configuré depuis HOS-065C, et **aucune vérification n'y
+était jamais routée**.
+
+La vérification va donc à un autre rôle que l'exécution, pour une raison
+simple : un modèle qui relit sa propre sortie confirme sa propre sortie.
+Un test vérifie que chaque rôle nommé existe bien dans la configuration —
+un rôle absent se résoudrait en silence sur autre chose, et la phase
+tournerait sur un modèle que personne n'a choisi.
+
+### La quarantaine n'est pas contournable par le relais
+
+Le relais porte de la mémoire, et il la passe par `confiance.filtrer`.
+Un souvenir d'origine non humaine n'entre pas dans un prompt parce qu'il
+transite par un chemin neuf — c'était précisément le vecteur que HOS-216
+ferme, et un relais non instrumenté l'aurait rouvert. Le drapeau
+`inclure_quarantaine` est nommé et faux par défaut, comme celui de
+`search()`.
+
+### Ce qui reste honnêtement vide
+
+`prepare(contrat=None)` est le défaut, et le restera jusqu'au jalon
+suivant : **rien ne dérive aujourd'hui un contrat d'un objectif en
+prose**. Le chemin est complet et testé de bout en bout — déposé au
+registre, relu par le résolveur, inséré dans le prompt — et il attend son
+appelant plutôt que d'inventer des critères que personne n'a écrits.
+
+### Mesures
+
+20 gardes ajoutées. Suite complète : **5 208 vertes**, 3 ignorées.
+
+
 ## HOS-228 — Le courtier, et la cinquième prémisse fausse (2026-09-03)
 
 Le jalon 12. La roadmap annonçait « le disjoncteur de `task_executor`

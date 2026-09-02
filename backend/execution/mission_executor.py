@@ -229,8 +229,24 @@ class MissionExecutor:
     # ── Public API ──
 
     def prepare(self, meta: ExecutionMeta, tasks: list[TaskExecution],
-                dependencies: dict[str, list[str]] | None = None) -> ExecutionStateMachine:
-        """Prepare execution: register tasks with dependencies, build schedule plan."""
+                dependencies: dict[str, list[str]] | None = None,
+                contrat: Any = None) -> ExecutionStateMachine:
+        """Prepare execution: register tasks with dependencies, build schedule plan.
+
+        ``contrat`` (HOS-229) : ce qui doit être vrai à la fin. Rangé dans
+        le registre des runs, d'où le relais le relit pour le mettre dans
+        le prompt.
+
+        HOS-221 avait créé `Contrat` **et** la colonne qui l'accueille, et
+        vérifié depuis : rien n'y écrivait, rien ne l'y relisait. Le
+        modèle chargé de satisfaire des critères ne les voyait donc pas.
+
+        `None` reste le défaut, et c'est honnête : **rien ne dérive
+        aujourd'hui un contrat d'un objectif en prose.** Le faire demande
+        la boucle du jalon suivant. Le chemin existe et attend son
+        appelant plutôt que d'inventer des critères que personne n'a
+        écrits.
+        """
         with self._lock:
             sm = ExecutionStateMachine(meta)
             sm.transition(ExecutionState.PLANNING, "Preparing execution")
@@ -247,7 +263,7 @@ class MissionExecutor:
                 deps = (dependencies or {}).get(task.task_id, [])
                 self._scheduler.register_task(task, deps)
 
-            self._ouvrir_le_run(meta, tasks)
+            self._ouvrir_le_run(meta, tasks, contrat)
 
             self._publish("execution.started", {"execution_id": meta.execution_id})
             self._publish("execution.planning", {"execution_id": meta.execution_id})
@@ -564,7 +580,8 @@ class MissionExecutor:
 
     # ── Le registre des runs (HOS-221) ─────────────────────────────
 
-    def _ouvrir_le_run(self, meta: ExecutionMeta, tasks: list[TaskExecution]) -> None:
+    def _ouvrir_le_run(self, meta: ExecutionMeta, tasks: list[TaskExecution],
+                       contrat: Any = None) -> None:
         """Inscrire l'exécution au registre durable, avant qu'elle parte.
 
         Toujours en meilleur effort : une trace qui ferait échouer la
@@ -582,6 +599,7 @@ class MissionExecutor:
                 objectif=meta.user_goal,
                 runtime=runtimes[0] if runtimes else "",
                 agent=agents[0] if agents else "",
+                contrat=contrat.to_json() if contrat is not None else "",
             )
             self._registre.demarrer(run.identifiant)
             self._runs[meta.execution_id] = run.identifiant

@@ -515,6 +515,7 @@ class RealTaskExecutor:
         upstream_results_for: Optional[Callable[[Any], Optional[str]]] = None,
         livrables_pour: Optional[Callable[[Any], Optional[str]]] = None,
         journal_pour: Optional[Callable[[Any], Optional[str]]] = None,
+        relais_pour: Optional[Callable[[Any], Any]] = None,
         agentic_capable_for: Optional[Callable[[str], Optional[bool]]] = None,
         agentic_fallback_model: str = _HERMES_AGENT_FALLBACK_MODEL,
         agentic_timeout_s: Optional[float] = None,
@@ -537,6 +538,9 @@ class RealTaskExecutor:
         self._upstream_results_for = upstream_results_for
         self._livrables_pour = livrables_pour
         self._journal_pour = journal_pour
+        # HOS-229 : le contrat et les preuves, qui n'atteignaient
+        # aucun prompt. Voir `backend/mission/relais.py`.
+        self._relais_pour = relais_pour
         self._agentic_capable_for = agentic_capable_for
         self._fallback_model = agentic_fallback_model
         self._chat = chat
@@ -1506,6 +1510,23 @@ class RealTaskExecutor:
                 logger.debug("manifeste des livrables indisponible", exc_info=True)
         if livrables:
             user += "\n\n" + livrables
+
+        # HOS-229 : le relais. Il porte ce que les quatre closures
+        # ci-dessus ne portent pas — le **contrat** et les **preuves** —
+        # et il choisit ce que la phase reçoit. Ajouté à côté d'elles et
+        # non à leur place : elles marchent, et les remplacer serait une
+        # réécriture sans bénéfice mesuré.
+        if self._relais_pour is not None:
+            try:
+                relais = self._relais_pour(task)
+                if relais is not None:
+                    from backend.mission.relais import Phase
+
+                    contexte = relais.pour(Phase.EXECUTION)
+                    if contexte:
+                        user += "\n\n" + contexte
+            except Exception:  # pragma: no cover - un relais ne fait jamais échouer
+                logger.debug("relais de contexte indisponible", exc_info=True)
 
         return [
             {"role": "system", "content": system},

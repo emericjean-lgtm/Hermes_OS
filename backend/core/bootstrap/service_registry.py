@@ -458,8 +458,48 @@ def _make_task_executor(c: Any) -> Any:
         upstream_results_for=_upstream_results_for,
         livrables_pour=_livrables_pour,
         journal_pour=_journal_du_projet,
+        relais_pour=_relais_pour,
         agentic_capable_for=_agentic_capable_for,
     )
+
+
+def _relais_pour(task: Any) -> Any:
+    """Le relais de contexte de cette tâche, ou None (HOS-229).
+
+    Il porte ce que les quatre closures voisines ne portent pas : le
+    **contrat** — ce qui doit être vrai à la fin — et les **preuves** de
+    vérification. HOS-221 avait créé les deux et vérifié depuis : rien
+    n'écrivait la colonne `contrat` du registre, rien ne l'y relisait, et
+    le modèle chargé de satisfaire des critères ne les voyait donc pas.
+
+    Rend `None` quand aucun contrat n'a été déposé — ce qui est le cas
+    général aujourd'hui, **rien ne dérivant un contrat d'un objectif en
+    prose**. Le chemin attend son appelant plutôt que d'inventer des
+    critères que personne n'a écrits.
+    """
+    mission_id = getattr(task, "mission_id", "") or ""
+    if not mission_id:
+        return None
+    try:
+        from backend.mission.relais import Relais
+        from backend.runs.contrat import Contrat
+        from backend.runs.registre import Registre
+
+        runs = Registre().de_la_mission(mission_id)
+        if not runs:
+            return None
+        # Le plus récent : une reprise porte le contrat de la mission,
+        # pas celui d'une tentative périmée.
+        run = runs[-1]
+        if not run.contrat:
+            return None
+        return Relais(mission=mission_id, run=run.identifiant,
+                      objectif=run.objectif, workspace=run.workspace,
+                      contrat=Contrat.from_json(run.contrat))
+    except Exception:
+        logger.debug("relais de contexte indisponible pour %s", mission_id,
+                     exc_info=True)
+        return None
 
 
 def _workspace_project_for(task: Any) -> Optional[tuple[str, str]]:
