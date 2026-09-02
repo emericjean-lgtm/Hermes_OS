@@ -1,3 +1,84 @@
+## HOS-226 — Un fournisseur distant est un runtime, pas une hiérarchie (2026-09-03)
+
+Le jalon 10. Sa prémisse — « le client existe sans un seul test » —
+était fausse : `OpenRouterClient` en a **neuf**, réels (compteurs
+d'usage, 429 traduit en quota, SSE, échec en cours de flux, non-200 avant
+le flux), dans `tests/`, l'arbre qui n'était plus collecté depuis
+HOS-175. Quatrième fois que cette réparation change une conclusion.
+
+Ce qui manquait vraiment, mesuré : `CloudProvider` n'existait **nulle
+part** (zéro occurrence), **trois fichiers** codent
+`https://openrouter.ai/api/v1` en dur, et `service_registry` comme
+`task_executor` branchent sur la chaîne littérale `"openrouter"`.
+
+### Une première version qui construisait un cinquième système
+
+Elle créait un paquet `backend/cloud/` avec son protocole, son
+adaptateur et son registre. C'était une arborescence parallèle : le RAL
+a déjà `adapters/hermes_ollama.py`, et un fournisseur distant **est** un
+runtime — il répond à `chat` comme Ollama.
+
+Ce qu'il a en plus est une **capacité**, pas une hiérarchie :
+`CloudCapability` rejoint `ChatCapability` dans
+`backend/ral/capabilities.py`, et porte les trois choses qui n'existent
+pas en local — un **prix**, un **quota partagé** qui s'épuise, un
+catalogue qui change sans qu'on l'ait décidé.
+
+`RuntimeOpenRouter` vit donc sous `backend/ral/adapters/`, à côté de
+`hermes_ollama.py`, et suit la convention du RAL (`name`, pas
+`identifiant`) plutôt que d'imposer la sienne. Un test vérifie qu'il
+satisfait les deux protocoles, et qu'un paquet `backend/cloud/` n'est pas
+revenu.
+
+### Pourquoi une interface pour une seule implémentation
+
+La règle du dépôt est contre l'abstraction spéculative. Trois faits
+disent que ce n'en est pas une :
+
+- le couplage est réel et dispersé (trois URL en dur, deux comparaisons
+  littérales) ;
+- le **pare-feu de données** du jalon suivant a besoin d'un goulet — la
+  décision §8.1 du cahier suppose un endroit unique où « quelque chose
+  part chez un tiers » se constate. Sans interface, ce contrôle serait à
+  dupliquer par fournisseur, donc à oublier au second ;
+- ce n'est **pas** `ChatCapability`, qui ne dit rien du prix ni du quota.
+
+### Une correction de prix trouvée en écrivant l'adaptateur
+
+`cloud_catalog._is_free_pricing` compare `pricing["prompt"] == "0"` — une
+égalité de **chaîne**. OpenRouter rend `"0"` aujourd'hui et `"0.0"` sur
+certaines entrées : celles-là s'y lisent payantes par accident. La
+comparaison est ici numérique, et un prix **illisible compte comme
+payant** — le sens de lecture qui ne fait pas dépenser par erreur.
+`None` et `0.0` ne disent pas la même chose.
+
+### Le tri-état, appliqué à une ressource payante
+
+Un quota non mesurable rend `utilisable=False`. On ne dépense pas sur une
+mesure qu'on n'a pas — HOS-222 appliqué à l'argent. Mais une **clé sans
+plafond** n'est pas « inconnu » : la réponse a été lue, elle dit qu'il
+n'y a pas de limite. Les confondre interdirait le cloud à qui en a payé
+l'accès illimité.
+
+### Ce qui n'a délibérément pas bougé
+
+Le gate `self._cloud_chat is not None` de `task_executor` reste tel quel.
+Le remplacer par une consultation du registre ferait dépendre un test
+unitaire hermétique d'un état de processus — et ce champ est justement
+le point d'injection que ces tests utilisent.
+
+### Un troisième faux positif de sous-chaîne
+
+Ma garde « la fabrique ne construit plus de client en direct »
+s'accrochait à la **docstring** qui explique le changement. Réécrite sur
+l'arbre syntaxique : elle regarde les imports et les noms du corps.
+Troisième fois sur ce chantier — c'est un motif, pas un accident.
+
+### Mesures
+
+29 gardes ajoutées. Suite complète : **5 131 vertes**, 3 ignorées.
+
+
 ## HOS-225 — Pourquoi un run a échoué, et ce que ça change (2026-09-03)
 
 Le jalon 9, et la dette que HOS-221 avait explicitement notée : onze

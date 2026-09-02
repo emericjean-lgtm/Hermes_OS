@@ -321,3 +321,86 @@ class ChatStreamCapability(CapabilityInterface, typing.Protocol):
         # machinery.
         # See https://peps.python.org/pep-0544/#methods.
         yield  # type: ignore[return-value]
+
+# ---------------------------------------------------------------------------
+# Cloud (HOS-226)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ModeleCloud:
+    """Un modèle servi par un fournisseur distant, et ce qu'il coûte.
+
+    Le prix est en **dollars par million de jetons**, l'unité que les
+    fournisseurs publient. Le convertir en « par jeton » donnerait des
+    flottants à sept zéros qu'on relit mal et compare mal.
+    """
+
+    identifiant: str
+    fournisseur: str
+    nom: str = ""
+    fenetre: int = 0
+    #: `True` quand entrée **et** sortie sont à zéro. Rangé plutôt que
+    #: redéduit : un modèle gratuit à l'entrée et payant à la sortie
+    #: existe, et « gratuit » doit vouloir dire gratuit.
+    gratuit: bool = False
+    prix_entree: float = 0.0
+    prix_sortie: float = 0.0
+    #: Un modèle d'embedding annonce parfois savoir converser. Comme pour
+    #: `tools` chez Ollama, la capacité déclarée n'est pas une mesure —
+    #: mais elle suffit à écarter ce qui ne prétend même pas.
+    conversationnel: bool = True
+
+
+@dataclass(frozen=True)
+class EtatDuQuota:
+    """Ce qui reste chez un fournisseur, et si on peut encore y aller.
+
+    `mesure_possible` porte le tri-état : un fournisseur qui n'a pas su
+    répondre ne doit pas se lire « il reste de la place ». C'est la règle
+    de HOS-222 appliquée à une ressource payante — on ne dépense pas sur
+    une mesure qu'on n'a pas.
+    """
+
+    fournisseur: str
+    mesure_possible: bool = True
+    utilisable: bool = False
+    restant: int | None = None
+    limite: int | None = None
+    detail: str = ""
+
+    @classmethod
+    def inconnu(cls, fournisseur: str, detail: str = "") -> "EtatDuQuota":
+        return cls(fournisseur=fournisseur, mesure_possible=False,
+                   utilisable=False, detail=detail or "quota non mesurable")
+
+
+@typing.runtime_checkable
+class CloudCapability(CapabilityInterface, typing.Protocol):
+    """Ce qu'un runtime **distant** sait faire en plus d'un local.
+
+    Trois choses qui n'existent pas en local, et que le système doit
+    savoir avant d'envoyer quoi que ce soit dehors : un **prix**, un
+    **quota partagé** qui s'épuise, et un catalogue qui change sans
+    qu'on l'ait décidé.
+
+    Capacité et non runtime séparé : un fournisseur cloud *est* un
+    runtime — il répond à `chat` comme Ollama — et lui donner sa propre
+    hiérarchie aurait créé une seconde arborescence de fournisseurs à
+    côté de celle du RAL. C'est ce qu'une première version de HOS-226
+    faisait, dans un paquet `backend/cloud/` parallèle.
+    """
+
+    async def modeles(self) -> list[ModeleCloud]:
+        """Le catalogue servi, avec ses prix.
+
+        Rendu **vide** plutôt que levé quand le catalogue est
+        injoignable : « aucun modèle disponible » est un état de service
+        normal, et lever ferait échouer une décision de routage qui doit
+        seulement se rabattre sur le local.
+        """
+        ...
+
+    async def quota(self, *, reserve: int = 0) -> EtatDuQuota:
+        """Ce qui reste. Jamais « il en reste » par défaut d'information."""
+        ...

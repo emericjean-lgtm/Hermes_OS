@@ -509,20 +509,58 @@ que trois manques que j'avais classés « confort » sont des **contrôles**
 | 7 | ✅ **Fait (HOS-223)** — commit détaché + repli vérifié, couplé à l'état de mission | Hermes ne savait pas annuler une modification | 28 gardes |
 | 8 | ✅ **Fait (HOS-224)** — empreinte canonique + discriminants + portée d'arborescence bornée | l'expiration existait ; la description entrait dans l'identité, et deux appelants la font écrire par le modèle. `approval_engine` reste **délibérément** débranché : deux portes vivantes valent moins qu'une | 37 gardes |
 | 9 | ✅ **Fait (HOS-225)** — onze causes classées sur indices nommés, remède par cause, `INCONNUE` reste `NULL` | le retry changeait de modèle à *toute* reprise — le bon remède pour un cas sur onze | 34 gardes |
-| 10 | `CloudProvider` en interface, OpenRouter en adaptateur | ⚠️ **prémisse corrigée le 2026-09-03** : le client a bien 9 tests réels (usage, 429→quota, SSE, échec en cours de flux) — dans `tests/`, l'arbre non collecté depuis HOS-175. `CloudProvider` en revanche n'existe **nulle part** : zéro occurrence | petit |
-| 11 | Cloud Data Firewall | prérequis de tout usage cloud réel | **gros, à isoler** |
-| 12 | `QuotaBroker` | le disjoncteur de `task_executor` (`_record_failure`) et la santé de runtime (`record_execution`) sont réels et branchés ; il manque le courtier de quotas | moyen |
-| 13 | Context Relay + rôles découplés | la RX 6800 impose le séquentiel | moyen |
-| 14 | Loop Engineering — exécuteur, vérificateur, réparateur | ne vaut que si 6 existe | moyen |
-| 15 | Model Trust nourri par le **Ledger** | ⚠️ **prémisse corrigée** : `update_performance` et `record_feedback` sont déjà branchés (`service_registry._record_feedback` → `RealTaskExecutor.on_execution`). Ce qui manque est autre chose : les nourrir **par cause** (HOS-225) plutôt que par succès/durée | petit |
-| 16 | Installation, mise à jour, retour arrière | `installer/` ne contient que de la détection | gros |
-| 17 | Frontend : exposer ce que les jalons 5→9 ont produit | 22 Centers existent déjà ; rien n'affiche le registre de runs, la lignée, les causes, les points de reprise ni les portées d'approbation | moyen |
-| 18 | Architecture de plugins + manifeste de permissions | porte d'entrée des extensions | moyen |
-| 19+ | Studios, Radar, Kanban en plugins | après le point d'extension | — |
+| 10 | ✅ **Fait (HOS-226)** — `CloudCapability` dans le RAL, OpenRouter en adaptateur, registre-goulet | prémisse corrigée : le client avait 9 tests. `CloudProvider` n'existait nulle part | 29 gardes |
+| 11 | **Cloud Data Firewall** — classification → politique → autorisé/refusé/approbation | le goulet existe (`ral/fournisseurs`) ; il faut la décision. Doit distinguer **ce qui part** de **ce qui reste nécessaire au local** | **gros, à isoler** |
+| 12 | **QuotaBroker** — fournisseur/clé/modèle, reset, cooldown, verrou, candidat suivant | disjoncteur et santé runtime existent ; il manque le courtier. Doit consommer la **taxonomie J9** : `429 → QUOTA → fournisseur B`, jamais `429 → même fournisseur → 429` | moyen |
+| 13 | **Context Relay + rôles découplés** — planification / exécution / vérification / réparation | 16 Gio imposent le séquentiel, ce qui rend l'architecture *utile* : planificateur cloud → exécutant local → vérificateur cloud. Le contexte doit passer sans perdre mission, run, contrat, critères, mémoire autorisée, outils, artefacts, preuves | moyen |
+| 14 | **Loop Engineering** — contrat → exécuteur → vérificateur → diagnostic → réparateur → reprise | **assembler, pas recréer** : contrat (J5), vérificateur tri-état (J6), checkpoint (J7), taxonomie (J9), Ledger (J5) existent | moyen |
+| 15 | **Model Trust nourri par les causes** | déjà branché sur succès/durée. Le travail est de le nourrir **par cause** (J9), type de tâche, vérification, coût, latence. Reste une donnée décisionnelle : **Aegis reste au-dessus** | petit |
+| 16 | **Installation / mise à jour / retour arrière** | Hermes a maintenant de l'état critique. Sauvegarde → migration → installation → validation → *commit*, avec retour arrière, et sans toucher au `preserve_set()`. Auto-vérification après installation | gros |
+| 17 | **Mission Control** — une **vue** du runtime, jamais un second runtime | agents, mission, **trace d'exécution vivante** (le « messy middle »), Control Rooms, artefacts, analytics. Toutes les données viennent des systèmes réels — aucun compteur fabriqué par le frontend | moyen |
+| 18 | **Architecture de plugins + manifeste de permissions** | identité, version, compatibilité, permissions, outils, MCP, événements consommés/produits, stockage. **Aegis applique les permissions du plugin** | moyen |
+| 19+ | **Plugins** : Goal Mode, Kanban, Model Council, Paperclip, Voice/Jarvis, Studios, Radar, SEO, Leads | hors cœur. Chacun utilise les primitives Hermes plutôt que de refaire missions, mémoire ou exécution | — |
 
 Les jalons 1 à 4 sont **petits et bloquants**. Les construire après le
 Contract reviendrait à bâtir la traçabilité dans un dossier effaçable,
 au-dessus d'une mémoire empoisonnable.
+
+### Deux fils rouges qui traversent J10 → J19
+
+Ils ne sont pas des jalons : ils sont des **contraintes** que chaque
+jalon doit respecter, et contre lesquelles chacun se relit.
+
+#### 1. Contrat d'événements — un événement, plusieurs consommateurs
+
+Le runtime émet des événements **métier** stables ; le frontend les
+consomme. Le danger est de construire Mission Control avec des
+événements taillés pour lui : on obtiendrait cinq systèmes qui
+enregistrent séparément la même chose.
+
+    mission.created      model.selected       approval.requested
+    run.started          model.switched       approval.granted
+    tool.started         provider.fallback    verification.started
+    tool.completed       retry.requested      verification.completed
+    checkpoint.created   checkpoint.restored  mission.completed / failed
+
+Un seul flux alimente Mission Control, l'Operator, le Ledger, les
+analytiques, l'audit et le débogage.
+
+Hermes en a déjà une partie — `mission.unverified`, `mission.non_mesuree`,
+`mission.checkpoint`, `mission.sans_filet`, `execution.retry` avec sa
+cause. La règle **complète et normalise**, elle ne recommence pas.
+
+#### 2. La chaîne cloud, sécurité et vérification sont inséparables
+
+Le flux ne doit jamais devenir `Agent → OpenRouter`. Il est :
+
+    Agent → Contrat → Politique → Aegis → Pare-feu de données
+          → Routeur fournisseur/quota → CloudCapability → Modèle
+          → Vérification → Ledger
+
+C'est la colonne vertébrale du Hermes OS final, et chaque jalon de J11 à
+J15 en construit un segment. Aucun ne doit pouvoir être court-circuité :
+un chemin qui saute le pare-feu ou la vérification n'est pas une
+optimisation, c'est une régression.
 
 ### Une note sur les prémisses de ce tableau
 
@@ -547,6 +585,13 @@ ne regarde qu'un des deux arbres de tests conclut faux.** Les prémisses
 restantes (11, 13, 14, 16, 18) n'ont pas encore été revérifiées de cette
 façon — elles le seront au moment de les construire, avant d'écrire une
 ligne.
+
+**La méthode, énoncée pour de bon** : mesurer → réutiliser → compléter →
+tester → exposer. Jamais supposer → réécrire → doubler. J10 en a fourni
+un contre-exemple immédiat : sa première version créait un paquet
+`backend/cloud/` parallèle, alors que le RAL avait déjà
+`adapters/hermes_ollama.py` et qu'un fournisseur distant **est** un
+runtime. Ce qui lui manquait était une *capacité*, pas une arborescence.
 
 ### I.4bis Ce que la lecture d'Agent OS a corrigé
 

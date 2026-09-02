@@ -378,7 +378,16 @@ def _make_task_executor(c: Any) -> Any:
                 title, max_vram_mb=_max_vram_mb_now(), task_type_hint=_task_type_hint(task),
             )
             runtime = decision.runtime.value
-            return "openrouter" if runtime == "openrouter" else "hermes-agent"
+            # HOS-226 : la question posée est « ce runtime est-il un
+            # fournisseur cloud configuré ? », pas « s'appelle-t-il
+            # openrouter ? ». Un fournisseur recommandé mais **non
+            # configuré** retombe sur l'agent local, ce que la
+            # comparaison littérale ne faisait pas : elle rendait
+            # « openrouter » même sans clé, et l'exécuteur découvrait
+            # l'absence plus loin.
+            from backend.ral import fournisseurs as _cloud
+
+            return runtime if _cloud.disponible(runtime) else "hermes-agent"
         except Exception:
             return None
 
@@ -845,29 +854,35 @@ def _served_context_for(model_id: str) -> Optional[int]:
 
 
 def _make_cloud_chat() -> Optional[Any]:
-    """OpenRouter chat callable for RealTaskExecutor (HOS-066C). None when
-    OPENROUTER_API_KEY isn't configured — cloud is then entirely unreachable
-    regardless of what AdaptiveRouter recommends, the safe default. A fresh
-    OpenRouterClient per call, closed after — the same pattern
-    RealTaskExecutor._default_chat already uses for OllamaClient."""
-    from backend.core.config import get_settings
+    """Cloud chat callable for RealTaskExecutor (HOS-066C, HOS-226).
 
-    settings = get_settings()
-    if not settings.openrouter_api_key:
+    None when no cloud provider is configured — cloud is then entirely
+    unreachable regardless of what AdaptiveRouter recommends, the safe
+    default.
+
+    HOS-226 : cette fabrique construisait un ``OpenRouterClient`` en dur.
+    Elle passe maintenant par ``backend.ral.fournisseurs``, si bien
+    qu'ajouter un fournisseur ne demande plus de l'éditer. C'est aussi
+    l'endroit où le pare-feu de données du jalon suivant se posera : un
+    seul passage par lequel quelque chose part chez un tiers.
+
+    Le fournisseur est résolu **à chaque appel** et non capturé ici : une
+    clé changée en configuration doit prendre effet sans redémarrage, et
+    capturer l'objet ferait servir l'ancienne clé indéfiniment.
+    """
+    from backend.ral import fournisseurs as _cloud
+
+    if not _cloud.fournisseurs():
         return None
 
     async def _cloud_chat(*, messages: list[dict[str, Any]], model: str,
                           num_ctx: Optional[int] = None) -> Any:
-        from backend.connectors.openrouter_client import OpenRouterClient
-
-        client = OpenRouterClient(settings.openrouter_api_key)
-        try:
-            return await client.chat(messages, model=model, num_ctx=num_ctx)
-        finally:
-            try:
-                await client.aclose()
-            except Exception:  # pragma: no cover - best-effort cleanup
-                pass
+        # Le premier fournisseur enregistré. Il n'y en a qu'un
+        # aujourd'hui ; le jour où il y en aura deux, c'est
+        # `AdaptiveRouter` qui devra dire lequel — pas cette fabrique,
+        # qui ne sait rien de la tâche.
+        provider = next(iter(_cloud.fournisseurs().values()))
+        return await provider.chat(messages, model=model, num_ctx=num_ctx)
 
     return _cloud_chat
 
