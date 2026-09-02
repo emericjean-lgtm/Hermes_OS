@@ -53,8 +53,12 @@ def register_klaatcode(
 
     if adapter is None:
         client = KlaatCodeClient()
-        policy = ToolPolicy()
         sandbox = ToolSandbox()
+        # HOS-238 : la politique reçoit le sandbox. Les deux étaient
+        # construits ici, à deux lignes d'écart, sans jamais être reliés
+        # — et la règle « pas d'écriture dans un sandbox en lecture
+        # seule » ne pouvait donc rien vérifier.
+        policy = ToolPolicy(sandbox=sandbox)
         adapter = KlaatCodeMCPAdapter(client, policy, sandbox)
 
     registered_tools = 0

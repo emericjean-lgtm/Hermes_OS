@@ -89,6 +89,30 @@ _LEGACY_ROUTERS = (
 )
 
 
+def _chemin_du_bus() -> str:
+    """Où vit le journal d'événements durable (HOS-237).
+
+    Il vivait sur `"./data/eventbus/eventbus.sqlite"` — **relatif au
+    répertoire courant**, donc dans le dépôt. Constaté sur
+    l'installation réelle : deux fichiers coexistaient, le vivant dans
+    `data/eventbus/` (3,2 Mo) et un mort sous la racine d'état (8,2 Mo,
+    résidu de la migration HOS-215).
+
+    C'était une régression contre HOS-215/HOS-220, et elle était
+    exploitable : HOS-233 remplace l'arbre de code, et `preserve_set()`
+    ne protège que la racine d'état. Une mise à jour aurait donc effacé
+    le journal **vivant** en laissant intacte la copie morte — la pire
+    des deux issues, parce que le système aurait paru intact.
+
+    Une fonction plutôt qu'une constante : elle se teste, et la garde
+    d'AST peut vérifier que `main` demande son chemin à `core.etat`
+    plutôt que de l'écrire.
+    """
+    from backend.core.etat import chemin
+
+    return str(chemin("eventbus", "eventbus.sqlite"))
+
+
 def _warn_if_context_degraded() -> None:
     """Compare what Ollama is actually serving against what agents need.
 
@@ -202,8 +226,7 @@ def create_app() -> FastAPI:
         get_settings()
 
         # --- EventBusImpl (D-003) ---
-        eventbus_db = "./data/eventbus/eventbus.sqlite"
-        holder = await init_eventbus_in_holder(eventbus_db)
+        holder = await init_eventbus_in_holder(_chemin_du_bus())
         _app.state.eventbus_holder = holder
 
         # --- Forward EventBusImpl -> EventHub (D-002) ---
