@@ -3,6 +3,7 @@ import {
   Database, Sparkles, Wrench, Scale, Radio, FlaskConical, Dna,
   ShieldCheck, LayoutGrid, Rocket, Play, FolderTree,
   CheckCircle2, LineChart, HeartPulse, AudioLines, Clapperboard,
+  Activity,
 } from "lucide-react";
 
 /** The one navigation model, shared by the rail and the command palette.
@@ -72,6 +73,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Opérations",
     ref: "S5",
     items: [
+      // « Supervision » et non « Opérations » : le **groupe** s'appelle
+      // déjà Opérations, et deux entrées du même nom dans une
+      // navigation se cherchent l'une l'autre.
+      { id: "operations", label: "Supervision", icon: Activity, keywords: "runs registre ledger lignee cause checkpoint reprise fournisseur quota approbation portee version mise a jour sante trace" },
       { id: "system", label: "System", icon: LayoutGrid, keywords: "sante health assemblage composants dependances système statistiques" },
     ],
   },

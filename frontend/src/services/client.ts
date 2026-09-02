@@ -1715,3 +1715,172 @@ export const monitoringClient = {
     fetchJSON<Record<string, unknown>>("/runtime/intelligence/recommendations"),
   executionStatistics: () => fetchJSON<Record<string, unknown>>("/execution/statistics"),
 };
+
+// ── Opérations (HOS-235) ──────────────────────────────────
+//
+// Ce que les jalons 5 à 16 ont produit, et que rien n'affichait :
+// registre des runs, lignée, contrat, points de reprise, fournisseurs et
+// leurs écarts, approbations et leurs portées, version installée et
+// santé.
+//
+// **Le tri-état traverse jusqu'ici.** Chaque section arrive enveloppée
+// dans un `Bloc<T>` qui distingue « la donnée » de « on n'a pas pu
+// lire », et le client ne déballe pas : déballer forcerait l'appelant à
+// inventer une valeur pour le cas indisponible, ce qui est exactement la
+// façon dont un « on ne sait pas » devient un `0`.
+
+/** Une section, ou la raison pour laquelle on ne sait pas.
+ *
+ *  `donnees: null` avec `disponible: false` n'est **pas** une donnée
+ *  vide : c'est une absence de mesure, et l'interface doit les afficher
+ *  différemment. */
+export interface Bloc<T> {
+  disponible: boolean;
+  /** Le module Hermes d'où vient cette section. Affiché : une vue qui
+   *  nomme ses sources rend une fabrication visible au relecteur. */
+  source: string;
+  donnees: T | null;
+  raison?: string;
+}
+
+export interface RunWire {
+  identifiant: string;
+  mission: string;
+  objectif: string;
+  statut: string;
+  /** `null` = aucun indice ne l'a démontrée. Différent de `"inconnue"`,
+   *  qui veut dire qu'on a cherché sans trouver (HOS-225). */
+  cause: string | null;
+  raison: string;
+  modele: string;
+  runtime: string;
+  fournisseur: string;
+  agent: string;
+  workspace: string;
+  projet: string;
+  tentative: number;
+  parent: string | null;
+  motif_de_reprise: string;
+  jetons_entree: number;
+  jetons_sortie: number;
+  cout: number;
+  cree_le: string;
+  demarre_le: string | null;
+  fini_le: string | null;
+  contrat: boolean;
+}
+
+export interface CritereWire {
+  identifiant: string;
+  texte: string;
+  genre: string;
+  verificateur: string;
+  etat: string;
+}
+
+export interface ContratWire {
+  objectif: string;
+  tenu: boolean;
+  resume: string;
+  criteres: CritereWire[];
+  /** Séparés des violés : un critère invérifiable n'est pas un critère
+   *  échoué, et les fondre ferait lire une ignorance comme un constat. */
+  inverifiables: string[];
+  violes: string[];
+}
+
+export interface CheckpointWire {
+  identifiant: string;
+  workspace: string;
+  motif: string;
+  mission: string;
+  run: string;
+  mecanisme: string;
+  fichiers: number;
+  cree_le: string;
+  /** Sans l'état de mission, un point de reprise ne ramène que la
+   *  moitié (HOS-223). */
+  avec_etat: boolean;
+}
+
+export interface FournisseurEtatWire {
+  fournisseur: string;
+  etat: string;
+  dans_s: number;
+  raison: string;
+}
+
+export interface FournisseursWire {
+  configures: string[];
+  /** Aucun fournisseur configuré est l'état **normal** : aucune clé
+   *  n'est posée par défaut. Le dire évite de le lire comme une panne. */
+  aucun_configure: boolean;
+  etats: FournisseurEtatWire[];
+}
+
+export interface ApprobationWire {
+  id: string;
+  action_type: string;
+  description: string;
+  target_path: string | null;
+  status: string;
+  reason: string;
+  requesting_agent: string;
+  created_at: string;
+  expires_at: string | null;
+  expired: boolean;
+  portee: string;
+  portee_racine: string | null;
+  usages_restants: number | null;
+  discriminants: string | null;
+}
+
+export interface ApprobationsWire {
+  en_attente: ApprobationWire[];
+  /** Une ligne qui autorise un dossier entier ne se lit pas comme une
+   *  qui autorise une action (HOS-224). */
+  portees_vivantes: ApprobationWire[];
+}
+
+export interface ControleWire {
+  nom: string;
+  etat: "ok" | "echec" | "indisponible";
+  detail: string;
+  critique: boolean;
+}
+
+export interface InstallationWire {
+  version_du_code: string;
+  /** `null` = installation antérieure au versionnement. Ce n'est pas une
+   *  erreur, et l'afficher comme telle serait faux (HOS-232). */
+  version_installee: string | null;
+  racine_d_etat: string;
+  sante: { sain: boolean; controles: ControleWire[] };
+}
+
+export interface ApercuOperationsWire {
+  runs: Bloc<{ en_cours: RunWire[]; nombre_en_cours: number }>;
+  fournisseurs: Bloc<FournisseursWire>;
+  approbations: Bloc<ApprobationsWire>;
+  points_de_reprise: Bloc<CheckpointWire[]>;
+  installation: Bloc<InstallationWire>;
+}
+
+export const operationsClient = {
+  apercu: () => fetchJSON<ApercuOperationsWire>("/operations"),
+  runsDeLaMission: (mission: string) =>
+    fetchJSON<Bloc<RunWire[]>>(
+      `/operations/missions/${encodeURIComponent(mission)}/runs`),
+  lignee: (run: string) =>
+    fetchJSON<Bloc<RunWire[]>>(
+      `/operations/runs/${encodeURIComponent(run)}/lignee`),
+  contrat: (run: string) =>
+    fetchJSON<Bloc<ContratWire | null>>(
+      `/operations/runs/${encodeURIComponent(run)}/contrat`),
+  checkpoints: (workspace?: string) =>
+    fetchJSON<Bloc<CheckpointWire[]>>(
+      `/operations/checkpoints${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`),
+  fournisseurs: () => fetchJSON<Bloc<FournisseursWire>>("/operations/fournisseurs"),
+  approbations: () => fetchJSON<Bloc<ApprobationsWire>>("/operations/approbations"),
+  installation: () => fetchJSON<Bloc<InstallationWire>>("/operations/installation"),
+};

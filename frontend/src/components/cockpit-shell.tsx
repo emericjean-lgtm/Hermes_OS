@@ -32,6 +32,7 @@ import { StudioCenter } from "@/features/studio/studio-center";
 import ModelIntelligenceCenter from "@/features/models/model-intelligence-center";
 import { WorkspaceCenter } from "@/features/workspace/workspace-center";
 import { ExecutionCenter } from "@/features/execution/execution-center";
+import { OperationsCenter } from "@/features/operations/operations-center";
 import { ValidationCenter } from "@/features/validation/validation-center";
 
 /** Every id offered by the rail or the palette must resolve to a Center here.
@@ -58,6 +59,9 @@ const views = {
   autonomous: AutonomousCenter,
   studio: StudioCenter,
   security: SecurityCenter,
+  // HOS-235 : ce que les jalons 5 a 16 ont produit, et que rien
+  // n'affichait. Une **vue** du runtime, jamais une seconde autorite.
+  operations: OperationsCenter,
   system: SystemCenterMerged,
   // P-001 : capacités backend qui n'avaient aucun écran.
   workspace: WorkspaceCenter,

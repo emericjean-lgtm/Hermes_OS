@@ -32,6 +32,7 @@ import {
   projectsClient,
   filesystemBrowseClient,
   gitClient,
+  operationsClient,
 } from "@/services/client";
 import type { ParametresRendu, ToolHealthSummary } from "@/services/client";
 import type {
@@ -1067,5 +1068,40 @@ export function useStudioNight() {
     queryKey: ["studio", "night"],
     queryFn: studioClient.night,
     refetchInterval: (q) => (q.state.data?.en_cours ? 30000 : false),
+  });
+}
+
+// ── Opérations (HOS-235) ──────────────────────────────────
+//
+// Ce que les jalons 5 à 16 ont produit, exposé en huit routes `GET` par
+// HOS-234. Un seul hook pour la vue d'ensemble : cinq requêtes séparées
+// donneraient cinq états de chargement pour une seule page, et une page
+// qui s'assemble par morceaux se lit mal quand on la consulte parce que
+// quelque chose va mal.
+//
+// 10 s : assez pour suivre une mission, assez peu pour ne pas marteler
+// une base SQLite pendant qu'une mission écrit dedans.
+
+export function useOperationsApercu() {
+  return useQuery({
+    queryKey: ["operations", "apercu"],
+    queryFn: () => operationsClient.apercu(),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useOperationsLignee(run: string | null) {
+  return useQuery({
+    queryKey: ["operations", "lignee", run],
+    queryFn: () => operationsClient.lignee(run as string),
+    enabled: Boolean(run),
+  });
+}
+
+export function useOperationsContrat(run: string | null) {
+  return useQuery({
+    queryKey: ["operations", "contrat", run],
+    queryFn: () => operationsClient.contrat(run as string),
+    enabled: Boolean(run),
   });
 }

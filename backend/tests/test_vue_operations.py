@@ -273,3 +273,93 @@ def test_le_frontend_ne_fabrique_pas_de_compteurs():
     assert not suspects, (
         f"nombre(s) fabriqué(s) côté frontend : {suspects} — les données "
         "doivent venir des systèmes réels")
+
+
+# ═══ Servies par l'application réelle, pas par un routeur orphelin ═══
+
+@pytest.fixture(scope="module")
+def application():
+    """L'application **réelle**, montée une seule fois.
+
+    Une seule : le `lifespan` de `backend.main` assemble les
+    sous-systèmes, et le ré-entrer dans le même processus échoue. Deux
+    gardes s'en servent, et deux clients en donneraient un qui marche et
+    un qui casse — un faux échec, ce que ce dépôt paie le plus cher.
+    """
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    with TestClient(app) as client:
+        yield client
+
+
+def test_les_routes_sont_servies_par_l_application(application):
+    """Le défaut trouvé en vérifiant sur le processus en marche.
+
+    HOS-234 avait posé les huit routes sur `MissionControlAPI`, qui
+    **n'est montée nulle part** : `GET /api/v1/operations` rendait `404`,
+    et `/openapi.json` ne contenait aucune route en `/api/v1/`.
+
+    Un routeur correct posé sur une surface non servie est un orphelin de
+    plus, et le plus coûteux : ses tests passaient, parce qu'ils le
+    montaient eux-mêmes. Cette garde interroge l'application **réelle**.
+    """
+    for chemin in ("/api/v1/operations",
+                   "/api/v1/operations/fournisseurs",
+                   "/api/v1/operations/approbations",
+                   "/api/v1/operations/checkpoints",
+                   "/api/v1/operations/installation"):
+        assert application.get(chemin).status_code == 200, chemin
+
+
+def test_l_application_reelle_rend_les_vraies_donnees(application):
+    """Le test de bout en bout que le cahier exige.
+
+    Il ne vérifie pas des valeurs — elles changent — mais que chaque
+    section **provient** d'une source Hermes nommée et qu'aucune n'est
+    fabriquée.
+    """
+    vue = application.get("/api/v1/operations").json()
+
+    attendus = {
+        "runs": "backend.runs.registre",
+        "fournisseurs": "backend.ral.courtier",
+        "approbations": "backend.security.approvals",
+        "points_de_reprise": "backend.checkpoints",
+        "installation": "backend.maj",
+    }
+    for section, source in attendus.items():
+        assert vue[section]["source"] == source, section
+        # Disponible ou non, mais **jamais** un zéro déguisé : quand une
+        # section n'est pas lisible, elle porte sa raison.
+        if not vue[section]["disponible"]:
+            assert vue[section]["raison"], section
+            assert vue[section]["donnees"] is None, section
+
+
+def test_le_routeur_d_operations_est_dans_les_routeurs_montes():
+    """Sur l'arbre syntaxique de `main`, pas sur son texte.
+
+    Un module importé mais absent de la liste de montage serait
+    exactement le défaut d'origine, avec l'import pour le masquer.
+    """
+    import ast
+    import io
+    from pathlib import Path
+
+    racine = Path(__file__).resolve().parents[2]
+    source = io.open(racine / "backend" / "main.py", encoding="utf-8").read()
+    arbre = ast.parse(source)
+
+    montes: set[str] = set()
+    for noeud in ast.walk(arbre):
+        if (isinstance(noeud, ast.Assign)
+                and any(getattr(c, "id", "") == "_LEGACY_ROUTERS"
+                        for c in noeud.targets)):
+            for element in ast.walk(noeud.value):
+                if isinstance(element, ast.Name):
+                    montes.add(element.id)
+    assert "operations" in montes, (
+        "le routeur d'opérations n'est pas dans _LEGACY_ROUTERS — il ne "
+        "serait servi par rien, comme l'était MissionControlAPI")

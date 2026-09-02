@@ -1,3 +1,109 @@
+## HOS-235 — La console d'opérations, et le routeur que rien ne servait (2026-09-03)
+
+J17 final. L'audit du frontend a donné deux surprises, l'une bonne et
+l'autre grave.
+
+### Le défaut : les huit routes de J17 étaient injoignables
+
+HOS-234 les avait posées sur `MissionControlAPI`. Vérifié **sur le
+processus en marche** : `GET /api/v1/operations` rendait `404`, et
+`/openapi.json` ne contenait pas une seule route en `/api/v1/`.
+
+`MissionControlAPI` existe, est exportée, et **aucun appelant de
+production ne l'inclut dans l'application**. Le jalon était juste dans sa
+forme et inexistant dans les faits — la variante la plus coûteuse de
+l'orphelin, parce que ses tests passaient : ils montaient le routeur
+eux-mêmes.
+
+Les routes vivent maintenant dans `backend/api/routes/operations.py`,
+listé dans `_LEGACY_ROUTERS`, c'est-à-dire sur le seul chemin que
+`backend.main` sert réellement. Une garde interroge désormais
+`TestClient(backend.main:app)` — l'application, pas un routeur monté pour
+l'occasion — et une autre lit l'arbre syntaxique de `main` pour vérifier
+que le module est bien dans la liste de montage.
+
+### La bonne surprise : le Cockpit était déjà mûr
+
+`FluxEvenements` est **l'unique** souscription au bus, et pousse dans
+`useCockpitStore` — HOS-182 avait déjà corrigé le défaut des sockets
+multiples. Le scaffolding (`CenterHeader`, `AsyncPanel`, `StatGrid`,
+`Card`, `Badge`), les hooks TanStack, la navigation typée par
+`satisfies` : tout existait. Rien n'a été recréé.
+
+Et le frontend ne fabrique plus de compteurs : les `Math.random()`
+restants sont des identifiants, une graine de studio, ou des
+**commentaires documentant des fabrications retirées**.
+
+### Le tri-état, jusqu'au pixel
+
+Quatre choses s'affichent différemment, parce qu'elles ne veulent pas
+dire la même chose :
+
+- **zéro mesuré** — « Aucun run en cours. Mesuré, pas supposé. »
+- **non mesurable** — un encadré ambré portant la raison, jamais un zéro.
+  Un indicateur dont la source n'a pas répondu affiche « — ».
+- **cause `null`** — « cause non démontrée » ;
+- **cause « inconnue »** — « cherchée · non trouvée ».
+
+Douze jalons ont travaillé côté serveur à ce qu'un « on ne sait pas » ne
+se range jamais avec un « c'est bon ». Le refaire à l'affichage
+l'annulerait à la dernière étape.
+
+Trois cas particuliers portent la même règle : un contrôle de santé
+`indisponible` s'affiche « sans objet » et non en rouge — une
+installation neuve n'a pas de points de reprise, et le peindre en panne
+ferait chercher un défaut qui n'existe pas. « Aucun fournisseur
+configuré » est présenté comme **le défaut**, pas comme une panne. Et une
+version jamais marquée n'est pas remplacée par celle du code.
+
+### Une vue, jamais une seconde autorité
+
+Toutes les routes sont en `GET`. Le modèle de lecture n'appelle rien qui
+écrive et n'ouvre aucun magasin — deux gardes sur l'arbre syntaxique. La
+trace vient du store, pas d'une seconde socket.
+
+Et elle ne fabrique aucune activité : si le runtime n'émet rien, la liste
+reste vide, avec la phrase qui le dit — « pas de battement de cœur
+inventé ».
+
+### Deux orphelins évités
+
+Une garde du dépôt — `surface-api.test.ts`, que je ne connaissais pas —
+a refusé `useOperationsLignee` et `useOperationsContrat` : deux hooks sans
+consommateur. Elle avait raison. Ils sont maintenant branchés sur un
+panneau de détail qui déplie la lignée d'un run et son contrat, critère
+par critère, avec les quatre états de HOS-221 distingués visuellement.
+
+Un contrat absent affiche « aucun contrat déposé » plutôt qu'un contrat
+vide, qui se lirait « tenu ».
+
+### Une collision de libellés
+
+Ma vue s'appelait « Opérations » — comme le **groupe** de navigation qui
+la contient. Deux entrées du même nom dans une navigation se cherchent
+l'une l'autre. Renommée « Supervision ».
+
+### Ce qui n'est pas démontré
+
+**La vérification en navigateur.** Les deux serveurs de développement en
+marche sont antérieurs à ces changements — le backend rend encore `404`
+sur `/operations`, et le Cockpit sert un paquet où la vue n'existe pas.
+Les redémarrer aurait demandé d'arrêter des processus qui ne sont pas les
+miens.
+
+Ce qui **est** démontré : les huit routes servies par
+`backend.main:app` avec son lifespan complet, sur les données réelles —
+206 approbations en attente, 3 points de reprise, 10 contrôles de santé,
+0 fournisseur configuré — et dix gardes sur la vue qui prouvent le
+tri-état, les quatre états d'une cause, le nommage des sources et
+l'absence de fabrication.
+
+### Mesures
+
+Backend : **5 353 vertes**. Frontend : **123 vertes**, typecheck propre.
+13 gardes ajoutées côté backend, 10 côté frontend.
+
+
 ## HOS-234 — Ce que douze jalons ont produit, enfin lisible (2026-09-03)
 
 Le jalon 17. Prémisse mesurée avant d'écrire : **aucune route n'exposait**

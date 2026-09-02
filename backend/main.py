@@ -55,6 +55,7 @@ from backend.api.routes import (
     workspace_browse,
     write,
     ws,
+    operations,
 )
 from backend.core.bootstrap import HermesBootstrap
 from backend.core.bootstrap.router_registry import (
@@ -78,6 +79,13 @@ _LEGACY_ROUTERS = (
     chat, system, security, files, memory, tasks, research, verify, write,
     vision, classify, messages, workflows, projects, skills, documents, git,
     snapshots, logs, ws, verification, evolution, workspace_browse,
+    # HOS-235 : les huit routes d'operations. Elles vivaient sur
+    # `MissionControlAPI`, qui n'est montee nulle part — verifie sur le
+    # processus en marche, `/api/v1/operations` rendait 404. Un routeur
+    # correct pose sur une surface non servie est un orphelin de plus, et
+    # le plus couteux : ses tests passaient parce qu'ils le montaient
+    # eux-memes.
+    operations,
 )
 
 
