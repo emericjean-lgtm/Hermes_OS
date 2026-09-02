@@ -67,6 +67,7 @@ class DatabaseManager:
                     conn.row_factory = sqlite3.Row
                     conn.execute("PRAGMA journal_mode=WAL")
                     conn.execute("PRAGMA foreign_keys=ON")
+                    conn.execute("PRAGMA busy_timeout=5000")
                     self._connections[conn_id] = conn
                 return self._connections[conn_id]
             return self._connections.get("pg")
@@ -120,6 +121,10 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        # Sans lui, deux écritures concurrentes lèvent « database is
+        # locked » au lieu d'attendre leur tour (HOS-221). WAL autorise
+        # un lecteur pendant une écriture, pas deux écrivains.
+        conn.execute("PRAGMA busy_timeout=5000")
         self._connections["main"] = conn
         self._ensure_schema(conn)
 

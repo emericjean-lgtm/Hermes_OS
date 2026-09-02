@@ -74,7 +74,7 @@ class MissionExecutor:
 
     def __init__(self, task_executor: Any = None, on_event: Any = None,
                  agent_registry: Any = None, capability_matcher: Any = None,
-                 trust_engine: Any = None) -> None:
+                 trust_engine: Any = None, registre: Any = None) -> None:
         """
         Args:
             task_executor: performs the actual work for one task. Injected so the
@@ -130,6 +130,23 @@ class MissionExecutor:
 
             task_executor = RealTaskExecutor(on_event=on_event)
         self._task_executor = task_executor
+
+        # HOS-221. Sans lui, ce module reste ce qu'il était la nuit du
+        # 29 au 30 août : un rapport en mémoire, un `deque(maxlen=2000)`
+        # explicitement décrit plus haut comme « a diagnostic tail, not
+        # an archive », et rien de durable pour répondre à « pourquoi la
+        # première tentative a échoué ». Défaillant par conception :
+        # une trace qui casse la mission qu'elle décrit ne vaut rien.
+        self._registre = registre
+        if self._registre is None:
+            try:
+                from backend.runs.registre import Registre
+
+                self._registre = Registre()
+            except Exception:  # pragma: no cover - base indisponible
+                logger.warning("registre des runs indisponible", exc_info=True)
+        #: execution_id -> identifiant du run. Borné comme le reste ici.
+        self._runs: OrderedDict[str, str] = OrderedDict()
 
     # ── Agent registry sync (HOS-070) ──────────────────────────
 
@@ -229,6 +246,8 @@ class MissionExecutor:
             for task in tasks:
                 deps = (dependencies or {}).get(task.task_id, [])
                 self._scheduler.register_task(task, deps)
+
+            self._ouvrir_le_run(meta, tasks)
 
             self._publish("execution.started", {"execution_id": meta.execution_id})
             self._publish("execution.planning", {"execution_id": meta.execution_id})
@@ -494,11 +513,85 @@ class MissionExecutor:
                 "failed_tasks": report.failed_tasks,
             })
 
+            self._clore_le_run(report, tasks)
+
             recs = self._optimizer.generate_recommendations()
             if recs:
                 self._publish("execution.optimized", {"execution_id": report.execution_id, "recommendations": len(recs)})
 
             return report
+
+    # ── Le registre des runs (HOS-221) ─────────────────────────────
+
+    def _ouvrir_le_run(self, meta: ExecutionMeta, tasks: list[TaskExecution]) -> None:
+        """Inscrire l'exécution au registre durable, avant qu'elle parte.
+
+        Toujours en meilleur effort : une trace qui ferait échouer la
+        mission qu'elle décrit serait pire que pas de trace. C'est la
+        même règle que ``_sync_agent_started`` applique déjà juste
+        au-dessus.
+        """
+        if self._registre is None:
+            return
+        try:
+            runtimes = _unique(t.assigned_runtime for t in tasks)
+            agents = _unique(t.assigned_agent for t in tasks)
+            run = self._registre.ouvrir(
+                mission=meta.mission_id,
+                objectif=meta.user_goal,
+                runtime=runtimes[0] if runtimes else "",
+                agent=agents[0] if agents else "",
+            )
+            self._registre.demarrer(run.identifiant)
+            self._runs[meta.execution_id] = run.identifiant
+            while len(self._runs) > self._scheduler.MAX_RETAINED_TASKS:
+                self._runs.popitem(last=False)
+        except Exception:
+            logger.warning("run non inscrit au registre", exc_info=True)
+
+    def _clore_le_run(self, report: ExecutionReport,
+                      tasks: list[TaskExecution]) -> None:
+        """Clore le run avec ce qui s'est réellement passé.
+
+        ``cause`` reste ``INCONNUE`` ici, et c'est délibéré : classer un
+        échec depuis un message d'erreur demande la taxonomie qui fait
+        l'objet de son propre jalon. Deviner maintenant produirait des
+        étiquettes fausses — exactement ce que ce dépôt paie le plus cher.
+        ``raison`` porte l'erreur brute, qui elle est mesurée.
+        """
+        identifiant = self._runs.pop(report.execution_id, None)
+        if self._registre is None or identifiant is None:
+            return
+        from backend.runs.registre import Statut
+
+        statut = (Statut.REUSSI if report.state == ExecutionState.COMPLETED
+                  else Statut.ECHOUE)
+        raison = ""
+        if report.errors:
+            derniere = report.errors[-1]
+            raison = str(derniere.get("message", derniere)
+                         if isinstance(derniere, dict) else derniere)[:2000]
+        # Les jetons sont mesurés par le runtime quand il les rapporte —
+        # `resources_used` porte la même valeur que la télémétrie, pas une
+        # estimation refaite ici.
+        entree = sum(int((t.resources_used or {}).get("prompt_tokens", 0))
+                     for t in tasks)
+        sortie = sum(int((t.resources_used or {}).get("completion_tokens", 0))
+                     for t in tasks)
+        try:
+            self._registre.terminer(identifiant, statut, raison=raison,
+                                    jetons_entree=entree, jetons_sortie=sortie)
+        except Exception:
+            logger.warning("run non clos au registre", exc_info=True)
+
+    def run_de(self, execution_id: str) -> str | None:
+        """L'identifiant de run qui corrèle cette exécution au registre.
+
+        C'est aussi ce qui corrèle le registre au bus d'événements : les
+        deux portent le même identifiant, et aucun des deux ne duplique
+        l'autre.
+        """
+        return self._runs.get(execution_id)
 
     def pause(self, sm: ExecutionStateMachine) -> bool:
         with self._lock:

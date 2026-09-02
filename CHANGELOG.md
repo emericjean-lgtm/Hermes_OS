@@ -1,3 +1,120 @@
+## HOS-220 et HOS-221 — Le contrat, le registre, et la lignée (2026-09-03)
+
+Le jalon 5 : « qu'est-ce qui devait être vrai à la fin ? » et « qu'est-ce
+qui a été fait, avec quoi, et pourquoi le premier essai a raté ? ». Deux
+questions que Hermes ne savait pas trancher, et qui ont chacune coûté
+quelque chose de mesurable.
+
+### HOS-220 — La seconde porte que HOS-215 avait laissée ouverte
+
+`DatabaseConfig(name="hermes_os")` rendait `sqlite:///hermes_os.db` — un
+chemin **relatif**, donc un fichier dans le répertoire courant, donc dans
+le dépôt, que la prochaine mise à jour remplace. HOS-215 avait sorti
+l'état pour `Settings` et pas pour ceci : deux défauts par défaut, un
+seul traité. Un nom nu se résout maintenant sous la racine d'état ; un
+chemin donné explicitement passe intact, sans quoi une base de test sur
+`tmp_path` atterrirait dans l'état réel de l'utilisateur.
+
+Le test de `tests/production` qui affirmait `sqlite:///test_db.db` est
+**amendé, pas supprimé** : il gardait la bonne propriété avec la mauvaise
+valeur. C'est le deuxième défaut que la remise en service de ce second
+arbre de tests met au jour.
+
+### HOS-221 — Le tri-état, et le refus de confondre une ignorance
+
+`backend/runs/contrat.py` porte quatre états de critère et trois verdicts
+de vérificateur. La règle centrale est celle qu'Agent OS met en capitales
+dans `src/lib/contract.ts` : *never conflate unavailable with passed*.
+
+Ce dépôt l'a enfreinte le 2026-08-30. `img07` était `indéterminé` — le
+relecteur n'avait pas su conclure — et cet état n'avait nulle part où
+aller dans une vérification qui rend `bool`. Il s'est rangé à côté des
+plans jugés bons. Un contrat dont un critère est `invérifiable` n'est
+maintenant **pas tenu**, et son résumé le dit en toutes lettres.
+
+Trois refus à l'écriture, chacun visant un contrat qui serait tenu quoi
+qu'il arrive : pas d'objectif, pas de critère d'acceptation, ou un
+critère sans **vérificateur nommé**. Le dernier est le moins évident et
+le plus utile : sans le nom du vérificateur, « invérifiable » ne dit pas
+*ce qui* manque, et un rapport qui ne le dit pas ne fait pas agir.
+
+Ce qui change par rapport à Agent OS : leurs critères s'écrivent en EARS,
+une syntaxe d'exigences anglophone taillée pour un formulaire. Les
+missions de Hermes viennent de l'agent. Un critère est ici un texte plus
+le nom de qui doit le trancher.
+
+### HOS-221 — Le registre, et ce qu'il aurait épargné
+
+La nuit du 29 au 30 août, **trois fois**, la question « avec quel modèle,
+et pourquoi le premier essai a raté ? » n'a pas eu de réponse sans aller
+lire des fichiers JSON écrasés à chaque exécution. L'archivage du journal
+a dû être écrit en pleine nuit, pendant que la production tournait.
+
+`backend/runs/registre.py` porte le run : sa mission, son modèle, son
+runtime, ses jetons, son issue, **son parent** et son rang de tentative.
+`lignee()` rend la chaîne complète, et une reprise **doit dire pourquoi**
+— une lignée muette ne répond pas à la question qu'on lui posera six
+semaines plus tard.
+
+L'invariant d'état est repris d'Agent OS et vit **dans le SQL**, pas en
+Python : un `CASE WHEN statut IN (…terminaux…) THEN statut ELSE ? END`
+qu'aucun appelant distrait ne peut contourner. Un défaut trouvé en le
+mesurant : gelé sur le seul statut, un second appel réécrivait quand même
+`cause` et `raison`, produisant un run figé sur `echoue` avec le motif du
+mauvais appel — une trace pire que pas de trace, parce qu'elle a l'air
+d'en être une. Le gel couvre maintenant **chaque colonne**.
+
+`busy_timeout=5000` manquait à `DatabaseManager` : WAL laisse un lecteur
+pendant une écriture, pas deux écrivains, et sans lui la seconde lève
+« database is locked » au lieu d'attendre son tour.
+
+### Trois choses délibérément non faites
+
+**Pas de table `run_events`.** Hermes a déjà un bus d'événements durable,
+rejouable par plage et par motif, à identifiants idempotents. Porter la
+seconde table d'Agent OS créerait **deux magasins d'événements** —
+l'architecture parallèle que le cahier interdit à sa propre règle 4. Le
+registre porte les runs, le bus porte les événements, `run_id` les
+corrèle. Un test le garde : le schéma ne contient qu'un `CREATE TABLE`.
+
+**Pas de troisième couche SQLite.** `DatabaseManager` et
+`MigrationManager` étaient orphelins — utilisés par personne hors de
+`backend/storage/` — mais réels et corrects. Les doubler aurait ajouté
+une couche de plus au lieu de rebrancher celle qui existait.
+
+**La cause d'échec n'est pas devinée.** `Cause` existe et nomme onze
+remèdes distincts, mais `_clore_le_run` ne la renseigne pas : classer un
+échec depuis un message d'erreur demande la taxonomie qui fait l'objet de
+son propre jalon. Deviner maintenant produirait des étiquettes fausses,
+et une étiquette fausse coûte plus cher qu'une case vide — parce qu'on la
+croit. `raison` porte l'erreur brute, qui elle est mesurée.
+
+### Le registre est branché, et c'est le point
+
+`approvals.py`, `DatabaseManager`, `MigrationManager` : du code réel,
+correct, testé, **appelé par personne**. Un registre de runs qui finirait
+comme eux ne servirait qu'à faire croire que la traçabilité existe.
+
+`MissionExecutor.prepare()` ouvre le run, `finalize()` le clôt, et la
+trace est en meilleur effort de bout en bout — une télémétrie qui casse
+la mission qu'elle décrit ne vaut rien. Un test échoue si `_clore_le_run`
+se met à deviner une cause ; un autre si un registre en panne fait
+échouer une mission.
+
+### Ce qui reste su et non traité
+
+`Statut.PERDU` existe dans le vocabulaire et **rien ne le pose** : détecter
+un run dont le processus a disparu demande un balayage au démarrage, qui
+n'est pas construit ici. Et une exception nue levée par un exécuteur de
+tâche traverse `execute_task` sans que `finalize()` soit atteint — le run
+reste alors `en_cours` indéfiniment. Les deux se règlent au même endroit,
+et ce n'est pas ce jalon.
+
+### Mesures
+
+56 gardes ajoutées. Suite complète : **4 989 vertes**, 3 ignorées.
+
+
 ## HOS-215 a HOS-219 - Quatre controles avant de batir quoi que ce soit (2026-09-03)
 
 La lecture du code d'Agent OS (HOS-214) a montre que trois manques

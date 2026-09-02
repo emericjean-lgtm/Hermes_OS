@@ -72,9 +72,33 @@ class TestConfigModels:
         assert len(errors) > 0
 
     def test_database_config_sqlite_path(self):
+        """Un nom nu se resout sous la racine d'etat, pas dans le depot.
+
+        Ce test affirmait l'inverse — `sqlite:///test_db.db`, un chemin
+        **relatif**, donc un fichier dans le repertoire courant, donc
+        dans le depot, qu'une mise a jour remplace. HOS-215 avait sorti
+        l'etat pour `Settings` et pas pour ceci ; HOS-220 a ferme la
+        seconde porte. L'assertion est amendee, pas supprimee : c'est
+        toujours la meme propriete qui est gardee, avec la bonne valeur.
+        """
+        from pathlib import Path
+
+        from backend.core.etat import racine
+
         db = DatabaseConfig(backend=StorageBackend.SQLITE, name="test_db")
-        expected = "sqlite:///test_db.db"
-        assert db.connection_string == expected
+        chemin = Path(db.connection_string.replace("sqlite:///", ""))
+        assert chemin.is_absolute()
+        assert chemin == racine() / "db" / "test_db.db"
+
+    def test_database_config_chemin_explicite_est_respecte(self):
+        """Un chemin donne explicitement n'est pas re-racine.
+
+        Sans quoi une base de test sur `tmp_path` atterrirait dans
+        l'etat reel de l'utilisateur.
+        """
+        db = DatabaseConfig(backend=StorageBackend.SQLITE,
+                            name="C:/tmp/ailleurs")
+        assert db.connection_string == "sqlite:///C:/tmp/ailleurs.db"
 
     def test_security_config_defaults(self):
         config = HermesConfig()

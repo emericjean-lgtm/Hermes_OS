@@ -64,7 +64,22 @@ class DatabaseConfig:
             # because of the colons).
             if self.name == ":memory:":
                 return "sqlite:///:memory:"
-            return f"sqlite:///{self.name}.db"
+            # Un nom nu — « hermes_os » — donnait un chemin **relatif**,
+            # donc un fichier dans le répertoire courant, donc dans le
+            # dépôt (HOS-220). HOS-215 avait corrigé `Settings` et pas
+            # ceci : deux défauts par défaut, un seul traité.
+            #
+            # Un nom qui contient déjà un séparateur est un chemin voulu
+            # par l'appelant, et on n'y touche pas — les tests passent par
+            # `tmp_path`.
+            from pathlib import Path
+
+            if any(sep in self.name for sep in ("/", "\\")):
+                return f"sqlite:///{self.name}.db"
+
+            from backend.core.etat import racine
+
+            return "sqlite:///" + str(racine() / "db" / f"{self.name}.db")
         return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
 
 

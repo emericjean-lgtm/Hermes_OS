@@ -504,7 +504,7 @@ que trois manques que j'avais classés « confort » sont des **contrôles**
 | 2 | ✅ **Fait (HOS-216)** — origine non humaine en quarantaine | défense contre l'injection de prompt ; une mémoire d'agent devient un fait immédiatement | petit |
 | 3 | ✅ **Fait (HOS-217)** — dix fichiers gouvernants surveillés | un agent peut planter des hooks ou un serveur MCP dans le dépôt qu'il traite | moyen |
 | 4 | ✅ **Fait (HOS-218)** — canary, report 512, silence, coût | répond à §14 et §22 d'un coup ; transposable presque tel quel | moyen |
-| 5 | Mission Contract + Run Ledger + lineage | le manque le plus coûteux, démontré en production | 721 l. de TS transposables |
+| 5 | ✅ **Fait (HOS-221)** — Contract tri-état + Run Ledger + lignée, branchés sur `MissionExecutor` | le manque le plus coûteux, démontré en production | 56 gardes |
 | 6 | Vérification tri-état, sur `verification.py` | un « on ne sait pas » n'est pas un « c'est bon » | petit |
 | 7 | Checkpoint de **fichiers** par référence git | Hermes ne sait pas annuler une modification | moyen |
 | 8 | Approbation : hash canonique, portée, expiration | `approval_engine` est complet et **débranché** — le rebrancher coûte moins que de l'écrire | moyen |
