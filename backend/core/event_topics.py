@@ -223,6 +223,13 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # panne definitive.
     "cloud.fournisseur_ecarte",
     "cloud.fournisseur_retabli",
+    # HOS-230 : chaque tour de boucle, et son arret **nomme**. Six
+    # raisons d'arret, parce qu'elles n'appellent pas la meme suite :
+    # « budget epuise » et « cause non reprenable » se confondraient dans
+    # un booleen, et on chercherait un defaut de compteur la ou il y a un
+    # refus assume.
+    "boucle.tour",
+    "boucle.arret",
     # ohmypi
     "ohmypi.ast.analyzed",
     "ohmypi.lsp.diagnostics",

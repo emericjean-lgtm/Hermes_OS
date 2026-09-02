@@ -169,6 +169,8 @@ def collect_known_topics() -> set[str]:
         ("backend.security.pare_feu", "PARE_FEU_EVENTS"),
         # HOS-228 : le courtier de quotas.
         ("backend.ral.courtier", "COURTIER_EVENTS"),
+        # HOS-230 : la boucle contrat/execution/verification/reparation.
+        ("backend.mission.boucle", "BOUCLE_EVENTS"),
         ("backend.agents.kronos", "KRONOS_EVENTS"),
         ("backend.api.routes.chat", "CHAT_EVENTS"),
     )

@@ -1,3 +1,86 @@
+## HOS-230 — La boucle, assemblée et non recréée (2026-09-03)
+
+Le jalon 14. Prémisse mesurée : **deux pilotes de reprise existent, et
+aucun ne connaît de contrat.**
+
+- `node_execution` fait tourner un `while task.status == PENDING`. Il
+  reprend les pannes de **runtime**, parce que `execute_task` remet la
+  tâche en attente ; il ne sait rien de ce qui devait être vrai à la fin.
+- `retry_policy.decide` travaille au niveau de la **mission**, uniquement
+  sur contradiction, et `graph_executor._suggest_retry` **publie** au
+  lieu de relancer — avec sa raison, qui est juste : « relaunching a
+  mission graph is the caller's decision (it owns scheduling, budgets and
+  the operator's consent) ».
+
+Ce module ne contredit pas ce choix. La boucle est une **bibliothèque que
+l'appelant pilote**, pas un relanceur caché : `tourner()` ne part que si
+quelqu'un l'appelle, et rend ce qu'elle a constaté.
+
+### Ce n'est pas une seconde boucle agentique
+
+La règle qui prime sur tout dans ce dépôt a déjà été violée une fois —
+`RealTaskExecutor` sélectionnait Hermes Agent puis l'écrasait deux lignes
+plus bas par sa propre boucle d'outils, et
+`test_hermes_agent_is_the_brain.py` en garde la trace.
+
+Cette boucle-ci ne raisonne pas, ne choisit aucun outil et **n'appelle
+aucun modèle**. Elle enchaîne deux fonctions que l'appelant lui fournit
+et décide seulement de continuer ou de s'arrêter, sur des verdicts et des
+causes mesurés ailleurs. Un test sur l'arbre syntaxique vérifie qu'elle
+n'importe ni client, ni adaptateur, ni runtime : c'est de
+l'ordonnancement, pas de la cognition.
+
+### Six arrêts, parce qu'ils n'appellent pas la même suite
+
+`contrat_tenu`, `budget`, `cause_non_reprenable`, `inverifiable`,
+`erreur`, `sans_contrat`. Les fondre en un booléen ferait chercher un
+défaut de compteur là où il y a un refus assumé — exactement l'erreur que
+HOS-225 avait déjà eu à corriger dans l'abandon d'une tâche.
+
+Trois de ces arrêts portent tout l'intérêt du jalon :
+
+**`inverifiable` arrête sans user le budget.** On ne reprend pas sur une
+ignorance, et surtout on ne la range pas du côté du succès (HOS-222).
+Boucler ici dépenserait le budget à re-produire une mesure qui n'aboutit
+pas.
+
+**`cause_non_reprenable` arrête au premier tour.** Réessayer un refus de
+politique inonde la file d'approbation — ce que `approvals.py` décrit
+déjà. La taxonomie de HOS-225 le dit, la boucle l'applique.
+
+**`sans_contrat` refuse de tourner.** Boucler sur rien produirait des
+tours qui se déclareraient réussis parce qu'aucun critère ne les
+contredit : le `success: true` au-dessus de rien, en boucle.
+
+### Le verdict du vérificateur ne suffit pas
+
+Un vérificateur qui dit « réussi » sur un contrat à trois critères dont
+un seul est tenu ne clôt rien : la **conjonction du contrat** prime, et
+c'est elle qui décide. Une vérification illisible vaut `INDISPONIBLE`,
+jamais `REUSSI` par défaut d'information.
+
+### Le point de reprise est proposé, jamais appliqué
+
+La boucle prend un point de reprise avant le premier tour — une fois, pas
+un par tour — et rend son identifiant. Elle ne restaure **jamais** d'elle
+-même : l'appelant décide, et la restauration passe par Aegis (HOS-223).
+Une boucle qui effacerait un workspace de son propre chef serait le geste
+destructeur le moins surveillé du système. Un test sur l'arbre syntaxique
+vérifie qu'aucun appel de restauration n'y figure.
+
+### Assembler, pas recréer
+
+Tout vient d'ailleurs, et c'est le point : le contrat et sa conjonction
+(HOS-221), le verdict tri-état (HOS-222), le point de reprise (HOS-223),
+la cause et son remède (HOS-225), le relais et ses phases (HOS-229). Le
+budget par défaut est celui de `retry_policy`, et un test le vérifie —
+deux valeurs qui divergent, c'est deux politiques de reprise.
+
+### Mesures
+
+20 gardes ajoutées. Suite complète : **5 228 vertes**, 3 ignorées.
+
+
 ## HOS-229 — Ce qui doit survivre au changement de modèle (2026-09-03)
 
 Le jalon 13. Deux manques mesurés avant d'écrire une ligne.
