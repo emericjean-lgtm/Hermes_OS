@@ -891,13 +891,39 @@ def _make_cloud_chat() -> Optional[Any]:
             raise _cloud.FournisseurIndisponible(
                 f"pare-feu de données : {decision.raison}")
 
-        # Le premier fournisseur enregistré. Il n'y en a qu'un
-        # aujourd'hui ; le jour où il y en aura deux, c'est
-        # `AdaptiveRouter` qui devra dire lequel — pas cette fabrique,
-        # qui ne sait rien de la tâche.
-        provider = next(iter(_cloud.fournisseurs().values()))
-        return await provider.chat(decision.messages, model=model,
-                                   num_ctx=num_ctx)
+        # HOS-228 : le courtier choisit, au lieu de prendre le premier
+        # enregistré. Il écarte celui qui vient de rendre un 429 —
+        # « 429 → QUOTA → fournisseur B », et non « 429 → même
+        # fournisseur → 429 ».
+        from backend.ral.courtier import courtier
+
+        broker = courtier()
+        disponibles = _cloud.fournisseurs()
+        choisi = broker.choisir(list(disponibles))
+        if choisi is None:
+            # Aucun distant utilisable. L'appelant se replie sur le
+            # local, ce qu'il sait déjà faire — l'exception dit
+            # « indisponible », pas « échec de la tâche ».
+            etats = {n: v.etat.value for n, v in broker.etats().items()}
+            raise _cloud.FournisseurIndisponible(
+                f"aucun fournisseur distant utilisable : {etats}")
+
+        provider = disponibles[choisi]
+        try:
+            reponse = await provider.chat(decision.messages, model=model,
+                                          num_ctx=num_ctx)
+        except Exception as exc:
+            # La cause vient de la taxonomie (HOS-225), qui ne classe que
+            # sur des indices nommés. Une cause non imputable au
+            # fournisseur — un modèle qui rend une sortie inutilisable —
+            # ne le met pas à l'écart.
+            from backend.runs.taxonomie import classer
+
+            classement = classer(str(exc))
+            broker.signaler_echec(choisi, classement.cause)
+            raise
+        broker.signaler_succes(choisi)
+        return reponse
 
     return _cloud_chat
 

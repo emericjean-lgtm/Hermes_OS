@@ -511,7 +511,7 @@ que trois manques que j'avais classés « confort » sont des **contrôles**
 | 9 | ✅ **Fait (HOS-225)** — onze causes classées sur indices nommés, remède par cause, `INCONNUE` reste `NULL` | le retry changeait de modèle à *toute* reprise — le bon remède pour un cas sur onze | 34 gardes |
 | 10 | ✅ **Fait (HOS-226)** — `CloudCapability` dans le RAL, OpenRouter en adaptateur, registre-goulet | prémisse corrigée : le client avait 9 tests. `CloudProvider` n'existait nulle part | 29 gardes |
 | 11 | ✅ **Fait (HOS-227)** — classification à indices nommés, quatre verdicts, politique par projet, goulet avant l'envoi | fuite mesurée : le nom de l'utilisateur et celui de son client partaient dans chaque prompt cloud | 28 gardes |
-| 12 | **QuotaBroker** — fournisseur/clé/modèle, reset, cooldown, verrou, candidat suivant | disjoncteur et santé runtime existent ; il manque le courtier. Doit consommer la **taxonomie J9** : `429 → QUOTA → fournisseur B`, jamais `429 → même fournisseur → 429` | moyen |
+| 12 | ✅ **Fait (HOS-228)** — écart par cause, disjoncteur à 3, quota tri-état, choix branché sur le goulet | ⚠️ **prémisse corrigée** : `_record_failure` était un compteur lu une fois, `RecoveryManager` un cinquième orphelin. Mesuré : deux 429 consécutifs → **un seul appel HTTP** | 29 gardes |
 | 13 | **Context Relay + rôles découplés** — planification / exécution / vérification / réparation | 16 Gio imposent le séquentiel, ce qui rend l'architecture *utile* : planificateur cloud → exécutant local → vérificateur cloud. Le contexte doit passer sans perdre mission, run, contrat, critères, mémoire autorisée, outils, artefacts, preuves | moyen |
 | 14 | **Loop Engineering** — contrat → exécuteur → vérificateur → diagnostic → réparateur → reprise | **assembler, pas recréer** : contrat (J5), vérificateur tri-état (J6), checkpoint (J7), taxonomie (J9), Ledger (J5) existent | moyen |
 | 15 | **Model Trust nourri par les causes** | déjà branché sur succès/durée. Le travail est de le nourrir **par cause** (J9), type de tâche, vérification, coût, latence. Reste une donnée décisionnelle : **Aegis reste au-dessus** | petit |
@@ -578,7 +578,12 @@ Quatre lignes ont été écrites à partir d'un sondage qui ne regardait que
 - **jalon 15** annonçait « à brancher, pas à écrire ». C'est déjà
   branché.
 - **jalon 12** annonçait des disjoncteurs non testés. Ils le sont, dans
-  `tests/architecture/`.
+  `tests/architecture/` — mais ce que cette correction appelait « le
+  disjoncteur de `task_executor` » n'en était pas un : `_record_failure`
+  incrémente un compteur lu une seule fois, pour une statistique.
+  **Une prémisse corrigée n'est pas une prémisse mesurée** : celle-ci a
+  été réécrite sans que le code soit relu, et elle est restée fausse
+  jusqu'à HOS-228.
 
 Le point commun est le même que celui de HOS-111 : **un sondage qui
 ne regarde qu'un des deux arbres de tests conclut faux.** Les prémisses

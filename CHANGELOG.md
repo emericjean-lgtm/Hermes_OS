@@ -1,3 +1,97 @@
+## HOS-228 — Le courtier, et la cinquième prémisse fausse (2026-09-03)
+
+Le jalon 12. La roadmap annonçait « le disjoncteur de `task_executor`
+(`_record_failure`) et la santé de runtime sont réels et branchés » — une
+ligne que j'avais **moi-même écrite** deux jalons plus tôt, en corrigeant
+les précédentes. Vérifiée avant d'écrire :
+
+- `_record_failure` incrémente `self._failures`, qui n'est **lu qu'une
+  seule fois**, pour une ligne de statistiques. Rien n'ouvre de circuit.
+  C'est un compteur, pas un disjoncteur.
+- `RecoveryManager` a une vraie logique de cooldown et de backoff, et
+  **n'est instancié nulle part** hors des tests. Cinquième orphelin,
+  après `approvals`, `DatabaseManager`, `MigrationManager` et le
+  `backup_path` de `propose_write`.
+- `has_quota`, en revanche, **est** consommé : `AdaptiveRouter` l'appelle
+  via `catalog.has_budget`. Cette partie du diagnostic était juste.
+
+Corriger une prémisse ne garantit donc pas d'avoir mesuré la suivante.
+
+### Pourquoi pas `RecoveryManager`
+
+Il **exécute une reprise** sur un composant — le redémarrer. Un courtier
+**s'abstient de choisir** un fournisseur pendant un temps. Deux verbes
+différents : le réutiliser demanderait d'enregistrer une action de reprise
+vide pour n'en garder que la comptabilité de cooldown, c'est-à-dire de le
+plier jusqu'à ce qu'il ne dise plus ce qu'il dit. Un test garde ce
+raisonnement et tombe si quelqu'un le rebranche.
+
+### Le cycle, fermé
+
+    429 → QUOTA → fournisseur B          et non
+    429 → même fournisseur → 429 → …
+
+Mesuré de bout en bout : deux appels consécutifs sur un fournisseur qui
+rend 429 produisent **un seul appel HTTP réel**. Le second n'est pas
+tenté.
+
+La taxonomie de HOS-225 nomme la cause ; le courtier en tire une durée
+d'écart. Elles diffèrent selon la cause, et c'est tout l'intérêt :
+
+- **quota** — 60 s, la même valeur que `remede(QUOTA).attendre_s`, et
+  pour la même raison : le pool gratuit est partagé par clé et se réarme
+  à la minute ou à la journée ;
+- **fournisseur** et **ressource** — 10 s ; mais trois échecs consécutifs
+  disent autre chose, et le circuit s'ouvre pour deux minutes ;
+- **modèle, sémantique, vérification, contexte, outil, politique,
+  sécurité, inconnue** — n'écartent **personne**. Un modèle qui rend une
+  sortie inutilisable ne dit rien de la santé d'OpenRouter, et l'écarter
+  pour ça ferait basculer sur le local une charge que le cloud servait
+  très bien.
+
+La table des causes écartantes tient en trois entrées, et un test le
+vérifie : une table qui écarterait sur tout ferait basculer au premier
+ennui, pour n'importe quelle raison.
+
+### Un succès referme
+
+Sans ça, un disjoncteur ouvert par un incident passager tue le
+fournisseur jusqu'au redémarrage — ce qui ressemble exactement à un
+fournisseur en panne, et se débogue mal. Un succès remet aussi le
+compteur à zéro, sans quoi il additionnerait des échecs séparés par des
+réussites.
+
+### Le tri-état, encore
+
+Un quota **non mesurable** écarte, comme un quota épuisé : on ne dépense
+pas sur une mesure qu'on n'a pas. Mais une mesure périmée n'écarte plus —
+s'y fier retirerait un fournisseur dont le quota s'est réarmé entre-temps,
+et le pool gratuit se réarme à la minute.
+
+### Deux refus de conception
+
+Le courtier **ne va pas chercher** le quota lui-même : il serait alors
+synchrone sur le réseau au milieu d'une décision de routage. Il le reçoit
+de qui l'a mesuré.
+
+Et il **n'a pas d'état persistant** : un redémarrage repart avec tous les
+fournisseurs disponibles. Un écart est une réaction à un incident en
+cours ; le faire survivre au redémarrage écarterait un fournisseur pour
+une panne d'hier.
+
+### Trace
+
+`cloud.fournisseur_ecarte` **et** `cloud.fournisseur_retabli` : un écart
+sans rétablissement visible ressemble à une panne définitive. Déclarés
+dans les deux endroits que HOS-227 a mis au jour — le catalogue à côté du
+producteur, que lit `collect_known_topics()`, et `BASELINE_TOPICS`, que
+lit l'`EventHub`.
+
+### Mesures
+
+29 gardes ajoutées. Suite complète : **5 188 vertes**, 3 ignorées.
+
+
 ## HOS-227 — Ce qui a le droit de partir chez un tiers (2026-09-03)
 
 Le jalon 11. Prémisse vérifiée avant d'écrire une ligne : **le pare-feu

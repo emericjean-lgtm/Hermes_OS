@@ -218,6 +218,11 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # ont ete refuses : c'est ce qui dit si le pare-feu regarde vraiment
     # quelque chose.
     "cloud.pare_feu",
+    # HOS-228 : un fournisseur mis a l'ecart, et son retablissement. Les
+    # deux, parce qu'un ecart sans retablissement visible ressemble a une
+    # panne definitive.
+    "cloud.fournisseur_ecarte",
+    "cloud.fournisseur_retabli",
     # ohmypi
     "ohmypi.ast.analyzed",
     "ohmypi.lsp.diagnostics",

@@ -167,6 +167,8 @@ def collect_known_topics() -> set[str]:
         ("backend.security.approvals", "APPROVAL_EVENTS"),
         # HOS-227 : la decision du pare-feu de donnees.
         ("backend.security.pare_feu", "PARE_FEU_EVENTS"),
+        # HOS-228 : le courtier de quotas.
+        ("backend.ral.courtier", "COURTIER_EVENTS"),
         ("backend.agents.kronos", "KRONOS_EVENTS"),
         ("backend.api.routes.chat", "CHAT_EVENTS"),
     )
