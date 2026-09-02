@@ -286,9 +286,22 @@ def main() -> int:
         _dire(f"MONTAGE REFUSE — {montage['error']}")
     _dire("montage : " + json.dumps(montage, ensure_ascii=False)[:400])
 
+    # Un plan `rejete` reste sur le disque et entre donc au montage. C'est
+    # voulu — le cahier des charges demande de signaler un defaut, pas de
+    # relancer une nuit — mais le rapport doit le dire, sinon le verdict
+    # est calcule puis perdu.
+    verdicts = {p["identifiant"]: {"etat": p.get("etat"),
+                                   "confiance": p.get("confiance"),
+                                   "defauts": p.get("defauts") or []}
+                for p in (rapport_file.get("plans") or [])}
+    rejetes = [n for n in clips if verdicts.get(n, {}).get("etat") == "rejete"]
+    if rejetes:
+        _dire(f"ATTENTION — plans rejetes mais montes : {rejetes}")
+
     rapport = {
         "debut": debut, "duree_s": round(time.time() - debut, 1),
         "p01": p01, "file": rapport_file, "clips": clips,
+        "verdicts": verdicts, "rejetes_mais_montes": rejetes,
         "narration": NARRATION if os.path.isfile(NARRATION) else None,
         "sous_titres": srt, "montage": montage,
     }
