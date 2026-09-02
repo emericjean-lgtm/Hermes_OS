@@ -171,6 +171,8 @@ def collect_known_topics() -> set[str]:
         ("backend.ral.courtier", "COURTIER_EVENTS"),
         # HOS-230 : la boucle contrat/execution/verification/reparation.
         ("backend.mission.boucle", "BOUCLE_EVENTS"),
+        # HOS-232 : la mise a jour et son retour arriere.
+        ("backend.maj.mise_a_jour", "MAJ_EVENTS"),
         ("backend.agents.kronos", "KRONOS_EVENTS"),
         ("backend.api.routes.chat", "CHAT_EVENTS"),
     )

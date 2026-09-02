@@ -1,3 +1,94 @@
+## HOS-232 — Mettre à jour sans perdre ce que quinze jalons ont construit (2026-09-03)
+
+Le jalon 16. La prémisse était juste — `installer/` fait 378 lignes et ne
+contient que de la détection — mais en la vérifiant, deux choses de plus
+sont apparues, dont une grave.
+
+### Le défaut : `preserve_set()` ne couvrait pas les points de reprise
+
+HOS-215 a écrit la liste de ce qu'une mise à jour ne doit jamais toucher.
+HOS-223 a créé `checkpoints` sous la même racine **deux jalons plus
+tard**, hors de la liste. Rien ne l'a signalé, pour une raison simple :
+**rien ne consommait `preserve_set()`**.
+
+Une mise à jour aurait donc effacé les points de reprise — c'est-à-dire
+le seul moyen d'annuler ce qu'elle aurait cassé. Le défaut que HOS-215
+avait fermé, rouvert par le jalon qui construisait le filet.
+
+La correction n'est pas d'ajouter un nom à la liste. C'est
+`test_tout_ce_qui_vit_sous_la_racine_est_preserve`, qui **lit le code** —
+qui écrit où sous la racine — plutôt que de relire la liste. Aucune
+relecture de la liste n'aurait trouvé ce trou : il fallait regarder
+ailleurs. **Une liste que rien ne vérifie contre la réalité est une liste
+qui dérive.**
+
+### Hermes OS n'avait pas de version
+
+Trois versions existaient dans le dépôt — `SNAPSHOT_VERSION` pour le
+format des instantanés, `SCHEMA_VERSION` pour le graphe de mission,
+`_KT_VERSION` pour une bibliothèque tierce — et **aucune ne désignait le
+produit**.
+
+On ne revient pas à une version qu'on n'a jamais nommée. Elle est écrite
+sous la racine d'état et non dans le dépôt, parce que la question « d'où
+viens-je ? » se pose au moment précis où le dépôt vient d'être remplacé.
+Une version illisible vaut `0.0.0` plutôt que de lever : lever
+bloquerait exactement l'installation qui vient réparer.
+
+### La séquence, et son ordre
+
+    sauvegarde → migration → installation → validation → marquage
+                                                     ↘ échec → retour arrière
+
+**La sauvegarde d'abord** : après elle, tout est réversible. C'est le
+seul échec qui arrête avant d'avoir rien touché, et c'est celui qu'il faut
+arrêter — sans sauvegarde, rien ne l'est.
+
+**Le marquage en dernier**, après la validation. Posé avant, il ferait
+croire à une mise à jour réussie qui ne l'est pas, et le retour arrière
+suivant repartirait du mauvais point. Une garde sur l'arbre syntaxique
+tient l'ordre — par **numéro de ligne**, une première version comparant
+des positions de parcours en largeur qui ne voulaient rien dire.
+
+Mesuré de bout en bout : une installation qui saccage la base et supprime
+un point de reprise avant d'échouer laisse, après retour arrière, la base
+intacte, le point de reprise revenu et la version inchangée.
+
+### Trois choix qui rendent le retour arrière honnête
+
+**La sauvegarde porte sa propre liste.** Un retour arrière restaure ce
+qui a été **sauvé**, pas ce que la version d'aujourd'hui croit qu'il
+fallait sauver — une version qui aurait ajouté un dossier ne doit pas
+prétendre le restaurer depuis une copie qui ne le contient pas.
+
+**Il retire avant de copier.** Une copie par-dessus laisserait les
+fichiers que la version fautive a créés, et un état mi-ancien
+mi-nouveau est pire que l'un ou l'autre.
+
+**Un retour arrière impossible est dit fort.** L'installation a échoué
+*et* le retour aussi : c'est le pire cas, et le taire laisserait un état à
+mi-chemin que personne ne sait diagnostiquer.
+
+### L'auto-vérification touche à la vraie base
+
+Elle ouvre le registre des runs. Une auto-vérification qui ne ferait
+qu'importer des modules passerait sur une base corrompue — un test sur
+l'arbre syntaxique l'exige.
+
+### Ce qui n'est délibérément pas écrit
+
+Le **remplacement du code** : télécharger une version, échanger
+l'arborescence. Cela demande un canal de distribution qui n'existe pas, et
+l'écrire sans lui produirait un mécanisme non éprouvable. La fonction
+d'installation est donc **injectée**, ce qui rend la séquence testable
+pour de bon — avec une installation qui échoue exprès. Un test vérifie
+que le module n'a gagné ni accès réseau ni lancement de processus.
+
+### Mesures
+
+26 gardes ajoutées. Suite complète : **5 274 vertes**, 3 ignorées.
+
+
 ## HOS-231 — Ne pas juger un modèle sur un échec qui n'est pas le sien (2026-09-03)
 
 Le jalon 15. La prémisse avait déjà été corrigée : `update_performance` et

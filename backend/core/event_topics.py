@@ -230,6 +230,12 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # refus assume.
     "boucle.tour",
     "boucle.arret",
+    # HOS-232 : chaque etape d'une mise a jour, son issue, et son retour
+    # arriere. Le troisieme surtout : un retour arriere silencieux laisse
+    # croire que la version installee est la nouvelle.
+    "maj.etape",
+    "maj.terminee",
+    "maj.retour_arriere",
     # ohmypi
     "ohmypi.ast.analyzed",
     "ohmypi.lsp.diagnostics",

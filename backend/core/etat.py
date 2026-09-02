@@ -61,7 +61,20 @@ NOM_DOSSIER = "HermesOS"
 #: git**, donc livré avec l'application. Le critère n'est pas « où c'est
 #: rangé » mais **qui l'a écrit** — ce que git suit se remplace à chaque
 #: mise à jour, ce que l'utilisateur produit doit lui survivre.
-SOUS_DOSSIERS = ("db", "logs", "snapshots", "eventbus", "memoire", "config")
+#: Ce que Hermes écrit sous sa racine d'état, et donc ce qu'une mise à
+#: jour ne doit jamais toucher.
+#:
+#: `checkpoints` a été ajouté en HOS-232, après avoir constaté qu'il
+#: manquait : HOS-223 l'a créé sous cette racine deux jalons après que
+#: HOS-215 eut écrit cette liste, et rien ne l'a signalé — parce que
+#: **rien ne consommait `preserve_set()`**. Une mise à jour aurait effacé
+#: les points de reprise, c'est-à-dire le seul moyen d'annuler ce
+#: qu'elle aurait cassé.
+#:
+#: Le garde est `test_mise_a_jour.py::test_tout_ce_qui_vit_sous_la_racine_est_preserve`,
+#: qui lit le code plutôt que cette liste.
+SOUS_DOSSIERS = ("db", "logs", "snapshots", "eventbus", "memoire", "config",
+                 "checkpoints")
 
 
 class RacineInvalide(RuntimeError):
