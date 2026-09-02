@@ -359,19 +359,60 @@ class MissionExecutor:
                 # node_execution.py's retry loop already drives; the next
                 # attempt also gets a real alternative model — see
                 # RealTaskExecutor._resolve_model()'s retry branch.
+                # HOS-225 : la reprise consulte la cause au lieu de
+                # reprendre à l'identique. Trois cas changent réellement :
+                # un refus de politique ou de sécurité ne se reprend
+                # **pas** (la reprise viendra de l'accord humain, pas de
+                # la boucle) ; un manque de VRAM demande un modèle plus
+                # petit et non un autre de même taille ; une fenêtre de
+                # contexte fermée ne se répare pas en changeant de
+                # modèle. Sans indice, on retombe exactement sur le
+                # comportement d'avant — reprendre une fois, sans rien
+                # changer qu'on ne saurait justifier.
+                from backend.runs.taxonomie import classer, remede
+
+                classement = classer(str(exc))
+                soin = remede(classement.cause)
+                # Le classement n'est pas accroché à la tâche : elle n'a
+                # pas de champ pour ça, et lui en ajouter un donnerait un
+                # champ que personne ne lit. Il voyage par les événements
+                # ci-dessous et par la `raison` du registre, qui sont les
+                # deux endroits où on le cherchera.
+                #
+                # Le budget reste celui de la mission. La taxonomie dit
+                # **si** on reprend, pas combien de fois : elle n'a aucune
+                # mesure qui justifierait de rétrécir un chiffre que
+                # quelqu'un a décidé.
                 max_retries = sm._meta.max_retries_per_task
-                if task.retries < max_retries:
+                if soin.reessayer and task.retries < max_retries:
                     task.retries += 1
                     task.status = TaskExecutionStatus.PENDING
                     self._publish("execution.retry", {
                         "task_id": task_id, "reason": "runtime_unavailable",
                         "detail": str(exc), "attempt": task.retries,
+                        "cause": classement.cause.value,
+                        "indice": classement.indice,
+                        "remede": soin.explication,
+                        "changer_de_modele": soin.changer_de_modele,
+                        "reduire_le_modele": soin.reduire_le_modele,
+                        "elargir_le_contexte": soin.elargir_le_contexte,
+                        "changer_de_fournisseur": soin.changer_de_fournisseur,
+                        "attendre_s": soin.attendre_s,
                     })
                 else:
                     task.status = TaskExecutionStatus.FAILED
                     self._publish("execution.failed", {
                         "task_id": task_id, "reason": "runtime_unavailable",
                         "detail": str(exc),
+                        "cause": classement.cause.value,
+                        "indice": classement.indice,
+                        # Pourquoi on ne reprend pas : « plafond atteint »
+                        # et « on ne doit pas » sont deux choses, et les
+                        # confondre ferait chercher un bug de compteur là
+                        # où il y a un refus assumé.
+                        "abandon": ("cause non reprenable" if not soin.reessayer
+                                    else "plafond de tentatives atteint"),
+                        "remede": soin.explication,
                     })
                 self._scheduler.update_task(task_id, task.status)
                 self._coordinator.release_agent(task_id)
@@ -553,11 +594,16 @@ class MissionExecutor:
                       tasks: list[TaskExecution]) -> None:
         """Clore le run avec ce qui s'est réellement passé.
 
-        ``cause`` reste ``INCONNUE`` ici, et c'est délibéré : classer un
-        échec depuis un message d'erreur demande la taxonomie qui fait
-        l'objet de son propre jalon. Deviner maintenant produirait des
-        étiquettes fausses — exactement ce que ce dépôt paie le plus cher.
-        ``raison`` porte l'erreur brute, qui elle est mesurée.
+        ``cause`` est renseignée depuis HOS-225, et **seulement quand un
+        indice la démontre** : `backend.runs.taxonomie` rend `INCONNUE`
+        sans rien inventer quand le message ne dit rien. La contrainte de
+        HOS-221 tient donc toujours — une étiquette fausse coûte plus
+        cher qu'une case vide, parce qu'on la croit — et elle est
+        maintenant portée par un classificateur qui enregistre son indice
+        au lieu d'être portée par une case laissée vide.
+
+        ``raison`` continue de porter l'erreur brute : le classement est
+        une lecture, jamais un remplacement.
         """
         identifiant = self._runs.pop(report.execution_id, None)
         if self._registre is None or identifiant is None:
@@ -578,8 +624,22 @@ class MissionExecutor:
                      for t in tasks)
         sortie = sum(int((t.resources_used or {}).get("completion_tokens", 0))
                      for t in tasks)
+        cause = None
+        if statut is not Statut.REUSSI and raison:
+            from backend.runs.taxonomie import classer
+
+            classement = classer(raison)
+            # `INCONNUE` reste `None` en base plutôt qu'une étiquette :
+            # une colonne vide se lit « on ne sait pas », une étiquette
+            # « inconnue » se lit comme un diagnostic posé.
+            cause = classement.cause if classement.classe else None
+            if classement.indice:
+                logger.info("run %s classé %s (%s)", identifiant,
+                            classement.cause.value, classement.indice)
+
         try:
             self._registre.terminer(identifiant, statut, raison=raison,
+                                    cause=cause,
                                     jetons_entree=entree, jetons_sortie=sortie)
         except Exception:
             logger.warning("run non clos au registre", exc_info=True)

@@ -181,15 +181,26 @@ def test_run_de_ne_ment_pas_quand_le_registre_est_absent():
 
 # ── Ce qui reste délibérément non fait ───────────────────────────────
 
-def test_la_cause_n_est_pas_devinee_depuis_le_message():
-    """Classer un échec demande la taxonomie, qui est son propre jalon.
+def test_la_cause_n_est_jamais_devinee_sans_indice():
+    """L'engagement de HOS-221, tenu autrement depuis HOS-225.
 
-    Deviner maintenant produirait des étiquettes fausses — et une
-    étiquette fausse coûte plus cher qu'une case vide, parce qu'on la
-    croit.
+    Ce test interdisait de renseigner `cause` du tout, parce que classer
+    un échec demandait une taxonomie qui n'existait pas encore. Elle
+    existe (`backend/runs/taxonomie.py`), et la contrainte n'a pas
+    bougé : une étiquette fausse coûte plus cher qu'une case vide, parce
+    qu'on la croit.
+
+    Ce qui a changé, c'est ce qui la porte. Un classificateur qui
+    **enregistre son indice** peut être contredit ; une intuition ne
+    peut pas l'être. La garde vérifie donc les deux choses qui rendent
+    ça vrai : le classement passe par la taxonomie, et une cause
+    `INCONNUE` ne devient jamais une étiquette en base.
     """
     import inspect
     from backend.execution import mission_executor
     source = inspect.getsource(mission_executor.MissionExecutor._clore_le_run)
-    assert "cause=" not in source
     assert "taxonomie" in source
+    assert "classement.classe" in source, (
+        "la cause doit rester None quand rien ne la démontre — une "
+        "étiquette « inconnue » en base se lit comme un diagnostic posé")
+

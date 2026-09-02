@@ -508,7 +508,7 @@ que trois manques que j'avais classés « confort » sont des **contrôles**
 | 6 | ✅ **Fait (HOS-222)** — verdict tri-état, instantané qui sait dire qu'il n'a pas lu | un « on ne sait pas » n'est pas un « c'est bon » — ni un « c'est mauvais » | 19 gardes |
 | 7 | ✅ **Fait (HOS-223)** — commit détaché + repli vérifié, couplé à l'état de mission | Hermes ne savait pas annuler une modification | 28 gardes |
 | 8 | ✅ **Fait (HOS-224)** — empreinte canonique + discriminants + portée d'arborescence bornée | l'expiration existait ; la description entrait dans l'identité, et deux appelants la font écrire par le modèle. `approval_engine` reste **délibérément** débranché : deux portes vivantes valent moins qu'une | 37 gardes |
-| 9 | Taxonomie d'échecs + retry par cause | trois incidents identiques ont eu trois réponses manuelles | moyen |
+| 9 | ✅ **Fait (HOS-225)** — onze causes classées sur indices nommés, remède par cause, `INCONNUE` reste `NULL` | le retry changeait de modèle à *toute* reprise — le bon remède pour un cas sur onze | 34 gardes |
 | 10 | `CloudProvider` + OpenRouter en adaptateur + **tests** | le client existe sans un seul test | moyen |
 | 11 | Cloud Data Firewall | prérequis de tout usage cloud réel | **gros, à isoler** |
 | 12 | `QuotaBroker`, santé, disjoncteurs testés | n'a de sens qu'après 10 et 11 | moyen |

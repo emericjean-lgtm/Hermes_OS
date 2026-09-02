@@ -1,3 +1,94 @@
+## HOS-225 — Pourquoi un run a échoué, et ce que ça change (2026-09-03)
+
+Le jalon 9, et la dette que HOS-221 avait explicitement notée : onze
+causes déclarées, aucune renseignée, avec la raison écrite dans le code —
+« deviner maintenant produirait des étiquettes fausses, et une étiquette
+fausse coûte plus cher qu'une case vide, parce qu'on la croit ».
+
+La contrainte n'a pas changé. Ce qui change, c'est ce qui la porte : un
+classificateur qui **enregistre son indice** peut être contredit ; une
+intuition ne peut pas l'être.
+
+### Ce que la reprise faisait, et pourquoi c'était faux
+
+`_resolve_model` change de modèle à **toute** reprise, quelle que soit la
+cause. C'est le bon remède pour exactement un cas sur onze :
+
+- **manque de VRAM** — il faut un modèle *plus petit*, ou attendre ; un
+  autre de même taille échoue pareil ;
+- **fenêtre de contexte fermée** — CLAUDE.md le dit déjà : « une réponse
+  tronquée n'est pas une erreur de raisonnement et ne doit pas se noter
+  comme telle ». Changer de modèle ne répare rien ;
+- **quota dépassé** — réessayer chez le même fournisseur échoue par
+  construction ;
+- **refus de politique ou de sécurité** — il ne faut **pas** reprendre.
+  `approvals.py` décrivait déjà ce que produit l'autre choix : « an agent
+  retrying in a loop after a refusal will re-ask », c'est-à-dire une file
+  d'approbation inondée par la machine. La reprise légitime viendra de
+  l'accord humain, pas de la boucle.
+
+### La règle de classement
+
+Trois sources, dans l'ordre de la force de preuve :
+`done_reason == "length"` (le seul indice qui vienne du runtime et non
+d'un message rédigé ici), puis le code HTTP (un fait, pas une
+interprétation), puis les motifs de texte.
+
+Les motifs sont écrits **depuis les messages réels du dépôt**, pas
+inventés : `no VRAM admission`, `runtime 'x' timed out after Ns`,
+`returned an empty completion`, `is outside ALLOWED_PATHS`,
+`the local fallback also failed`. Un classificateur calibré sur des
+messages imaginaires classe des messages imaginaires.
+
+`HTTP 400 → OUTIL` vient d'un incident précis : la campagne du catalogue
+comptait « 0 s par tentative », c'était un HTTP 400 jamais regardé, et il
+s'était rangé sous « le modèle ne sait pas faire ».
+
+Deux refus de classer, délibérés. Le catch-all
+`runtime 'x' could not execute task y: …` enveloppe n'importe quoi et
+reste `INCONNUE` : lui donner une cause donnerait une cause à toutes les
+erreurs non prévues, ce qui est exactement la façon dont une taxonomie
+devient du bruit. Et `KeyError: 'x'` ne démontre rien.
+
+### `INCONNUE` ne devient jamais une étiquette
+
+En base, une cause non démontrée reste **`NULL`**. Une colonne vide se
+lit « on ne sait pas » ; une étiquette « inconnue » se lit comme un
+diagnostic posé. Et l'appelant retombe alors exactement sur le
+comportement d'avant ce jalon : reprendre une fois, sans rien changer
+qu'on ne saurait justifier.
+
+L'abandon distingue aussi ses deux motifs — « plafond atteint » et
+« cause non reprenable ». Les confondre ferait chercher un défaut de
+compteur là où il y a un refus assumé.
+
+### Un plafond retiré parce qu'un test l'a dit
+
+Ma première version donnait à chaque cause un plafond de tentatives, à 2
+par défaut. Il **rétrécissait** silencieusement le budget que
+l'opérateur avait configuré dans `max_retries_per_task` : une mission
+réglée sur deux reprises n'en obtenait plus qu'une, et
+`tests/architecture/test_intelligent_retry.py` l'a dit à la première
+exécution de la suite complète.
+
+Aucune mesure ne dit qu'un manque de VRAM mérite moins de tentatives
+qu'un échec quelconque. L'opinion de ce module est donc binaire — on
+reprend ou on ne reprend pas — et le *combien* reste au budget de la
+mission, qui est le seul chiffre que quelqu'un ait décidé.
+
+C'est le second arbre de tests qui l'a trouvé, celui qui n'était plus
+collecté depuis HOS-175.
+
+### Mesures
+
+34 gardes ajoutées, plus le garde de HOS-221 amendé — il interdisait de
+renseigner `cause` du tout ; il vérifie maintenant les deux choses qui
+rendent le classement honnête : qu'il passe par la taxonomie, et qu'une
+cause non démontrée reste `NULL`.
+
+Suite complète : **5 102 vertes**, 3 ignorées.
+
+
 ## HOS-224 — Approuver une action, pas une phrase (2026-09-03)
 
 Le jalon 8. La roadmap annonçait « ni hash canonique, ni portée, ni
