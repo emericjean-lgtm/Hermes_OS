@@ -1,3 +1,115 @@
+## HOS-227 — Ce qui a le droit de partir chez un tiers (2026-09-03)
+
+Le jalon 11. Prémisse vérifiée avant d'écrire une ligne : **le pare-feu
+n'existait pas**, zéro implémentation de §8.1. Ce qui existait et a été
+réutilisé : `audit_log.redact()`, décrit dans son propre code comme « le
+plus proche d'un `secret_scanner` que ce projet possède » (§17.1), avec
+des motifs délibérément conservateurs.
+
+### La fuite, mesurée sur le vrai prompt
+
+`_build_messages` assemble le prompt ; quand le runtime est distant, tout
+part. Construit avec le vrai assembleur, pas recopié : le chemin absolu
+du workspace apparaît dans les instructions système — donc le nom de
+l'utilisateur **et celui de son client**, dans chaque prompt cloud d'une
+mission liée à un projet. Pas un scénario : le comportement du jour.
+
+Six fragments partent, de sensibilités différentes — instructions système
+(qui portent le chemin absolu), objectif de mission, journal de projet
+relu depuis `.hermes/`, résultats amont (du texte produit par un modèle,
+qui peut citer un fichier), manifeste des livrables, titre.
+
+### Ce que « refusé par défaut » peut vouloir dire, et ce qu'il ne peut pas
+
+Appliquée **littéralement à du texte quelconque**, la décision §8.1
+refuserait tout : on ne peut pas démontrer qu'une phrase en prose n'est
+pas sensible. Un pare-feu qui refuse tout est un pare-feu qu'on désarme
+dans la semaine — la leçon du canary (HOS-218) et celle de la portée
+d'approbation (HOS-224).
+
+Le refus par défaut s'applique donc là où il a un sens :
+
+- **au niveau du projet**, où `PolitiqueCloud.JAMAIS` bloque tout, quelle
+  que soit la recommandation du routeur. C'est le vrai levier, à la
+  granularité où quelqu'un peut réellement en décider : l'utilisateur
+  sait si son dépôt client a le droit d'aller chez un tiers, le
+  classificateur ne le saura jamais ;
+- **au niveau du constat**, où ce qui est *démontré* sensible est
+  caviardé ou refusé — jamais laissé passer parce qu'on hésite.
+
+Et comme partout ici, un constat **nomme son indice**.
+
+### Contexte nécessaire n'est pas contenu autorisé
+
+C'est la distinction que le cahier demandait, et elle décide du
+caviardage plutôt que du refus. Le modèle a besoin de savoir **qu'il
+existe** une racine de workspace ; il n'a pas besoin de savoir chez qui.
+La racine devient `<WORKSPACE>` ; le chemin relatif — `src/app.py`,
+c'est-à-dire le travail — reste intact.
+
+**Une expression régulière ne peut pas deviner où une racine s'arrête.**
+Mesuré : elle la réduisait à `<WORKSPACE>` suivi du nom du projet client,
+qui survivait donc au caviardage. L'appelant, lui, connaît la racine
+exacte : `RealTaskExecutor` la passe désormais, et les trois écritures
+sont couvertes — antislash, slash, et la forme échappée d'un `repr()`,
+qui est exactement ce que le prompt contient.
+
+### Refuser, et pas seulement retirer
+
+Un identifiant démontré fait **refuser** l'envoi, pas caviarder. Sa
+présence veut dire que le contexte assemblé contient du matériel qui
+n'aurait pas dû y entrer — vraisemblablement le fichier d'où il vient.
+Retirer la clé et envoyer le fichier autour serait la moitié d'une
+protection.
+
+Un secret prime aussi sur la politique « approbation » : proposer une clé
+à l'accord humain ferait exister un chemin où quelqu'un de pressé la
+laisse partir.
+
+Et un envoi refusé porte **zéro message**, pour qu'un appelant distrait
+qui enverrait quand même n'envoie rien.
+
+### L'interne est caviardé, pas refusé
+
+Adresses de courriel, adresses réseau privées : retirées, l'envoi part.
+Les refuser rendrait le cloud inutilisable pour toute mission liée à un
+workspace. L'adresse de boucle locale est délibérément **exclue** :
+Hermes écoute dessus, elle apparaît dans des messages d'erreur normaux,
+et la caviarder rendrait un diagnostic illisible sans rien protéger.
+
+### Le contrôle est avant l'envoi
+
+Posé dans `_make_cloud_chat`, le goulet ouvert par HOS-226 — donc vrai de
+tout appelant, pas seulement de celui qu'on a pensé à instrumenter. Deux
+gardes sur l'**arbre syntaxique** le tiennent : l'examen s'exécute avant
+l'appel, et ce qui est envoyé est `decision.messages`, pas les messages
+d'origine. La seconde vise l'erreur qui annulerait tout le module —
+examiner puis envoyer l'original passerait tous les tests du
+classificateur et ne protégerait de rien.
+
+Un événement `cloud.pare_feu` est publié sur **chaque** décision, pas
+seulement sur les refus : savoir que trois cents prompts sont partis
+« autorisés » vaut autant que savoir que deux ont été refusés, parce que
+c'est ce qui dit si le pare-feu regarde vraiment quelque chose. Son
+aperçu est caviardé à la source — un rapport de fuite qui cite la valeur
+serait une seconde fuite (HOS-218).
+
+### Une asymétrie trouvée dans le garde des topics
+
+`collect_known_topics()` assemble la liste blanche depuis des
+**catalogues déclarés à côté de leurs producteurs**, et non depuis
+`event_topics.BASELINE_TOPICS`. Un topic ajouté seulement au second passe
+à l'exécution mais fait tomber `test_topics_publies_sont_autorises` — ce
+qui est arrivé ici. `PARE_FEU_EVENTS` suit donc le patron des huit
+catalogues rebranchés en HOS-181.
+
+### Mesures
+
+28 gardes ajoutées ; 12 faux de chat cloud mis à jour, le contrat d'un
+chat **distant** portant désormais les racines. Suite complète :
+**5 159 vertes**, 3 ignorées.
+
+
 ## HOS-226 — Un fournisseur distant est un runtime, pas une hiérarchie (2026-09-03)
 
 Le jalon 10. Sa prémisse — « le client existe sans un seul test » —

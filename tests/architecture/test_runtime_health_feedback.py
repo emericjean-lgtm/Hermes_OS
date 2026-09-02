@@ -88,7 +88,8 @@ class TestOnRuntimeResultFailure:
     def test_cloud_then_local_fallback_both_fail_reports_ollama_failure(self):
         calls: list[tuple[str, float, bool]] = []
 
-        async def cloud_chat(*, messages, model, num_ctx=None):
+        # `racines` (HOS-227) : le contrat d'un chat cloud les porte.
+        async def cloud_chat(*, messages, model, num_ctx=None, **_):
             raise RuntimeError("cloud unreachable")
 
         async def chat(*, messages, model, num_ctx=None):

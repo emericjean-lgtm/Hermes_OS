@@ -1,4 +1,11 @@
-"""Tests for RealTaskExecutor's cloud-to-local fallback (HOS-066C).
+"""HOS-227 : les faux de chat cloud absorbent `racines`.
+
+Le contrat d'un chat **cloud** les porte depuis le pare-feu de données —
+il en a besoin pour masquer une racine de workspace en entier, ce qu'une
+expression régulière ne sait pas faire. Ces tests mesurent le choix du
+chemin et le repli, pas le caviardage.
+
+Tests for RealTaskExecutor's cloud-to-local fallback (HOS-066C).
 
 Fully hermetic: chat/cloud_chat are injected fakes (constructor params
 RealTaskExecutor already supports), no real Ollama or OpenRouter needed.
@@ -28,7 +35,7 @@ class _FakeResponse:
         self.metadata = {"provider": provider, **extra_meta}
 
 
-async def _local_chat(*, messages, model, num_ctx=None):
+async def _local_chat(*, messages, model, num_ctx=None, **_):
     return _FakeResponse("local completion", "ollama", model=model)
 
 
@@ -50,7 +57,7 @@ class TestCloudSucceeds:
     def test_uses_cloud_when_runtime_for_says_openrouter(self):
         calls = []
 
-        async def cloud_chat(*, messages, model, num_ctx=None):
+        async def cloud_chat(*, messages, model, num_ctx=None, **_):
             calls.append(model)
             return _FakeResponse("cloud completion", "openrouter", model=model,
                                  prompt_tokens=10, completion_tokens=3)
@@ -70,11 +77,11 @@ class TestCloudSucceeds:
     def test_local_chat_never_called_when_cloud_succeeds(self):
         calls = {"local": 0}
 
-        async def counting_local_chat(*, messages, model, num_ctx=None):
+        async def counting_local_chat(*, messages, model, num_ctx=None, **_):
             calls["local"] += 1
             return _FakeResponse("local completion", "ollama")
 
-        async def cloud_chat(*, messages, model, num_ctx=None):
+        async def cloud_chat(*, messages, model, num_ctx=None, **_):
             return _FakeResponse("cloud completion", "openrouter")
 
         executor = RealTaskExecutor(
@@ -87,7 +94,7 @@ class TestCloudSucceeds:
     def test_runtime_for_returning_ollama_never_touches_cloud_chat(self):
         calls = {"cloud": 0}
 
-        async def counting_cloud_chat(*, messages, model, num_ctx=None):
+        async def counting_cloud_chat(*, messages, model, num_ctx=None, **_):
             calls["cloud"] += 1
             return _FakeResponse("cloud completion", "openrouter")
 
@@ -99,7 +106,7 @@ class TestCloudSucceeds:
 
 class TestCloudFailsAutomaticLocalFallback:
     def test_falls_back_to_local_model_on_cloud_failure(self):
-        async def failing_cloud_chat(*, messages, model, num_ctx=None):
+        async def failing_cloud_chat(*, messages, model, num_ctx=None, **_):
             raise RuntimeError("OpenRouter rate limit exceeded (HTTP 429)")
 
         executor = _executor(
@@ -116,7 +123,7 @@ class TestCloudFailsAutomaticLocalFallback:
         assert outcome.metadata["runtime_requested"] == "openrouter"
 
     def test_falls_back_to_default_model_when_no_local_fallback_resolves(self):
-        async def failing_cloud_chat(*, messages, model, num_ctx=None):
+        async def failing_cloud_chat(*, messages, model, num_ctx=None, **_):
             raise RuntimeError("network error")
 
         executor = _executor(
@@ -129,10 +136,10 @@ class TestCloudFailsAutomaticLocalFallback:
         assert outcome.model == "qwen3:1.7b"
 
     def test_raises_when_both_cloud_and_local_fallback_fail(self):
-        async def failing_cloud_chat(*, messages, model, num_ctx=None):
+        async def failing_cloud_chat(*, messages, model, num_ctx=None, **_):
             raise RuntimeError("quota exhausted")
 
-        async def failing_local_chat(*, messages, model, num_ctx=None):
+        async def failing_local_chat(*, messages, model, num_ctx=None, **_):
             raise RuntimeError("Ollama unreachable")
 
         executor = RealTaskExecutor(
@@ -147,7 +154,7 @@ class TestCloudFailsAutomaticLocalFallback:
     def test_a_quiet_task_never_fails_solely_because_cloud_was_down(self):
         """The point of the feature: a cloud hiccup must not turn into a
         failed task when a real local alternative exists."""
-        async def failing_cloud_chat(*, messages, model, num_ctx=None):
+        async def failing_cloud_chat(*, messages, model, num_ctx=None, **_):
             raise TimeoutError("cloud request timed out")
 
         executor = _executor(

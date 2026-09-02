@@ -212,6 +212,12 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # silence laisse partir avec le meme aplomb, et l'absence ne se
     # decouvre qu'en tombant.
     "mission.sans_filet",
+    # HOS-227 : la decision du pare-feu de donnees, sur **chaque** envoi
+    # vers un tiers — pas seulement sur les refus. Savoir que trois cents
+    # prompts sont partis « autorises » vaut autant que savoir que deux
+    # ont ete refuses : c'est ce qui dit si le pare-feu regarde vraiment
+    # quelque chose.
+    "cloud.pare_feu",
     # ohmypi
     "ohmypi.ast.analyzed",
     "ohmypi.lsp.diagnostics",

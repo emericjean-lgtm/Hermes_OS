@@ -165,6 +165,8 @@ def collect_known_topics() -> set[str]:
         ("backend.integrations.alexandrie.hermes_alexandrie_adapter", "ALEXANDRIE_EVENTS"),
         ("backend.runtime.ktransformers.integrations.resources", "KT_EVENTS"),
         ("backend.security.approvals", "APPROVAL_EVENTS"),
+        # HOS-227 : la decision du pare-feu de donnees.
+        ("backend.security.pare_feu", "PARE_FEU_EVENTS"),
         ("backend.agents.kronos", "KRONOS_EVENTS"),
         ("backend.api.routes.chat", "CHAT_EVENTS"),
     )

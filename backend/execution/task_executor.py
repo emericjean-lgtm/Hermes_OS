@@ -649,6 +649,13 @@ class RealTaskExecutor:
         )
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
 
+        # HOS-227 : la racine du workspace, donnée au pare-feu qui en a
+        # besoin. Une expression régulière ne peut pas deviner où une
+        # racine s'arrête — mesuré, elle réduisait
+        # « …/emeri/Skill360 Industry » à un jeton suivi du nom du
+        # client, qui survivait donc au caviardage. Ici on la connaît.
+        racines_du_prompt = [workspace[1]] if workspace else []
+
         # HOS-085: when Hermes Agent is the runtime it IS the brain — it owns
         # reasoning, tool selection and tool execution, reaching this very
         # backend's tools through its own MCP client (its config.yaml points
@@ -671,8 +678,14 @@ class RealTaskExecutor:
             active_chat = self._cloud_chat if use_cloud else chat
             if not use_cloud and runtime_id != "hermes-agent":
                 self._check_vram_admission(model)
+            # Les racines ne partent qu'au chemin cloud : c'est le seul
+            # où quelque chose sort de la machine, et les ajouter au
+            # chemin local casserait les appelants qui injectent leur
+            # propre `chat` sans ce paramètre.
+            extra = {"racines": racines_du_prompt} if use_cloud else {}
             response = self._run_coro(
-                active_chat(messages=messages, model=model, num_ctx=num_ctx),
+                active_chat(messages=messages, model=model, num_ctx=num_ctx,
+                            **extra),
                 # Une boucle a besoin de son propre budget — voir
                 # _HERMES_AGENT_TIMEOUT_S. HOS-121 : la leçon avait été
                 # apprise pour `hermes-agent` et jamais appliquée au chemin

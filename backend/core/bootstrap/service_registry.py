@@ -876,15 +876,60 @@ def _make_cloud_chat() -> Optional[Any]:
         return None
 
     async def _cloud_chat(*, messages: list[dict[str, Any]], model: str,
-                          num_ctx: Optional[int] = None) -> Any:
+                          num_ctx: Optional[int] = None,
+                          racines: Optional[list[str]] = None) -> Any:
+        # HOS-227 : le pare-feu, **avant** l'envoi. Après, ce serait un
+        # constat de fuite. C'est le seul passage par lequel un prompt
+        # part chez un tiers, et il est ici plutôt que dans l'exécuteur
+        # pour que ce soit vrai de tout appelant, pas seulement de celui
+        # qu'on a pensé à instrumenter.
+        from backend.security import pare_feu
+
+        decision = pare_feu.examiner(messages, racines=racines or [])
+        _publier_la_decision(decision, model)
+        if not decision.envoyable:
+            raise _cloud.FournisseurIndisponible(
+                f"pare-feu de données : {decision.raison}")
+
         # Le premier fournisseur enregistré. Il n'y en a qu'un
         # aujourd'hui ; le jour où il y en aura deux, c'est
         # `AdaptiveRouter` qui devra dire lequel — pas cette fabrique,
         # qui ne sait rien de la tâche.
         provider = next(iter(_cloud.fournisseurs().values()))
-        return await provider.chat(messages, model=model, num_ctx=num_ctx)
+        return await provider.chat(decision.messages, model=model,
+                                   num_ctx=num_ctx)
 
     return _cloud_chat
+
+
+def _publier_la_decision(decision: Any, model: str) -> None:
+    """Tracer chaque décision du pare-feu (HOS-227).
+
+    Toute décision, pas seulement les refus : savoir que trois cents
+    prompts sont partis « autorisés » vaut autant que savoir que deux ont
+    été refusés — c'est ce qui permet de dire si le pare-feu regarde
+    vraiment quelque chose.
+
+    L'aperçu des constats est déjà caviardé à la source : un événement de
+    fuite qui citerait la valeur serait une seconde fuite (HOS-218).
+    """
+    from backend.security.pare_feu import Verdict
+
+    try:
+        from backend.core.event_hub import get_event_hub
+
+        get_event_hub().publish("cloud.pare_feu", {
+            "verdict": decision.verdict.value,
+            "modele": model,
+            "raison": decision.raison,
+            "constats": [
+                {"motif": c.motif, "sensibilite": c.sensibilite.value,
+                 "fragment": c.fragment, "apercu": c.apercu}
+                for c in decision.constats
+            ],
+        })
+    except Exception:  # pragma: no cover - la trace ne casse pas l'envoi
+        logger.warning("décision de pare-feu non publiée", exc_info=True)
 
 
 def _make_execution_engine(c: Any) -> Any:

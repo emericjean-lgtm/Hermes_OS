@@ -115,7 +115,11 @@ async def test_execute_uses_plain_cloud_chat_even_with_workspace_resolved():
         local_calls.append(1)
         return _FakeChatResponse("should not be used")
 
-    async def fake_cloud_chat(*, messages, model, num_ctx=None):
+    # `racines` (HOS-227) : le contrat d'un chat **cloud** les porte,
+    # parce que le pare-feu de données en a besoin pour masquer une
+    # racine de workspace en entier. Absorbées ici : ce test mesure le
+    # choix du chemin, pas le caviardage.
+    async def fake_cloud_chat(*, messages, model, num_ctx=None, **_):
         cloud_calls.append(1)
         return _FakeChatResponse("cloud answer")
 
