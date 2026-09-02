@@ -24,6 +24,41 @@ from .model_intelligence_models import (
 from .performance_analyzer import PerformanceAnalyzer
 
 
+#: Les causes d'échec qui disent quelque chose du **modèle** (HOS-231).
+#:
+#: Courte, et c'est délibéré. Le reste — VRAM, quota, fournisseur, outil,
+#: politique, sécurité — décrit la machine, le réseau ou une décision
+#: humaine, jamais la compétence de ce qui a été appelé.
+#:
+#: `contexte` n'y est **pas**, et c'est le cas le mieux documenté :
+#: CLAUDE.md dit qu'une réponse tronquée n'est pas une erreur de
+#: raisonnement. Le départage de code a coupé qwen3.6-35b en plein milieu
+#: et l'a noté comme une faute, alors que c'était le réglage de la
+#: fenêtre qui était en cause.
+#:
+#: `inconnue` n'y est pas non plus. Sur huit défauts de mesure trouvés
+#: pendant la construction du catalogue, **cinq produisaient de faux
+#: échecs** : attribuer au modèle ce qu'on n'a pas su expliquer est
+#: exactement la façon dont on a déjà disqualifié des modèles compétents.
+CAUSES_IMPUTABLES_AU_MODELE: frozenset[str] = frozenset({
+    "modele", "semantique", "verification",
+})
+
+
+def _imputable_au_modele(cause: str) -> bool:
+    """Cet échec dit-il quelque chose de la compétence du modèle ?
+
+    Une cause **vide** compte, et c'est voulu : elle signifie « personne
+    n'a transmis de cause », c'est-à-dire un appelant d'avant HOS-231, et
+    le comportement d'alors doit être conservé pour lui. Une cause
+    `inconnue` ne compte pas : elle signifie qu'on a cherché sans
+    trouver, ce qui n'est pas la même phrase.
+    """
+    if not (cause or "").strip():
+        return True
+    return cause.strip().lower() in CAUSES_IMPUTABLES_AU_MODELE
+
+
 class ModelProfiler:
     """Creates, updates, and manages model performance profiles."""
 
@@ -152,12 +187,25 @@ class ModelProfiler:
 
             profile = self._profiles.get(record.model_id)
             if profile:
-                profile.total_runs += 1
-                if record.success:
-                    profile.successful_runs += 1
-                profile.historical_success_rate = (
-                    profile.successful_runs / profile.total_runs
-                ) if profile.total_runs > 0 else 0.0
+                # HOS-231 : un échec qui n'est pas imputable au modèle est
+                # gardé dans l'historique — il a eu lieu — mais **ne
+                # compte pas** dans son taux de réussite.
+                #
+                # Avant, un refus d'admission VRAM, un quota épuisé et une
+                # mauvaise réponse arrivaient tous sous la forme
+                # `success=False` et abaissaient identiquement la note.
+                # Un modèle qui n'a pas pu tourner parce que la carte
+                # était pleine n'est pas un modèle qui a échoué, et
+                # CLAUDE.md le dit déjà pour le cas le plus net : « une
+                # réponse tronquée n'est pas une erreur de raisonnement et
+                # ne doit pas se noter comme telle ».
+                if record.success or _imputable_au_modele(record.error_type):
+                    profile.total_runs += 1
+                    if record.success:
+                        profile.successful_runs += 1
+                    profile.historical_success_rate = (
+                        profile.successful_runs / profile.total_runs
+                    ) if profile.total_runs > 0 else 0.0
                 profile.last_used = datetime.now(timezone.utc).isoformat()
 
                 # tokens_per_second starts at the honest 0.0 (never measured)

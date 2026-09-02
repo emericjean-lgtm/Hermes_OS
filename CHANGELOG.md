@@ -1,3 +1,79 @@
+## HOS-231 — Ne pas juger un modèle sur un échec qui n'est pas le sien (2026-09-03)
+
+Le jalon 15. La prémisse avait déjà été corrigée : `update_performance` et
+`record_feedback` **sont** branchés, via
+`service_registry._record_feedback` → `RealTaskExecutor.on_execution`. Ce
+qui manquait était plus précis, et mesuré :
+
+- `ModelPerformanceRecord.error_type` existe depuis HOS-062 et **n'est
+  renseigné par personne**. Deux modules le relisent ; aucun ne l'écrit.
+- `update_performance` compte `success=False` dans
+  `historical_success_rate` **quelle qu'en soit la raison**. Un refus
+  d'admission VRAM, un quota épuisé, une coupure réseau et une mauvaise
+  réponse abaissaient identiquement la note du modèle.
+
+C'est le thème central du dépôt appliqué à sa propre télémétrie : *ni un
+échec sur parole*. Sur huit défauts de mesure trouvés pendant la
+construction du catalogue, **cinq produisaient de faux échecs** — et ce
+mécanisme-ci les aurait tous inscrits au passif du modèle.
+
+### La table des causes imputables tient en trois entrées
+
+`modele`, `semantique`, `verification`. Le reste décrit la machine, le
+réseau ou une décision humaine, jamais la compétence de ce qui a été
+appelé.
+
+Deux absences délibérées, et ce sont les plus importantes :
+
+**`contexte` n'y est pas.** C'est le cas le mieux documenté du dépôt.
+CLAUDE.md : « une réponse tronquée n'est pas une erreur de raisonnement
+et ne doit pas se noter comme telle ». Le départage de code a coupé
+qwen3.6-35b en plein milieu et l'a noté comme une faute, alors que
+c'était le réglage de la fenêtre qui était en cause.
+
+**`inconnue` n'y est pas non plus.** Attribuer au modèle ce qu'on n'a pas
+su expliquer est exactement la façon dont on a déjà disqualifié des
+modèles compétents.
+
+### Vide et « inconnue » ne disent pas la même chose
+
+Une cause **vide** signifie « personne n'a transmis de cause » — un
+appelant d'avant ce jalon — et son comportement est conservé : l'échec
+compte, comme avant. Une cause `inconnue` signifie qu'on a cherché sans
+trouver. Seul le second état veut dire qu'on a regardé, et les confondre
+aurait fait disparaître en silence toutes les notes d'échec des
+producteurs non migrés.
+
+### La trace reste complète
+
+L'échec a eu lieu : c'est le **jugement** qui est étroit, pas la trace.
+Les onze lignes de l'essai — sept non imputables, deux imputables, deux
+réussites — sont toutes dans l'historique. Un historique amputé rendrait
+impossible de savoir qu'un modèle tombe systématiquement sur des refus de
+VRAM, ce qui est une information réelle, sur autre chose que sa
+compétence.
+
+### Le chemin, de bout en bout
+
+`RealTaskExecutor` classe l'exception avec la taxonomie de HOS-225 aux
+**cinq** sites d'échec — une garde sur l'arbre syntaxique vérifie
+qu'aucun n'est oublié, un site manquant laissant passer des échecs non
+classés que le profileur compterait comme avant, sans que rien le dise.
+
+Le rappel `on_execution` reçoit la cause en argument supplémentaire, et un
+appelant d'avant ce jalon qui ne l'accepte pas continue de fonctionner :
+la télémétrie ne fait jamais échouer le travail qu'elle décrit.
+
+### Ce que le Trust reste
+
+Une donnée **décisionnelle**, pas une autorité de sécurité. Aegis reste
+au-dessus, et rien ici ne décide d'autoriser quoi que ce soit.
+
+### Mesures
+
+20 gardes ajoutées. Suite complète : **5 248 vertes**, 3 ignorées.
+
+
 ## HOS-230 — La boucle, assemblée et non recréée (2026-09-03)
 
 Le jalon 14. Prémisse mesurée : **deux pilotes de reprise existent, et

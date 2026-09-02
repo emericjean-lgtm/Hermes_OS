@@ -373,6 +373,22 @@ def _apres_des_tours_perdus(model: str, cle: str, sessions: Any) -> str:
     return secours
 
 
+def _cause_de(exc: BaseException) -> str:
+    """La cause nommée par la taxonomie, ou une chaîne vide (HOS-231).
+
+    Vide plutôt que « inconnue » : le profileur distingue « la cause n'a
+    pas été transmise » de « la cause a été cherchée et non trouvée », et
+    seul le second cas signifie qu'on a regardé.
+    """
+    try:
+        from backend.runs.taxonomie import classer
+
+        classement = classer(str(exc))
+        return classement.cause.value if classement.classe else "inconnue"
+    except Exception:  # pragma: no cover - un diagnostic ne casse rien
+        return ""
+
+
 class RuntimeUnavailableError(RuntimeError):
     """No runtime could serve the task.
 
@@ -729,7 +745,8 @@ class RealTaskExecutor:
                     self._record_failure()
                     self._report_execution(task, fallback_model,
                                            (time.perf_counter() - started) * 1000.0, 0, False,
-                                           runtime_id="ollama")
+                                           runtime_id="ollama",
+                                           cause=_cause_de(exc2))
                     raise RuntimeUnavailableError(
                         f"cloud runtime failed ({type(exc).__name__}: {exc}) and "
                         f"the local fallback also failed: {type(exc2).__name__}: {exc2}"
@@ -737,12 +754,14 @@ class RealTaskExecutor:
             elif isinstance(exc, RuntimeUnavailableError):
                 self._record_failure()
                 self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False,
-                                       runtime_id=runtime_id)
+                                       runtime_id=runtime_id,
+                                       cause=_cause_de(exc))
                 raise
             elif isinstance(exc, asyncio.TimeoutError):
                 self._record_failure()
                 self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False,
-                                       runtime_id=runtime_id)
+                                       runtime_id=runtime_id,
+                                       cause=_cause_de(exc))
                 # Le budget réellement appliqué, pas `_timeout_s` : le
                 # message annonçait 180 s même quand la boucle en avait eu
                 # 900, ce qui envoyait droit sur la mauvaise constante.
@@ -753,7 +772,8 @@ class RealTaskExecutor:
             else:
                 self._record_failure()
                 self._report_execution(task, model, (time.perf_counter() - started) * 1000.0, 0, False,
-                                       runtime_id=runtime_id)
+                                       runtime_id=runtime_id,
+                                       cause=_cause_de(exc))
                 # Anything the runtime layer raises means the work did not happen.
                 raise RuntimeUnavailableError(
                     f"runtime {runtime_id!r} could not execute task "
@@ -765,7 +785,10 @@ class RealTaskExecutor:
 
         if not content.strip():
             self._record_failure()
-            self._report_execution(task, model, duration_ms, 0, False, runtime_id=runtime_id)
+            # Une complétion vide : c'est le modèle, et la taxonomie le
+            # dit sur le message que l'on va lever juste après.
+            self._report_execution(task, model, duration_ms, 0, False,
+                                   runtime_id=runtime_id, cause="modele")
             raise RuntimeUnavailableError(
                 f"runtime {runtime_id!r} returned an empty completion"
             )
@@ -1570,7 +1593,20 @@ class RealTaskExecutor:
 
     def _report_execution(self, task: Any, model: str, duration_ms: float,
                           tokens_used: int, success: bool,
-                          runtime_id: str = "") -> None:
+                          runtime_id: str = "", cause: str = "") -> None:
+        """Remonter ce qui s'est passé, **et pourquoi** (HOS-231).
+
+        `cause` est nommée par la taxonomie (HOS-225). Sans elle, un
+        manque de VRAM, un quota épuisé et une mauvaise réponse arrivaient
+        au profileur sous la même forme — `success=False` — et
+        abaissaient identiquement le taux de réussite du modèle. Un
+        modèle qui n'a pas pu tourner parce que la carte était pleine
+        n'est pas un modèle qui a échoué.
+
+        Passée en meilleur effort à un `on_execution` qui ne l'accepterait
+        pas : ce rappel est injecté, et un appelant d'avant ce jalon ne
+        doit pas devenir une erreur d'exécution.
+        """
         if runtime_id and self._on_runtime_result is not None:
             try:
                 self._on_runtime_result(runtime_id, duration_ms, success)
@@ -1579,7 +1615,11 @@ class RealTaskExecutor:
         if self._on_execution is None:
             return
         try:
-            self._on_execution(task, model, duration_ms, tokens_used, success)
+            try:
+                self._on_execution(task, model, duration_ms, tokens_used,
+                                   success, cause)
+            except TypeError:
+                self._on_execution(task, model, duration_ms, tokens_used, success)
         except Exception:  # pragma: no cover - feedback must never break execution
             logger.debug("model execution feedback failed", exc_info=True)
 

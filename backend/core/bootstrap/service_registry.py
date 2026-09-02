@@ -409,7 +409,15 @@ def _make_task_executor(c: Any) -> Any:
             return None
 
     def _record_feedback(task: Any, model: str, duration_ms: float,
-                         tokens_used: int, success: bool) -> None:
+                         tokens_used: int, success: bool,
+                         cause: str = "") -> None:
+        """HOS-231 : la cause voyage jusqu'au profileur.
+
+        Sans elle, un refus d'admission VRAM et une mauvaise réponse
+        arrivaient sous la même forme et abaissaient identiquement le
+        taux de réussite du modèle. `ModelPerformanceRecord.error_type`
+        existait depuis HOS-062 et **n'était renseigné par personne**.
+        """
         if not model:
             return
         router = mi_routes._get_router()  # noqa: SLF001
@@ -420,6 +428,7 @@ def _make_task_executor(c: Any) -> Any:
             duration_ms=round(duration_ms),
             tokens_used=tokens_used,
             success=success,
+            error_type=cause,
         ))
         # ModelMemoryAdapter's MODEL_USED_FOR_TASK relations (HOS-065B) —
         # record_model_for_task() existed and was never called by anything,
