@@ -84,3 +84,20 @@ async def approbations() -> JSONResponse:
             summary="Version installée et auto-vérification")
 async def installation() -> JSONResponse:
     return JSONResponse(vue_operations.installation())
+
+
+@router.get("/operations/agents", summary="Les Control Rooms, une par agent")
+async def control_rooms() -> JSONResponse:
+    """Ce qu'on sait **réellement** de chaque agent.
+
+    Le taux de réussite est tri-état : `GET /api/v1/agents` rend
+    `success_rate: 100.0` avec `total_tasks: 0` — un agent qui n'a jamais
+    rien fait, rapporté parfait. Zéro tâche n'est pas cent pour cent,
+    c'est *aucune mesure*.
+    """
+    return JSONResponse(vue_operations.control_rooms())
+
+
+@router.get("/operations/agents/{agent}", summary="La Control Room d'un agent")
+async def control_room(agent: str) -> JSONResponse:
+    return JSONResponse(vue_operations.control_room(agent))

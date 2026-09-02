@@ -19,6 +19,8 @@ import { Cause, OperationsCenter } from "./operations-center";
 // données**, pas sur le transport, qui a ses propres gardes côté Python.
 const apercu = vi.hoisted(() => ({ valeur: {} as Record<string, unknown> }));
 
+const salles = vi.hoisted(() => ({ valeur: undefined as unknown }));
+
 vi.mock("@/hooks/use-api", () => ({
   useOperationsApercu: () => ({
     data: apercu.valeur,
@@ -26,6 +28,17 @@ vi.mock("@/hooks/use-api", () => ({
     isError: false,
     error: null,
   }),
+  useControlRooms: () => ({
+    data: salles.valeur,
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  // Le détail d'un run n'est rendu que sur sélection : ces gardes-ci ne
+  // le déplient pas, et un hook simulé qui rendrait des données ferait
+  // croire à un affichage qu'on ne mesure pas.
+  useOperationsLignee: () => ({ data: undefined }),
+  useOperationsContrat: () => ({ data: undefined }),
 }));
 
 vi.mock("@/hooks/use-store", () => ({
@@ -199,5 +212,68 @@ describe("chaque section nomme sa source", () => {
         screen.getAllByText(new RegExp(source.replace(/\./g, "\\."))).length,
       ).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("les Control Rooms ne fabriquent aucun taux", () => {
+  it("affiche « jamais mesuré » plutôt que 100 % sur zéro tâche", async () => {
+    const { ControlRoom } = await import("./operations-center");
+    render(
+      <ControlRoom
+        salle={{
+          agent: "atlas",
+          identite: { status: "ready", capabilities: ["code_generation"] },
+          connu: true,
+          runs_en_cours: [],
+          reussite: {
+            mesure: false,
+            taux: null,
+            total: 0,
+            detail: "aucune tâche exécutée — rien à mesurer",
+          },
+          confiance: { score: null, niveau: null },
+        }}
+      />,
+    );
+    expect(screen.getByText(/jamais mesuré/)).toBeTruthy();
+    expect(screen.queryByText(/100%/)).toBeNull();
+    // La confiance dit déjà « unknown » quand elle ne sait pas : on la
+    // relaie, on ne l'interprète pas.
+    expect(screen.getByText(/non disponible/)).toBeTruthy();
+  });
+
+  it("affiche un taux réel quand il est mesuré", async () => {
+    const { ControlRoom } = await import("./operations-center");
+    render(
+      <ControlRoom
+        salle={{
+          agent: "atlas",
+          identite: { status: "ready", capabilities: [] },
+          connu: true,
+          runs_en_cours: [],
+          reussite: { mesure: true, taux: 75, total: 4, detail: "3/4" },
+          confiance: { score: 80, niveau: "trusted" },
+        }}
+      />,
+    );
+    expect(screen.getByText(/75%/)).toBeTruthy();
+    expect(screen.getByText(/80\/100/)).toBeTruthy();
+  });
+
+  it("dit qu'un agent inconnu est une absence, pas un agent vide", async () => {
+    const { ControlRoom } = await import("./operations-center");
+    render(
+      <ControlRoom
+        salle={{
+          agent: "jamais-vu",
+          identite: null,
+          connu: false,
+          runs_en_cours: [],
+          reussite: { mesure: false, taux: null, total: 0, detail: "" },
+          confiance: { score: null, niveau: null },
+        }}
+      />,
+    );
+    expect(screen.getByText(/inconnu du superviseur/)).toBeTruthy();
   });
 });

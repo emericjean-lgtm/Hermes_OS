@@ -1105,3 +1105,14 @@ export function useOperationsContrat(run: string | null) {
     enabled: Boolean(run),
   });
 }
+
+/** Les Control Rooms — une par agent, depuis les sources canoniques.
+ *
+ *  15 s : l'état d'un agent bouge moins vite qu'un run. */
+export function useControlRooms() {
+  return useQuery({
+    queryKey: ["operations", "control-rooms"],
+    queryFn: () => operationsClient.controlRooms(),
+    refetchInterval: 15_000,
+  });
+}

@@ -50,6 +50,7 @@ import {
 } from "@/components/center-scaffold";
 import { Badge, Card } from "@/components/ui/card";
 import {
+  useControlRooms,
   useOperationsApercu,
   useOperationsContrat,
   useOperationsLignee,
@@ -59,6 +60,7 @@ import type {
   Bloc,
   ContratWire,
   ControleWire,
+  ControlRoomWire,
   CritereWire,
   RunWire,
 } from "@/services/client";
@@ -276,10 +278,96 @@ function DetailDuRun({ run }: { run: string }) {
   );
 }
 
+/** Une Control Room : ce qu'on sait **réellement** d'un agent.
+ *
+ *  Le taux de réussite y est tri-état, et c'est la raison d'être de ce
+ *  composant. `GET /api/v1/agents` rend `success_rate: 100.0` avec
+ *  `total_tasks: 0` — un agent qui n'a jamais rien fait, rapporté
+ *  parfait — et le Cockpit aggravait avec un `?? 100` et une barre
+ *  pleine. Zéro tâche n'est pas cent pour cent : c'est *aucune mesure*,
+ *  et un taux affiché sur rien fait choisir un agent sur une réputation
+ *  qu'il n'a pas gagnée. */
+export function ControlRoom({ salle }: { salle: ControlRoomWire }) {
+  const identite = (salle.identite ?? {}) as Record<string, unknown>;
+  const capacites = (identite.capabilities as string[] | undefined) ?? [];
+  const mission = String(identite.current_mission_id ?? "");
+
+  return (
+    <div className="border border-hermes-border p-3">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-hermes-text">{salle.agent}</span>
+        {salle.connu ? (
+          <Badge variant={identite.status === "ready" ? "success" : "info"}>
+            {String(identite.status ?? "—")}
+          </Badge>
+        ) : (
+          /* Une absence, pas un agent vide. */
+          <Badge variant="warning">inconnu du superviseur</Badge>
+        )}
+      </div>
+
+      {capacites.length > 0 && (
+        <p className="num mt-1 text-[10px] text-hermes-muted/70">
+          {capacites.join(" · ")}
+        </p>
+      )}
+
+      <div className="mt-2 flex items-baseline gap-2 text-[10px]">
+        <span className="text-hermes-muted">Réussite</span>
+        {salle.reussite.mesure ? (
+          <span className="num text-hermes-text">
+            {salle.reussite.taux}% <span className="text-hermes-muted">({salle.reussite.detail})</span>
+          </span>
+        ) : (
+          /* « — », jamais 100 %. */
+          <span className="num text-hermes-muted" title={salle.reussite.detail}>
+            — jamais mesuré
+          </span>
+        )}
+      </div>
+
+      <div className="mt-1 flex items-baseline gap-2 text-[10px]">
+        <span className="text-hermes-muted">Confiance</span>
+        {salle.confiance.score === null ? (
+          /* Le moteur de confiance dit déjà « unknown » quand il ne sait
+             pas — on le relaie tel quel plutôt que de l'interpréter. */
+          <span className="num text-hermes-muted">non disponible</span>
+        ) : (
+          <span className="num text-hermes-text">
+            {salle.confiance.score}/100{" "}
+            <span className="text-hermes-muted">({salle.confiance.niveau})</span>
+          </span>
+        )}
+      </div>
+
+      {mission && (
+        <p className="num mt-1 text-[10px] text-hermes-glacier">
+          mission {mission}
+        </p>
+      )}
+
+      {salle.runs_en_cours.length > 0 ? (
+        <div className="mt-2 border-t border-hermes-border pt-1">
+          {salle.runs_en_cours.map((r) => (
+            <p key={r.identifiant} className="num text-[10px] text-hermes-muted">
+              {r.statut} · {r.identifiant.slice(0, 8)}
+            </p>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-[10px] text-hermes-muted/70">
+          Aucun run en cours pour cet agent.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── La vue ───────────────────────────────────────────────────────────
 
 export function OperationsCenter() {
   const apercu = useOperationsApercu();
+  const salles = useControlRooms();
   // Le run déplié. `null` = aucun : la vue ne devine pas ce que
   // l'opérateur veut voir.
   const [runOuvert, setRunOuvert] = useState<string | null>(null);
@@ -628,6 +716,26 @@ export function OperationsCenter() {
           }
         </Section>
       </Card>
+
+      <AsyncPanel
+        title="Control Rooms"
+        subtitle="Un agent, ce qu'il exécute, et ce qu'on ne sait pas de lui"
+        isLoading={salles.isLoading}
+        isError={salles.isError}
+        error={salles.error}
+        isEmpty={false}
+        emptyLabel=""
+      >
+        <Section bloc={salles.data} vide="agent">
+          {(liste) => (
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {liste.map((salle) => (
+                <ControlRoom key={salle.agent} salle={salle} />
+              ))}
+            </div>
+          )}
+        </Section>
+      </AsyncPanel>
 
       <Card
         title="Trace d'exécution"

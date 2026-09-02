@@ -248,6 +248,138 @@ def installation() -> dict[str, Any]:
     return _bloc("installation", "backend.maj", lire)
 
 
+# ── Les Control Rooms ────────────────────────────────────────────────
+
+def _agents_du_superviseur() -> list[dict[str, Any]]:
+    """Les agents, depuis la source que `GET /api/v1/agents` sert déjà.
+
+    `AgentSupervisor` et non `core.agent_registry` : le second ne porte
+    que les agents Ollama configurés, et s'y brancher aurait donné une
+    seconde vérité sur ce qu'est un agent — exactement ce que ce jalon
+    interdit.
+    """
+    from backend.agents import routes as routes_agents
+
+    superviseur = getattr(routes_agents, "_supervisor", None)
+    if superviseur is None:
+        raise RuntimeError(
+            "aucun superviseur d'agents — l'application n'est pas assemblée")
+    fiches: list[dict[str, Any]] = []
+    for a in superviseur.list_agents():
+        fiches.append({
+            "agent_id": a.agent_id,
+            "name": a.name,
+            "status": a.status.value,
+            "capabilities": [c.value for c in a.capabilities],
+            "preferred_runtime": a.preferred_runtime,
+            "preferred_model": a.preferred_model,
+            "total_tasks": a.total_tasks,
+            "successful_tasks": getattr(a, "successful_tasks", 0),
+            "current_task_id": getattr(a, "current_task_id", "") or "",
+            "current_mission_id": getattr(a, "current_mission_id", "") or "",
+        })
+    return fiches
+
+
+def _taux_mesure(reussies: int, total: int) -> dict[str, Any]:
+    """Un taux de réussite, ou l'aveu qu'il n'y en a pas.
+
+    `GET /api/v1/agents` rend `success_rate: 100.0` avec `total_tasks: 0`
+    — un agent qui n'a **jamais rien fait** rapporté parfait. Et le
+    Cockpit aggravait : `(agent.success_rate ?? 100)`, avec une barre de
+    progression pleine.
+
+    C'est le même mensonge que douze jalons ont chassé côté serveur, à sa
+    dernière étape. Zéro tâche n'est pas cent pour cent : c'est *aucune
+    mesure*, et un taux affiché sur rien fait choisir un agent sur une
+    réputation qu'il n'a pas gagnée.
+    """
+    if total <= 0:
+        return {"mesure": False, "taux": None, "total": 0,
+                "detail": "aucune tâche exécutée — rien à mesurer"}
+    return {"mesure": True, "taux": round(100.0 * reussies / total, 1),
+            "total": total, "detail": f"{reussies}/{total}"}
+
+
+def control_room(agent: str) -> dict[str, Any]:
+    """Tout ce qu'on sait **réellement** d'un agent.
+
+    Assemblée depuis les sources canoniques : le registre des agents pour
+    l'identité et l'état, le registre des runs (HOS-221) pour ce qu'il a
+    réellement exécuté. Aucun magasin neuf, aucun compteur calculé ici
+    qui ne vienne de l'un des deux.
+    """
+    def lire() -> dict[str, Any]:
+        from backend.runs.registre import Registre
+
+        # `AgentSupervisor` est la source **canonique** : c'est elle que
+        # `GET /api/v1/agents` sert déjà. `core.agent_registry` en est un
+        # autre, qui ne porte que les agents Ollama configurés — s'y
+        # brancher aurait donné une seconde vérité sur ce qu'est un
+        # agent.
+        fiche: dict[str, Any] | None = None
+        for brut in _agents_du_superviseur():
+            if agent in (str(brut.get("agent_id") or ""),
+                         str(brut.get("name") or "")):
+                fiche = brut
+                break
+
+        # Les runs que cet agent a portés. Le registre est la source :
+        # `total_tasks` du registre d'agents est un compteur de processus,
+        # celui-ci est une trace durable.
+        tous = []
+        try:
+            base = Registre()
+            for r in base.en_cours():
+                if r.agent == agent or r.agent == (fiche or {}).get("name"):
+                    tous.append(r)
+        except Exception:
+            logger.debug("registre des runs indisponible pour %s", agent,
+                         exc_info=True)
+
+        reussis = sum(1 for r in tous if r.statut.value == "reussi")
+        return {
+            "agent": agent,
+            # `None` quand l'agent n'est pas au registre : c'est une
+            # absence, pas un agent vide.
+            "identite": fiche,
+            "connu": fiche is not None,
+            "runs_en_cours": [_run_en_dict(r) for r in tous],
+            # Le taux du registre d'agents est **remplacé** par une mesure
+            # tri-état : voir `_taux_mesure`.
+            "reussite": _taux_mesure(
+                reussis if tous else int((fiche or {}).get("successful_tasks") or 0),
+                len(tous) if tous else int((fiche or {}).get("total_tasks") or 0)),
+            # La confiance vient de son propre système et dit déjà
+            # « unknown » quand elle ne sait pas — on la relaie telle
+            # quelle plutôt que de la réinterpréter.
+            "confiance": {
+                "score": (fiche or {}).get("trust_score"),
+                "niveau": (fiche or {}).get("trust_level"),
+            },
+        }
+
+    return _bloc("control_room", "backend.core.agent_registry + backend.runs.registre",
+                 lire)
+
+
+def control_rooms() -> dict[str, Any]:
+    """Une Control Room par agent connu."""
+    def lire() -> list[dict[str, Any]]:
+        salles: list[dict[str, Any]] = []
+        for brut in _agents_du_superviseur():
+            nom = str(brut.get("name") or brut.get("agent_id") or "")
+            if not nom:
+                continue
+            bloc = control_room(nom)
+            if bloc["disponible"]:
+                salles.append(bloc["donnees"])
+        return salles
+
+    return _bloc("control_rooms",
+                 "backend.core.agent_registry + backend.runs.registre", lire)
+
+
 # ── La vue d'ensemble ────────────────────────────────────────────────
 
 def vue_d_ensemble() -> dict[str, Any]:
@@ -274,6 +406,7 @@ def vue_d_ensemble() -> dict[str, Any]:
     }
 
 
-__all__ = ["approbations", "contrat_du_run", "fournisseurs", "installation",
+__all__ = ["approbations", "contrat_du_run", "control_room", "control_rooms",
+           "fournisseurs", "installation",
            "lignee", "points_de_reprise", "runs_de_la_mission",
            "vue_d_ensemble"]

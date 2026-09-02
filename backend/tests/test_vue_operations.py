@@ -363,3 +363,88 @@ def test_le_routeur_d_operations_est_dans_les_routeurs_montes():
     assert "operations" in montes, (
         "le routeur d'opérations n'est pas dans _LEGACY_ROUTERS — il ne "
         "serait servi par rien, comme l'était MissionControlAPI")
+
+
+# ═══ Les Control Rooms (HOS-236) ═════════════════════════════════════
+
+def test_zero_tache_n_est_pas_cent_pour_cent():
+    """Le défaut mesuré sur l'API réelle.
+
+    `GET /api/v1/agents` rend `success_rate: 100.0` avec
+    `total_tasks: 0` — un agent qui n'a **jamais rien fait**, rapporté
+    parfait. Et le Cockpit aggravait : `(agent.success_rate ?? 100)`,
+    avec une barre de progression pleine.
+
+    Zéro tâche n'est pas cent pour cent : c'est *aucune mesure*. Un taux
+    affiché sur rien fait choisir un agent sur une réputation qu'il n'a
+    pas gagnée.
+    """
+    from backend.services.vue_operations import _taux_mesure
+
+    vide = _taux_mesure(0, 0)
+    assert vide["mesure"] is False
+    assert vide["taux"] is None, "un taux sur zéro tâche est une invention"
+    assert "rien à mesurer" in vide["detail"]
+
+
+def test_un_taux_reel_est_rendu():
+    """La réparation ne doit pas rendre la mesure muette."""
+    from backend.services.vue_operations import _taux_mesure
+
+    mesure = _taux_mesure(3, 4)
+    assert mesure["mesure"] is True
+    assert mesure["taux"] == 75.0
+
+
+def test_les_control_rooms_viennent_du_superviseur_canonique():
+    """`AgentSupervisor` et non `core.agent_registry`.
+
+    Le second ne porte que les agents Ollama configurés ; s'y brancher
+    aurait donné une **seconde vérité** sur ce qu'est un agent — et
+    `GET /api/v1/agents` sert déjà le premier.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from backend.services import vue_operations
+
+    # Sur les **imports**, pas sur le texte : la docstring nomme
+    # `core.agent_registry` pour expliquer pourquoi elle ne l'utilise
+    # pas, et une recherche de sous-chaîne l'accusait. Cinquième faux
+    # positif de ce genre sur ce chantier.
+    source = textwrap.dedent(
+        inspect.getsource(vue_operations._agents_du_superviseur))
+    modules = {n.module for n in ast.walk(ast.parse(source))
+               if isinstance(n, ast.ImportFrom) and n.module}
+    assert any(m.startswith("backend.agents") for m in modules), modules
+    assert not any("core.agent_registry" in m for m in modules), modules
+
+
+def test_les_control_rooms_sont_servies(application):
+    for chemin in ("/api/v1/operations/agents",
+                   "/api/v1/operations/agents/atlas"):
+        assert application.get(chemin).status_code == 200, chemin
+
+
+def test_une_control_room_reelle_ne_fabrique_aucun_taux(application):
+    """Sur l'application réelle, avec ses dix agents.
+
+    Aucun n'a exécuté de tâche : aucun ne doit afficher de taux.
+    """
+    donnees = application.get("/api/v1/operations/agents").json()
+    assert donnees["disponible"] is True
+    salles = donnees["donnees"]
+    assert salles, "aucun agent — la garde serait vide"
+    for salle in salles:
+        reussite = salle["reussite"]
+        if not reussite["mesure"]:
+            assert reussite["taux"] is None, salle["agent"]
+
+
+def test_un_agent_inconnu_est_une_absence_pas_un_agent_vide(application):
+    """Une fiche `null` avec `connu: false`, pas une fiche à zéro."""
+    donnees = application.get(
+        "/api/v1/operations/agents/jamais-vu").json()["donnees"]
+    assert donnees["connu"] is False
+    assert donnees["identite"] is None

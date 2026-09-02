@@ -1866,6 +1866,27 @@ export interface ApercuOperationsWire {
   installation: Bloc<InstallationWire>;
 }
 
+export interface ReussiteWire {
+  /** `false` = aucune tâche exécutée. Le taux est alors `null`, **pas
+   *  zéro et surtout pas cent** : un agent qui n'a rien fait n'a ni
+   *  réussi ni échoué (HOS-236). */
+  mesure: boolean;
+  taux: number | null;
+  total: number;
+  detail: string;
+}
+
+export interface ControlRoomWire {
+  agent: string;
+  /** `null` quand l'agent n'est pas au registre : une absence, pas un
+   *  agent vide. */
+  identite: Record<string, unknown> | null;
+  connu: boolean;
+  runs_en_cours: RunWire[];
+  reussite: ReussiteWire;
+  confiance: { score: number | null; niveau: string | null };
+}
+
 export const operationsClient = {
   apercu: () => fetchJSON<ApercuOperationsWire>("/operations"),
   runsDeLaMission: (mission: string) =>
@@ -1883,4 +1904,5 @@ export const operationsClient = {
   fournisseurs: () => fetchJSON<Bloc<FournisseursWire>>("/operations/fournisseurs"),
   approbations: () => fetchJSON<Bloc<ApprobationsWire>>("/operations/approbations"),
   installation: () => fetchJSON<Bloc<InstallationWire>>("/operations/installation"),
+  controlRooms: () => fetchJSON<Bloc<ControlRoomWire[]>>("/operations/agents"),
 };

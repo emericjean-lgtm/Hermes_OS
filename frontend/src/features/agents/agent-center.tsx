@@ -210,8 +210,23 @@ function AgentDetail({ agent }: { agent: Agent }) {
         </div>
 
         <div className="text-[10px] text-hermes-muted font-mono">Taux de réussite</div>
-        <div className="text-[10px] text-hermes-text font-mono">
-          {(agent.success_rate ?? 100).toFixed(0)}%
+        <div className="text-[10px] font-mono">
+          {/* HOS-236 : « — » et non 100 %.
+              `GET /api/v1/agents` rend `success_rate: 100.0` avec
+              `total_tasks: 0` — un agent qui n'a **jamais rien fait**,
+              rapporté parfait — et cette ligne aggravait avec un
+              `?? 100`. Zéro tâche n'est pas cent pour cent : c'est
+              *aucune mesure*, et un taux affiché sur rien fait choisir
+              un agent sur une réputation qu'il n'a pas gagnée. */}
+          {agent.total_tasks ? (
+            <span className="text-hermes-text">
+              {(agent.success_rate ?? 0).toFixed(0)}%
+            </span>
+          ) : (
+            <span className="text-hermes-muted" title="aucune tâche exécutée — rien à mesurer">
+              — <span className="text-hermes-muted/70">jamais mesuré</span>
+            </span>
+          )}
         </div>
 
         <div className="text-[10px] text-hermes-muted font-mono">Confiance</div>
@@ -227,7 +242,11 @@ function AgentDetail({ agent }: { agent: Agent }) {
         </div>
       </div>
 
-      <ProgressBar value={agent.success_rate ?? 100} size="sm" />
+      {/* Pas de barre pleine sur zéro mesure : une barre à 100 % est une
+          affirmation, et il n'y a rien à affirmer. */}
+      {agent.total_tasks ? (
+        <ProgressBar value={agent.success_rate ?? 0} size="sm" />
+      ) : null}
 
       {(agent.current_task_id || agent.current_mission_id) && (
         <div className="pt-2 border-t border-hermes-border/30 text-[10px] font-mono">

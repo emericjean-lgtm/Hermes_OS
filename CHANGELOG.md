@@ -1,3 +1,80 @@
+## HOS-236 — Les Control Rooms, et le 100 % qui n'existait pas (2026-09-03)
+
+J17 final. Deux causes maintenaient le 🟠 : les Control Rooms, et une
+vérification en navigateur non obtenue. Les deux sont levées.
+
+### Le défaut : un agent qui n'a rien fait était noté parfait
+
+`GET /api/v1/agents` rend `success_rate: 100.0` avec `total_tasks: 0`.
+Et le Cockpit aggravait, à deux endroits d'`agent-center.tsx` :
+
+    {(agent.success_rate ?? 100).toFixed(0)}%
+    <ProgressBar value={agent.success_rate ?? 100} />
+
+Un agent qui n'a **jamais rien exécuté** s'affichait donc à 100 %, barre
+pleine. C'est le même mensonge que douze jalons ont chassé côté serveur,
+à sa toute dernière étape — et le plus coûteux de sa famille, parce
+qu'un taux affiché sur rien fait choisir un agent sur une réputation
+qu'il n'a pas gagnée.
+
+Zéro tâche n'est pas cent pour cent : c'est *aucune mesure*.
+`_taux_mesure` rend donc un tri-état, la vue affiche « — jamais mesuré »,
+et la barre de progression disparaît plutôt que de se remplir — une
+barre à 100 % est une affirmation, et il n'y a rien à affirmer.
+
+### La source canonique, et celle qu'il ne fallait pas prendre
+
+Deux registres d'agents existent. `core.agent_registry` ne porte que les
+agents Ollama configurés ; `AgentSupervisor` est celui que
+`GET /api/v1/agents` sert déjà. S'être branché sur le premier aurait
+donné une **seconde vérité sur ce qu'est un agent**. Une garde le tient,
+sur les imports et non sur le texte.
+
+Une Control Room assemble donc : l'identité et l'état depuis le
+superviseur, les runs depuis le registre de HOS-221, la confiance depuis
+son propre moteur — relayée telle quelle, puisqu'il dit déjà « unknown »
+quand il ne sait pas. Aucun magasin neuf.
+
+### La vérification en navigateur, obtenue
+
+Les deux serveurs bloquants étaient exactement ceux de
+`.claude/launch.json` — l'uvicorn du dépôt et son Next dev, identifiés
+par ligne de commande avant d'y toucher. Redémarrés proprement.
+
+Constaté sur le navigateur, en données réelles :
+
+- **10 routes** `/operations` dans `openapi.json`, `200` sur chacune ;
+- Supervision affiche 206 approbations, 3 points de reprise, 10 contrôles
+  de santé, 0 fournisseur configuré ;
+- « Version installée : jamais marquée » — pas la version du code ;
+- « Aucun run en cours. **Mesuré, pas supposé.** » ;
+- « Aucun fournisseur distant configuré. C'est le défaut. » ;
+- deux points de reprise marqués **« fichiers seuls »**, un troisième
+  avec état ;
+- **10 Control Rooms**, chacune « — jamais mesuré » et « non
+  disponible » ;
+- la source sous chaque section.
+
+### Un cinquième faux positif de sous-chaîne
+
+Ma garde « la Control Room ne prend pas `core.agent_registry` »
+s'accrochait à la docstring qui **explique** pourquoi elle ne le prend
+pas. Cinquième fois sur ce chantier. Réécrite sur les imports.
+
+### Ce qui reste volontairement hors J17
+
+Les **analytiques** — missions, coûts, latences, taux de bascule. Elles
+figurent dans la description de J17 mais **pas dans ses critères de
+sortie**, et les fabriquer maintenant pour obtenir un vert serait
+exactement ce que ce jalon interdit. Elles appartiennent à la vue que
+J18 rendra extensible.
+
+### Mesures
+
+Backend : **5 361 vertes**. Frontend : **126 vertes**, typecheck propre.
+7 gardes backend et 3 frontend ajoutées.
+
+
 ## HOS-235 — La console d'opérations, et le routeur que rien ne servait (2026-09-03)
 
 J17 final. L'audit du frontend a donné deux surprises, l'une bonne et
