@@ -266,7 +266,7 @@ rendre compte — mesuré en production dans la nuit du 29 au 30 août.
 
 ---
 
-## 7. Ce qui n'est pas décidé
+## 7. Ce qui restait ouvert
 
 - Le classement `PUBLIC / INTERNAL / SENSITIVE / SECRET` d'un prompt est
   un problème ouvert. Une erreur envoie un secret chez un tiers. Le §15
@@ -276,3 +276,81 @@ rendre compte — mesuré en production dans la nuit du 29 au 30 août.
   Hermes écoute sur `127.0.0.1`. Structurer `user → workspace → project →
   mission → run` sans construire d'authentification est faisable ; il
   faut décider si on le fait maintenant ou si on l'assume plus tard.
+
+---
+
+## 8. Les deux décisions, prises
+
+Le §7 les laissait ouvertes. Elles sont tranchées ici, avec le
+raisonnement, pour qu'on puisse revenir dessus en sachant pourquoi.
+
+### 8.1 Le pare-feu de données refuse par défaut
+
+**Décision : sur un cas ambigu, le cloud est refusé.**
+
+Le §15 demande de classer un prompt `PUBLIC / INTERNAL / SENSITIVE /
+SECRET`. Le classement automatique est un problème ouvert, et
+l'asymétrie des erreurs est totale :
+
+| erreur | conséquence |
+|---|---|
+| classer trop haut un contenu anodin | le cloud est indisponible, l'usager le voit et peut passer outre |
+| classer trop bas un secret | il part chez un tiers, il y est **indéfiniment**, et personne ne le sait |
+
+La première erreur est visible, réversible, et son coût est une gêne. La
+seconde est invisible, irréversible, et son coût n'a pas de plafond. Un
+classement qui hésite doit donc pencher du côté visible.
+
+**Ce que ça implique, et qu'il faut assumer :** le cloud sera plus
+souvent refusé qu'il ne serait strictement nécessaire, surtout au début,
+avant que les règles ne soient affinées sur des cas réels. C'est le prix,
+et il est payé en confort, pas en sécurité.
+
+**Trois garde-fous pour que ce ne soit pas insupportable :**
+
+1. **Le refus est nommé.** Jamais « indisponible » — toujours *ce qui* a
+   déclenché la classification, pour que l'usager puisse juger.
+2. **L'usager peut passer outre, une fois, explicitement.** Un
+   contournement est une décision tracée dans le Ledger, pas un réglage
+   qu'on met à « permissif » et qu'on oublie.
+3. **Un contournement enseigne.** Un motif écarté à la main trois fois
+   devient une proposition de règle — soumise, jamais appliquée
+   d'office.
+
+**Ce qui n'est pas décidé :** la liste des motifs de classification.
+Elle se construira sur des cas réels, pas d'avance. Une liste imaginée en
+chambre attrape les secrets qu'on a imaginés.
+
+### 8.2 La structuration se fait maintenant, sans authentification
+
+**Décision : les identifiants `user`, `project`, `workspace` entrent dans
+le modèle de données dès le Run Ledger. L'authentification, non.**
+
+Le §107 demande de structurer `user → workspace → project → mission →
+run` pour ne pas verrouiller l'architecture. Deux moments possibles :
+maintenant, ou quand le besoin arrive.
+
+**Maintenant, pour une raison de coût et non de besoin.** Le jalon 5
+crée les tables du Run Ledger. Y ajouter trois colonnes à ce moment-là
+coûte trois colonnes. Les ajouter après coûte une migration sur des
+données réelles, et une relecture de tout ce qui lit ces tables. Le
+rapport est d'un contre dix, et la nuit du 29 au 30 août a montré ce que
+coûte une trace qu'on n'a pas prévue : elle a été écrite en urgence, à
+trois heures du matin, pendant que la production tournait.
+
+**L'authentification, non**, et c'est délibéré. Hermes écoute sur
+`127.0.0.1`, sur un poste personnel. Une authentification apporterait
+une surface — gestion de jetons, de sessions, de mots de passe — sans
+protéger contre rien de réel aujourd'hui. Ce serait de la sécurité
+apparente, ce que ce dépôt refuse ailleurs.
+
+`user_id` vaut donc `"local"` par défaut, `project_id` porte le projet
+courant. Le jour où une seconde personne ouvre Hermes, il y aura une
+colonne à remplir, pas un schéma à refaire.
+
+**La ligne à ne pas franchir :** tant qu'il n'y a pas
+d'authentification, `user_id` ne doit **jamais** servir de contrôle
+d'accès. C'est un champ de traçabilité. Un test le garde, sinon la
+tentation viendra d'elle-même le jour où quelqu'un cherchera à cloisonner
+deux projets — et un contrôle d'accès fondé sur un champ que n'importe
+qui peut poser n'est pas un contrôle d'accès.

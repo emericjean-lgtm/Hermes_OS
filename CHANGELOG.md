@@ -1,3 +1,146 @@
+## HOS-215 a HOS-219 - Quatre controles avant de batir quoi que ce soit (2026-09-03)
+
+La lecture du code d'Agent OS (HOS-214) a montre que trois manques
+classes « confort » sont des **controles de securite**. Ils passent donc
+devant le Contract et le Run Ledger : les construire apres reviendrait a
+batir la tracabilite dans un dossier effaçable, au-dessus d'une memoire
+empoisonnable.
+
+### HOS-215 — L'etat de l'utilisateur sort du depot
+
+`data/db` 17,1 Mio, `data/eventbus` 8,2, `data/snapshots` 1,1, plus
+`_memory_.db` — **tout vivait dans le repertoire de l'application**.
+`.gitignore` les protegeait de git ; rien ne les protegeait d'une mise a
+jour, qui remplace ce repertoire. Ce qui aurait disparu : la base, la
+memoire, le bus d'evenements, et les instantanes — c'est-a-dire la
+capacite de reprise elle-meme.
+
+`backend/core/etat.py` resout une racine unique hors du depot —
+`%LOCALAPPDATA%\HermesOS` sur Windows, `HERMES_DATA_DIR` primant — et
+**refuse toute racine qui y retomberait**, meme demandee explicitement :
+le permettre par configuration laisserait le defaut revenir par la porte
+qu'on vient de fermer.
+
+`preserve_set()` rend la liste de ce qu'une mise a jour ne doit jamais
+toucher. Rendue comme une liste et non documentee en prose : un
+installeur, une sauvegarde et un test peuvent la lire, et elle ne peut
+pas diverger de ce que le code utilise. C'est le defaut du « preserve
+set » d'Agent OS, qui vit dans un fichier Markdown.
+
+`scripts/migrer_etat.py` a deplace **26,6 Mio**, en essai a blanc par
+defaut, sans jamais ecraser un contenu different, et sans rien supprimer
+avant d'avoir relu et compare.
+
+**Une erreur de classification, trouvee par un test.** `data/workflows`
+etait dans la liste des dechargements. Or ses fichiers sont **suivis par
+git** : c'est du contenu livre avec l'application. Les deplacer a fait
+passer `/workflows` de deux entrees a zero, et le test l'a dit
+immediatement — « no workflows shipped, this test would pass vacuously ».
+Le critere n'est pas « ou c'est range » mais **qui l'a ecrit** : ce que
+git suit se remplace a chaque mise a jour, ce que l'utilisateur produit
+doit lui survivre.
+
+### HOS-216 — La memoire ne sert pas ce qu'elle n'a pas verifie
+
+Ce n'est pas de la qualite de donnees, **c'est la defense contre
+l'injection de prompt**. Un agent lit une page web ou un depot clone, y
+trouve un texte ecrit pour lui, ce texte entre en memoire, et au tour
+suivant `search()` le sert comme un fait. L'attaque n'a plus besoin de se
+rejouer : elle est installee.
+
+`backend/memory/confiance.py` pose la regle qu'Agent OS garde dans
+`m8-prompt-injection` : **toute origine non humaine part en quarantaine,
+quel que soit son contenu**. C'est le point le moins intuitif et le plus
+important — un filtre qui cherche des formulations suspectes se contourne
+en changeant de formulation. On juge la provenance.
+
+`search()` et `search_experiences()` filtrent par defaut.
+`inclure_quarantaine` est **nommé et faux** : un appelant qui veut du
+contenu non verifie doit le dire, et ça se lit a la relecture. Un test
+garde que le parametre reste keyword-only, parce qu'un drapeau
+positionnel se passe par accident.
+
+Une promotion **nomme qui l'a decidee**, sinon elle est refusee : sans
+acteur, on ne peut plus revenir sur la decision — ce qui est precisement
+ce qu'on veut pouvoir faire apres une injection reussie.
+
+### HOS-217 — Un workspace ne reecrit pas ce qui gouverne l'agent
+
+Deux scenarios, dont aucun n'exige un attaquant. Un depot clone arrive
+avec son `.mcp.json` ou ses hooks, et l'agent herite d'outils que
+personne ne lui a donnes. Ou l'agent ecrit lui-meme dans les fichiers qui
+le gouvernent, et elargit ses propres permissions.
+
+`backend/security/derive_workspace.py` releve l'empreinte de dix fichiers
+et dossiers gouvernants — `CLAUDE.md`, `.mcp.json`,
+`.claude/settings.json`, `.claude/hooks`, `.claude/skills`… — et compare.
+
+Un dossier gouvernant est releve **fichier par fichier** : hacher
+`.claude/hooks/` globalement dirait « quelque chose a change » sans dire
+quoi, et un hook execute du code.
+
+Il **releve et compare, il ne decide pas**. Bloquer, demander une
+approbation ou seulement consigner releve de la politique, et cette
+decision appartient a Aegis.
+
+Et le tri-etat s'applique : une empreinte qu'on n'a pas pu prendre est
+rapportee `INCONNU`, jamais « inchange ». On ne peut pas affirmer qu'un
+fichier de gouvernance est intact quand on n'a pas su le lire.
+
+### HOS-218 — Ce qui sort d'un agent est surveille pendant qu'il parle
+
+Le canary est la meilleure idee du code d'Agent OS. On ne peut pas
+enumerer tout ce qu'un agent ne doit pas dire, mais on peut savoir quand
+il dit **une chose precise** qu'il n'aurait jamais du voir : une fausse
+valeur, connue de nous seuls, plantee dans son environnement. Si elle
+ressort, c'est que l'agent lit et recrache son environnement — donc que
+les vrais secrets qui vivent a cote sont exposes de la meme façon. On n'a
+pas besoin de savoir comment la fuite se produit.
+
+`backend/security/surveillance_flux.py` porte aussi :
+
+- un **report de 512 caracteres** entre deux blocs — un secret coupe par
+  la fragmentation du flux passerait sinon entre les mailles ;
+- une detection de **silence**, parce qu'un agent qui se tait n'echoue
+  pas, il attend, et l'attente ressemble au travail. C'est la leçon du
+  decodage qui a rampe quarante minutes le 2026-08-30 sans lever une
+  seule erreur ;
+- un plafond de **cout**.
+
+Trois refus deliberes. Le module **ne tue pas** le processus : il
+rapporte, et l'appelant decide. Un rapport de fuite **ne contient jamais
+la valeur** — ce serait une seconde fuite ; il donne sa longueur. Et une
+valeur de moins de huit caracteres n'est pas surveillee : « 1 », « true »
+se retrouvent partout dans une sortie normale, et une alarme qui sonne
+pour rien est debranchee dans la semaine.
+
+### HOS-219 — Les deux decisions deleguees
+
+**Le pare-feu de donnees refuse par defaut.** L'asymetrie des erreurs le
+commande : classer trop haut coute une gene visible et reversible ;
+classer trop bas envoie un secret chez un tiers, definitivement, sans que
+personne le sache. Trois garde-fous pour que ce soit tenable — le refus
+est nomme, il se contourne une fois et explicitement, et un contournement
+repete propose une regle au lieu de s'installer en silence.
+
+**La structuration se fait maintenant, l'authentification non.**
+`user`, `project` et `workspace` entrent dans le modele de donnees au
+moment ou le Run Ledger cree ses tables : trois colonnes coutent trois
+colonnes maintenant, et une migration sur des donnees reelles plus tard.
+L'authentification, non : Hermes ecoute sur `127.0.0.1` et une
+authentification apporterait une surface sans proteger de rien de reel —
+ce serait de la securite apparente.
+
+La ligne a ne pas franchir est gardee par un test : tant qu'il n'y a pas
+d'authentification, `user_id` ne doit jamais servir de controle d'acces.
+C'est un champ de traçabilite, et un cloisonnement fonde dessus n'en
+serait pas un.
+
+### Mesures
+
+62 gardes ajoutees sur les quatre jalons. Suite complete verte.
+
+
 ## HOS-214 - Le cahier des charges, confronte au code (2026-09-02)
 
 Un cahier de 111 points a ete transmis, inspire d'Agent OS, d'OpenRouter

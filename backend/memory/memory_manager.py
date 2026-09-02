@@ -8,8 +8,10 @@ knowledge graph, embeddings, retrieval, and experience learning.
 from __future__ import annotations
 
 import threading
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
+from backend.memory.confiance import (Origine, Provenance,
+                                      filtrer, provenance_de)
 from backend.memory.document_memory import DocumentMemoryStore
 from backend.memory.embedding_index import EmbeddingIndex
 from backend.memory.episodic_memory import EpisodicMemoryStore
@@ -78,7 +80,57 @@ class MemoryManager:
 
     # ── Episodic ─────────────────────────────────────────────
 
-    def record_episode(self, episode: EpisodicMemory) -> EpisodicMemory:
+    # ── Confiance : d'où vient un souvenir (HOS-216) ─────────
+    #
+    # Ce n'est pas de la qualité de données, c'est la défense contre
+    # l'injection de prompt. Un texte lu sur le web ou dans un dépôt
+    # cloné peut être écrit *pour* l'agent ; s'il entre en mémoire et
+    # ressort comme un fait, l'attaque est installée.
+    #
+    # On ne juge pas le contenu — un filtre sur les formulations se
+    # contourne en changeant de formulation. On juge la **provenance**.
+
+    def marquer(self, souvenir: Any, origine: "Origine | str",
+                source: str = "") -> Any:
+        """Attacher une provenance à un souvenir avant de l'écrire.
+
+        Une origine non humaine part en quarantaine quoi qu'il arrive :
+        l'appelant déclare d'où ça vient, il ne choisit pas la confiance.
+        """
+        provenance = Provenance.depuis(origine, source)
+        try:
+            souvenir.provenance = provenance
+        except AttributeError:
+            meta = getattr(souvenir, "metadata", None)
+            if isinstance(meta, dict):
+                meta["provenance"] = provenance
+        return souvenir
+
+    def promouvoir(self, souvenir: Any, par: str) -> Any:
+        """Sortir un souvenir de quarantaine, en nommant qui l'a décidé."""
+        promue = provenance_de(souvenir).promouvoir(par)
+        try:
+            souvenir.provenance = promue
+        except AttributeError:
+            meta = getattr(souvenir, "metadata", None)
+            if isinstance(meta, dict):
+                meta["provenance"] = promue
+        if self._on_event:
+            self._on_event("memory.promoted", {
+                "par": par, "origine": promue.origine.value})
+        return souvenir
+
+    def record_episode(self, episode: EpisodicMemory, *,
+                       origine: "Origine | str" = Origine.SYSTEME,
+                       source: str = "") -> EpisodicMemory:
+        """Un épisode : ce que Hermes a observé de sa propre exécution.
+
+        `SYSTEME` par défaut, et c'est justifié : un relevé « la mission
+        42 a pris 1 365 s, tuile 128, retenue » est **observé**, pas lu
+        quelque part. Un appelant qui enregistre le récit d'un modèle
+        doit déclarer `AGENT`.
+        """
+        self.marquer(episode, origine, source)
         return self._episodic.record(episode)
 
     def get_episode(self, mission_id: str) -> Optional[EpisodicMemory]:
@@ -89,7 +141,16 @@ class MemoryManager:
 
     # ── Semantic ─────────────────────────────────────────────
 
-    def store_concept(self, concept: SemanticMemory) -> SemanticMemory:
+    def store_concept(self, concept: SemanticMemory, *,
+                      origine: "Origine | str" = Origine.INCONNUE,
+                      source: str = "") -> SemanticMemory:
+        """Un concept : du contenu, donc un vecteur possible.
+
+        Pas de défaut confortable ici : `INCONNUE` part en quarantaine.
+        Un concept vient toujours de quelque part, et l'appelant est le
+        seul à savoir d'où.
+        """
+        self.marquer(concept, origine, source)
         return self._semantic.store(concept)
 
     def search_concepts(self, query: str, limit: int = 10) -> list[SemanticMemory]:
@@ -97,7 +158,11 @@ class MemoryManager:
 
     # ── Procedural ───────────────────────────────────────────
 
-    def store_procedure(self, procedure: ProceduralMemory) -> ProceduralMemory:
+    def store_procedure(self, procedure: ProceduralMemory, *,
+                        origine: "Origine | str" = Origine.SYSTEME,
+                        source: str = "") -> ProceduralMemory:
+        """Une procédure dérivée d'exécutions observées."""
+        self.marquer(procedure, origine, source)
         return self._procedural.store(procedure)
 
     def find_procedures(self, query: str, limit: int = 10) -> list[ProceduralMemory]:
@@ -105,7 +170,15 @@ class MemoryManager:
 
     # ── Documents ────────────────────────────────────────────
 
-    def index_document(self, doc: DocumentMemory) -> DocumentMemory:
+    def index_document(self, doc: DocumentMemory, *,
+                       origine: "Origine | str" = Origine.DOCUMENT,
+                       source: str = "") -> DocumentMemory:
+        """Un document importé : contenu extérieur, donc quarantaine.
+
+        C'est le vecteur d'injection le plus direct — un PDF, une page,
+        un fichier de dépôt. Le défaut ne peut pas être confortable.
+        """
+        self.marquer(doc, origine, source)
         # Also index in embeddings
         self._embeddings.index(doc.document_id, doc.title + " " + doc.content[:1000])
         return self._documents.index(doc)
@@ -129,11 +202,61 @@ class MemoryManager:
 
     # ── Search ───────────────────────────────────────────────
 
-    def search(self, query: str, limit: int = 20, memory_types: Optional[list[str]] = None) -> list[SearchResult]:
-        return self._retrieval.search(query, limit, memory_types)
+    #: Où retrouver l'objet qu'un `SearchResult` désigne, par type.
+    #: Un résultat porte `source_type` + `source_id` mais **pas** la
+    #: provenance de ce qu'il désigne : filtrer directement dessus les
+    #: éliminait tous, ce qui est fermé mais inutile.
+    _MAGASINS = {
+        "episodic": "_episodic",
+        "semantic": "_semantic",
+        "procedural": "_procedural",
+        "document": "_documents",
+    }
 
-    def search_experiences(self, query: str, limit: int = 10) -> list[SearchResult]:
-        return self._retrieval.search_experiences(query, limit)
+    def _provenance_du_resultat(self, r: SearchResult) -> "Provenance":
+        """Remonter du résultat à l'objet, pour lire sa provenance.
+
+        Un type de source inconnu — le graphe, par exemple — rend la
+        provenance par défaut, donc la quarantaine. C'est le bon sens de
+        lecture : ce qu'on ne sait pas résoudre ne devient pas fiable.
+        """
+        nom = self._MAGASINS.get(getattr(r, "source_type", ""))
+        if not nom:
+            return Provenance()
+        magasin = getattr(self, nom, None)
+        for attribut in vars(magasin or ()).values():
+            if isinstance(attribut, dict):
+                objet = attribut.get(getattr(r, "source_id", ""))
+                if objet is not None:
+                    return provenance_de(objet)
+        return Provenance()
+
+    def _filtrer_resultats(self, resultats: list[SearchResult], *,
+                           inclure_quarantaine: bool) -> list[SearchResult]:
+        if inclure_quarantaine:
+            return resultats
+        return [r for r in resultats
+                if not self._provenance_du_resultat(r).en_quarantaine]
+
+    def search(self, query: str, limit: int = 20,
+               memory_types: Optional[list[str]] = None, *,
+               inclure_quarantaine: bool = False) -> list[SearchResult]:
+        """Chercher, sans servir la quarantaine par défaut.
+
+        `inclure_quarantaine` est nommé et faux par défaut : un appelant
+        qui veut du contenu non vérifié doit le dire, et ça se lit à la
+        relecture. C'est la propriété exacte que gardent les tests
+        d'injection.
+        """
+        return self._filtrer_resultats(
+            self._retrieval.search(query, limit, memory_types),
+            inclure_quarantaine=inclure_quarantaine)
+
+    def search_experiences(self, query: str, limit: int = 10, *,
+                           inclure_quarantaine: bool = False) -> list[SearchResult]:
+        return self._filtrer_resultats(
+            self._retrieval.search_experiences(query, limit),
+            inclure_quarantaine=inclure_quarantaine)
 
     # ── Experience ───────────────────────────────────────────
 

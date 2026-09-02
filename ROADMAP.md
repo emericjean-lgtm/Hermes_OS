@@ -500,10 +500,10 @@ que trois manques que j'avais classés « confort » sont des **contrôles**
 | # | Jalon | Pourquoi à ce rang | Effort |
 |---|---|---|---|
 | **0** | ✅ **Fait le 2026-09-02** — deux arbres de tests réparés | voir I.5 | — |
-| 1 | **Séparer l'état de l'application** | 18 Mo de base, 8,2 de bus, 2,2 de snapshots dans le dépôt. Tout ce qui suit se construirait dans un dossier qu'une mise à jour efface | petit, bloquant |
-| 2 | **Quarantaine mémoire**, contrainte au niveau du schéma | défense contre l'injection de prompt ; une mémoire d'agent devient un fait immédiatement | petit |
-| 3 | **Ligne de base de configuration du workspace** | un agent peut planter des hooks ou un serveur MCP dans le dépôt qu'il traite | moyen |
-| 4 | **Canary et disjoncteur sur le flux de sortie** | répond à §14 et §22 d'un coup ; transposable presque tel quel | moyen |
+| 1 | ✅ **Fait (HOS-215)** — état hors du dépôt, 26,6 Mio migrés | 18 Mo de base, 8,2 de bus, 2,2 de snapshots dans le dépôt. Tout ce qui suit se construirait dans un dossier qu'une mise à jour efface | petit, bloquant |
+| 2 | ✅ **Fait (HOS-216)** — origine non humaine en quarantaine | défense contre l'injection de prompt ; une mémoire d'agent devient un fait immédiatement | petit |
+| 3 | ✅ **Fait (HOS-217)** — dix fichiers gouvernants surveillés | un agent peut planter des hooks ou un serveur MCP dans le dépôt qu'il traite | moyen |
+| 4 | ✅ **Fait (HOS-218)** — canary, report 512, silence, coût | répond à §14 et §22 d'un coup ; transposable presque tel quel | moyen |
 | 5 | Mission Contract + Run Ledger + lineage | le manque le plus coûteux, démontré en production | 721 l. de TS transposables |
 | 6 | Vérification tri-état, sur `verification.py` | un « on ne sait pas » n'est pas un « c'est bon » | petit |
 | 7 | Checkpoint de **fichiers** par référence git | Hermes ne sait pas annuler une modification | moyen |

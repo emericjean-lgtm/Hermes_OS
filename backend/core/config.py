@@ -9,11 +9,23 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/core/config.py -> backend/core -> backend -> repo root.
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _etat(*parties: str) -> Path:
+    """Un chemin sous la racine d'état, résolue hors du dépôt (HOS-215).
+
+    Importé tardivement : `etat` ne dépend de rien, mais le faire ici
+    garde `config` importable même si la racine n'est pas encore créée —
+    un test qui n'écrit rien ne doit pas créer de dossier chez l'usager.
+    """
+    from backend.core.etat import racine
+
+    return racine().joinpath(*parties)
 
 
 class Settings(BaseSettings):
@@ -71,14 +83,37 @@ class Settings(BaseSettings):
     backend_port: int = 8000
     secret_key: str = "change_me_with_a_random_256bit_key"
 
-    chroma_path: str = "./data/db/chroma"
-    sqlite_path: str = "./data/db/hermes.db"
+    # ── L'état vit hors du dépôt (HOS-215) ───────────────────────────
+    #
+    # Ces chemins valaient « ./data/... », donc **dans le répertoire de
+    # l'application**. Mesuré le 2026-09-02 : 18 Mo de base, 8,2 de bus
+    # d'événements, 2,2 d'instantanés. `.gitignore` les protégeait de
+    # git, rien ne les protégeait d'une mise à jour — et une mise à jour
+    # remplace le répertoire, donc effaçait la capacité de reprise
+    # elle-même.
+    #
+    # `backend/core/etat.py` résout une racine unique hors du dépôt et
+    # refuse toute racine qui y retomberait. Les valeurs par défaut sont
+    # calculées, pas écrites : une constante « ./data » réintroduirait le
+    # défaut pour quiconque n'a pas de `.env`.
+    chroma_path: str = Field(default_factory=lambda: str(_etat("db", "chroma")))
+    sqlite_path: str = Field(default_factory=lambda: str(_etat("db", "hermes.db")))
+    # `workflows_dir` NE bouge pas : ces fichiers sont **suivis par git**
+    # — `data/workflows/new-app.yaml`, `full-code-review.yaml`. C'est du
+    # contenu livré avec l'application, pas de l'état de l'utilisateur.
+    #
+    # Le déplacer a fait passer `/workflows` de deux entrées à zéro, et
+    # un test l'a dit tout de suite : « no workflows shipped — this test
+    # would pass vacuously ». La distinction n'est pas « où c'était
+    # rangé » mais **qui l'a écrit** : ce que git suit appartient à
+    # l'application et se remplace à chaque mise à jour ; ce que
+    # l'utilisateur produit doit lui survivre.
     workflows_dir: str = "./data/workflows"
     # Snapshots (§19.3). snapshot_every_steps <= 0 disables automatic
     # ones; snapshot_keep bounds the directory, since §3.7 budgets only
     # ~2-5 GB for logs and snapshots together.
-    logs_dir: str = "./data/logs"
-    snapshot_dir: str = "./data/snapshots"
+    logs_dir: str = Field(default_factory=lambda: str(_etat("logs")))
+    snapshot_dir: str = Field(default_factory=lambda: str(_etat("snapshots")))
     snapshot_every_steps: int = 10
     snapshot_keep: int = 20
     # Max workflow nodes executed concurrently (§6: parallélisation).
