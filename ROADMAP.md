@@ -1,13 +1,23 @@
 # Roadmap — Hermes OS
 
-> **État réel du dépôt au 2026-08-15, après HOS-111.**
+> **État réel du dépôt au 2026-09-02, après HOS-212.**
 >
-> La version précédente de ce fichier était figée à HOS-065B (2026-07-30) :
-> quarante-cinq jalons livrés depuis n'y figuraient pas, ses métriques
-> annonçaient 3 358 tests là où le dépôt en contient 4 112, et le backlog
-> frontend relevé le 2026-08-13 n'y était pas reporté. Un document de
-> référence en retard sur le code fait manquer du travail — c'est ce qui
-> est arrivé.
+> Ce fichier était figé à HOS-120 (2026-08-15) : **quatre-vingt-douze
+> jalons livrés depuis n'y figuraient pas**, dont toute la campagne Studio
+> (HOS-190 à HOS-212) — scintillement, quadrillage, calibration du
+> décodeur, chaînage de plans, production vidéo complète.
+>
+> C'est la deuxième fois. L'édition précédente s'ouvrait déjà sur le même
+> constat, en 2026-08-15, pour quarante-cinq jalons. Un document de
+> référence en retard fait manquer du travail — et il le refait dès qu'on
+> cesse de le tenir.
+>
+> **Métriques mesurées le 2026-09-02, après réparation** : **4 868 tests
+> verts** en 5 min sur les deux arbres — 2 274 dans `backend/tests`,
+> 2 594 dans `tests/`. Ce second arbre ne se collectait plus depuis
+> HOS-175 : la commande documentée dans `CLAUDE.md` passait un chemin en
+> argument, ce qui **écrase** `testpaths` et n'en exécutait qu'un sur
+> deux. Voir I.5.
 
 ---
 
@@ -318,6 +328,248 @@ Aucune ne bloque aujourd'hui ; toutes bloqueront le moment venu.
 5. Backend empaqueté (PyInstaller/Nuitka) ou venv déployé par l'installeur ?
 6. Interface : Electron/Tauri, ou serveur local ouvert dans le navigateur ?
 7. Ollama embarqué dans l'installeur, ou prérequis vérifié puis installé séparément ?
+
+---
+
+## I. Convergence Hermes OS 2 — cahier des charges du 2026-08-30
+
+> Un cahier de 111 points, inspiré d'Agent OS, d'OpenRouter et d'OmniRoute,
+> visant un système agentique hybride *local-first, cloud-capable,
+> verification-first*.
+>
+> **Ses 111 points ont été confrontés au code réel les 2 et 3 septembre**,
+> sondes automatiques puis lecture. Le résultat n'est pas une liste de
+> tâches : **près de la moitié existe déjà**, une partie n'existe qu'à
+> moitié, et une poignée seulement manque vraiment. Trois points que
+> j'avais d'abord classés « existe » se sont révélés incomplets une fois
+> comparés à l'implémentation d'Agent OS — c'est là que se trouvent les
+> gains les plus rentables.
+
+> Le cahier **adapté** — celui qui fait foi désormais — vit dans
+> `docs/cahier-des-charges-hermes-2.md` : il porte le modèle de menaces
+> tiré de la suite adverse d'Agent OS, ce qu'on reprend de leur code et
+> ce qu'on en change, et ce qui est écarté avec le motif.
+
+### I.0 Agent OS, source lue le 2026-09-02
+
+Archive `agent-os-main.zip`, version 2026-07-03, 11,5 Mo.
+
+**C'est une application Next.js en TypeScript** : 369 fichiers `.ts`,
+124 `.tsx`, environ 67 000 lignes, contre 1 112 lignes de Python. Le
+cahier ne le mentionne nulle part et c'est le fait qui commande toute la
+stratégie : **aucune ligne de son code n'est reprenable.** Ce qui se
+transfère est son modèle de données et ses invariants.
+
+| Brique | Fichier | Lignes | Test |
+|---|---|---|---|
+| Contract | `src/lib/contract.ts` | 320 | `m4-contract.test.ts` |
+| Run Ledger | `src/lib/ledger.ts` | 401 | `m1-ledger.test.ts` |
+| Checkpoints | `src/lib/checkpoints.ts` | 345 | `m6-checkpoints.test.ts` |
+| Loop engine | `src/lib/loopEngine.ts` | 237 | — |
+| Sandbox | `src/lib/sandbox.ts` | 32 | — |
+
+Stockage `node:sqlite`, migrations SQL explicites. **Zéro occurrence
+d'OmniRoute** : le cahier avait raison, ce n'est pas une dépendance
+d'Agent OS. OpenRouter apparaît dans 26 fichiers.
+
+### I.1 Les trois gains cachés sous un « ça existe déjà »
+
+C'est la partie la plus rentable de cette analyse, et elle a failli être
+manquée : une sonde qui trouve un module ne dit pas qu'il fait le travail.
+
+**Les checkpoints ne sauvegardent pas la même chose.**
+`core/snapshot_manager.py` (347 l.) sérialise l'**état de base** — tâches,
+exécutions — pour reprendre une mission. Agent OS crée une **référence
+git** `refs/agent-os/checkpoints/<id>` sur un commit détaché, via un
+index temporaire qui ne touche jamais celui de l'utilisateur, avec repli
+système de fichiers, manifeste de contenu et vérification d'intégrité par
+re-hachage. **Hermes ne sait pas annuler une modification de fichier.**
+Les deux sont complémentaires, pas redondants.
+
+**La mémoire n'a pas de confiance.** `MemoryEntry` porte `source_type` et
+`source_id` — d'où vient l'information. Agent OS contraint au niveau du
+schéma : `CHECK(trust IN ('trusted','quarantined'))`, avec l'invariant
+écrit en majuscules « origine non humaine **forcée** en quarantaine,
+`promoted_by=null` ». Dans Hermes, une mémoire produite par un agent
+devient un fait immédiatement.
+
+**La vérification est booléenne.** Chaque contrôle de
+`mission/verification.py` rend `-> bool`. Agent OS distingue
+`passed | failed | unavailable` avec le commentaire *« never conflate
+unavailable with passed »*, et un critère a quatre états :
+`unmet | met | unverifiable | violated`. Le cas s'est produit en
+production le 2026-08-30 : `img07` était `indetermine` — le relecteur
+n'avait pas pu conclure — et cet état n'avait nulle part où aller dans
+une vérification à deux valeurs.
+
+### I.2 Confrontation, par état
+
+> Le sondage **point par point des 111**, avec la preuve de chaque
+> verdict, vit dans `docs/sondage-cahier-111-points.md`. Ce qui suit en
+> est le résumé.
+
+Sondes sur `backend/` et `frontend/src`, hors tests, puis lecture des
+cas ambigus. Les comptes bruts d'une recherche textuelle produisent des
+faux positifs sur les mots courants — `scope`, `score`, `pipeline` — et
+ont été revérifiés à la main.
+
+#### Ce qui existe et tient
+
+Checkpoints d'état · `AdaptiveRouter` · journal et audit · exécution
+git-aware · bus d'événements · MCP · Health Center · admission de
+ressources · bancs de modèles · gouvernance de coût · doctor ·
+niveaux d'autonomie · self-evolution · multi-agent séquentiel et
+parallèle · ordonnanceur de chargement · modèle chaud · apprentissage
+historique · budget de contexte · invariants de sécurité · recherche
+globale · notifications · Operator · palette de commandes · Mission DAG ·
+`DecisionExplainer` (« pourquoi ce modèle »).
+
+#### Ce qui existe à moitié
+
+| Point | Ce qui manque |
+|---|---|
+| Evidence graph | états à deux valeurs au lieu de quatre |
+| Approbation | ni hash canonique, ni portée, ni expiration ; appelée depuis un seul fichier |
+| Abstraction cloud | `OpenRouterClient` réel (287 l.) mais **zéro test**, pas d'interface `CloudProvider` |
+| Quota / disjoncteurs | présents, **zéro test**, pas de `QuotaBroker` |
+| Secret broker | un fichier, pas de redaction systématique |
+| Sandbox | `sandbox_manager` en mémoire, ne valide pas de chemin réel |
+| Model trust | pas alimenté par l'historique des runs |
+| Architecture plugin | un fichier, pas de manifeste ni de permissions |
+| Agent Room | embryon |
+| Agents CLI externes | `hermes_agent_cli` seul, pas d'abstraction |
+| Promotion mémoire | pas de quarantaine, donc rien à promouvoir |
+
+#### Ce qui manque vraiment
+
+Mission Contract · Run Ledger et lineage · Context Relay · Loop
+Engineering · Cloud Data Firewall · détecteur d'expansion de périmètre ·
+rôles d'agent découplés du modèle · Council / MoA · `QuotaBroker` ·
+Agent Control Room · Kanban · replay de run · Radar · tests de chaos ·
+compression de contexte · onboarding premier démarrage · configuration
+utilisateur survivant aux mises à jour.
+
+### I.3 Ce qui est écarté, et pourquoi
+
+**Le pool de comptes multiples chez un même fournisseur (§21).** Le
+cahier dit qu'il faut respecter les conditions des fournisseurs, puis
+décrit un mécanisme dont la finalité est d'agréger des quotas gratuits en
+faisant tourner plusieurs comptes. C'est une violation des CGU de la
+plupart d'entre eux. Le routage **multi-fournisseurs**, la santé, les
+quotas et les disjoncteurs sont retenus ; la multiplication de comptes ne
+l'est pas.
+
+**SEO, Leads, CRM, Music, Games (§54-55, §52).** Le cahier les classe en
+extensions au §86 puis les réintroduit dans sa liste finale. Ils
+n'entrent pas tant que l'architecture de plugins (§87) n'existe pas :
+une extension sans point d'extension est une fonctionnalité de plus dans
+le noyau.
+
+**OmniRoute comme couche.** Adaptateur derrière la même interface
+qu'OpenRouter, jamais dépendance. Ses chiffres — 200+ fournisseurs,
+dizaines de tiers gratuits — sont des annonces, pas des mesures.
+
+**Rebâtir ce que Hermes Agent fait déjà.** L'agent embarque plus de 70
+compétences et des connecteurs Telegram, Discord, Slack, WhatsApp,
+Signal, e-mail. La section H prévoit Telegram : **vérifier d'abord ce que
+l'agent fait**, sinon c'est la violation exacte que
+`test_hermes_agent_is_the_brain.py` empêche.
+
+### I.4 Ordre retenu
+
+Trois écarts au cahier d'origine, et le troisième vient de la lecture du
+code d'Agent OS le 2026-09-02.
+
+**Une phase 0 réelle avant tout** — faite, voir I.5.
+
+**Le cloud derrière la traçabilité.** Sans Ledger, il reproduit ce qu'a
+produit la nuit du 29 au 30 août : des heures de calcul dont on ne sait
+plus rendre compte.
+
+**La sécurité avant la traçabilité.** Leur suite adverse `m8` a montré
+que trois manques que j'avais classés « confort » sont des **contrôles**
+— détail dans `docs/cahier-des-charges-hermes-2.md` §2 :
+
+- la quarantaine mémoire est la défense contre l'**injection de prompt**,
+  pas une question de qualité de données ;
+- un agent qui travaille sur un workspace peut modifier la configuration
+  qui le **gouverne lui-même** — hooks, serveurs MCP, `CLAUDE.md` ;
+- l'état utilisateur vit dans le dépôt, donc la première mise à jour
+  efface base, mémoire et **snapshots**.
+
+| # | Jalon | Pourquoi à ce rang | Effort |
+|---|---|---|---|
+| **0** | ✅ **Fait le 2026-09-02** — deux arbres de tests réparés | voir I.5 | — |
+| 1 | **Séparer l'état de l'application** | 18 Mo de base, 8,2 de bus, 2,2 de snapshots dans le dépôt. Tout ce qui suit se construirait dans un dossier qu'une mise à jour efface | petit, bloquant |
+| 2 | **Quarantaine mémoire**, contrainte au niveau du schéma | défense contre l'injection de prompt ; une mémoire d'agent devient un fait immédiatement | petit |
+| 3 | **Ligne de base de configuration du workspace** | un agent peut planter des hooks ou un serveur MCP dans le dépôt qu'il traite | moyen |
+| 4 | **Canary et disjoncteur sur le flux de sortie** | répond à §14 et §22 d'un coup ; transposable presque tel quel | moyen |
+| 5 | Mission Contract + Run Ledger + lineage | le manque le plus coûteux, démontré en production | 721 l. de TS transposables |
+| 6 | Vérification tri-état, sur `verification.py` | un « on ne sait pas » n'est pas un « c'est bon » | petit |
+| 7 | Checkpoint de **fichiers** par référence git | Hermes ne sait pas annuler une modification | moyen |
+| 8 | Approbation : hash canonique, portée, expiration | `approval_engine` est complet et **débranché** — le rebrancher coûte moins que de l'écrire | moyen |
+| 9 | Taxonomie d'échecs + retry par cause | trois incidents identiques ont eu trois réponses manuelles | moyen |
+| 10 | `CloudProvider` + OpenRouter en adaptateur + **tests** | le client existe sans un seul test | moyen |
+| 11 | Cloud Data Firewall | prérequis de tout usage cloud réel | **gros, à isoler** |
+| 12 | `QuotaBroker`, santé, disjoncteurs testés | n'a de sens qu'après 10 et 11 | moyen |
+| 13 | Context Relay + rôles découplés | la RX 6800 impose le séquentiel | moyen |
+| 14 | Loop Engineering — exécuteur, vérificateur, réparateur | ne vaut que si 6 existe | moyen |
+| 15 | Model Trust nourri par le Ledger | `update_performance` et `record_feedback` existent déjà : à brancher, pas à écrire | petit |
+| 16 | Installation, mise à jour, retour arrière | `installer/` ne contient que de la détection | gros |
+| 17 | Frontend : Agent Control Room, replay, fournisseurs | affiche enfin ce qui existe | moyen |
+| 18 | Architecture de plugins + manifeste de permissions | porte d'entrée des extensions | moyen |
+| 19+ | Studios, Radar, Kanban en plugins | après le point d'extension | — |
+
+Les jalons 1 à 4 sont **petits et bloquants**. Les construire après le
+Contract reviendrait à bâtir la traçabilité dans un dossier effaçable,
+au-dessus d'une mémoire empoisonnable.
+
+### I.4bis Ce que la lecture d'Agent OS a corrigé
+
+**La suite adverse manquait à ma lecture du cahier.** Le §75 demandait
+des « tests de chaos » sans les nommer. Leur `m8` les nomme : injection
+de prompt, empoisonnement de mémoire, exfiltration d'environnement,
+échappement de chemin par lien symbolique, configuration hostile,
+descriptions MCP, boucles de budget. C'est une liste de courses, pas un
+principe.
+
+**Deux points où Hermes est devant**, et qu'il ne faut donc pas
+« améliorer » en copiant :
+
+- *les sessions d'agent* — ils paient ~28 s de démarrage à froid par tour
+  et le contournent par un serveur global chaud ; HOS-138 tient une
+  session ACP **par mission**, 220 Mio mesurés, tours sérialisés ;
+- *le bus d'événements* — le leur est une seconde table `run_events` ;
+  celui de Hermes est durable, rejouable par plage et par motif, avec des
+  identifiants idempotents. Le Ledger portera les runs, pas les
+  événements.
+
+### I.5 Jalon 0 — fait le 2026-09-02
+
+**La cause racine n'était pas la configuration.** `pytest.ini` déclare
+`testpaths = backend/tests tests` depuis HOS-111, avec un commentaire qui
+raconte précisément cet incident. C'est `CLAUDE.md` qui documentait
+`pytest backend/tests` — et **un chemin en argument écrase `testpaths`**.
+La commande documentée était plus étroite que la configuration, et
+l'angle mort s'est rouvert le jour où on l'a écrite.
+
+Trois défauts dans l'arbre abandonné :
+
+| Défaut | Depuis | Correction |
+|---|---|---|
+| `WhisperProvider` importé mais supprimé | HOS-175, 22 jours | tests réécrits sur `PiperLocal` / `WhisperLocal` |
+| `test_execute_single_task` bloquait 16 min | — | la garde ne couvrait qu'une sortie d'inférence sur trois |
+| `test_get_goal`, même blocage | — | même cause |
+
+Le deuxième est le plus instructif : `fake_inference.install()` ne
+patchait que `_default_chat`, alors que `execute()` choisit entre trois
+producteurs — Hermes Agent en sous-processus, la boucle d'outils sur
+workspace, ou l'appel simple. **Le premier est le cas par défaut.** La
+garde protégeait le chemin qu'on n'emprunte pas.
+
+`tests/` passe de « ne se collecte pas » à **2 594 verts en 1 min 40**.
+Trois gardes posées, dont une qui surveille `CLAUDE.md` et échoue si un
+chemin y est réintroduit en argument.
 
 ---
 

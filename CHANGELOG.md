@@ -1,3 +1,177 @@
+## HOS-214 - Le cahier des charges, confronte au code (2026-09-02)
+
+Un cahier de 111 points a ete transmis, inspire d'Agent OS, d'OpenRouter
+et d'OmniRoute. Ses 111 points ont ete sondes dans le depot, puis le code
+source d'Agent OS a ete lu.
+
+### Ce que la confrontation donne
+
+| Etat | Compte | Part |
+|---|---|---|
+| existe et tient | **46** | 41 % |
+| existe a moitie | **28** | 25 % |
+| absent | **35** | 32 % |
+| ecarte | 2 | 2 % |
+
+Un cahier qui demande de batir ce qui existe coute autant qu'une roadmap
+en retard. Six verdicts ont ete retournes dans les deux sens en relisant
+les faux positifs des mots courants — `scope`, `score`, `canonical`,
+`objectif`, `reserve`.
+
+### Agent OS, ce qu'il est reellement
+
+**Une application Next.js en TypeScript** : 369 fichiers `.ts`, 124
+`.tsx`, ~67 000 lignes, contre 1 112 de Python. 86 modules dans
+`src/lib`, 236 points d'API sur 47 domaines, 46 fichiers de test. Le
+cahier ne le mentionnait nulle part, et **aucune ligne n'est reprenable**
+— ce qui se transfere est son modele de donnees, ses invariants et son
+modele de menaces.
+
+Verifie : **zero occurrence d'OmniRoute** dans son code. Le cahier avait
+raison, ce n'est pas une dependance d'Agent OS.
+
+### La suite adverse a reordonne la roadmap
+
+Leur lot de tests `m8` decrit des attaques que Hermes ne pare pas, et
+trois manques que j'avais classes « confort » se revelent etre des
+**controles** :
+
+**La quarantaine memoire est la defense contre l'injection de prompt.**
+Leurs tests gardent une seule propriete : le contenu en quarantaine
+n'entre jamais dans le contexte resident ni dans une recherche sans
+drapeau explicite, et l'origine non humaine est mise en quarantaine *quel
+que soit son contenu*. Dans Hermes, une memoire produite par un agent
+devient un fait immediatement.
+
+**Un agent peut modifier la configuration qui le gouverne.**
+`m8-hostile-config` detecte comme derive un workspace qui ajoute
+`.claude/settings.json`, modifie `.claude/hooks`, ajoute un serveur MCP
+dans `.mcp.json` ou modifie `CLAUDE.md`. Leur mecanisme est une table de
+lignes de base comparee a chaque run. Hermes ne pare pas ça.
+
+**L'etat utilisateur vit dans le depot.** 18 Mo de base, 8,2 de bus
+d'evenements, 2,2 de snapshots. La premiere mise a jour qui remplace le
+repertoire efface la base, la memoire et la capacite de reprise. Leur
+reponse est un « preserve set » explicite et une base rangee hors de
+l'application.
+
+Ces quatre jalons — separation de l'etat, quarantaine, ligne de base de
+configuration, canary — passent **devant** le Contract et le Run Ledger.
+Les construire apres reviendrait a batir la tracabilite dans un dossier
+effaçable, au-dessus d'une memoire empoisonnable.
+
+### Trois gains caches sous un « ca existe deja »
+
+**Hermes ne sait pas annuler une modification de fichier.**
+`snapshot_manager` serialise l'etat de base ; leur checkpoint est une
+reference git sur un commit detache, via un index temporaire, avec
+verification d'integrite par re-hachage. Complementaires, pas redondants.
+
+**La verification est booleenne.** Chaque controle de `verification.py`
+rend `-> bool`. Ils distinguent `passed | failed | unavailable`, avec le
+commentaire « never conflate unavailable with passed », et le gardent
+dans leur suite de **securite**. Le cas s'est produit le 2026-08-30 :
+`img07` etait `indetermine` et cet etat n'avait nulle part ou aller.
+
+**L'approbation existe et n'est appelee nulle part.** `approval_engine`
+sait `required_approvals` et `delegated_to`. Aucun chemin reel n'y passe.
+
+### Deux points ou Hermes est devant
+
+**Les sessions d'agent.** Ils ont mesure `hermes -z` par tour a ~28 s de
+demarrage a froid et l'ont contourne par un serveur global chaud sur
+`:8642`. HOS-138 tient une session ACP **par mission** — 220 Mio
+mesures, tours serialises par un verrou.
+
+**Le bus d'evenements.** Le leur est une seconde table `run_events` avec
+`seq = MAX+1` sous transaction. Celui de Hermes est durable, rejouable
+par plage et par motif, avec des identifiants idempotents. Le Ledger
+portera les runs, pas les evenements — en porter un second creerait
+l'architecture parallele que le cahier interdit a sa propre regle 4.
+
+### Ce qui est ecarte, et pourquoi
+
+**Le pool de comptes multiples chez un meme fournisseur.** Le cahier
+demande de respecter les conditions des fournisseurs puis decrit un
+mecanisme dont la finalite est d'agreger des quotas gratuits en faisant
+tourner plusieurs comptes. C'est une violation des CGU de la plupart
+d'entre eux.
+
+**SEO, Leads, CRM, Music, Games.** Classes en extensions par le cahier
+lui-meme, puis reintroduits dans sa liste finale. Ils n'entrent pas tant
+que l'architecture de plugins n'existe pas.
+
+### Surfaces
+
+`docs/cahier-des-charges-hermes-2.md` — le cahier adapte, qui fait foi.
+`docs/sondage-cahier-111-points.md` — les 111 points, un par un, avec la
+preuve de chaque verdict. `ROADMAP.md` chapitre I — dix-neuf jalons
+ordonnes.
+
+
+## HOS-213 - La commande documentee etait plus etroite que la configuration (2026-09-02)
+
+`tests/` — 2 594 tests, 53 % du depot — ne se collectait plus depuis
+HOS-175. Vingt-deux jours, trente-sept jalons.
+
+### La cause n'etait pas la configuration
+
+`pytest.ini` declare `testpaths = backend/tests tests` depuis HOS-111,
+avec un commentaire qui raconte precisement cet incident : 2 869 tests
+que personne n'executait, 33 rouges dedans dont un vrai defaut
+fonctionnel. La configuration etait juste.
+
+C'est `CLAUDE.md` qui documentait `pytest backend/tests`. **Un chemin
+passe en argument ecrase `testpaths`.** La commande documentee etait plus
+etroite que la configuration, et l'angle mort s'est rouvert le jour ou on
+l'a ecrite.
+
+HOS-111 avait traite l'occurrence, pas la cause.
+
+### Trois defauts dans l'arbre abandonne
+
+**Un module qui ne s'importe plus.** `tests/conversation/test_conversation.py`
+importait `WhisperProvider`, `CloudSTTProvider`, `PiperProvider` et
+`CloudTTSProvider` — supprimes a HOS-175 parce que chacun se declarait
+disponible sur un simple import et levait `NotImplementedError` au
+premier appel. La suppression etait juste ; le test est reste sur elles.
+Reecrit sur `PiperLocal` et `WhisperLocal`, les implementations reelles,
+avec une garde qui refuse le retour des quatre souches.
+
+**Une garde qui protegeait le chemin qu'on n'emprunte pas.**
+`fake_inference.install()` ne patchait que `_default_chat`. Or
+`execute()` choisit entre trois producteurs d'appel :
+
+| Condition | Producteur |
+|---|---|
+| runtime `hermes-agent` | `_hermes_agent_chat_for` — **sous-processus** |
+| mission liee a un workspace | `_chat_with_tools_for` — boucle d'outils |
+| sinon | `_default_chat` — appel simple |
+
+Le premier est le cas **par defaut** : Hermes Agent est le cerveau des
+missions, et une `ExecutionMeta` sans workspace y aboutit.
+`test_execute_single_task` et `test_get_goal` lançaient donc un vrai
+sous-processus et bloquaient l'arbre entier. Apres correction : **0,5 s
+au lieu de seize minutes**.
+
+**Une course prise pour une regression.**
+`test_sortie_de_l_agent.py::test_une_sortie_volontaire_est_nommee_comme_telle`
+dormait 0,3 s puis diagnostiquait un sous-processus cense etre mort. Sur
+une machine chargee, le demarrage de l'interpreteur depasse ce delai : le
+diagnostic repondait — a juste titre — « le processus vit encore ». Le
+test echouait sur la vitesse de la machine. Remplace par une attente
+bornee de la vraie fin du processus ; stable sur trois executions.
+
+### Ce qui garde la correction
+
+Trois gardes, dont une qui surveille **la documentation** : elle lit les
+blocs `bash` de `CLAUDE.md` et echoue si un chemin y est passe en
+argument. Verifiee rouge sur le defaut, verte apres.
+
+`tests/` passe de « ne se collecte pas » a 2 594 verts en 1 min 40.
+Suite complete : **4 865 passed, 3 skipped**, 4 min 44.
+
+
 ## HOS-212 - Juger une voix et une image sur ce qu'elles sont, pas sur leur existence (2026-08-30)
 
 Une premiere production reelle a servi de revelateur, comme HOS-211. Trois
