@@ -509,20 +509,44 @@ que trois manques que j'avais classés « confort » sont des **contrôles**
 | 7 | ✅ **Fait (HOS-223)** — commit détaché + repli vérifié, couplé à l'état de mission | Hermes ne savait pas annuler une modification | 28 gardes |
 | 8 | ✅ **Fait (HOS-224)** — empreinte canonique + discriminants + portée d'arborescence bornée | l'expiration existait ; la description entrait dans l'identité, et deux appelants la font écrire par le modèle. `approval_engine` reste **délibérément** débranché : deux portes vivantes valent moins qu'une | 37 gardes |
 | 9 | ✅ **Fait (HOS-225)** — onze causes classées sur indices nommés, remède par cause, `INCONNUE` reste `NULL` | le retry changeait de modèle à *toute* reprise — le bon remède pour un cas sur onze | 34 gardes |
-| 10 | `CloudProvider` + OpenRouter en adaptateur + **tests** | le client existe sans un seul test | moyen |
+| 10 | `CloudProvider` en interface, OpenRouter en adaptateur | ⚠️ **prémisse corrigée le 2026-09-03** : le client a bien 9 tests réels (usage, 429→quota, SSE, échec en cours de flux) — dans `tests/`, l'arbre non collecté depuis HOS-175. `CloudProvider` en revanche n'existe **nulle part** : zéro occurrence | petit |
 | 11 | Cloud Data Firewall | prérequis de tout usage cloud réel | **gros, à isoler** |
-| 12 | `QuotaBroker`, santé, disjoncteurs testés | n'a de sens qu'après 10 et 11 | moyen |
+| 12 | `QuotaBroker` | le disjoncteur de `task_executor` (`_record_failure`) et la santé de runtime (`record_execution`) sont réels et branchés ; il manque le courtier de quotas | moyen |
 | 13 | Context Relay + rôles découplés | la RX 6800 impose le séquentiel | moyen |
 | 14 | Loop Engineering — exécuteur, vérificateur, réparateur | ne vaut que si 6 existe | moyen |
-| 15 | Model Trust nourri par le Ledger | `update_performance` et `record_feedback` existent déjà : à brancher, pas à écrire | petit |
+| 15 | Model Trust nourri par le **Ledger** | ⚠️ **prémisse corrigée** : `update_performance` et `record_feedback` sont déjà branchés (`service_registry._record_feedback` → `RealTaskExecutor.on_execution`). Ce qui manque est autre chose : les nourrir **par cause** (HOS-225) plutôt que par succès/durée | petit |
 | 16 | Installation, mise à jour, retour arrière | `installer/` ne contient que de la détection | gros |
-| 17 | Frontend : Agent Control Room, replay, fournisseurs | affiche enfin ce qui existe | moyen |
+| 17 | Frontend : exposer ce que les jalons 5→9 ont produit | 22 Centers existent déjà ; rien n'affiche le registre de runs, la lignée, les causes, les points de reprise ni les portées d'approbation | moyen |
 | 18 | Architecture de plugins + manifeste de permissions | porte d'entrée des extensions | moyen |
 | 19+ | Studios, Radar, Kanban en plugins | après le point d'extension | — |
 
 Les jalons 1 à 4 sont **petits et bloquants**. Les construire après le
 Contract reviendrait à bâtir la traçabilité dans un dossier effaçable,
 au-dessus d'une mémoire empoisonnable.
+
+### Une note sur les prémisses de ce tableau
+
+Quatre lignes ont été écrites à partir d'un sondage qui ne regardait que
+`backend/tests/`, et se sont révélées fausses en construisant :
+
+- **jalon 8** annonçait « ni hash canonique, ni portée, ni expiration ;
+  appelée depuis un seul fichier ». L'expiration existait, le module
+  *était* branché dans `AegisAgent`, sur le chemin réel des requêtes. Et
+  le remède proposé — rebrancher `policy/approval_engine.py` — aurait
+  créé une seconde porte de gouvernance vivante.
+- **jalon 10** annonçait « le client existe sans un seul test ». Il en a
+  neuf, réels, dans `tests/` — l'arbre qui n'était plus collecté depuis
+  HOS-175.
+- **jalon 15** annonçait « à brancher, pas à écrire ». C'est déjà
+  branché.
+- **jalon 12** annonçait des disjoncteurs non testés. Ils le sont, dans
+  `tests/architecture/`.
+
+Le point commun est le même que celui de HOS-111 : **un sondage qui
+ne regarde qu'un des deux arbres de tests conclut faux.** Les prémisses
+restantes (11, 13, 14, 16, 18) n'ont pas encore été revérifiées de cette
+façon — elles le seront au moment de les construire, avant d'écrire une
+ligne.
 
 ### I.4bis Ce que la lecture d'Agent OS a corrigé
 
