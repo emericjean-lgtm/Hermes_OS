@@ -36,8 +36,9 @@ from backend.explainability.decision_explainer import DecisionExplainer
 from backend.explainability.explanation_models import DecisionType, RiskLevel
 from backend.explainability.routes import handle_explain, handle_get_explanation, handle_list_explanations
 from backend.policy.approval_explainer import ApprovalExplainer
-from backend.voice.speech_to_text import SpeechToTextProvider, WhisperProvider, CloudSTTProvider
-from backend.voice.text_to_speech import TextToSpeechProvider, PiperProvider, CloudTTSProvider
+from backend.voice.speech_to_text import SpeechToTextProvider
+from backend.voice.text_to_speech import TextToSpeechProvider
+from backend.voice.locale import PiperLocal, WhisperLocal
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -629,54 +630,77 @@ class TestApprovalExplainer:
 # ═══════════════════════════════════════════════════════════════
 
 class TestVoiceInterfaces:
-    def test_whisper_provider_interface(self):
-        provider = WhisperProvider()
-        name = provider.get_name()
-        assert name == "whisper"
+    """Les fournisseurs de voix reels, et ceux qui ne doivent pas revenir.
 
-    def test_whisper_availability_check(self):
-        provider = WhisperProvider()
-        available = provider.is_available()
-        assert isinstance(available, bool)
+    HOS-175 a supprime `WhisperProvider`, `CloudSTTProvider`,
+    `PiperProvider` et `CloudTTSProvider`. Chacune se declarait disponible
+    sur un simple import et levait `NotImplementedError` au premier appel.
+    Le defaut est reste latent trois jours : tant que la dependance
+    manquait, `is_available()` rendait False et personne ne s'en
+    apercevait.
 
-    def test_cloud_stt_provider(self):
-        provider = CloudSTTProvider()
-        assert provider.is_available() is False
+    Ces tests couvraient les souches. Ils portent desormais sur les
+    implementations reelles de `backend/voice/locale.py`, et gardent la
+    suppression.
+    """
 
-    def test_cloud_stt_with_key(self):
-        provider = CloudSTTProvider(api_key="test_key")
-        assert provider.is_available() is True
+    # ── Les implementations reelles ──────────────────────────────────
 
-    def test_piper_provider_interface(self):
-        provider = PiperProvider()
-        name = provider.get_name()
-        assert name == "piper"
+    def test_whisper_local_expose_le_contrat_stt(self):
+        assert issubclass(WhisperLocal, SpeechToTextProvider)
+        assert "whisper" in WhisperLocal().get_name()
 
-    def test_cloud_tts_provider(self):
-        provider = CloudTTSProvider()
-        assert provider.is_available() is False
+    def test_piper_local_expose_le_contrat_tts(self):
+        assert issubclass(PiperLocal, TextToSpeechProvider)
+        assert "piper" in PiperLocal().get_name()
 
-    def test_cloud_tts_with_key(self):
-        provider = CloudTTSProvider(api_key="test_key", provider="azure")
-        assert provider.is_available() is True
-        assert "azure" in provider.get_name()
+    def test_la_disponibilite_est_un_booleen_et_non_une_promesse(self):
+        """`is_available()` doit repondre sans rien charger.
 
-    def test_speech_to_text_abstract(self):
-        assert issubclass(WhisperProvider, SpeechToTextProvider)
+        C'est le point exact ou les souches mentaient : elles rendaient
+        True parce que l'import avait reussi, puis levaient a l'appel.
+        """
+        for fournisseur in (WhisperLocal(), PiperLocal()):
+            assert isinstance(fournisseur.is_available(), bool)
 
-    def test_text_to_speech_abstract(self):
-        assert issubclass(PiperProvider, TextToSpeechProvider)
+    def test_les_langues_annoncees_couvrent_le_francais(self):
+        assert "fr" in WhisperLocal().get_languages()
 
-    def test_stt_languages(self):
-        provider = WhisperProvider()
-        langs = provider.get_languages()
-        assert "fr" in langs
-        assert "en" in langs
+    def test_les_voix_annoncees_ne_sont_pas_vides(self):
+        assert PiperLocal().get_voices()
 
-    def test_tts_voices(self):
-        provider = PiperProvider()
-        voices = provider.get_voices()
-        assert "default" in voices
+    # ── Ce qui ne doit pas revenir ───────────────────────────────────
+
+    def test_les_souches_supprimees_ne_reviennent_pas(self):
+        """Une souche qui se dit disponible est pire que rien.
+
+        Elle passe les tests d'interface, elle passe la sonde de sante,
+        et elle echoue au premier usage reel — trois jours plus tard, en
+        production. Le nom seul suffit a la reintroduire par megarde
+        depuis un ancien fichier : cette garde nomme les quatre.
+        """
+        from backend.voice import speech_to_text, text_to_speech
+
+        for module, noms in (
+            (speech_to_text, ("WhisperProvider", "CloudSTTProvider")),
+            (text_to_speech, ("PiperProvider", "CloudTTSProvider")),
+        ):
+            for nom in noms:
+                assert not hasattr(module, nom), (
+                    f"{nom} est revenu dans {module.__name__} — HOS-175 l'a "
+                    "supprime parce qu'il se declarait disponible et levait "
+                    "NotImplementedError au premier appel")
+
+    def test_le_contrat_abstrait_reste_abstrait(self):
+        """Les deux interfaces ne doivent pas devenir instanciables.
+
+        Une base abstraite qu'on peut instancier est une souche de plus.
+        """
+        import pytest as _pytest
+
+        for base in (SpeechToTextProvider, TextToSpeechProvider):
+            with _pytest.raises(TypeError):
+                base()
 
 
 # ═══════════════════════════════════════════════════════════════

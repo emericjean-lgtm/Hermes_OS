@@ -26,12 +26,27 @@ class _Session:
         self.proc = proc
 
 
+#: Attendre la **fin du processus**, pas un delai fixe (HOS-213).
+#:
+#: La version precedente dormait 0,3 s puis diagnostiquait. Sur une
+#: machine chargee, le demarrage de l'interpreteur depasse ce delai : le
+#: processus n'etait pas encore mort, et `_pourquoi_ferme` repondait
+#: — a juste titre — « le processus vit encore ». Le test echouait sur la
+#: vitesse de la machine, pas sur le code.
+#:
+#: Trois secondes couvrent tres largement un `python -c "sys.exit(0)"`,
+#: et le cas « vit encore » les epuise volontairement puisqu'il dort 30 s.
+DELAI_DE_MORT_S = 3.0
+
+
 async def _diagnostic(code_python: str) -> str:
     proc = await asyncio.create_subprocess_exec(
         sys.executable, "-c", code_python,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
-        await asyncio.sleep(0.3)
+        limite = asyncio.get_running_loop().time() + DELAI_DE_MORT_S
+        while proc.returncode is None and asyncio.get_running_loop().time() < limite:
+            await asyncio.sleep(0.02)
         return await acp._pourquoi_ferme(_Session(proc))
     finally:
         if proc.returncode is None:

@@ -152,9 +152,21 @@ l'interpréteur de l'agent. Ne jamais remplacer ce chemin par
 ## Commandes
 
 ```bash
-.venv/Scripts/python.exe -m pytest backend/tests -q   # ~4 min, doit être vert
+.venv/Scripts/python.exe -m pytest -q                 # ~6 min, doit être vert
 cd frontend && npx tsc --noEmit                       # typecheck
 ```
+
+**Sans argument de chemin.** `pytest.ini` déclare `testpaths = backend/tests
+tests` depuis HOS-111, précisément parce que le second répertoire — 2 594
+tests, 53 % du dépôt — n'était exécuté par personne. Passer `backend/tests`
+en argument **écrase** `testpaths` et recrée exactement l'angle mort que
+HOS-111 avait fermé.
+
+C'est ce qui s'est produit : ce fichier a documenté la commande étroite, et
+`tests/` a cessé d'être lancé. Il y est resté cassé depuis HOS-175 — un
+module qui ne s'importait plus, deux tests qui lançaient un vrai
+sous-processus d'inférence et bloquaient la suite. Trouvé le 2026-09-02,
+soit vingt-deux jours et trente-sept jalons plus tard.
 
 Backend et frontend se lancent via `preview_start` (`.claude/launch.json`),
 jamais avec un `npm run dev` détaché.
