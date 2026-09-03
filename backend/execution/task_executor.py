@@ -681,11 +681,24 @@ class RealTaskExecutor:
                 "assignation explicite" if _propre_ral(runtime_brut)
                 else "défaut HOS-142 — aucun runtime choisi",
                 runtime=runtime_id),
+             # Seul le décideur de la tâche peut faire monter vers le
+             # cloud : c'est lui qui a la porte d'escalade (HOS-066C), et
+             # lui seul (HOS-244).
              Proposition("décideur de la tâche", runtime=runtime_demande,
-                         modele=self._resolve_model(task, assignment))],
+                         modele=self._resolve_model(task, assignment),
+                         peut_monter=True)],
             defaut_runtime="hermes-agent",
             defaut_modele=self._default_model,
             cloud_joignable=self._cloud_chat is not None)
+        if decision.impossible:
+            # HOS-244 : un runtime **assigné** qui ne peut pas servir ne se
+            # remplace pas en silence. `RuntimeUnavailableError` est le
+            # contrat que ce module porte déjà pour ce cas — retryable, et
+            # jamais la faute de la tâche — et `MissionExecutor` le classe
+            # en `FOURNISSEUR` avec le remède `changer_de_fournisseur`.
+            logger.warning("tâche %s : %s", getattr(task, "task_id", "?"),
+                           decision.impossible)
+            raise RuntimeUnavailableError(decision.impossible)
         runtime_id, model = decision.runtime, decision.modele
         use_cloud = runtime_id == "openrouter"
         if decision.repli:

@@ -241,7 +241,8 @@ def test_la_bascule_cloud_produit_un_repli_nomme():
 
     injoignable = arbitrer(
         [Proposition("assignation explicite", runtime="hermes-agent"),
-         Proposition("décideur de la tâche", runtime="openrouter")],
+         Proposition("décideur de la tâche", runtime="openrouter",
+                     peut_monter=True)],
         cloud_joignable=False)
     assert injoignable.runtime == "hermes-agent"
     assert "openrouter" in injoignable.repli
@@ -249,7 +250,8 @@ def test_la_bascule_cloud_produit_un_repli_nomme():
 
     joignable = arbitrer(
         [Proposition("assignation explicite", runtime="hermes-agent"),
-         Proposition("décideur de la tâche", runtime="openrouter")],
+         Proposition("décideur de la tâche", runtime="openrouter",
+                     peut_monter=True)],
         cloud_joignable=True)
     assert joignable.runtime == "openrouter"
     assert joignable.repli == ""      # rien n'a été défait, rien à dire

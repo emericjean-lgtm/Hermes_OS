@@ -1,3 +1,93 @@
+## HOS-244 — Le code contredisait son propre contrat (2026-09-03)
+
+Passe chirurgicale sur §5.1. Un défaut bloquant trouvé dans HOS-243,
+livré la veille : la documentation du module d'arbitrage affirmait une
+règle que son code violait douze lignes plus bas.
+
+### La contradiction
+
+`ral/arbitrage.py` écrivait, dans sa docstring :
+
+> Il ne peut pas la faire redescendre : défaire une assignation
+> explicite serait exactement la seconde autorité que ce module supprime.
+
+Et, dans son corps :
+
+    elif monte is not None and runtime == MONTEE_AUTORISEE and not cloud_joignable:
+        runtime, source_runtime = defaut_runtime, "repli, cloud injoignable"
+
+Une tâche assignée à `openrouter` sans clé configurée devenait donc
+`hermes-agent` — l'annulation silencieuse que le module existait pour
+supprimer. Pire : elle **réussissait**, en local, et l'opérateur qui avait
+demandé le cloud ne l'apprenait que dans un journal.
+
+Ce n'était pas un défaut de documentation. C'était un défaut de
+comportement, et la documentation avait raison.
+
+### Recommandation défaite, assignation défaite
+
+Le dépôt distingue déjà les deux, et c'est cette distinction qu'il
+fallait appliquer :
+
+- une **recommandation** vers le cloud qui n'aboutit pas est simplement
+  défaite. C'est littéralement la politique de `_make_cloud_chat` —
+  « cloud entièrement injoignable, **quoi que recommande AdaptiveRouter** ».
+  Elle n'engageait personne. Le repli local reste autorisé, et nommé ;
+- une **assignation** vers un runtime qui ne peut pas servir n'est pas
+  remplacée. `Decision.impossible` est renseignée, et l'appelant lève
+  `RuntimeUnavailableError` — le type que `task_executor` porte depuis
+  toujours pour « the inference layer is down », retryable et jamais la
+  faute de la tâche.
+
+L'échec honnête n'est donc pas une politique nouvelle. Le message est
+écrit pour que `runs.taxonomie` le classe **sans modification** :
+`FOURNISSEUR`, remède `changer_de_fournisseur`, `reessayer=True`,
+`changer_de_modele=False`. La machinerie de reprise de HOS-225 prend le
+relais telle quelle.
+
+L'arbitre, lui, ne lève pas : il n'exécute rien, et une exception depuis
+un module qui ne fait que ranger des avis serait une décision d'exécution
+déguisée.
+
+### Le droit de monter, attribué au lieu d'être hérité
+
+HOS-243 cherchait la montée vers le cloud sur **toutes** les
+propositions. N'importe quelle source future qui aurait nommé
+`openrouter` aurait donc hérité d'une autorité que personne ne lui avait
+donnée.
+
+Le droit est maintenant porté par la proposition elle-même
+(`peut_monter`), faux par défaut, et accordé au seul décideur de la
+tâche — c'est lui qui détient la porte d'escalade de HOS-066C. Une garde
+lit le point d'appel réel : la règle est tenue là où elle s'exerce, pas
+seulement là où elle est écrite.
+
+### La frontière des deux routeurs, prouvée sur les appelants
+
+HOS-243 la vérifiait sur les imports de deux fichiers nommés. Mesurée
+cette fois en croisant les appelants réels des deux méthodes de
+décision :
+
+    core.router.ModelRouter.select_model        3 appelants
+    AdaptiveModelRouter.recommend_for_text      2 appelants
+    intersection                                AUCUNE
+
+`service_registry` construit l'un et appelle l'autre : c'est une racine
+de composition, elle câble et ne décide pas.
+
+### Les gardes, vérifiées en les cassant
+
+Chacune a été soumise à la violation qu'elle interdit, puis l'arbre
+restauré. Les quatre détectent : reconstruction d'un point d'entrée
+déprécié, routeur de rôles appelé depuis l'exécuteur missionnel, second
+arbitrage, droit de monter accordé à une autre source.
+
+### Mesures
+
+7 gardes ajoutées, 4 réécrites (aucune supprimée). Suite complète :
+**5 472 vertes**, 3 ignorées. Frontend : 126 vertes, typecheck propre.
+
+
 ## HOS-243 — Une seule autorité tranche, et elle l'écrit (2026-09-03)
 
 Quatrième passe de consolidation, sur §5.1 : « il existe plusieurs

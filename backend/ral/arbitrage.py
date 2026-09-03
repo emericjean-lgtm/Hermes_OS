@@ -52,9 +52,35 @@ avait causé une régression.
 
 Sur cette base, une seule dérogation : le décideur de la tâche peut
 **faire monter** l'exécution vers le cloud, et seulement si un
-fournisseur cloud est réellement joignable. Il ne peut pas la faire
-redescendre : défaire une assignation explicite serait exactement la
-seconde autorité que ce module supprime.
+fournisseur cloud est réellement joignable. Le droit de monter est porté
+par la proposition elle-même (`peut_monter`), faux par défaut : le
+chercher sur toutes les propositions, comme le faisait HOS-243, donnait
+cette autorité à n'importe quelle source future qui aurait nommé
+`openrouter`.
+
+## Recommandation défaite, assignation défaite : deux choses
+
+HOS-243 affirmait « le décideur ne peut pas faire redescendre une
+assignation explicite » et faisait exactement cela douze lignes plus
+bas :
+
+    elif monte is not None and runtime == MONTEE_AUTORISEE and not cloud_joignable:
+        runtime, source_runtime = defaut_runtime, "repli, cloud injoignable"
+
+Le code contredisait son propre contrat. HOS-244 les sépare :
+
+- une **recommandation** vers le cloud qui ne peut pas aboutir est
+  simplement défaite, et nommée dans `repli`. Elle n'engageait personne,
+  et c'est déjà la politique de `_make_cloud_chat` : « cloud entièrement
+  injoignable, quoi que recommande AdaptiveRouter » ;
+- une **assignation** vers un runtime qui ne peut pas servir n'est pas
+  remplacée. `Decision.impossible` est renseignée, et l'appelant lève
+  `RuntimeUnavailableError` — le type que ce dépôt a déjà pour « the
+  inference layer is down », que `MissionExecutor` classe en
+  `FOURNISSEUR` et traite avec le remède `changer_de_fournisseur`.
+
+L'échec honnête n'est donc pas une politique nouvelle : c'est celle qui
+était déjà écrite, appliquée là où elle manquait.
 """
 
 from __future__ import annotations
@@ -91,6 +117,15 @@ class Proposition:
     source: str
     runtime: Optional[str] = None
     modele: Optional[str] = None
+    #: Cette proposition a-t-elle le droit de faire **monter** l'exécution
+    #: vers le cloud alors qu'une autre a emporté le runtime ?
+    #:
+    #: Réservé au décideur de la tâche (HOS-244). Avant, la montée était
+    #: cherchée sur **toutes** les propositions : n'importe quelle source
+    #: future qui aurait nommé `openrouter` aurait hérité d'une autorité
+    #: que personne ne lui avait donnée. Le droit est maintenant porté par
+    #: celui qui le détient, et il est faux par défaut.
+    peut_monter: bool = False
 
     @property
     def propose_un_runtime(self) -> bool:
@@ -116,6 +151,12 @@ class Decision:
     source_modele: str
     #: Non vide seulement quand une montée demandée n'a pas pu avoir lieu.
     repli: str = ""
+    #: Non vide quand le runtime décidé **ne peut pas être servi** et
+    #: qu'aucun repli n'est autorisé (HOS-244). L'arbitre ne lève pas :
+    #: il n'exécute rien, et une exception depuis un module qui ne fait que
+    #: ranger des avis serait une décision d'exécution déguisée. C'est
+    #: l'appelant qui échoue, avec le type que le dépôt a déjà pour cela.
+    impossible: str = ""
     #: Tout ce qui a été proposé, gagnants compris — la trace.
     propositions: tuple[Proposition, ...] = field(default_factory=tuple)
 
@@ -128,6 +169,8 @@ class Decision:
         }
         if self.repli:
             fait["repli"] = self.repli
+        if self.impossible:
+            fait["impossible"] = self.impossible
         return fait
 
 
@@ -163,30 +206,44 @@ def arbitrer(propositions: list[Proposition], *,
             source_modele = proposition.source
             break
 
-    # La seule dérogation : une montée vers le cloud, et seulement si un
-    # fournisseur répond vraiment. Cherchée sur **toutes** les
-    # propositions et non sur la gagnante : un décideur secondaire peut
-    # légitimement demander le cloud sans avoir emporté le runtime.
-    repli = ""
+    # La seule dérogation : une montée vers le cloud, demandée par une
+    # source qui en a le droit, et seulement si un fournisseur répond.
+    repli, impossible = "", ""
     monte = next((p for p in propositions
-                  if _propre(p.runtime) == MONTEE_AUTORISEE), None)
+                  if p.peut_monter and _propre(p.runtime) == MONTEE_AUTORISEE),
+                 None)
     if monte is not None and runtime != MONTEE_AUTORISEE:
         if cloud_joignable:
             runtime, source_runtime = MONTEE_AUTORISEE, monte.source
         else:
-            # Autorisé, mais jamais silencieux : sans clé — le cas par
-            # défaut de cette installation — l'opérateur croyait avoir
-            # payé du cloud.
+            # Une **recommandation** défaite : elle n'engageait personne, et
+            # le repli local était déjà la politique de `_make_cloud_chat`
+            # — « cloud entièrement injoignable, quoi que recommande
+            # AdaptiveRouter ». Autorisé, donc, mais jamais silencieux.
             repli = (f"{MONTEE_AUTORISEE} demandé par {monte.source} mais "
                      f"injoignable — exécuté sur {runtime}")
-    elif monte is not None and runtime == MONTEE_AUTORISEE and not cloud_joignable:
-        runtime, source_runtime = defaut_runtime, "repli, cloud injoignable"
-        repli = (f"{MONTEE_AUTORISEE} assigné mais injoignable — exécuté "
-                 f"sur {runtime}")
+
+    if runtime == MONTEE_AUTORISEE and not cloud_joignable:
+        # HOS-244 : une **assignation** défaite, c'est autre chose. La
+        # version précédente la remplaçait par le runtime par défaut, ce
+        # que sa propre documentation interdisait deux paragraphes plus
+        # haut : « le décideur ne peut pas faire redescendre une
+        # assignation explicite ». Le code contredisait le contrat.
+        #
+        # Rien dans ce dépôt n'autorise à défaire une assignation. Ce qui
+        # y est écrit, en revanche, c'est `RuntimeUnavailableError` —
+        # « the inference layer is down », retryable, jamais la faute de
+        # la tâche — que `MissionExecutor` classe déjà en `FOURNISSEUR` et
+        # traite avec le remède `changer_de_fournisseur`. L'échec honnête
+        # est donc la politique **existante**, pas une politique nouvelle.
+        impossible = (f"runtime {runtime!r} was explicitly assigned by "
+                      f"{source_runtime} but is unavailable: no cloud "
+                      f"provider is configured")
 
     return Decision(runtime=runtime, modele=modele,
                     source_runtime=source_runtime, source_modele=source_modele,
-                    repli=repli, propositions=tuple(propositions))
+                    repli=repli, impossible=impossible,
+                    propositions=tuple(propositions))
 
 
 __all__ = ["Decision", "MONTEE_AUTORISEE", "NON_CHOISI", "Proposition",

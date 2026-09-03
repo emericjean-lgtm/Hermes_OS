@@ -185,12 +185,21 @@ def test_aucun_routeur_de_role_n_est_appele_depuis_l_executeur():
 # ═══ Test 3 — des contraintes différentes, des décisions différentes ═
 
 def test_deux_demandes_differentes_donnent_deux_decisions():
+    """Réécrit en HOS-244 : ce test encodait la contradiction.
+
+    Il exigeait qu'un `openrouter` **gagnant** redescende sur
+    `hermes-agent` quand le cloud manque — c'est-à-dire exactement ce que
+    la documentation du module interdisait. Le comportement corrigé garde
+    le runtime décidé et signale qu'il ne peut pas servir.
+    """
     joignable = arbitrer([Proposition("routeur", runtime="openrouter")],
                          cloud_joignable=True)
     injoignable = arbitrer([Proposition("routeur", runtime="openrouter")],
                            cloud_joignable=False)
     assert joignable.runtime == "openrouter"
-    assert injoignable.runtime == "hermes-agent"
+    assert joignable.impossible == ""
+    assert injoignable.runtime == "openrouter"      # rien n'est défait
+    assert injoignable.impossible                    # …mais c'est dit
     assert joignable != injoignable
 
 
@@ -231,22 +240,78 @@ def test_un_non_choix_n_est_pas_une_decision(non_choix):
 def test_le_repli_passe_par_l_arbitre_et_se_nomme():
     decision = arbitrer(
         [Proposition("assignation explicite", runtime="hermes-agent"),
-         Proposition("routeur", runtime="openrouter")],
+         Proposition("routeur", runtime="openrouter", peut_monter=True)],
         cloud_joignable=False)
     assert decision.runtime == "hermes-agent"
     assert decision.repli
     assert "routeur" in decision.repli      # qui avait demandé le cloud
+    # Une recommandation défaite n'est pas un échec : elle n'engageait
+    # personne, et le repli local était déjà la politique du dépôt.
+    assert decision.impossible == ""
 
 
-def test_un_cloud_assigne_mais_injoignable_retombe_et_le_dit():
-    """Cas D : le fournisseur est indisponible alors qu'il était assigné,
-    pas seulement recommandé. Le repli reste autorisé, jamais muet."""
+def test_une_assignation_explicite_n_est_jamais_annulee_en_silence():
+    """Le défaut bloquant de HOS-243, corrigé (HOS-244).
+
+    La version précédente rendait `hermes-agent` ici — elle **annulait
+    une assignation explicite**, ce que sa propre documentation
+    interdisait deux paragraphes plus haut. Une contradiction entre le
+    contrat et le comportement, pas un défaut de documentation.
+
+    Le runtime décidé est conservé ; l'impossibilité de le servir est
+    nommée et laissée à l'appelant, qui a déjà un type pour cela.
+    """
     decision = arbitrer([Proposition("assignation explicite",
                                      runtime=MONTEE_AUTORISEE)],
                         cloud_joignable=False)
-    assert decision.runtime == "hermes-agent"
-    assert "injoignable" in decision.repli
-    assert decision.source_runtime == "repli, cloud injoignable"
+    assert decision.runtime == MONTEE_AUTORISEE
+    assert decision.source_runtime == "assignation explicite"
+    assert decision.repli == ""            # rien n'a été remplacé
+    assert "unavailable" in decision.impossible
+    assert "assignation explicite" in decision.impossible
+    assert decision.to_dict()["impossible"] == decision.impossible
+
+
+def test_seul_le_decideur_de_la_tache_peut_faire_monter():
+    """HOS-243 cherchait la montée sur **toutes** les propositions.
+
+    N'importe quelle source future qui aurait nommé `openrouter` aurait
+    donc hérité d'une autorité que personne ne lui avait donnée. Le droit
+    est maintenant porté par la proposition, et faux par défaut.
+    """
+    sans_droit = arbitrer(
+        [Proposition("assignation explicite", runtime="hermes-agent"),
+         Proposition("une source quelconque", runtime="openrouter")],
+        cloud_joignable=True)
+    assert sans_droit.runtime == "hermes-agent"
+    assert sans_droit.repli == ""
+
+    avec_droit = arbitrer(
+        [Proposition("assignation explicite", runtime="hermes-agent"),
+         Proposition("décideur de la tâche", runtime="openrouter",
+                     peut_monter=True)],
+        cloud_joignable=True)
+    assert avec_droit.runtime == "openrouter"
+
+
+def test_l_executeur_n_accorde_le_droit_de_monter_qu_au_decideur():
+    """La règle est tenue **au point d'appel réel**, pas seulement dans
+    l'arbitre : une proposition mal étiquetée là-bas rouvrirait la porte
+    que celle-ci ferme."""
+    arbre = ast.parse(io.open(
+        RACINE / "backend" / "execution" / "task_executor.py",
+        encoding="utf-8").read())
+    montants = []
+    for noeud in ast.walk(arbre):
+        if (isinstance(noeud, ast.Call)
+                and ast.unparse(noeud.func) == "Proposition"
+                and any(k.arg == "peut_monter"
+                        and getattr(k.value, "value", False) is True
+                        for k in noeud.keywords)):
+            montants.append(noeud.args[0].value if noeud.args else "?")
+    assert montants == ["décideur de la tâche"], (
+        f"le droit de monter vers le cloud est accordé à {montants} — il "
+        "est réservé au décideur de la tâche (HOS-244)")
 
 
 def test_sans_repli_rien_n_est_invente():
@@ -531,3 +596,170 @@ def test_l_arbitrage_precede_le_pare_feu_et_ne_le_remplace_pas():
     assert "arbitrer" not in corps, (
         "l'arbitrage a migré dans le chemin cloud — il y aurait deux "
         "arbitrages pour une requête")
+
+
+# ═══ HOS-244 — l'assignation explicite, sur le chemin réel ══════════
+
+def test_le_chemin_reel_refuse_d_annuler_une_assignation_explicite():
+    """§2 : exercé par `RealTaskExecutor.execute()`, pas par `arbitrer`.
+
+    Une tâche assignée à `openrouter`, aucun client cloud. La version
+    HOS-243 exécutait la tâche **en local** et rendait un résultat : la
+    mission réussissait, le registre inscrivait un modèle local, et
+    l'opérateur qui avait demandé le cloud ne l'apprenait que dans un
+    journal.
+
+    Le contrat corrigé lève `RuntimeUnavailableError` — le type que ce
+    module porte déjà pour « the inference layer is down », retryable et
+    jamais la faute de la tâche.
+    """
+    from backend.execution.task_executor import RuntimeUnavailableError
+
+    appeles = []
+
+    async def _c(*, messages, model, **_):
+        appeles.append(model)
+        return ChatResponse(content="jamais", metadata={"model": model})
+
+    executeur = RealTaskExecutor(chat=_c, cloud_chat=None,
+                                 model_for=lambda _t: "un-modele")
+
+    with pytest.raises(RuntimeUnavailableError) as leve:
+        executeur.execute(_tache(runtime="openrouter"),
+                          SimpleNamespace(runtime_id="openrouter"))
+
+    assert "openrouter" in str(leve.value)
+    assert "unavailable" in str(leve.value)
+    assert "explicitly assigned" in str(leve.value)
+    # Et surtout : rien n'a été exécuté ailleurs pendant ce temps.
+    assert appeles == [], "la tâche a tourné sur un autre runtime"
+
+
+def test_l_echec_est_classe_fournisseur_et_reste_reprenable():
+    """La politique de repli **existante** prend le relais.
+
+    Le message est écrit pour que `backend.runs.taxonomie` le classe sans
+    modification : c'est la politique déjà écrite qu'on applique là où
+    elle manquait, pas une politique nouvelle.
+    """
+    from backend.runs.taxonomie import classer, remede
+
+    classement = classer(
+        "runtime 'openrouter' was explicitly assigned by assignation "
+        "explicite but is unavailable: no cloud provider is configured")
+    assert classement.classe
+    assert classement.cause.value == "fournisseur"
+
+    soin = remede(classement.cause)
+    assert soin.reessayer                    # jamais la faute de la tâche
+    assert soin.changer_de_fournisseur       # le remède qui correspond
+    assert not soin.changer_de_modele        # le modèle n'est pas en cause
+
+
+def test_une_recommandation_cloud_defaite_execute_toujours(registre):
+    """Le pendant : une **recommandation** n'échoue pas.
+
+    Elle n'engageait personne, et l'interdire ferait échouer toute
+    mission sur une installation sans clé — le cas par défaut, mesuré en
+    J17. La tâche tourne, le repli est nommé, et le registre reçoit ce
+    qui a réellement servi.
+    """
+    from backend.execution.mission_executor import _decision_en_json
+
+    async def _c(*, messages, model, **_):
+        return ChatResponse(content="fait",
+                            metadata={"model": model, "provider": "ollama",
+                                      "fournisseur": "local"})
+
+    executeur = RealTaskExecutor(chat=_c, cloud_chat=None,
+                                 runtime_for=lambda _t: "openrouter",
+                                 model_for=lambda _t: "qwen3.6-35b-a3b")
+    resultat = executeur.execute(_tache(runtime="ollama"),
+                                 SimpleNamespace(runtime_id="ollama"))
+
+    assert resultat.runtime_id == "ollama"
+    arbitrage = resultat.metadata["arbitrage"]
+    assert "impossible" not in arbitrage
+    assert "openrouter" in arbitrage["repli"]
+
+    # …et la trace atteint le registre, relisible après coup.
+    run = registre.ouvrir(mission="m", objectif="o", runtime="openrouter")
+    registre.demarrer(run.identifiant)
+    registre.constater(
+        run.identifiant, runtime=resultat.runtime_id,
+        modele=resultat.model, fournisseur=resultat.metadata["fournisseur"],
+        decision=_decision_en_json(resultat.metadata, resultat.model,
+                                   resultat.runtime_id))
+    registre.terminer(run.identifiant, Statut.REUSSI)
+
+    trace = json.loads(registre.lire(run.identifiant).decision)
+    assert trace["runtime_demande"] == "openrouter"
+    assert trace["runtime_servi"] == "ollama"
+    assert "openrouter indisponible" in trace["repli"]
+
+
+# ═══ HOS-244 §5 — la frontière, sur les appelants réels ═════════════
+
+#: Les deux méthodes par lesquelles chacun des deux routeurs décide.
+#: Relevées sur les signatures, pas devinées.
+DECIDE_AGENTIQUE = "select_model"        # core.router.ModelRouter
+DECIDE_MISSIONNEL = "recommend_for_text"  # AdaptiveModelRouter
+
+
+def _appelants(methode: str) -> set[str]:
+    trouves: set[str] = set()
+    for fichier in (RACINE / "backend").rglob("*.py"):
+        if "tests" in fichier.parts:
+            continue
+        try:
+            arbre = ast.parse(io.open(fichier, encoding="utf-8",
+                                      errors="replace").read())
+        except SyntaxError:  # pragma: no cover
+            continue
+        for noeud in ast.walk(arbre):
+            if (isinstance(noeud, ast.Call)
+                    and ast.unparse(noeud.func).endswith("." + methode)):
+                trouves.add(str(fichier.relative_to(RACINE)).replace("\\", "/"))
+    return trouves
+
+
+def test_aucun_module_ne_consulte_les_deux_routeurs():
+    """La preuve demandée : **aucun chemin actuel** n'en fait deux
+    autorités successives.
+
+    Plus forte que la garde de HOS-243, qui ne regardait que les imports
+    de deux fichiers nommés. Celle-ci croise les appelants réels des deux
+    méthodes de décision, dans tout le backend.
+
+    `service_registry` **construit** un `ModelRouter` pour le
+    décomposeur et l'exécuteur natif, et **appelle** `recommend_for_text`
+    pour l'exécuteur de tâches. C'est une racine de composition : elle
+    câble, elle ne décide pas — et elle n'apparaît donc pas dans
+    l'intersection, qui porte sur les appels de décision.
+
+    **Limite** : la garde ne suit pas un appel dynamique (`getattr`, un
+    dictionnaire de rappels). Elle attrape la contamination écrite en
+    clair, qui est la façon dont ces deux routeurs se sont répandus.
+    """
+    agentique = _appelants(DECIDE_AGENTIQUE)
+    missionnel = _appelants(DECIDE_MISSIONNEL)
+    assert agentique, "le routeur de rôles n'a plus d'appelant — carte périmée"
+    assert missionnel, "le routeur missionnel n'a plus d'appelant"
+    assert not (agentique & missionnel), (
+        f"{sorted(agentique & missionnel)} consulte les deux routeurs — "
+        "deux autorités trancheraient la même décision")
+
+
+def test_les_deux_chemins_restent_ceux_qui_ont_ete_mesures():
+    """Une frontière qui bouge sans qu'on le sache n'est plus une
+    frontière. Les appelants sont figés à ce qui a été mesuré ; en
+    ajouter un demande de le classer."""
+    assert _appelants(DECIDE_AGENTIQUE) == {
+        "backend/agents/base_agent.py",
+        "backend/agents/specialized/code_intelligence/hermes_native_executor.py",
+        "backend/mission/planner/task_decomposer.py",
+    }
+    assert _appelants(DECIDE_MISSIONNEL) == {
+        "backend/core/bootstrap/service_registry.py",
+        "backend/model_intelligence/routes.py",
+    }
