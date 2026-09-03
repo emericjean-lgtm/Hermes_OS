@@ -1,3 +1,114 @@
+## HOS-245 — Le journal survivait, son sujet non (2026-09-03)
+
+Passe §5.2 : déblocage de spécification, mesure de la suite lente, et la
+dette M-8.
+
+### P-4 : tranché, et le dépôt le dit enfin
+
+`ROADMAP.md` portait encore « Consolider `ModelRouter` et
+`AdaptiveRouter` — **un seul devrait décider** », alors que HOS-243/244 a
+livré et gardé leur séparation. Le document contredisait l'architecture
+validée. Il dit maintenant ce qui a été décidé : coexistence autorisée
+tant qu'aucun chemin de production ne les utilise comme autorités
+concurrentes, précédence arbitrée par `backend.ral.arbitrage`.
+
+### « 5 472 vertes » n'était pas la suite
+
+`pytest.ini` porte `addopts = -m "not lent"` : la commande standard
+**désélectionne 273 tests**. Ils ont été exécutés.
+
+- **271 passent**, 6 sont ignorés ;
+- **2 échouaient depuis longtemps** — antérieurs à HOS-240, jamais vus ;
+- **1 ne finit pas**, même avec 1 200 s de délai.
+
+Le trou de HOS-111 s'était rouvert plus petit : `testpaths` avait été
+corrigé, `addopts` rouvrait la porte à côté.
+
+### Les deux rouges : le test affirmait ce que R-002 avait supprimé
+
+`create_code_intelligence_agent()` était appelé **sans fournisseur**, et
+les tests attendaient un succès. Or R-002 P5 avait précisément retiré le
+`success=True, {"status": "simulated"}` que l'agent rendait alors — les
+tests avaient survécu à la correction et exigeaient toujours le
+comportement retiré.
+
+Mesuré, l'agent a **deux refus honnêtes**, et le premier masquait le
+second :
+
+    aucun fournisseur, tâche écriture  →  « provider klaatcode is not bound »
+    fournisseur lié,   tâche écriture  →  « … no sandbox — refused (R-006 Phase 9) »
+    fournisseur lié,   tâche lecture   →  l'exécuteur est réellement appelé
+
+Les deux tests lient donc un fournisseur, ce qui leur fait enfin
+atteindre la branche que leur propre docstring décrit. Ils vérifient
+davantage qu'avant, et une troisième garde tient le refus que tous deux
+masquaient. Aucun test supprimé, aucune assertion affaiblie.
+
+### Le test qui ne finit pas
+
+`test_no_real_subsystem_event_is_dropped` appelle
+`autonomous_engine.start_goal("Build an API")` — c'est-à-dire **une
+mission autonome complète**, synchrone, dont la docstring annonce
+elle-même « minutes » d'inférence locale. Bloqué dans
+`graph_executor._recolter_en_parallele`, 0 seconde de CPU, il n'a pas fini
+en 1 200 s. Il laisse aussi de vrais sous-processus d'agent derrière lui.
+
+Non modifié : le corriger sans décision serait exactement le vert
+artificiel que cette passe interdit. Signalé comme la seule dette
+mesurée de la suite lente.
+
+### M-8 : la mission survit enfin à son propre journal
+
+HOS-221 avait rendu le registre des **runs** durable ; HOS-240 lui avait
+ajouté une réconciliation qui pose `PERDU`. Le registre des **missions**,
+lui, était un `OrderedDict` en mémoire. Un run perdu désignait donc une
+mission disparue — et pas seulement après un redémarrage : au-delà de
+200, le FIFO en effaçait définitivement pendant que le processus tournait.
+
+La table `missions` vit désormais dans la **même base que les runs**, avec
+un document JSON qui rend la mission *reconstructible* — DAG, contexte,
+énumérations et horodatages reviennent typés — et des colonnes scalaires
+pour les seules questions qu'on pose en SQL.
+
+Vérifié sur de vrais sous-processus tués par `os._exit` :
+
+    run     : perdu | cause : processus
+    mission : 'refondre le parseur'
+    lien    : run.mission résout -> True
+    reprise : tentative 2 | mission liée : True
+
+### Deux défauts que j'ai introduits, et qui m'ont été rendus
+
+**`values()` relisait toute la base.** Le test existant
+`test_lister_pendant_qu_on_enregistre_ne_leve_pas` appelle `values()` deux
+mille fois pendant qu'un fil écrit sans arrêt : chaque appel désérialisait
+le JSON de toutes les missions accumulées. Le fichier est passé de
+quelques secondes à plus de dix minutes. C'est un test écrit pour tout
+autre chose — la réentrance d'un verrou — qui a démasqué une complexité
+quadratique.
+
+Le registre est borné par construction, et c'est ce qu'il a toujours
+promis. Le cache est maintenant **hydraté** depuis la base au premier
+parcours : après un redémarrage la liste n'est plus vide, et toute
+mission évincée reste lisible par son identifiant.
+
+**`len()` rendait le total en base.** Il rendait l'objet incohérent —
+`len(r)` et `len(r.values())` ne disaient plus la même chose — et faisait
+fuir chaque test dans le suivant. `len()` décrit le plan de travail ;
+`total()` compte ce qui est conservé. Les confondre était l'erreur.
+
+### Mesures
+
+| | passées | ignorées | désélectionnées |
+|---|---|---|---|
+| standard | **5 489** | 3 | 274 |
+| lente (moins le test bloqué) | **267** | 6 | — |
+| **complète** | **5 756** | 9 | 1 non mesurable |
+
+Frontend : 126 vertes, typecheck propre. 20 gardes ajoutées, 2 tests
+réécrits, 1 fixture d'isolation, 0 test supprimé.
+
+
 ## HOS-244 — Le code contredisait son propre contrat (2026-09-03)
 
 Passe chirurgicale sur §5.1. Un défaut bloquant trouvé dans HOS-243,

@@ -44,15 +44,23 @@ class TestLaBorne:
         assert len(registre) == 10
         assert registre.get("m0") is not None
 
-    def test_au_dela_la_plus_ancienne_terminee_part(self):
+    def test_au_dela_la_plus_ancienne_terminee_quitte_le_cache(self):
+        """Réécrit en HOS-245 : l'éviction libère, elle ne détruit plus.
+
+        Ce test affirmait `registre.get("m0") is None` — c'est-à-dire la
+        perte définitive que la dette M-8 nommait. Le plan de travail
+        reste borné à trois ; la mission évincée, elle, se relit.
+        """
         registre = _RegistreMissions(maximum=3)
         for i in range(5):
             registre[f"m{i}"] = _mission(f"m{i}")
 
         assert len(registre) == 3
-        assert registre.get("m0") is None
-        assert registre.get("m1") is None
+        assert "m0" not in registre._missions      # hors du plan de travail
+        assert registre.get("m0") is not None      # …mais pas perdue
+        assert registre.get("m0").mission_id == "m0"
         assert registre.get("m4") is not None
+        assert registre.total() == 5               # le durable les a toutes
 
     def test_reenregistrer_une_mission_la_rajeunit(self):
         """Sinon une mission longue, enregistrée tôt et remise à jour tout
@@ -64,8 +72,12 @@ class TestLaBorne:
         registre["m0"] = _mission("m0")  # remise à jour
         registre["m3"] = _mission("m3")
 
-        assert registre.get("m0") is not None
-        assert registre.get("m1") is None
+        # Le rajeunissement tient : c'est `m1` qui quitte le cache, pas
+        # `m0` remise à jour. Ce que HOS-245 change est seulement le sort
+        # de l'évincée — elle sort du plan de travail, pas de l'existence.
+        assert "m0" in registre._missions
+        assert "m1" not in registre._missions
+        assert registre.get("m1") is not None
 
 
 class TestUneMissionEnCoursNEstJamaisEvincee:

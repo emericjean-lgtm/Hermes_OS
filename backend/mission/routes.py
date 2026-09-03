@@ -76,33 +76,94 @@ STATUTS_TERMINAUX = frozenset({
 
 
 class _RegistreMissions:
-    """Un dict verrouillé et borné, avec la forme d'un dict.
+    """Un cache borné devant une base durable, avec la forme d'un dict.
 
     L'API imite celle du `dict` qu'il remplace, pour que les appelants — y
     compris les tests qui font `monkeypatch.setitem` ou `.clear()` — n'aient
     pas à connaître son existence.
+
+    ## Ce qui a changé en HOS-245 (dette M-8)
+
+    L'`OrderedDict` était **toute** la mémoire du système : au redémarrage
+    il était vide, et au-delà de 200 missions le FIFO en effaçait
+    définitivement — pendant que le processus tournait toujours.
+
+    Or HOS-221 avait rendu le registre des **runs** durable, et HOS-240 lui
+    avait ajouté une réconciliation. Un run posé `PERDU` désignait donc une
+    mission qui n'existait plus : le journal survivait, son sujet non.
+
+    La source de vérité est désormais `MagasinMissions`, dans la même base
+    que les runs. L'`OrderedDict` reste devant, borné, et **l'éviction ne
+    perd plus rien** : elle libère de la mémoire, la ligne reste.
     """
 
-    def __init__(self, maximum: int = MAX_MISSIONS_EN_MEMOIRE) -> None:
+    def __init__(self, maximum: int = MAX_MISSIONS_EN_MEMOIRE,
+                 magasin: Any = None) -> None:
         self._verrou = threading.RLock()
         self._maximum = maximum
         #: Ordonné par insertion : c'est ce qui fait de l'éviction un FIFO
         #: sans avoir à porter d'horodatage.
         self._missions: "OrderedDict[str, Mission]" = OrderedDict()
+        self._magasin_injecte = magasin
+        self._magasin_resolu = magasin is not None
+        #: Le cache n'est rempli depuis la base qu'une fois, au premier
+        #: parcours — pas à la construction, qui a lieu à l'import.
+        self._hydrate = False
+
+    @property
+    def _magasin(self) -> Any:
+        """Construit à la première utilisation, jamais à l'import.
+
+        Le construire au niveau du module créerait la base d'état au seul
+        fait d'importer `mission.routes` — y compris dans un test qui ne
+        veut pas y toucher, et avant que `HERMES_DATA_DIR` ait pu être posé
+        par un `monkeypatch`.
+
+        Un échec ne fait pas tomber le service : Hermes continue avec le
+        seul cache, comme avant HOS-245, et le dit. Une correction de
+        persistance qui empêcherait de créer une mission serait un recul.
+        """
+        with self._verrou:
+            if not self._magasin_resolu:
+                self._magasin_resolu = True
+                try:
+                    from backend.mission.persistance import MagasinMissions
+
+                    self._magasin_injecte = MagasinMissions()
+                except Exception:
+                    logger.warning(
+                        "missions non persistées : le magasin durable n'a pas "
+                        "pu s'ouvrir — elles disparaîtront au redémarrage",
+                        exc_info=True)
+                    self._magasin_injecte = None
+            return self._magasin_injecte
 
     def __setitem__(self, mission_id: str, mission: Mission) -> None:
+        # Écriture d'abord, cache ensuite : si la base refuse, on ne veut
+        # pas d'une mission visible en mémoire et absente du disque.
+        magasin = self._magasin
+        if magasin is not None:
+            try:
+                magasin.enregistrer(mission)
+            except Exception:
+                logger.warning("mission %s non persistée", mission_id,
+                               exc_info=True)
         with self._verrou:
             self._missions[mission_id] = mission
             self._missions.move_to_end(mission_id)
             self._evincer()
 
     def _evincer(self) -> None:
-        """Sous verrou uniquement.
+        """Sous verrou uniquement. **Ne touche que le cache** (HOS-245).
 
         Ne retire que des missions terminées, de la plus ancienne à la plus
         récente. Si toutes celles qui restent sont encore actives, la borne
         est dépassée et on la laisse l'être : le journal le dit, ce qui vaut
         mieux qu'une mission en cours qui disparaît.
+
+        Depuis HOS-245 la ligne reste en base : une mission évincée se
+        relit. C'était le second visage de la dette M-8 — au-delà de 200
+        missions, on en perdait définitivement sans même redémarrer.
         """
         if len(self._missions) <= self._maximum:
             return
@@ -117,48 +178,187 @@ class _RegistreMissions:
                 "aucune mission terminée à évincer, elles sont toutes encore "
                 "actives", len(self._missions), self._maximum)
 
+    def _relire(self, mission_id: str) -> Optional[Mission]:
+        """Chercher en base une mission absente du cache, et l'y remettre.
+
+        C'est le chemin qu'emprunte une mission évincée par le FIFO, ou
+        créée avant le dernier redémarrage.
+        """
+        magasin = self._magasin
+        if magasin is None:
+            return None
+        try:
+            mission = magasin.lire(mission_id)
+        except Exception:  # pragma: no cover - base illisible
+            logger.warning("lecture de la mission %s impossible", mission_id,
+                           exc_info=True)
+            return None
+        if mission is not None:
+            with self._verrou:
+                self._missions[mission_id] = mission
+                self._missions.move_to_end(mission_id)
+                self._evincer()
+        return mission
+
     def __getitem__(self, mission_id: str) -> Mission:
         with self._verrou:
-            return self._missions[mission_id]
+            if mission_id in self._missions:
+                return self._missions[mission_id]
+        mission = self._relire(mission_id)
+        if mission is None:
+            raise KeyError(mission_id)
+        return mission
 
     def __delitem__(self, mission_id: str) -> None:
+        # Une suppression **voulue**, contrairement à l'éviction : elle
+        # emporte la ligne.
+        present = False
         with self._verrou:
-            del self._missions[mission_id]
+            if mission_id in self._missions:
+                del self._missions[mission_id]
+                present = True
+        magasin = self._magasin
+        if magasin is not None:
+            if not present and magasin.lire(mission_id) is None:
+                raise KeyError(mission_id)
+            magasin.supprimer(mission_id)
+        elif not present:
+            raise KeyError(mission_id)
 
     def __contains__(self, mission_id: object) -> bool:
         with self._verrou:
-            return mission_id in self._missions
+            if mission_id in self._missions:
+                return True
+        return isinstance(mission_id, str) and self._relire(mission_id) is not None
 
     def __len__(self) -> int:
+        """La taille du **plan de travail**, cohérente avec `values()`.
+
+        Une première version de HOS-245 rendait ici le total en base. Elle
+        rendait l'objet incohérent — `len(r)` et `len(r.values())` ne
+        disaient plus la même chose — et faisait fuir chaque test dans le
+        suivant, puisque tous les registres non injectés partagent une
+        table. Deux défauts pour une seule ligne trop ambitieuse.
+
+        Le total durable existe, et il a son propre nom : `total()`. Les
+        confondre était l'erreur.
+        """
+        self._hydrater()
+        with self._verrou:
+            return len(self._missions)
+
+    def total(self) -> int:
+        """Combien de missions Hermes a gardées, cache ou non.
+
+        Distinct de `len()` : celui-ci décrit ce qu'on a sous la main,
+        celui-là ce qu'on a conservé. Un compteur de console qui plafonne
+        à la borne mentirait ; un `len()` qui contredit `values()` aussi.
+        """
+        magasin = self._magasin
+        if magasin is not None:
+            try:
+                return magasin.nombre()
+            except Exception:  # pragma: no cover
+                pass
         with self._verrou:
             return len(self._missions)
 
     def get(self, mission_id: str, defaut: Any = None) -> Any:
-        with self._verrou:
-            return self._missions.get(mission_id, defaut)
+        try:
+            return self[mission_id]
+        except KeyError:
+            return defaut
 
     def pop(self, mission_id: str, *defaut: Any) -> Any:
-        with self._verrou:
-            return self._missions.pop(mission_id, *defaut)
+        try:
+            mission = self[mission_id]
+        except KeyError:
+            if defaut:
+                return defaut[0]
+            raise
+        del self[mission_id]
+        return mission
 
     def clear(self) -> None:
+        """Vide le cache **et** la base.
+
+        Les tests l'appellent entre deux cas ; ne vider que le cache
+        laisserait chaque test hériter des missions du précédent, et la
+        suite deviendrait dépendante de son ordre.
+        """
         with self._verrou:
             self._missions.clear()
+            # Vider puis relister ne doit pas ressusciter ce qu'on vient
+            # d'effacer : l'hydratation est refaite, sur une base vide.
+            self._hydrate = False
+        magasin = self._magasin
+        if magasin is not None:
+            try:
+                magasin.vider()
+            except Exception:  # pragma: no cover
+                logger.warning("magasin des missions non vidé", exc_info=True)
 
     def values(self) -> list[Mission]:
-        """Une *copie*, pas une vue.
+        """Une *copie*, pas une vue — le **plan de travail** courant.
 
         Les routes de liste itèrent dessus pendant que l'orchestrateur
         autonome enregistre ses missions depuis son pool de fils ; une vue
         lèverait `RuntimeError: dictionary changed size during iteration`
         au premier chevauchement, et de façon intermittente.
+
+        ## Pourquoi le cache, et non toute la base (HOS-245)
+
+        Une première version de ce jalon relisait la base entière ici. Le
+        test `test_lister_pendant_qu_on_enregistre_ne_leve_pas` l'a
+        immédiatement démasquée : il appelle `values()` deux mille fois
+        pendant qu'un autre fil écrit sans discontinuer, et chaque appel
+        désérialisait le JSON de **toutes** les missions accumulées. Le
+        fichier passait de quelques secondes à plus de dix minutes.
+
+        Ce registre est borné par construction — 200 — et c'est ce qu'il a
+        toujours promis. Ce que HOS-245 corrige n'est pas cette borne mais
+        la **perte** : le cache est désormais hydraté depuis la base au
+        premier accès, si bien qu'après un redémarrage la liste n'est plus
+        vide, et toute mission, même évincée, reste lisible par son
+        identifiant. L'historique complet se lit par `MagasinMissions`,
+        qui pagine.
         """
+        self._hydrater()
         with self._verrou:
             return list(self._missions.values())
 
     def items(self) -> list[tuple[str, Mission]]:
+        self._hydrater()
         with self._verrou:
             return list(self._missions.items())
+
+    def _hydrater(self) -> None:
+        """Remplir le cache depuis la base, une seule fois.
+
+        Sans cela, un redémarrage laissait la console vide alors que les
+        missions étaient bien sur le disque : la persistance aurait été
+        invisible, ce qui revient presque à ne pas l'avoir.
+        """
+        with self._verrou:
+            if self._hydrate:
+                return
+            self._hydrate = True
+        magasin = self._magasin
+        if magasin is None:
+            return
+        try:
+            recentes = magasin.tous()[:self._maximum]
+        except Exception:  # pragma: no cover
+            logger.warning("hydratation du cache des missions impossible",
+                           exc_info=True)
+            return
+        with self._verrou:
+            # Les plus anciennes d'abord : `tous()` rend les plus récentes
+            # en tête, et l'ordre d'insertion est ce qui fait le FIFO.
+            for mission in reversed(recentes):
+                if mission.mission_id not in self._missions:
+                    self._missions[mission.mission_id] = mission
+            self._evincer()
 
 
 _missions = _RegistreMissions()

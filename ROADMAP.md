@@ -270,7 +270,7 @@ capacité déclarée sans mesure (`docs/model-selection.md`).
 | P-1 | **Coût de bascule modèle → modèle** | ⬜ jamais mesuré. Le chargement à froid est connu (~6,5 s) ; le prix d'un échange sous `OLLAMA_MAX_LOADED_MODELS=1` ne l'est pas |
 | P-2 | **Accélérer chargement/déchargement** | ⬜ dépend de P-1. Leviers : `keep_alive`, résidence choisie, préchargement du rôle suivant, ordre d'éviction |
 | P-3 | Routage par difficulté à partir des notes /100 | ⬜ le catalogue existe, le routeur ne le lit pas |
-| P-4 | Consolider `ModelRouter` et `AdaptiveRouter` | ⬜ deux routeurs, un seul devrait décider |
+| P-4 | Coexistence de `ModelRouter` et `AdaptiveModelRouter` | ✅ **tranché (HOS-243/244)** — ils restent spécialisés sur des chemins de production distincts. Leur coexistence est autorisée tant qu'aucun chemin ne les utilise comme autorités concurrentes pour une même décision ; la précédence entre propositions est arbitrée par `backend.ral.arbitrage`. **Ne pas fusionner.** Deux gardes croisent les appelants réels des deux méthodes de décision |
 | P-5 | Synthèse vocale (Piper) | ⬜ `gemma4` couvre l'entrée audio ; aucun modèle n'écrit de la parole |
 | — | DFlash | ✅ clos : mesuré à +11 %, non adopté, drafter supprimé |
 
@@ -284,7 +284,7 @@ capacité déclarée sans mesure (`docs/model-selection.md`).
 | M-1 | Modèles Pydantic sur les 19 corps `dict = Body(...)` (500 → 422) | 🟠 |
 | M-7 | Consolider les 6 duplications (`agent`/`agents`, `evolution`/`self_evolution`, 2 registries…) | 🟠 |
 | M-13 | Borner `mcp<2` dans `requirements.txt` | ✅ **déjà satisfait** — `mcp==1.28.1`, plus strict que la borne demandée ; la ligne était périmée |
-| M-8 | Verrouiller et borner `mission/routes.py::_missions` | ✅ **HOS-120** — reste à faire : la **persistance** (au redémarrage le registre est vide) |
+| M-8 | Verrouiller, borner **et persister** `mission/routes.py::_missions` | ✅ **HOS-120 + HOS-245** — table `missions` dans la base des runs, cache borné à 200 devant. L'éviction FIFO libère la mémoire sans rien détruire, et un run `PERDU` retrouve sa mission après un vrai redémarrage |
 | J-3 | Boucles d'outils par agent spécialisé — **prérequis de la décomposition multi-tâches**, et dépendant d'ACP | 🟠 |
 | J-2 | Adaptateurs vLLM et llama.cpp (aujourd'hui `RuntimeUnavailableError`) | 🟠 |
 | M-6 | Câbler les 4 adaptateurs HOS-065B et `approval_explainer` (testés, jamais utilisés) | 🟡 |

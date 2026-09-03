@@ -38,6 +38,33 @@ from backend.core.health.health_models import HealthStatus
 # 1. Complete Development Mission
 # ======================================================================
 
+class _FournisseurLie:
+    """Un fournisseur de code réellement lié à l'agent.
+
+    Sans lui, `create_code_intelligence_agent()` n'a aucun exécuteur et
+    toute tâche s'arrête sur « provider … is not bound » — un refus
+    honnête, mais qui masque les deux comportements que les tests
+    ci-dessous prétendent vérifier (le garde-fou de sandbox, et
+    l'exécution réelle). Mesuré en HOS-245.
+    """
+
+    def __init__(self, outcome=None, erreur: str = ""):
+        from backend.agents.agent_models import TaskOutcome as _TO
+
+        self.outcome = outcome if outcome is not None else _TO.SUCCESS
+        self.erreur = erreur
+        self.appels: list[tuple] = []
+
+    def execute_task(self, task_type, parameters, mission_id="", node_id=""):
+        from types import SimpleNamespace
+
+        self.appels.append((task_type, parameters))
+        return SimpleNamespace(
+            outcome=self.outcome, error_message=self.erreur,
+            details={"data": {"analysed": True}}, duration_ms=1.0,
+        )
+
+
 class TestDevelopmentMission:
     """E2E: User goal → Mission → Agent → Code → Workspace → Validation → Memory."""
 
@@ -66,11 +93,23 @@ class TestDevelopmentMission:
         ToolPolicy nor ToolSandbox actually enforces a sandbox beneath it
         (R-006 Phase 9) — so CodeIntelligenceAgent refuses outright rather
         than claiming a write happened that didn't go through one."""
-        ci = create_code_intelligence_agent()
+        # HOS-245 : les fournisseurs sont **liés**. Sans eux, l'agent
+        # s'arrêtait sur « provider klaatcode is not bound » — un autre
+        # refus, tout aussi honnête, mais qui n'atteignait jamais le
+        # garde-fou de sandbox que cette docstring décrit. Le test
+        # affirmait donc un message qu'il ne pouvait pas produire.
+        klaatcode, ohmypi = _FournisseurLie(), _FournisseurLie()
+        ci = create_code_intelligence_agent(klaatcode_agent=klaatcode,
+                                            ohmypi_agent=ohmypi)
         result = ci.execute_task("refactoring", {"language": "python", "requires_ast": True})
         assert "ohmypi" in result.details.get("provider", "") or True  # Allow fallback
         assert result.outcome == TaskOutcome.FAILURE
         assert "sandbox" in result.error_message
+        # Et le refus arrive **avant** l'écriture : c'est toute sa raison
+        # d'être. Un garde-fou qui refuserait après coup constaterait une
+        # modification du dépôt au lieu de l'empêcher.
+        assert klaatcode.appels == [] and ohmypi.appels == []
+        ci.stop()
 
     def test_workspace_sandbox_ready(self):
         workspace_info = {"sandboxed": True, "git_branch": "refactor-auth", "path": "/tmp/ws"}
@@ -212,9 +251,37 @@ class TestCodeIntelligenceRouting:
         assert stats["klaatcode"]["total"] >= 1
 
     def test_agent_executes_code(self):
-        ci = create_code_intelligence_agent()
+        """HOS-245 : ce test affirmait un succès sans aucun fournisseur.
+
+        C'est exactement le faux succès que R-002 P5 a supprimé — l'agent
+        rendait alors `success=True, {"status": "simulated"}` pour une
+        tâche que personne n'avait exécutée. Le test avait survécu à la
+        correction et exigeait toujours le comportement retiré.
+
+        Avec un fournisseur lié, il vérifie ce qu'il annonce : que
+        l'exécuteur est réellement appelé et que son résultat remonte.
+        """
+        fournisseur = _FournisseurLie()
+        ci = create_code_intelligence_agent(klaatcode_agent=fournisseur,
+                                            ohmypi_agent=fournisseur)
         result = ci.execute_task("code_analysis", {"language": "python"})
         assert result.outcome == TaskOutcome.SUCCESS
+        assert fournisseur.appels, "l'exécuteur lié n'a pas été appelé"
+        ci.stop()
+
+    def test_sans_fournisseur_lie_l_agent_refuse_au_lieu_de_simuler(self):
+        """Le refus que les deux tests ci-dessus masquaient (HOS-245).
+
+        Il mérite sa propre garde : c'est la correction de R-002 P5, et
+        rien ne la tenait. Un agent sans fournisseur ne doit jamais rendre
+        un succès — il n'a rien exécuté.
+        """
+        ci = create_code_intelligence_agent()
+        result = ci.execute_task("code_analysis", {"language": "python"})
+        assert result.outcome == TaskOutcome.FAILURE
+        assert "not bound" in result.error_message
+        assert "not executed" in result.error_message
+        ci.stop()
 
     def test_memory_records_routing(self):
         record = {

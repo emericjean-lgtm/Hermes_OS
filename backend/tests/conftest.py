@@ -326,3 +326,27 @@ def kronos_agent(monkeypatch, fake_ollama_client, models_config, tmp_path):
         yield agent
     finally:
         get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _table_des_missions_propre():
+    """Chaque test part d'une table de missions vide (HOS-245).
+
+    Depuis que le registre des missions est **durable**, tous les
+    `_RegistreMissions()` non injectés partagent une même table, sous la
+    racine d'état que `conftest.py` déplace déjà vers un dossier
+    temporaire. Sans ce nettoyage, un test hériterait des missions du
+    précédent : `len(registre) == 1` deviendrait vrai ou faux selon
+    l'ordre d'exécution, et la suite serait aléatoire sous
+    `pytest-randomly`.
+
+    C'est le prix de la persistance, et il se paie ici plutôt que dans
+    chaque test.
+    """
+    yield
+    try:
+        from backend.mission.persistance import MagasinMissions
+
+        MagasinMissions().vider()
+    except Exception:  # pragma: no cover - base absente ou illisible
+        pass
