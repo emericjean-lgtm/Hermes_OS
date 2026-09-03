@@ -8,6 +8,8 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
 
+from backend.execution.execution_models import BUDGET_MISSION_PAR_DEFAUT_S
+
 
 class MissionStatus(str, Enum):
     CREATED = "created"
@@ -123,8 +125,26 @@ class Mission:
     nodes: list[MissionNode] = field(default_factory=list)
     edges: list[MissionEdge] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    #: Le budget de temps de la mission entière, en secondes (HOS-248).
+    #:
+    #: **L'autorité missionnelle du budget, et la seule.** `ExecutionMeta`
+    #: en porte un aussi (HOS-247), mais il est fragmenté : sur le chemin
+    #: du DAG, `node_execution` en construit un **par nœud**, si bien que
+    #: le budget y repartait de zéro à chaque étape et ne se déclenchait
+    #: jamais. `Mission` est le seul objet mesuré comme unique par mission
+    #: — et il est déjà persisté par M-8, qui sérialise tous les champs de
+    #: dataclass sans migration.
+    #:
+    #: Même sémantique que son homologue d'exécution : `> 0` fixe le
+    #: budget, `0` demande le défaut, une valeur négative est refusée.
+    #: Il n'existe pas de valeur « illimitée ».
+    max_duration_seconds: float = BUDGET_MISSION_PAR_DEFAUT_S
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
+    #: Le **t0 missionnel** (HOS-248). Posé une seule fois par tentative,
+    #: par `graph_executor.start_mission`, et réinitialisé par une reprise
+    #: — ce qui fait qu'une reprise repart avec un budget entier, sans
+    #: qu'aucun code n'ait à le décider.
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 

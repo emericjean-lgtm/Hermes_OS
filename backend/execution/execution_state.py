@@ -67,27 +67,112 @@ class ExecutionStateMachine:
         #: frontière ne doit pas dépendre de la granularité de l'horloge.
         #: C'est aussi ce que `task_executor` utilise déjà pour ses durées.
         self._budget_t0 = time.perf_counter()
+        #: Ce que la mission avait déjà consommé au moment où cette machine
+        #: est née (HOS-248). Lu **une seule fois** : c'est le seul terme
+        #: civil, et le limiter à une lecture est ce qui garde la mesure
+        #: d'un nœud en cours à l'abri d'un saut d'horloge.
+        self._budget_offset_s = self._offset_missionnel()
         # Valider tôt : une valeur négative doit être refusée là où elle
         # est fournie, pas découverte au milieu d'une mission.
         budget_de(self._meta)
 
+    def _mission(self) -> Any:
+        """La mission dont cette exécution est un nœud, ou `None`.
+
+        Passe par le registre des missions, qui est un **cache** devant la
+        base (M-8) : une lecture par tâche, sur une tâche qui dure des
+        centaines de secondes, ne coûte rien. Ce serait autre chose dans
+        une boucle serrée, et c'est pourquoi le budget se consulte entre
+        deux unités de travail et nulle part ailleurs.
+
+        Ne lève jamais : une mission illisible fait retomber le budget sur
+        celui de l'exécution, ce qui est le comportement d'avant HOS-248.
+        """
+        mission_id = getattr(self._meta, "mission_id", "") or ""
+        if not mission_id:
+            return None
+        try:
+            from backend.mission.routes import _missions
+
+            return _missions.get(mission_id)
+        except Exception:  # pragma: no cover - registre indisponible
+            return None
+
     @property
     def budget_s(self) -> float:
-        """Le budget de cette exécution, en secondes. Toujours > 0."""
+        """Le budget qui s'applique, en secondes. Toujours > 0.
+
+        **Précédence, explicite (HOS-248)** :
+
+        1. la **mission**, quand elle existe — c'est l'autorité ;
+        2. à défaut, l'`ExecutionMeta` de cette exécution.
+
+        Le chemin direct (`POST /execution/start`) n'a pas de mission au
+        registre : il garde donc son budget local, qui y est bien un
+        budget d'exécution puisqu'un seul `ExecutionMeta` couvre toutes
+        ses tâches. Sur le chemin du DAG, au contraire, il y en a un par
+        nœud — et c'est tout le défaut que ce jalon corrige.
+        """
+        mission = self._mission()
+        if mission is not None:
+            return budget_de(mission)
         return budget_de(self._meta)
 
     @property
     def budget_consomme_s(self) -> float:
-        """Depuis la construction de cette machine d'état."""
-        return time.perf_counter() - self._budget_t0
+        """Le temps consommé par ce qui porte le budget.
+
+        Deux termes, et un seul est civil :
+
+            déjà consommé avant cette machine   (civil, lu **une fois**)
+          + écoulé depuis sa construction       (monotone)
+
+        Le premier ne peut pas être monotone : il traverse la frontière
+        du processus, et une horloge monotone ne mesure que depuis un
+        démarrage. Il est donc lu sur `Mission.started_at`, persisté — et
+        lu **une seule fois**, à la construction.
+
+        Le second, qui est celui qui court pendant qu'une mission
+        travaille, reste sur `perf_counter`. Un recul de l'horloge système
+        — heure d'hiver, synchronisation NTP — ne peut donc plus allonger
+        ni raccourcir une mission en cours : au pire il décale l'offset
+        d'un nœud qui démarre juste après, jamais la mesure d'un nœud qui
+        tourne.
+
+        C'est ce que la passe 9 décrivait : « ancrage temporel persistant
+        → horloge monotone du processus courant ». Sans registre global :
+        l'offset tient sur la machine d'état elle-même.
+        """
+        return self._budget_offset_s + (time.perf_counter() - self._budget_t0)
+
+    def _offset_missionnel(self) -> float:
+        """Ce que la mission avait déjà consommé quand cette machine est née.
+
+        Zéro quand aucune mission n'est enregistrée, ou qu'elle n'a pas
+        encore été démarrée : on mesure alors ce qu'on sait mesurer, et
+        le budget se comporte comme avant HOS-248.
+        """
+        mission = self._mission()
+        depart = getattr(mission, "started_at", None) if mission else None
+        if depart is None:
+            return 0.0
+        from datetime import datetime, timezone
+
+        if depart.tzinfo is None:
+            depart = depart.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - depart).total_seconds())
 
     def budget_depasse(self) -> bool:
-        """Le budget de la mission est-il atteint ?
+        """Le budget est-il atteint ?
 
         Consultée **entre** deux unités de travail, jamais pendant : une
         tâche déjà engagée va au bout de son propre plafond. Ce budget
         décide de ce qu'on *engage*, pas de ce qu'on interrompt — c'est ce
         qui le distingue d'un timeout, et ce qui fait qu'il ne tue rien.
+
+        Depuis HOS-248, la mission prime : tous les nœuds d'une même
+        tentative lisent le **même** `started_at` et le **même** budget,
+        si bien qu'un `ExecutionMeta` neuf ne remet aucun compteur à zéro.
         """
         return self.budget_consomme_s >= self.budget_s
 

@@ -1,3 +1,83 @@
+## HOS-248 — Un budget que chaque noeud remettait a zero (2026-09-03)
+
+Passe 10. HOS-247 avait rendu le budget effectif ; il restait sans effet
+la ou il comptait.
+
+### Le defaut, decouvert par HOS-247 en s'implementant
+
+Sa premisse — `ExecutionMeta` est l'objet d'execution *de la mission* —
+etait vraie sur un chemin et fausse sur l'autre. `execution/routes.py` en
+construit **un** pour toute l'execution ; `mission/node_execution.py` en
+construit **un par noeud** du DAG. Sur le chemin autonome, le budget
+repartait donc de zero a chaque etape et ne pouvait jamais se declencher,
+un noeud etant deja plafonne a 1 200 s. Le champ etait effectif et sans
+effet.
+
+### Ce que la mesure a elimine
+
+Trois objets etaient candidats ; deux le sont par le code lui-meme.
+`ExecutionMeta` est fragmente, mesure. **`Run` l'est aussi** :
+`_ouvrir_le_run` part de `prepare(meta, …)`, donc une fois par noeud — le
+journal ne pouvait pas porter le budget, et le lui confier en aurait fait
+un decideur.
+
+Reste `Mission` : le seul objet mesure comme unique par mission, deja
+persiste par M-8 — dont le serialiseur parcourt `fields()`, si bien qu'un
+champ nouveau traverse un redemarrage **sans migration ni schema**. Et
+`Mission.started_at` existait deja, pose une seule fois par tentative et
+reinitialise par une reprise : le t0 n'avait pas a etre invente, et la
+regle « une reprise repart avec un budget entier » est vraie sans qu'une
+ligne ne la decide.
+
+### La precedence, explicite
+
+    mission enregistree  ->  budget de la Mission
+    sinon                ->  budget de l'ExecutionMeta
+
+Le chemin direct garde donc son budget local, ou il est legitime : un
+seul `ExecutionMeta` y couvre toutes les taches. Une garde lit l'ordre
+des deux lectures dans `budget_s` : les inverser rendrait tous les tests
+verts sur un chemin et faux sur l'autre.
+
+### L'horloge : un seul terme civil, lu une seule fois
+
+Une premiere version mesurait `now() - started_at` a chaque appel. La
+garde monotone de HOS-247 l'a immediatement refusee — et elle avait
+raison. La mesure est donc :
+
+    deja consomme avant cette machine   (civil, lu UNE fois a la naissance)
+  + ecoule depuis sa construction       (monotone, perf_counter)
+
+Le premier terme ne peut pas etre monotone : il traverse la frontiere du
+processus, et une horloge monotone ne mesure que depuis un demarrage. Le
+limiter a une lecture est ce qui met la mesure d'un noeud **en cours** a
+l'abri d'un saut d'horloge — heure d'hiver, NTP. Sans registre global :
+l'offset tient sur la machine d'etat elle-meme.
+
+Effet de bord heureux : `budget_consomme_s`, la propriete la plus lue,
+n'interroge plus rien du tout.
+
+### La chaine, mesuree de bout en bout
+
+    mission bf6fcc85, budget 10 s
+      n0   consomme  0/10  ->  engage
+      n1   consomme  4/10  ->  engage
+      n2   consomme  8/10  ->  engage
+      n3   consomme 12/10  ->  REFUSE (budget)   cause : budget
+
+Trois `ExecutionMeta` distincts, un seul compteur. Avant ce jalon, les
+quatre lisaient 0 s.
+
+### Mesures
+
+| | passees | ignorees | deselectionnees |
+|---|---|---|---|
+| standard | **5 536** | 3 | 274 |
+
+Frontend : 126 vertes, typecheck propre. 18 gardes ajoutees, aucun test
+existant modifie.
+
+
 ## HOS-247 — Un budget qui se declarait et que personne ne lisait (2026-09-03)
 
 Passe 8. La decision verrouillee en passes 7 et 7.1 est implementee — et
