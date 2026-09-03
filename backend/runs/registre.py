@@ -99,6 +99,11 @@ class Cause(str, Enum):
     #: celle-ci dit « cherchée, non trouvée », celle-là nomme un fait
     #: constaté — le processus qui tenait ce run n'existe plus.
     PROCESSUS = "processus"
+    #: Le budget de temps de la mission a été atteint (HOS-247). Distincte
+    #: de `QUOTA`, qui est une limite du fournisseur, et de `RESSOURCE`,
+    #: qui est une limite de la machine : celle-ci est une limite que
+    #: l'opérateur a fixée, et elle est **tenue**, pas subie.
+    BUDGET = "budget"
     INCONNUE = "inconnue"
 
 

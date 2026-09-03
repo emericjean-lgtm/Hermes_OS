@@ -114,6 +114,13 @@ class Remede:
 _MOTIFS: tuple[tuple[re.Pattern[str], Cause, str], ...] = (
     # Émis par `task_executor._attendre_l_admission_vram` : le message le
     # plus explicite du dépôt, et le seul qui nomme la VRAM.
+    # HOS-247. Examine avant les limites de fournisseur et de machine :
+    # le message contient « budget » et pourrait sinon s'accrocher a un
+    # motif de quota. C'est une limite que l'operateur a fixee, pas une
+    # limite qu'il subit.
+    (re.compile(r"budget de mission atteint", re.I), Cause.BUDGET,
+     "budget de mission atteint"),
+
     (re.compile(r"no vram admission", re.I), Cause.RESSOURCE,
      "message d'admission VRAM"),
     (re.compile(r"\b(out of memory|oom|cuda out of memory|insufficient "
@@ -274,6 +281,12 @@ _REMEDES: dict[Cause, Remede] = {
         reessayer=False,
         explication=("un contrôle de sécurité s'est déclenché : réessayer "
                      "reviendrait à contourner ce qui vient de protéger")),
+    Cause.BUDGET: Remede(
+        reessayer=False,
+        explication=("le budget de temps de la mission est atteint : "
+                     "reprendre le consommerait immédiatement une seconde "
+                     "fois. La suite vient d'un budget révisé par "
+                     "l'opérateur, pas de la boucle")),
     Cause.INCONNUE: Remede(
         reessayer=True,
         explication=("aucun indice ne dit pourquoi : on reprend une fois, "

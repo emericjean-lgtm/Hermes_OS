@@ -77,6 +77,37 @@ class OptimizationCategory(str, Enum):
     RESOURCE = "resource"
 
 
+#: Le budget de temps par défaut d'une exécution de mission (HOS-247).
+#: Nommé plutôt qu'écrit en dur dans le dataclass : le cas `0` doit
+#: pouvoir y retomber sans dupliquer la valeur à deux endroits, où elles
+#: divergeraient au premier réglage.
+BUDGET_MISSION_PAR_DEFAUT_S = 3600.0
+
+
+def budget_de(meta: "ExecutionMeta") -> float:
+    """Le budget effectif d'une exécution, en secondes (HOS-247).
+
+    Une seule lecture de la sémantique, à un seul endroit : la dupliquer
+    chez chaque appelant les ferait diverger au premier réglage, et le
+    cas `0` serait tôt ou tard interprété comme « illimité » par l'un
+    d'eux — précisément l'invention que ce jalon refuse.
+    """
+    brut = getattr(meta, "max_duration_seconds", None)
+    if brut is None:
+        # Rétrocompatibilité : un `meta` d'avant HOS-247, ou un double de
+        # test qui ne porte pas le champ. Le défaut s'applique, et se
+        # comporte donc comme le dataclass l'a toujours annoncé.
+        return BUDGET_MISSION_PAR_DEFAUT_S
+    valeur = float(brut)
+    if valeur < 0:
+        raise ValueError(
+            f"budget de mission invalide : {valeur} s. Il n'existe pas de "
+            "valeur « illimitée » — 0 demande le défaut "
+            f"({BUDGET_MISSION_PAR_DEFAUT_S} s), un nombre positif fixe le "
+            "budget.")
+    return valeur or BUDGET_MISSION_PAR_DEFAUT_S
+
+
 # ── Dataclasses ──────────────────────────────────────────────
 
 @dataclass
@@ -86,7 +117,26 @@ class ExecutionMeta:
     mission_id: str = ""
     user_goal: str = ""
     priority: ExecutionPriority = ExecutionPriority.NORMAL
-    max_duration_seconds: float = 3600.0
+    #: Budget de temps de l'exécution entière, en secondes (HOS-247).
+    #:
+    #: **3 600 s n'est pas un chiffre rond choisi par confort** : c'est
+    #: 1,65 fois le pire cas *réussi* mesuré sur le terrain — 2 186 s pour
+    #: une mission de 7 tâches menée à 7/7 (`docs/essai-skills360.md`). Un
+    #: budget de 1 800 s aurait tué cette mission-là à 82 % de son travail.
+    #: C'est aussi exactement 3 plafonds de nœud (1 200 s), soit 4 tâches
+    #: au budget agent plein ou ~11 à la cadence réellement observée.
+    #:
+    #: Sémantique, alignée sur la seule convention documentée du dépôt —
+    #: `ModelDecision.num_ctx`, où 0 signifie « le défaut de l'appelant » :
+    #:
+    #: * `> 0` — le budget, en secondes ;
+    #: * `0`   — utiliser `BUDGET_MISSION_PAR_DEFAUT_S` ;
+    #: * `< 0` — **invalide**, rejeté bruyamment.
+    #:
+    #: Il n'existe **aucune** valeur « illimitée », et il serait malhonnête
+    #: d'en offrir une : `MAX_EXECUTION_PASSES × plafond_du_noeud()` borne
+    #: déjà toute mission à 33 heures.
+    max_duration_seconds: float = BUDGET_MISSION_PAR_DEFAUT_S
     max_retries_per_task: int = 3
     scheduler_strategy: SchedulerStrategy = SchedulerStrategy.RESOURCE_AWARE
     tags: list[str] = field(default_factory=list)

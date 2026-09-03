@@ -1,3 +1,96 @@
+## HOS-247 — Un budget qui se declarait et que personne ne lisait (2026-09-03)
+
+Passe 8. La decision verrouillee en passes 7 et 7.1 est implementee — et
+l'une de ses premisses s'est revelee fausse en chemin.
+
+### Le defaut
+
+`ExecutionMeta.max_duration_seconds = 3600.0` existait depuis longtemps.
+Compte sur l'arbre syntaxique : **zero lecteur** en production, quand son
+voisin de dataclass `max_retries_per_task` en avait deux. Le seul plafond
+reel etait `MAX_EXECUTION_PASSES x plafond_du_noeud()`, soit **33 heures**
+— trente-trois fois le budget declare. Ce n'est pas un budget, c'est un
+garde-boucle.
+
+Troisieme occurrence du meme motif sur ce chantier, apres `Statut.PERDU`
+declare et jamais pose (HOS-240) et `modele`/`fournisseur` servis et
+jamais ecrits (HOS-241).
+
+### Pourquoi 3 600 s, et pas un chiffre rond
+
+`docs/essai-skills360.md` porte quatre executions reelles du meme
+objectif : 566 s, 878 s, 1 084 s et **2 186 s**. La derniere est un
+**succes**, 7 taches sur 7, 12 fichiers produits. Un budget de 1 800 s
+l'aurait tuee a 82 % de son travail.
+
+3 600 s, c'est 1,65 fois ce pire cas reussi, et exactement trois plafonds
+de noeud. Une garde tient cette justification, pour qu'elle ne redevienne
+pas un souvenir.
+
+### Ce que ce budget n'est pas
+
+Il ne coupe rien. Il refuse d'**engager** la tache suivante ; une tache
+deja lancee va au bout de son propre plafond — 900 s pour l'agent,
+1 200 s pour le noeud. C'est ce qui le distingue d'un timeout.
+
+Et un budget atteint n'est **jamais** `PERDU` : perdu veut dire « on ne
+sait pas ce qui s'est passe », ici on le sait exactement, et c'est
+l'operateur qui l'a decide. `Cause.BUDGET` est ajoutee, distincte de
+`QUOTA` (une limite du fournisseur) et de `RESSOURCE` (une limite de la
+machine) : celle-ci est une limite qu'on tient, pas qu'on subit. Son
+remede porte `reessayer=False` — reprendre consommerait immediatement le
+meme budget une seconde fois.
+
+### L'horloge
+
+`perf_counter`, pas `datetime.now()` : une horloge civile recule a
+l'heure d'hiver et sur une synchronisation NTP, et une mission serait
+coupee ou prolongee par le reglage de la machine. Pas `monotonic` non
+plus : mesure, il a ~16 ms de resolution sur Windows, et un budget de 1 ms
+s'y lisait « 0 s consommee ». Sans importance a l'echelle d'un budget en
+heures, mais un test de frontiere ne doit pas dependre de la granularite
+de l'horloge.
+
+### La premisse fausse, trouvee en chemin
+
+La passe 7 supposait qu'`ExecutionMeta` etait l'objet d'execution **de la
+mission**. Mesure, il l'est sur un chemin et pas sur l'autre :
+
+- `execution/routes.py` en construit **un** pour toute l'execution, avec
+  toutes ses taches — le budget y est bien missionnel ;
+- `mission/node_execution.py` en construit **un par noeud** du DAG, chacun
+  ouvrant sa propre machine d'etat — le budget y est un budget **de
+  noeud**, et ne se declenchera donc jamais, un noeud etant deja plafonne
+  a 1 200 s.
+
+Aucun risque introduit : sur ce chemin, le champ reste sans effet comme
+avant. Mais il ne protege pas la mission entiere, et le croire serait
+exactement le genre d'illusion que ce jalon corrige ailleurs. Une garde
+epingle la limite et echouera le jour ou elle disparaitra.
+
+Un budget reellement missionnel sur le chemin autonome demande un t0
+porte par la **mission**. C'est une decision que la passe 7 n'a pas
+prise, et l'elargir ici aurait ete le « reparer par extension de
+perimetre » que la passe 8 s'interdit explicitement.
+
+### Deux faux positifs de sous-chaine, dans mes propres gardes
+
+Dixieme : une garde d'ordre comparait deux `str.index` et trouvait
+`self._task_executor.execute` dans la **docstring**, cinquante lignes
+avant le code. Onzieme : une garde interdisant `PERDU` s'accrochait a la
+docstring qui explique precisement que ce n'est jamais `PERDU`. Les deux
+reecrites sur l'arbre syntaxique, corps sans docstring.
+
+### Mesures
+
+| | passees | ignorees | deselectionnees |
+|---|---|---|---|
+| standard | **5 517** | 3 | 274 |
+
+Frontend : 126 vertes, typecheck propre. 22 gardes ajoutees, **aucun test
+existant modifie**, aucun test supprime.
+
+
 ## HOS-246 — Le test n'etait pas bloque : l'agent cherchait sur tout le disque (2026-09-03)
 
 Passe de fermeture ciblee. Trois points de la passe precedente, dont deux

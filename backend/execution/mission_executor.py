@@ -43,6 +43,9 @@ EXECUTION_EVENTS: dict[str, str] = {
     "optimized": "execution.optimized",
     "completed": "execution.completed",
     "failed": "execution.failed",
+    # HOS-247 : le budget de la mission a ete atteint et la tache suivante
+    # n'a pas ete engagee. Distinct de `failed` : rien n'a echoue.
+    "budget_depasse": "execution.budget_depasse",
 }
 
 logger = logging.getLogger("hermes_os.execution.mission")
@@ -357,6 +360,20 @@ class MissionExecutor:
             if task is None:
                 return {"task_id": task_id, "status": "not_found"}
 
+            # HOS-247 : le budget de la mission, vérifié **avant**
+            # d'engager cette tâche et jamais pendant. Une tâche déjà
+            # lancée va au bout de son propre plafond (900 s pour l'agent,
+            # 1 200 s pour le nœud) : ce budget décide de ce qu'on
+            # engage, pas de ce qu'on interrompt. C'est ce qui le
+            # distingue d'un timeout, et ce qui fait qu'il ne tue rien.
+            #
+            # Ici plutôt qu'ailleurs parce que les deux chemins — le
+            # marcheur de graphe autonome et l'appel direct — convergent
+            # sur cette méthode. Un second compteur ailleurs dériverait
+            # du premier.
+            if sm.budget_depasse():
+                return self._refuser_pour_budget(sm, task, task_id)
+
             sm.transition(ExecutionState.RUNNING, f"Executing task {task_id}")
             self._publish("execution.task_started", {"task_id": task_id})
 
@@ -666,6 +683,39 @@ class MissionExecutor:
             if texte and texte not in vus:
                 vus.append(texte)
         return ", ".join(vus)
+
+    def _refuser_pour_budget(self, sm: Any, task: Any, task_id: str) -> dict[str, Any]:
+        """Ne pas engager cette tache : le budget de la mission est atteint.
+
+        Un refus, pas une panne. La tache est marquee `FAILED` parce que
+        c'est le seul etat terminal dont dispose `TaskExecutionStatus` —
+        mais son message dit *pourquoi*, et la taxonomie le classe
+        `BUDGET`, distinct de `QUOTA` (une limite du fournisseur) et de
+        `RESSOURCE` (une limite de la machine).
+
+        **Ce n'est jamais `PERDU`.** Perdu veut dire « on ne sait pas ce
+        qui s'est passe » ; ici on le sait exactement, et c'est nous qui
+        l'avons decide.
+
+        Les preuves deja produites par les taches precedentes ne sont pas
+        touchees : ce chemin n'ecrit rien d'autre que le sort de la tache
+        refusee.
+        """
+        motif = (
+            f"budget de mission atteint : {sm.budget_consomme_s:.0f} s "
+            f"consommées sur {sm.budget_s:.0f} s — tâche {task_id} non engagée")
+        task.status = TaskExecutionStatus.FAILED
+        task.errors = [motif]
+        task.completed_at = datetime.now(timezone.utc)
+        logger.warning("%s", motif)
+        self._publish("execution.budget_depasse", {
+            "task_id": task_id,
+            "mission_id": getattr(sm._meta, "mission_id", ""),
+            "consomme_s": round(sm.budget_consomme_s, 1),
+            "budget_s": sm.budget_s,
+        })
+        return {"task_id": task_id, "status": task.status.value,
+                "error": motif, "budget_depasse": True}
 
     def _clore_le_run(self, report: ExecutionReport,
                       tasks: list[TaskExecution]) -> None:

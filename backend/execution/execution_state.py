@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
 from .execution_models import (
+    budget_de,
     ExecutionCheckpoint,
     ExecutionMeta,
     ExecutionState,
@@ -45,6 +47,49 @@ class ExecutionStateMachine:
         self._history: list[tuple[ExecutionState, ExecutionState, str]] = []
         self._checkpoints: dict[str, ExecutionCheckpoint] = {}
         self._meta = meta or ExecutionMeta()
+        #: t0 du budget de mission (HOS-247) : la construction de la
+        #: machine d'état, c'est-à-dire l'instant où cette exécution
+        #: existe. Pas `meta.created_at`, qui est posé par le
+        #: `default_factory` du dataclass et peut précéder l'exécution de
+        #: loin ; pas `meta.started_at`, qui n'est **posé par personne** —
+        #: mesuré.
+        #:
+        #: Monotone et non `datetime.now()` : une horloge civile recule à
+        #: l'heure d'hiver et lors d'une synchronisation NTP, et une
+        #: mission serait alors coupée ou prolongée par le réglage de la
+        #: machine. La date civile reste sur `meta` pour l'affichage ; la
+        #: **décision** d'expiration ne s'appuie que sur celle-ci.
+        #:
+        #: `perf_counter` plutôt que `monotonic` : les deux sont monotones,
+        #: mais `monotonic` a ~16 ms de résolution sur Windows — mesuré, un
+        #: budget de 1 ms s'y lisait « 0 s consommée ». Sans importance à
+        #: l'échelle d'un budget en heures, mais un test qui vérifie la
+        #: frontière ne doit pas dépendre de la granularité de l'horloge.
+        #: C'est aussi ce que `task_executor` utilise déjà pour ses durées.
+        self._budget_t0 = time.perf_counter()
+        # Valider tôt : une valeur négative doit être refusée là où elle
+        # est fournie, pas découverte au milieu d'une mission.
+        budget_de(self._meta)
+
+    @property
+    def budget_s(self) -> float:
+        """Le budget de cette exécution, en secondes. Toujours > 0."""
+        return budget_de(self._meta)
+
+    @property
+    def budget_consomme_s(self) -> float:
+        """Depuis la construction de cette machine d'état."""
+        return time.perf_counter() - self._budget_t0
+
+    def budget_depasse(self) -> bool:
+        """Le budget de la mission est-il atteint ?
+
+        Consultée **entre** deux unités de travail, jamais pendant : une
+        tâche déjà engagée va au bout de son propre plafond. Ce budget
+        décide de ce qu'on *engage*, pas de ce qu'on interrompt — c'est ce
+        qui le distingue d'un timeout, et ce qui fait qu'il ne tue rien.
+        """
+        return self.budget_consomme_s >= self.budget_s
 
     @property
     def state(self) -> ExecutionState:
