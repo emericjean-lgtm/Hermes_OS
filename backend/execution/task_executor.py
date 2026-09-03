@@ -649,29 +649,54 @@ class RealTaskExecutor:
                 must fail the task — fabricating a result is what R-001 exists
                 to remove.
         """
-        runtime_id = _runtime_demande(
-            getattr(assignment, "runtime_id", "")
-            or getattr(task, "assigned_runtime", ""))
-        model = self._resolve_model(task, assignment)
+        runtime_brut = (getattr(assignment, "runtime_id", "")
+                        or getattr(task, "assigned_runtime", ""))
+        runtime_id = _runtime_demande(runtime_brut)
         num_ctx = self._resolve_num_ctx(task)
         workspace = self._resolve_workspace(task)
 
         chat = self._chat or self._default_chat
         runtime_demande = self._resolve_runtime(task)
-        use_cloud = self._cloud_chat is not None and runtime_demande == "openrouter"
-        if use_cloud:
-            runtime_id = "openrouter"
-        elif runtime_demande == "openrouter":
+
+        # HOS-243 : un seul point d'arbitrage. Deux décideurs avaient un
+        # avis sur cette requête — le coordinateur (ou
+        # `autonomous.DecisionEngine`) via `assigned_runtime`, et
+        # `AdaptiveModelRouter` via `_resolve_runtime` — et lequel gagnait
+        # était une propriété émergente de l'ordre de ces lignes. La
+        # précédence est maintenant déclarée, une fois, et testable.
+        #
+        # `arbitrer` ne classe rien et n'interroge rien : il range des avis
+        # déjà formés. Les six décideurs de ce dépôt restent où ils sont.
+        from backend.ral.arbitrage import Proposition, arbitrer
+        from backend.ral.arbitrage import _propre as _propre_ral
+
+        decision = arbitrer(
+            # La première proposition n'est **jamais** vide :
+            # `_runtime_demande` transforme un non-choix en `hermes-agent`
+            # depuis HOS-142, parce qu'une nuit entière s'est déroulée sans
+            # Hermes Agent le jour où `"default"` est tombé dans la boucle
+            # d'outils de Hermes OS. La source dit donc laquelle des deux
+            # choses s'est produite ; la valeur, elle, ne bouge pas.
+            [Proposition(
+                "assignation explicite" if _propre_ral(runtime_brut)
+                else "défaut HOS-142 — aucun runtime choisi",
+                runtime=runtime_id),
+             Proposition("décideur de la tâche", runtime=runtime_demande,
+                         modele=self._resolve_model(task, assignment))],
+            defaut_runtime="hermes-agent",
+            defaut_modele=self._default_model,
+            cloud_joignable=self._cloud_chat is not None)
+        runtime_id, model = decision.runtime, decision.modele
+        use_cloud = runtime_id == "openrouter"
+        if decision.repli:
             # HOS-241 : bascule silencieuse. Sans client cloud — pas de clé
             # OpenRouter configurée, le cas par défaut — une tâche
             # explicitement assignée au cloud tournait en local sans qu'un
             # seul message ne le dise. L'opérateur avait choisi ; le choix
             # était défait sans trace, et le registre inscrivait quand même
             # « openrouter » parce qu'il enregistrait l'intention.
-            logger.warning(
-                "tâche %s assignée à openrouter exécutée en local (%s) : "
-                "aucun client cloud n'est configuré",
-                getattr(task, "task_id", "?"), runtime_id)
+            logger.warning("tâche %s : %s",
+                           getattr(task, "task_id", "?"), decision.repli)
         requested_runtime = runtime_id
         hermes_agent_runs_it = (runtime_id == "hermes-agent"
                                 and self._chat is None and not use_cloud)
@@ -835,6 +860,8 @@ class RealTaskExecutor:
                 # l'absence de client cloud ne le defasse. L'ecart entre
                 # les deux **est** la trace du repli.
                 "runtime_demande_par_le_routeur": runtime_demande or "",
+                # HOS-243 : qui a tranché, et sur quels avis.
+                "arbitrage": decision.to_dict(),
                 "token_counts": "reported" if meta.get("prompt_tokens") else "estimated",
                 # Real observability for the Workspace/Filesystem tool
                 # layer: how many real workspace_* tool calls this task's

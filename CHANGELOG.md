@@ -1,3 +1,105 @@
+## HOS-243 — Une seule autorité tranche, et elle l'écrit (2026-09-03)
+
+Quatrième passe de consolidation, sur §5.1 : « il existe plusieurs
+décideurs concurrents de routage ».
+
+### Le compte est passé de deux à huit, en trois mesures
+
+HOS-242 avait rapporté deux décideurs. La mesure était fausse par
+méthode : elle comptait les **constructions de classes**, et manquait
+tout composant obtenu par un accesseur ou un attribut. Retracés sur les
+appels de méthodes, puis sur leurs définitions, **huit** composants
+décident d'un runtime, d'un modèle ou d'un fournisseur.
+
+Chaque hausse du compte venait du même défaut : chercher des noms plutôt
+que des appels, puis des appels plutôt que des définitions. C'est la
+troisième fois sur ce chantier qu'une cartographie se révèle incomplète
+parce qu'elle cherchait la mauvaise chose.
+
+### Huit décideurs ne sont pas un défaut
+
+Ils répondent à huit questions, sur des chemins différents, chacun avec
+ses propres données et ses propres mesures :
+
+- `AdaptiveModelRouter` — profils mesurés, VRAM ; chemin missionnel ;
+- `autonomous.DecisionEngine` — pose `assigned_runtime` sur un but ;
+- `core.router.ModelRouter` — rôles de `config/models.yaml`, dont les
+  tags portent les fenêtres de contexte servies ;
+- `RuntimeRecommender` — planification, avant toute exécution ;
+- `ral.courtier` — quel fournisseur cloud, une fois le runtime décidé ;
+- `runtime.orchestrator.DecisionPipeline` — classe des candidats pour
+  l'API d'observabilité ; **rien ne s'exécute sur son classement** ;
+- `RuntimeDecisionEngine` — hors production (ci-dessous) ;
+- `sds/routes.py` — un opérateur bascule le runtime actif par HTTP.
+
+Le défaut était que **deux d'entre eux tranchaient la même requête** :
+
+    runtime_id = _runtime_demande(assignment.runtime_id
+                                  or task.assigned_runtime)   # ① ou ②
+    ...
+    runtime_demande = self._resolve_runtime(task)             # ①
+    use_cloud = self._cloud_chat is not None and runtime_demande == "openrouter"
+    if use_cloud:
+        runtime_id = "openrouter"
+
+Lequel l'emportait n'était écrit nulle part. C'était une **propriété
+émergente de l'ordre des lignes** — dix lignes plus loin, un `elif` et un
+`and` en décidaient. Une précédence qui n'est écrite nulle part ne peut
+être ni discutée, ni testée, ni conservée à travers un refactoring.
+
+### `ral.arbitrage` : l'arbitre, pas un neuvième décideur
+
+Il ne classe aucun modèle, n'interroge aucun profil, ne mesure aucune
+VRAM, ne contacte rien — deux gardes le tiennent, dont une qui refuse
+qu'il devienne asynchrone. Il ne sait pas quel modèle est bon.
+
+Il sait qui a le dernier mot, et il l'écrit. La précédence **reproduit le
+comportement d'avant** : une assignation explicite l'emporte, puis le
+décideur de la tâche, puis le défaut. La changer en même temps qu'on la
+rendait explicite aurait rendu impossible de dire lequel des deux avait
+causé une régression.
+
+Une seule dérogation, celle qui existait déjà : le décideur peut faire
+**monter** vers le cloud, et seulement si un fournisseur répond
+vraiment. Il ne peut pas faire redescendre — défaire une assignation
+explicite serait exactement la seconde autorité qu'on supprime.
+
+`cloud_joignable` est un fait **passé par l'appelant**. Un arbitre qui
+interrogerait lui-même les fournisseurs pourrait conclure « joignable »
+sans passer par le pare-feu de données ni par le courtier : il
+deviendrait une autorité de sécurité, ce que le RAL ne doit jamais être.
+
+### La pile RAL, mesurée deux fois de plus
+
+HOS-242 disait `RuntimeRouter`, `RuntimeDecisionEngine` et
+`RuntimeSelector` « construits nulle part ». Ils **sont** appelés — mais
+leurs seuls appelants sont `ExecutionEngine` et `MissionControlAPI`, dont
+aucune n'est construite hors des tests, et le rappel `runtime_selector`
+du superviseur n'est passé par personne.
+
+Hors production, donc, mais par un chemin plus long que rapporté.
+**Dépréciés explicitement, pas supprimés** : ils portent leurs propres
+tests, et les effacer détruirait un travail mesuré sans rien corriger.
+La dépréciation est dans leur docstring, là où on la lit, et une garde
+échoue si un point d'entrée déprécié est reconstruit.
+
+### Ce que la source dit maintenant
+
+    A. cloud demandé, pas de clé  → ollama, « assignation explicite »,
+                                    repli nommé
+    B. cloud demandé, clé valide  → openrouter, fournisseur DeepInfra
+    C. personne ne choisit        → hermes-agent,
+                                    « défaut HOS-142 — aucun runtime choisi »
+
+Le cas C est celui qui a coûté une nuit entière : `"default"` tombait
+dans la boucle d'outils de Hermes OS au lieu d'aller à l'agent.
+
+### Mesures
+
+29 gardes ajoutées. Suite complète : **5 465 vertes**, 3 ignorées.
+Frontend : 126 vertes, typecheck propre.
+
+
 ## HOS-242 — Le routage, mesuré : qui décide, qui exécute, qui le sait (2026-09-03)
 
 Troisième passe de consolidation, sur §5. La question posée était

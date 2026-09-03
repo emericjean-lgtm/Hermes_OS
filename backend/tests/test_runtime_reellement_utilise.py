@@ -225,30 +225,34 @@ def test_une_tache_cloud_sans_client_cloud_le_dit(caplog):
     assert caplog.records == []
 
 
-def test_la_branche_de_bascule_cloud_avertit():
-    """Structurellement : la branche existe et journalise en `warning`.
+def test_la_bascule_cloud_produit_un_repli_nomme():
+    """Réécrite en HOS-243 : la propriété, plus la forme du code.
 
-    Elle est inatteignable sans un `RealTaskExecutor` complet et un vrai
-    appel d'inférence ; la tenir sur l'arbre syntaxique vaut mieux que de
-    ne pas la tenir.
+    Cette garde cherchait un `if` dont le test mentionnait « openrouter »
+    et qui journalisait. La branche a légitimement déménagé dans
+    `ral.arbitrage`, et la garde a échoué sur un déplacement au lieu
+    d'échouer sur une régression — c'est le défaut d'une garde qui décrit
+    du code au lieu d'exiger un comportement.
+
+    Ce qui doit rester vrai : un cloud demandé et injoignable ne s'exécute
+    jamais en local **sans nommer le repli**.
     """
-    source = io.open(RACINE / "backend" / "execution" / "task_executor.py",
-                     encoding="utf-8").read()
-    arbre = ast.parse(source)
+    from backend.ral.arbitrage import Proposition, arbitrer
 
-    trouvee = False
-    for noeud in ast.walk(arbre):
-        if not isinstance(noeud, ast.If):
-            continue
-        test = ast.unparse(noeud.test)
-        if "openrouter" not in test or "runtime_demande" not in test:
-            continue
-        corps = " ".join(ast.unparse(n) for n in noeud.body)
-        if "logger.warning" in corps:
-            trouvee = True
-    assert trouvee, (
-        "aucune branche n'avertit qu'une tâche assignée à openrouter "
-        "s'exécute en local — la bascule serait de nouveau silencieuse")
+    injoignable = arbitrer(
+        [Proposition("assignation explicite", runtime="hermes-agent"),
+         Proposition("décideur de la tâche", runtime="openrouter")],
+        cloud_joignable=False)
+    assert injoignable.runtime == "hermes-agent"
+    assert "openrouter" in injoignable.repli
+    assert "décideur de la tâche" in injoignable.repli
+
+    joignable = arbitrer(
+        [Proposition("assignation explicite", runtime="hermes-agent"),
+         Proposition("décideur de la tâche", runtime="openrouter")],
+        cloud_joignable=True)
+    assert joignable.runtime == "openrouter"
+    assert joignable.repli == ""      # rien n'a été défait, rien à dire
 
 
 def test_aucun_rappel_de_resolution_n_echoue_en_silence():

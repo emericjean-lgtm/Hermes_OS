@@ -7,6 +7,26 @@ active runtime first, and supports automatic failover via
 
 No code in this module depends on Ollama, Hermes Agent, or any concrete
 backend. It only speaks the :class:`RuntimeInterface` / capability protocols.
+
+.. admonition:: Hors du chemin de production (HOS-243)
+   :class: warning
+
+   **Ce module ne décide rien en production.** Mesuré sur l'arbre
+   syntaxique : ses seuls appelants sont ``backend/agent/execution_engine.py``
+   et ``backend/services/mission_control.py``, dont les classes
+   (``ExecutionEngine``, ``MissionControlAPI``) ne sont **construites
+   nulle part** hors des tests.
+
+   L'autorité de routage réellement exercée est
+   :func:`backend.ral.arbitrage.arbitrer`, appelée par
+   ``RealTaskExecutor.execute()`` — le seul chemin par lequel une mission
+   atteint un modèle.
+
+   Ce module est conservé, non supprimé : il est couvert par ses propres
+   tests, et sa disparition détruirait un travail mesuré sans rien
+   corriger. Mais il ne doit pas être branché sur le chemin d'inférence
+   sans devenir l'arbitre lui-même — deux autorités valent moins qu'une
+   mauvaise. ``test_autorite_unique_de_routage`` le tient.
 """
 from __future__ import annotations
 
