@@ -624,14 +624,33 @@ class CodeIntelligenceAgent:
         an external provider with no sandbox proof — R-006 Phase 9.
 
         KlaatCode's ``edit_file`` and Oh My Pi's ``lsp_edit`` genuinely carry
-        ``ToolPermission.WRITE``, but neither ``ToolPolicy.evaluate()`` (its
-        WRITE branch is a documented no-op) nor either MCP adapter's
-        ``execute()`` (neither ever consults the ``ToolSandbox`` it's built
-        with) actually stops one from touching the real repo. Until a real
-        workspace/sandbox is provisioned and threaded through as
-        ``parameters["sandbox_id"]``, refusing outright is the only honest
-        choice — "no automatic modification of the main repo" cannot be
-        satisfied any other way today.
+        ``ToolPermission.WRITE``.
+
+        .. note:: Corrigé en HOS-246 — ce paragraphe était périmé.
+
+           Cette docstring décrivait ``ToolPolicy.evaluate()`` comme une
+           branche inerte, et affirmait que les adaptateurs MCP ne
+           consultaient jamais leur ``ToolSandbox``. **HOS-238 a rendu les
+           deux affirmations fausses** :
+           la branche WRITE consulte réellement
+           ``ToolSandbox.get_config(tool_id).read_only``, et
+           ``KlaatCodeMCPAdapter.execute()`` appelle bien
+           ``self._policy.evaluate(...)`` avant toute action, en refusant
+           sur ``PolicyVerdict.DENY``.
+
+           Ce que HOS-238 a fermé est cependant une porte **plus étroite**
+           que celle-ci : la politique refuse une écriture dans un sandbox
+           *déclaré en lecture seule*. Elle ne **provisionne** aucun
+           sandbox, et un ``ToolSandbox`` sans configuration pour l'outil
+           laisse passer l'écriture. La conclusion de ce garde-fou tient
+           donc toujours, mais pour une raison qu'il fallait réécrire :
+           ce n'est plus « rien ne vérifie », c'est « rien ne fournit
+           l'isolement dont la vérification aurait besoin ».
+
+        Tant qu'un workspace/sandbox réel n'est pas provisionné et transmis
+        via ``parameters["sandbox_id"]``, refuser franchement reste le seul
+        choix honnête — « aucune modification automatique du dépôt
+        principal » ne peut être satisfait autrement aujourd'hui.
         """
         if ci_task_type not in WRITE_CAPABLE_CI_TASK_TYPES:
             return ""
@@ -646,8 +665,9 @@ class CodeIntelligenceAgent:
             )
         return (
             f"{ci_task_type.value} would write through an external provider "
-            "with no sandbox — refused (R-006 Phase 9: ToolPolicy/ToolSandbox "
-            "do not actually enforce this beneath CodeIntelligenceAgent)"
+            "with no sandbox — refused (R-006 Phase 9: no sandbox is "
+            "provisioned beneath CodeIntelligenceAgent; ToolPolicy enforces "
+            "read-only sandboxes since HOS-238 but provisions none)"
         )
 
     def _publish(self, event_type: str, payload: dict, severity: str = "info") -> None:

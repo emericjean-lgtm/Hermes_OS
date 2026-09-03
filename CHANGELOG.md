@@ -1,3 +1,104 @@
+## HOS-246 — Le test n'etait pas bloque : l'agent cherchait sur tout le disque (2026-09-03)
+
+Passe de fermeture ciblee. Trois points de la passe precedente, dont deux
+diagnostics qui ont refute mes propres mesures.
+
+### Le test « bloque » : cause racine, mesuree
+
+`TestEventWiring::test_no_real_subsystem_event_is_dropped` n'est pas en
+interblocage. Pile complete capturee sur les trois fils :
+
+    task_executor.py:756  ->  _run_coro  ->  future.result(timeout=...)
+
+C'est une attente **bornee** : 900 s par tache pour l'agent, 1200 s par
+etape de graphe. Et le test progresse reellement — un dossier de mission
+apparait toutes les deux a quatre minutes, `lfm2.5-2.6b-125k` est charge
+en VRAM, et les processus d'agent se succedent.
+
+Ce qui le rend interminable a ete trouve en inspectant les petits-enfants
+du processus de test :
+
+    find.exe / -name api_spec.yaml -type f   |   head -20
+
+L'agent, cherchant une specification d'API, a lance un `find` sur **la
+racine entiere**. Huit minutes et demie plus tard il tournait encore. Le
+`head -20` qui aurait du le fermer ne propage pas SIGPIPE sur Windows.
+
+Le test est donc **legitimement non mesurable ici** : il conduit une
+mission autonome complete dont le nombre de noeuds n'est pas connu
+d'avance, chacun borne a 900 s. Non modifie, non desactive, non marque.
+
+### Les processus residuels : ma mesure precedente etait fausse deux fois
+
+J'avais rapporte « 19 processus hermes-agent, dont un ne a l'heure exacte
+du lancement des tests ». Les deux moities etaient fausses.
+
+Le filtre portait sur la **ligne de commande** et attrapait trois de mes
+propres shells qui mentionnaient simplement « hermes-agent ». Huitieme
+faux positif de sous-chaine de ce chantier. Mesure sur l'executable :
+**12**, dont **aucun** cree le jour de la campagne. Le processus ne a
+19:22 etait un shell, pas un agent.
+
+Mesure correctement, le cycle de vie du CLI est **sain** : observe sur un
+vrai deroulement, un agent apparait, travaille, disparait, un autre le
+remplace, et le compte reste stable. `hermes_agent_cli` attend
+`communicate()` et tue le processus des que le budget expire.
+
+### L'ambiguite, elle, est reelle — et non tranchee
+
+40 processus ont leur repertoire courant sous `hermes_os_scratch` : des
+`bash -lic "… python app.py"` et les serveurs qu'ils lancent, ecoutant sur
+le port 8000, vivants depuis 37 heures. Ce ne sont pas des agents : ce
+sont les **petits-enfants** que l'agent demarre en executant le code
+qu'il ecrit.
+
+Personne ne les possede. Ni Hermes OS, qui ne possede que le processus
+CLI et le libere correctement. Ni l'agent, qui sort.
+
+**Aucun faucheur n'a ete construit.** Hermes Agent est le cerveau : il
+peut legitimement demarrer un serveur de developpement, et le tuer serait
+detruire le travail demande. Inventer un systeme qui tue des processus
+dans le dossier de travail d'un utilisateur serait a la fois une
+architecture nouvelle et un risque. La decision revient au proprietaire
+du depot ; ce jalon la documente et garde ce qui est demontre.
+
+### Une documentation qui affirmait le contraire du code
+
+`_unsandboxed_write` decrivait `ToolPolicy.evaluate()` comme une branche
+inerte et affirmait que les adaptateurs MCP ne consultaient jamais leur
+`ToolSandbox`. **HOS-238 avait rendu les deux affirmations fausses**, huit
+jalons plus tot.
+
+La conclusion du garde-fou tient pourtant toujours, mais pour une autre
+raison, qu'il fallait ecrire : HOS-238 a ferme une porte plus etroite —
+la politique refuse une ecriture dans un sandbox *declare* en lecture
+seule, mais elle n'en **provisionne** aucun. Ce n'est plus « rien ne
+verifie », c'est « rien ne fournit l'isolement dont la verification aurait
+besoin ». Trois gardes tiennent desormais les deux moities de cette
+phrase, sur le comportement et non sur le texte.
+
+Une documentation perimee sur une decision de securite est pire qu'une
+absence : elle fait croire qu'un controle manque la ou il existe, et on
+finit par en ecrire un second.
+
+### Neuvieme faux positif, entre ma correction et ma propre garde
+
+La note de correction **citait** l'ancienne formulation ; la garde qui
+interdit cette formulation s'y est accrochee. Reecrite pour decrire au
+lieu de citer.
+
+### Mesures
+
+| | passees | ignorees | deselectionnees |
+|---|---|---|---|
+| standard | **5 496** | 3 | 274 |
+| lente (moins le test non mesurable) | **267** | 6 | — |
+| **complete** | **5 763** | 9 | **1 non mesurable** |
+
+Frontend : 126 vertes, typecheck propre. 7 gardes ajoutees, 0 test
+supprime, 0 processus tue.
+
+
 ## HOS-245 — Le journal survivait, son sujet non (2026-09-03)
 
 Passe §5.2 : déblocage de spécification, mesure de la suite lente, et la
