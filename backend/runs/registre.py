@@ -95,6 +95,10 @@ class Cause(str, Enum):
     VERIFICATION = "verification"
     POLITIQUE = "politique"
     SECURITE = "securite"
+    #: Le processus porteur a disparu (HOS-240). Distincte d'`INCONNUE` :
+    #: celle-ci dit « cherchée, non trouvée », celle-là nomme un fait
+    #: constaté — le processus qui tenait ce run n'existe plus.
+    PROCESSUS = "processus"
     INCONNUE = "inconnue"
 
 
@@ -174,6 +178,7 @@ CREATE TABLE IF NOT EXISTS runs (
     cree_le TEXT NOT NULL,
     demarre_le TEXT,
     fini_le TEXT,
+    processus TEXT,
     FOREIGN KEY (parent) REFERENCES runs(identifiant)
 );
 CREATE INDEX IF NOT EXISTS runs_mission ON runs(mission, cree_le);
@@ -197,7 +202,26 @@ class Registre:
         self._verrou = threading.RLock()
         conn = self._db.get_connection()
         conn.executescript(_SCHEMA)
+        self._ajouter_les_colonnes_manquantes(conn)
         conn.commit()
+
+    @staticmethod
+    def _ajouter_les_colonnes_manquantes(conn) -> None:
+        """`CREATE TABLE IF NOT EXISTS` ne fait rien sur une base existante.
+
+        Une base ouverte avant HOS-240 n'a pas la colonne `processus`, et
+        l'`INSERT` nommé de `ouvrir()` y échouerait — donc plus aucun run
+        ne s'ouvrirait. Une correction d'observabilité aurait cassé
+        l'exécution. C'est le mécanisme de `memory.db._add_missing_columns`,
+        et pour la même raison : ce dépôt fait évoluer ses schémas à chaud.
+
+        Additive et nullable seulement : une colonne qu'on ne saurait pas
+        remplir pour les lignes déjà là ne doit pas être ajoutée en douce.
+        """
+        presentes = {ligne[1] for ligne in conn.execute("PRAGMA table_info(runs)")}
+        for nom, type_sql in (("processus", "TEXT"),):
+            if nom not in presentes:
+                conn.execute(f"ALTER TABLE runs ADD COLUMN {nom} {type_sql}")
 
     # ── Écriture ─────────────────────────────────────────────────────
 
@@ -210,6 +234,11 @@ class Registre:
         run = Run(**champs)
         with self._verrou:
             d = run.to_dict()
+            # Qui porte ce run (HOS-240). Sans cette empreinte, un run
+            # laissé `en_cours` par un processus mort est indiscernable
+            # d'un run réellement en train de tourner ailleurs.
+            from backend.runs.reconciliation import empreinte_du_processus
+            d["processus"] = empreinte_du_processus()
             colonnes = ", ".join(d)
             marques = ", ".join("?" for _ in d)
             self._db.execute(
@@ -241,6 +270,35 @@ class Registre:
                 extra[nom] = valeur
         self._changer(identifiant, statut, **extra)
 
+    def constater(self, identifiant: str, **faits: Any) -> None:
+        """Écrire ce qui s'est réellement passé, sans clore le run.
+
+        `ouvrir()` enregistre l'**intention** : le runtime que le
+        coordinateur a demandé, l'agent qu'il a choisi. Ce que l'exécution
+        a réellement fait ne se sait qu'après, et diffère — une reprise
+        change de modèle (`task_executor._resolve_model`), une bascule
+        change de fournisseur, et le runtime qui a servi la requête est lu
+        dans la réponse et non dans la demande.
+
+        Sans cette méthode, `modele` et `fournisseur` n'étaient écrits par
+        **personne** : la colonne existait depuis HOS-221, la vue
+        d'opérations l'affichait, et elle valait la chaîne vide pour tous
+        les runs jamais enregistrés. « Quel modèle a exécuté cette
+        mission ? » était une question sans réponse.
+
+        Le même gel terminal s'applique : un run arrivé ne se réécrit pas,
+        même pour lui ajouter un fait — la trace d'un run clos est close.
+        """
+        inconnus = set(faits) - {"runtime", "modele", "fournisseur", "agent"}
+        if inconnus:
+            raise ValueError(
+                f"`constater` n'écrit que des faits d'exécution ; "
+                f"{sorted(inconnus)} n'en sont pas")
+        faits = {n: v for n, v in faits.items() if v}
+        if not faits:
+            return
+        self._changer_sans_statut(identifiant, **faits)
+
     def reprendre(self, identifiant: str, *, motif: str, **remplacements: Any) -> Run:
         """Ouvrir une reprise, rattachée à celle qui a échoué.
 
@@ -265,6 +323,17 @@ class Registre:
         champs["tentative"] = parent.tentative + 1
         champs["motif_de_reprise"] = motif
         return self.ouvrir(**champs)
+
+    def _changer_sans_statut(self, identifiant: str, **extra: Any) -> None:
+        """Le même gel terminal, appliqué à un constat qui ne clôt rien."""
+        terminaux = ", ".join(f"'{s.value}'" for s in TERMINAUX)
+        fige = "CASE WHEN statut IN (" + terminaux + ") THEN {col} ELSE ? END"
+        assignations = [f"{n} = " + fige.format(col=n) for n in extra]
+        valeurs = list(extra.values()) + [identifiant]
+        with self._verrou:
+            self._db.execute(
+                "UPDATE runs SET " + ", ".join(assignations) +
+                " WHERE identifiant = ?", tuple(valeurs))
 
     def _changer(self, identifiant: str, statut: Statut, **extra: Any) -> None:
         """Écrire, sauf si le run est déjà arrivé.
@@ -319,9 +388,32 @@ class Registre:
         return [self._depuis(l) for l in self._db.fetch_all(
             "SELECT * FROM runs WHERE statut = ?", (Statut.EN_COURS.value,))]
 
+    def non_termines(self) -> list[Run]:
+        """Tout ce qui n'est pas arrivé — `en_attente` compris.
+
+        Un processus tué entre `ouvrir()` et `demarrer()` laisse un run
+        `en_attente` que personne ne reprendra jamais : c'est le même
+        orphelin qu'un `en_cours`, et l'oublier aurait laissé la moitié
+        du défaut en place.
+        """
+        marques = ", ".join("?" for _ in TERMINAUX)
+        return [self._depuis(l) for l in self._db.fetch_all(
+            f"SELECT * FROM runs WHERE statut NOT IN ({marques})",
+            tuple(s.value for s in TERMINAUX))]
+
+    def processus_de(self, identifiant: str) -> Optional[str]:
+        """L'empreinte du processus qui a ouvert ce run, si elle existe."""
+        ligne = self._db.fetch_one(
+            "SELECT processus FROM runs WHERE identifiant = ?", (identifiant,))
+        return (dict(ligne).get("processus") or None) if ligne else None
+
     @staticmethod
     def _depuis(ligne: dict) -> Run:
         d = dict(ligne)
+        # `processus` est de la comptabilité sur qui détenait la ligne, pas
+        # un fait métier du run : `Run` ne le porte pas, et le lui passer
+        # ferait échouer sa construction.
+        d.pop("processus", None)
         d["statut"] = Statut(d.get("statut") or "en_attente")
         d["cause"] = Cause(d["cause"]) if d.get("cause") else None
         return Run(**d)

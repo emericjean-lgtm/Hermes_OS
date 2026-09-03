@@ -122,6 +122,13 @@ class TaskExecution:
     status: TaskExecutionStatus = TaskExecutionStatus.PENDING
     assigned_agent: str = ""
     assigned_runtime: str = ""
+    # HOS-241: the model that actually served this task, taken from the
+    # response metadata by RealTaskExecutor. Distinct from every
+    # ``assigned_*`` field above, which hold what the coordinator *asked
+    # for*: a retry swaps the model (task_executor._resolve_model), and a
+    # ledger that recorded the request would claim a model that never ran.
+    # Empty until the task has actually executed — never a default.
+    model_used: str = ""
     assigned_skills: list[str] = field(default_factory=list)
     # AgentCoordinator's recommendation, surfaced to the model as a text
     # hint in the system prompt (see RealTaskExecutor._build_messages()) —

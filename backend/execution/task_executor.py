@@ -657,9 +657,21 @@ class RealTaskExecutor:
         workspace = self._resolve_workspace(task)
 
         chat = self._chat or self._default_chat
-        use_cloud = self._cloud_chat is not None and self._resolve_runtime(task) == "openrouter"
+        runtime_demande = self._resolve_runtime(task)
+        use_cloud = self._cloud_chat is not None and runtime_demande == "openrouter"
         if use_cloud:
             runtime_id = "openrouter"
+        elif runtime_demande == "openrouter":
+            # HOS-241 : bascule silencieuse. Sans client cloud — pas de clé
+            # OpenRouter configurée, le cas par défaut — une tâche
+            # explicitement assignée au cloud tournait en local sans qu'un
+            # seul message ne le dise. L'opérateur avait choisi ; le choix
+            # était défait sans trace, et le registre inscrivait quand même
+            # « openrouter » parce qu'il enregistrait l'intention.
+            logger.warning(
+                "tâche %s assignée à openrouter exécutée en local (%s) : "
+                "aucun client cloud n'est configuré",
+                getattr(task, "task_id", "?"), runtime_id)
         requested_runtime = runtime_id
         hermes_agent_runs_it = (runtime_id == "hermes-agent"
                                 and self._chat is None and not use_cloud)
@@ -1137,7 +1149,12 @@ class RealTaskExecutor:
         try:
             return self._workspace_project_for(task)
         except Exception:
-            logger.debug("workspace_project_for callback failed", exc_info=True)
+            # Sans workspace, la tâche tourne sans outils et sans pare-feu
+            # de données : une bascule bien plus grave que le silence de
+            # `debug` ne le laissait paraître (HOS-241).
+            logger.warning("workspace_project_for a échoué — la tâche "
+                           "s'exécute sans workspace, donc sans outils",
+                           exc_info=True)
             return None
 
     def _budget_d_appel(self, runtime_id: str, boucle_d_outils: bool) -> float:
@@ -1289,7 +1306,12 @@ class RealTaskExecutor:
             try:
                 return self._runtime_for(task)
             except Exception:
-                logger.debug("runtime_for callback failed", exc_info=True)
+                # `debug` n'apparaît nulle part au niveau par défaut : un
+                # rappel qui échoue faisait retomber la tâche en local sans
+                # laisser la moindre trace (HOS-241).
+                logger.warning("runtime_for a échoué — le runtime demandé "
+                               "est perdu, la tâche retombe sur le défaut",
+                               exc_info=True)
         return None
 
     def _resolve_local_fallback(self, task: Any) -> Optional[str]:
@@ -1297,7 +1319,7 @@ class RealTaskExecutor:
             try:
                 return self._local_fallback_for(task)
             except Exception:
-                logger.debug("local_fallback_for callback failed", exc_info=True)
+                logger.warning("local_fallback_for a échoué", exc_info=True)
         return None
 
     def _check_vram_admission(self, model: str) -> None:
@@ -1392,14 +1414,20 @@ class RealTaskExecutor:
                 if fallback:
                     return str(fallback)
             except Exception:
-                logger.debug("local_fallback_for callback failed on retry", exc_info=True)
+                logger.warning("local_fallback_for a échoué sur la reprise — "
+                               "la tentative %d repart sur le même modèle "
+                               "que celle qui vient d'échouer",
+                               getattr(task, "retries", 0), exc_info=True)
         if self._model_for is not None:
             try:
                 chosen = self._model_for(task)
                 if chosen:
                     return str(chosen)
             except Exception:
-                logger.debug("model_for callback failed", exc_info=True)
+                logger.warning("model_for a échoué — la tâche tourne sur le "
+                               "modèle par défaut %s et non sur celui qui "
+                               "avait été choisi", self._default_model,
+                               exc_info=True)
         return self._default_model
 
     def _resolve_num_ctx(self, task: Any) -> Optional[int]:
@@ -1407,7 +1435,15 @@ class RealTaskExecutor:
             try:
                 return self._num_ctx_for(task)
             except Exception:
-                logger.debug("num_ctx_for callback failed", exc_info=True)
+                # `num_ctx` est le piège le plus coûteux de ce dépôt : en
+                # dessous de ~64k servis, les schémas d'outils sont tronqués
+                # et l'agent répond qu'il n'a pas d'outils — ce qui est
+                # alors littéralement vrai. Le perdre en silence, c'est
+                # reproduire le défaut que `context_guard` existe pour
+                # détecter, une couche plus bas.
+                logger.warning("num_ctx_for a échoué — la tâche tourne sur "
+                               "le contexte par défaut du modèle",
+                               exc_info=True)
         return None
 
     def _build_messages(

@@ -259,6 +259,24 @@ def create_app() -> FastAPI:
         # still empty when the assignment coordinator was told about it.
         bootstrap.seed_runtime_registries()
 
+        # --- Réconciliation du journal des runs (HOS-240) ---
+        # Un processus qui meurt sans passer par `finalize()` laisse ses
+        # runs `en_cours` pour toujours : la console affichait alors des
+        # runs actifs qui ne tournaient nulle part. Au démarrage, tout run
+        # dont le processus porteur n'existe plus est posé `perdu` — sur la
+        # preuve que ce processus a disparu, jamais sur un délai.
+        try:
+            from backend.runs.reconciliation import reconcilier
+
+            bilan = await asyncio.to_thread(reconcilier)
+            _app.state.reconciliation = bilan.to_dict()
+            if bilan.perdus:
+                logger.warning(
+                    "%d run(s) perdus au démarrage : leur processus porteur "
+                    "avait disparu", len(bilan.perdus))
+        except Exception as erreur:  # pragma: no cover
+            logger.warning("réconciliation des runs impossible : %s", erreur)
+
         # --- Route ownership ---
         # Route modules bind through a module-level global, so the app that is
         # running must reassert its bindings: in a process that built more than

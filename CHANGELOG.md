@@ -1,3 +1,92 @@
+## HOS-240, HOS-241 — Les runs qu'on perdait, et le modèle qu'on n'inscrivait pas (2026-09-03)
+
+Deuxième passe de consolidation : les deux dettes structurantes du
+journal des runs. Chacune observée **rouge** avant correction.
+
+### `PERDU` existait dans le vocabulaire et rien ne le posait
+
+HOS-221 l'écrivait dans son propre CHANGELOG. Neuf jalons plus tard,
+c'était toujours vrai : un processus tué — `taskkill`, coupure, ou
+simplement une exception qui traverse `execute_task` sans atteindre
+`finalize()` — laissait ses runs `en_cours` pour l'éternité. La console
+d'opérations affichait donc des runs actifs qui ne tournaient nulle part,
+et le compteur « en cours » ne redescendait jamais.
+
+**Pas un délai.** « `en_cours` depuis plus de N minutes ⇒ perdu » est
+faux dans les deux sens : une mission longue sur un modèle local lent
+dépasse n'importe quel N raisonnable et se ferait déclarer perdue *en
+tournant*, tandis qu'un processus tué à la seconde 3 resterait `en_cours`
+pendant N. Un délai mesure l'impatience de l'observateur, pas la mort du
+porteur.
+
+La preuve retenue est le porteur lui-même. Chaque run porte désormais
+l'empreinte du processus qui l'a ouvert — `pid:date_de_démarrage`, écrite
+une fois, à la naissance de la ligne. Ce n'est pas un battement de cœur :
+rien n'est réécrit périodiquement. La date de démarrage n'est pas
+décorative — les PID se réutilisent, et sans elle un nouveau processus
+héritant du PID d'un mort ferait passer ses runs pour vivants.
+
+Trois réponses et non deux : **vivant**, **mort**, **indécidable**. Une
+empreinte illisible, un `psutil` absent ou un accès refusé ne prouvent
+pas un décès, et les lignes ouvertes avant ce jalon n'ont aucune preuve
+attachée. Elles sont comptées à part et signalées — jamais rangées avec
+les morts.
+
+`Cause.PROCESSUS` est ajoutée plutôt que réutiliser `INCONNUE`, qui
+signifie « cherchée, non trouvée ». Ici la cause est constatée.
+
+Vérifié sur le vrai `lifespan`, avec un vrai orphelin :
+
+    réconciliation : 1 perdus, 0 vivants, 0 indécidables
+    WARNING  1 run(s) perdus au démarrage
+    GET /api/v1/operations → 200, nombre_en_cours: 0
+
+### « Quel modèle a exécuté cette mission ? » n'avait pas de réponse
+
+Pas une mauvaise réponse : **pas de réponse**. `modele` et `fournisseur`
+existent comme colonnes depuis HOS-221, `vue_operations` les sert, le
+Cockpit les affiche — et personne ne les écrivait. Elles valaient la
+chaîne vide pour tous les runs jamais enregistrés.
+
+`runtime`, lui, était écrit — mais à `ouvrir()`, donc **avant**
+l'exécution, depuis `assigned_runtime`. C'est l'intention du
+coordinateur, pas le fait.
+
+**L'audit a réfuté sa propre prémisse.** Il cherchait des bascules
+silencieuses dans `RealTaskExecutor` ; il n'y en avait pas là. Ce module
+lit le runtime qui a servi **dans la réponse**, et son commentaire dit
+que faire l'inverse « réintroduirait la malhonnêteté que R-001 existe
+pour supprimer ». Le maillon manquant était le dernier : cette honnêteté
+ne traversait pas jusqu'au registre. La correction est donc un câblage —
+`Registre.constater()`, appelée avant `terminer()` parce qu'un run
+terminal est gelé — et non une réécriture.
+
+### La bascule silencieuse qui existait vraiment
+
+`use_cloud = self._cloud_chat is not None and … == "openrouter"`. Sans
+clé OpenRouter — le cas par défaut, mesuré en J17 : « 0 fournisseur
+configuré » — une tâche explicitement assignée au cloud tournait en local
+**sans un seul message**, et le registre inscrivait quand même
+« openrouter ».
+
+Et **six** rappels de résolution avalaient leur échec en `logger.debug`,
+invisible au niveau par défaut. Deux portaient les bascules les plus
+graves : `workspace_project_for`, dont l'échec fait tourner la tâche sans
+outils ni pare-feu de données, et `num_ctx_for` — le piège le plus
+coûteux de ce dépôt, celui qui fait dire à l'agent qu'il n'a pas d'outils
+parce que les schémas ont été tronqués.
+
+Ma première correction n'en couvrait que quatre. C'est la garde
+elle-même, écrite trop étroite puis élargie à la découverte, qui a trouvé
+les deux autres — elle énumère désormais les rappels au lieu de les
+lister.
+
+### Mesures
+
+32 gardes ajoutées. Suite complète : **5 414 vertes**, 3 ignorées.
+Frontend : 126 vertes, typecheck propre. Aucune régression.
+
+
 ## HOS-239 — Consolidation post-audit : trois défauts, une cartographie (2026-09-03)
 
 Première passe de la mission de consolidation. Trois défauts corrigés,

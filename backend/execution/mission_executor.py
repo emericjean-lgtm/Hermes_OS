@@ -462,6 +462,11 @@ class MissionExecutor:
             # never returned to any caller. AutonomousOrchestrator needs it
             # to report which model a goal really used, not just "ollama".
             served_model = outcome.model
+            # HOS-241 : et il ne reste plus local. Le registre des runs
+            # affichait une colonne `modele` vide depuis HOS-221 parce
+            # que personne ne la remplissait — la question « quel modele
+            # a reellement execute cette mission ? » etait sans reponse.
+            task.model_used = served_model
 
             # 3. Validate
             sm.transition(ExecutionState.VALIDATING, f"Validating task {task_id}")
@@ -608,6 +613,23 @@ class MissionExecutor:
         except Exception:
             logger.warning("run non inscrit au registre", exc_info=True)
 
+    @staticmethod
+    def _joindre(valeurs) -> str:
+        """Ce qu'un run inscrit quand ses tâches n'ont pas tout à fait
+        tourné sur la même chose.
+
+        Une mission décomposée peut employer deux modèles — le plan sur
+        l'un, l'exécution sur l'autre (HOS-229). Prendre le premier
+        laisserait croire qu'un seul a servi ; les joindre dit la vérité,
+        et l'ordre d'apparition la rend lisible.
+        """
+        vus: list[str] = []
+        for valeur in valeurs:
+            texte = str(valeur or "").strip()
+            if texte and texte not in vus:
+                vus.append(texte)
+        return ", ".join(vus)
+
     def _clore_le_run(self, report: ExecutionReport,
                       tasks: list[TaskExecution]) -> None:
         """Clore le run avec ce qui s'est réellement passé.
@@ -654,6 +676,23 @@ class MissionExecutor:
             if classement.indice:
                 logger.info("run %s classé %s (%s)", identifiant,
                             classement.cause.value, classement.indice)
+
+        # HOS-241 : ce qui a réellement servi, avant de clore — un run
+        # terminal est gelé, y compris pour lui ajouter un fait.
+        #
+        # `ouvrir()` avait enregistré l'intention du coordinateur. Ici,
+        # `assigned_runtime` porte le runtime que la réponse a déclaré
+        # (`mission_executor` l'y réécrit après exécution) et `model_used`
+        # le modèle qui a réellement répondu. Les tâches qui n'ont jamais
+        # tourné n'ont ni l'un ni l'autre : on n'écrit rien plutôt que
+        # d'écrire ce qui avait été demandé.
+        try:
+            self._registre.constater(
+                identifiant,
+                runtime=self._joindre(t.assigned_runtime for t in tasks),
+                modele=self._joindre(t.model_used for t in tasks))
+        except Exception:
+            logger.warning("constat d'exécution non inscrit", exc_info=True)
 
         try:
             self._registre.terminer(identifiant, statut, raison=raison,
