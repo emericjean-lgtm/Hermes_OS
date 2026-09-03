@@ -146,6 +146,20 @@ class OpenRouterClient:
             "model": str(data.get("model") or model),
             "provider": "openrouter",
         }
+        # HOS-242 : OpenRouter n'execute rien lui-meme — il route vers un
+        # fournisseur amont (Together, DeepInfra, Fireworks…) et le nomme
+        # dans un champ de premier niveau de la reponse. Confondre les deux
+        # revenait a dire « openrouter » la ou trois hebergeurs differents
+        # peuvent avoir servi trois reponses, avec trois latences et trois
+        # comportements.
+        #
+        # Lu au champ structure, jamais devine : absent, il reste absent.
+        # Aucune cle n'etant configuree sur cette installation, ce champ
+        # n'a **pas** ete observe sur une reponse reelle ; la lecture est
+        # donc defensive et son absence n'invente rien.
+        amont = str(data.get("provider") or "").strip()
+        if amont:
+            metadata["fournisseur"] = amont
         if usage.get("prompt_tokens") is not None:
             metadata["prompt_tokens"] = int(usage["prompt_tokens"])
         if usage.get("completion_tokens") is not None:

@@ -343,6 +343,13 @@ def _make_task_executor(c: Any) -> Any:
             )
             return decision.model_id or None
         except Exception:
+            # HOS-242 : le décideur a échoué. `None` laisse l'exécuteur sur
+            # son modèle par défaut — un repli légitime, mais qui doit se
+            # voir : sans cette ligne, un routeur en panne et un routeur
+            # sans préférence rendaient exactement la même chose.
+            logger.warning("le routeur n'a pas su choisir de modèle pour "
+                           "%r — le modèle par défaut servira", title[:80],
+                           exc_info=True)
             return None
 
     def _num_ctx_for(task: Any) -> Optional[int]:
@@ -361,6 +368,13 @@ def _make_task_executor(c: Any) -> Any:
             )
             return decision.num_ctx or None
         except Exception:
+            # Le contexte perdu est le piège le plus coûteux de ce dépôt :
+            # en dessous de ~64k servis, les schémas d'outils sont tronqués
+            # et l'agent répond qu'il n'a pas d'outils — ce qui est alors
+            # littéralement vrai (HOS-091).
+            logger.warning("le routeur n'a pas su fixer num_ctx pour %r — "
+                           "le contexte par défaut du modèle servira",
+                           title[:80], exc_info=True)
             return None
 
     def _runtime_for(task: Any) -> Optional[str]:
@@ -387,8 +401,26 @@ def _make_task_executor(c: Any) -> Any:
             # l'absence plus loin.
             from backend.ral import fournisseurs as _cloud
 
-            return runtime if _cloud.disponible(runtime) else "hermes-agent"
+            if _cloud.disponible(runtime):
+                return runtime
+            # HOS-242 : le repli distant → local est **autorisé** — sans
+            # lui, toute mission échouerait sur une installation sans clé,
+            # qui est le défaut mesuré. Mais autorisé n'est pas silencieux :
+            # jusqu'ici le choix du routeur était défait sans qu'une seule
+            # ligne le dise, et le registre inscrivait quand même le
+            # runtime demandé. L'opérateur croyait avoir payé du cloud.
+            if runtime and runtime != "hermes-agent":
+                logger.warning(
+                    "routage : %r recommandé pour %r mais non configuré — "
+                    "repli sur l'agent local", runtime, title[:80])
+            return "hermes-agent"
         except Exception:
+            # Le routeur lui-même a échoué : `None` laisse l'exécuteur sur
+            # son défaut. Le taire ferait passer une panne du décideur pour
+            # une absence de préférence.
+            logger.warning("le routeur n'a pas su choisir de runtime pour "
+                           "%r — l'exécuteur retombe sur son défaut",
+                           title[:80], exc_info=True)
             return None
 
     def _local_fallback_for(task: Any) -> Optional[str]:
@@ -406,6 +438,11 @@ def _make_task_executor(c: Any) -> Any:
             )
             return decision.model_id or None
         except Exception:
+            # Sans modèle de secours, une reprise repart sur celui qui vient
+            # d'échouer. C'est visible et discutable ; le taire ne l'était pas.
+            logger.warning("aucun modèle local de secours pour %r — une "
+                           "reprise repartirait sur le même modèle",
+                           title[:80], exc_info=True)
             return None
 
     def _record_feedback(task: Any, model: str, duration_ms: float,

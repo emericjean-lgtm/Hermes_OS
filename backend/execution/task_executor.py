@@ -810,6 +810,12 @@ class RealTaskExecutor:
         # requested runtime would reintroduce exactly the dishonesty R-001 exists
         # to remove — the old report claimed "ktransformers" for work nothing did.
         served_by = str(meta.get("provider") or "").strip() or runtime_id
+        # HOS-242 : qui a servi les poids, distinct de la surface appelee.
+        # `openrouter` est un routeur, pas un hebergeur : trois fournisseurs
+        # amont peuvent servir le meme modele avec trois latences. Vide
+        # quand la reponse ne le dit pas — jamais deduit du runtime, ce qui
+        # ferait passer une supposition pour une mesure.
+        fournisseur = str(meta.get("fournisseur") or "").strip()
         outcome = TaskExecutionOutcome(
             result=content,
             runtime_id=served_by,
@@ -823,7 +829,12 @@ class RealTaskExecutor:
                                   or _estimate_tokens(content)),
             metadata={
                 "provider": served_by,
+                "fournisseur": fournisseur,
                 "runtime_requested": requested_runtime,
+                # HOS-242 : ce que le decideur avait demande, avant que
+                # l'absence de client cloud ne le defasse. L'ecart entre
+                # les deux **est** la trace du repli.
+                "runtime_demande_par_le_routeur": runtime_demande or "",
                 "token_counts": "reported" if meta.get("prompt_tokens") else "estimated",
                 # Real observability for the Workspace/Filesystem tool
                 # layer: how many real workspace_* tool calls this task's

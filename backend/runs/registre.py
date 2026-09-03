@@ -138,6 +138,11 @@ class Run:
     cout: float = 0.0
 
     contrat: str = ""
+    #: Comment ce run a été routé, en JSON compact (HOS-242) : ce que le
+    #: routeur a demandé, ce qui a réellement servi, le fournisseur, et le
+    #: repli quand les deux diffèrent. Vide tant que rien n'a tourné —
+    #: « on ne sait pas » et non « aucun repli ».
+    decision: str = ""
     cree_le: str = field(default_factory=_maintenant)
     demarre_le: Optional[str] = None
     fini_le: Optional[str] = None
@@ -179,6 +184,7 @@ CREATE TABLE IF NOT EXISTS runs (
     demarre_le TEXT,
     fini_le TEXT,
     processus TEXT,
+    decision TEXT,
     FOREIGN KEY (parent) REFERENCES runs(identifiant)
 );
 CREATE INDEX IF NOT EXISTS runs_mission ON runs(mission, cree_le);
@@ -219,7 +225,7 @@ class Registre:
         remplir pour les lignes déjà là ne doit pas être ajoutée en douce.
         """
         presentes = {ligne[1] for ligne in conn.execute("PRAGMA table_info(runs)")}
-        for nom, type_sql in (("processus", "TEXT"),):
+        for nom, type_sql in (("processus", "TEXT"), ("decision", "TEXT")):
             if nom not in presentes:
                 conn.execute(f"ALTER TABLE runs ADD COLUMN {nom} {type_sql}")
 
@@ -289,7 +295,8 @@ class Registre:
         Le même gel terminal s'applique : un run arrivé ne se réécrit pas,
         même pour lui ajouter un fait — la trace d'un run clos est close.
         """
-        inconnus = set(faits) - {"runtime", "modele", "fournisseur", "agent"}
+        inconnus = set(faits) - {"runtime", "modele", "fournisseur", "agent",
+                                 "decision"}
         if inconnus:
             raise ValueError(
                 f"`constater` n'écrit que des faits d'exécution ; "
@@ -316,7 +323,8 @@ class Registre:
         champs = parent.to_dict()
         for jetable in ("identifiant", "statut", "cause", "raison", "cree_le",
                         "demarre_le", "fini_le", "jetons_entree",
-                        "jetons_sortie", "cout"):
+                        "jetons_sortie", "cout", "decision", "modele",
+                        "fournisseur"):
             champs.pop(jetable, None)
         champs.update(remplacements)
         champs["parent"] = parent.identifiant

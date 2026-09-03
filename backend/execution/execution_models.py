@@ -129,6 +129,16 @@ class TaskExecution:
     # ledger that recorded the request would claim a model that never ran.
     # Empty until the task has actually executed — never a default.
     model_used: str = ""
+    # HOS-242: who actually served the weights, as distinct from the
+    # runtime surface called. "local" for Ollama; for OpenRouter the
+    # upstream provider it names in its own response. Empty when the
+    # response does not say — never inferred from the runtime, which
+    # would pass a guess off as a measurement.
+    provider_used: str = ""
+    # HOS-242: the routing decision this task was executed under, as
+    # compact JSON. Answers "what was asked for, what served it, and
+    # why they differ" for a run long after its events have scrolled.
+    decision_de_routage: str = ""
     assigned_skills: list[str] = field(default_factory=list)
     # AgentCoordinator's recommendation, surfaced to the model as a text
     # hint in the system prompt (see RealTaskExecutor._build_messages()) —

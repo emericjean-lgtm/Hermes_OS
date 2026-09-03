@@ -1,3 +1,122 @@
+## HOS-242 — Le routage, mesuré : qui décide, qui exécute, qui le sait (2026-09-03)
+
+Troisième passe de consolidation, sur §5. La question posée était
+« pourquoi 13 modules contournent-ils le RAL ? ». La mesure a donné une
+autre réponse.
+
+### Les 13, classés
+
+13 constructions réelles de `OllamaClient` en production, dans 8
+fichiers — comptées sur l'arbre syntaxique, pas sur le texte.
+
+- **5 sont de l'infrastructure** : `/api/ps`, `list_local_models`,
+  `unload_model`. Aucune décision de routage : rien à router quand on
+  demande à Ollama ce qu'il détient, ou qu'on lui fait libérer une carte.
+- **1 est le RAL lui-même** : `sds/runtime.py` enregistre le
+  constructeur `ollama` dans sa Factory. C'est la queue du chemin
+  canonique, pas un contournement.
+- **7 sont sur un chemin d'inférence**, et toutes reçoivent leur modèle
+  d'un décideur injecté ou de leur appelant.
+
+Aucune n'a été « faite passer par le RAL » pour améliorer un chiffre.
+La cible n'était pas *tous les appels passent par le RAL*, mais *aucun
+composant ne prend silencieusement une décision qui ne lui appartient
+pas*.
+
+### Ce qui n'était pas le défaut
+
+`RealTaskExecutor` lit le runtime servi **dans la réponse**, jamais dans
+la demande. `_make_cloud_chat` passe par le pare-feu de données puis par
+le courtier avant tout envoi distant. La gouvernance de HOS-227 et
+HOS-228 est bien sur le chemin, et deux gardes le tiennent désormais sur
+l'ordre des lignes.
+
+### Ce qui l'était : runtime et fournisseur étaient le même mot
+
+`metadata["provider"]` valait `"ollama"` ou `"openrouter"` — c'est-à-dire
+le **runtime**. Or OpenRouter n'exécute rien : il route vers un hébergeur
+amont qu'il nomme dans un champ de premier niveau de sa réponse. Trois
+fournisseurs pouvaient servir le même modèle avec trois latences, et
+Hermes les appelait tous « openrouter ».
+
+Le champ est désormais lu — **au champ structuré, jamais deviné**. Aucune
+clé n'étant configurée sur cette installation, il n'a pas pu être observé
+sur une réponse réelle : la lecture est défensive, son absence n'invente
+rien, et la garde qui la tient le dit.
+
+`runtime = ollama, fournisseur = local, modèle = qwen3.6-35b-a3b` — trois
+faits distincts, là où il y en avait deux dont un dupliqué.
+
+### Le repli distant → local était muet
+
+Sans clé — le défaut mesuré en J17 : « 0 fournisseur configuré » — le
+routeur recommandait le cloud, `_runtime_for` rendait « hermes-agent », et
+**rien ne le disait**. Le registre inscrivait le runtime demandé :
+l'opérateur croyait avoir payé du cloud.
+
+Le repli reste **autorisé** — l'interdire ferait échouer toute mission sur
+une installation sans clé, ce qui est le cas normal. Mais autorisé n'est
+pas silencieux. Le run porte maintenant une colonne `decision` :
+
+    {"runtime_demande": "openrouter", "runtime_servi": "ollama",
+     "modele": "qwen3.6-35b-a3b", "fournisseur": "local",
+     "repli": "openrouter indisponible, servi par ollama"}
+
+Le repli n'y est nommé que lorsqu'il est **constaté** : un routeur qui n'a
+rien demandé n'a pas été défait.
+
+### Sept replis de routage retombaient en silence
+
+Quatre dans `service_registry`, trois encore dans `task_executor` après
+HOS-241. Un `except: return None` sur un rappel de décision rend « le
+routeur n'a pas d'avis » et « le routeur est en panne » strictement
+indiscernables — à l'endroit exact où la distinction décide du modèle qui
+va tourner. Zéro subsiste, et une garde tient les deux modules ensemble.
+
+### Deux autorités, et une pile morte
+
+C'est la dette que cette passe **n'a pas** résorbée, et elle est
+structurelle :
+
+- `AdaptiveModelRouter` décide sur le chemin missionnel — mesures,
+  VRAM, profils ;
+- `core.router.ModelRouter` décide sur le chemin agentique — rôles
+  déclaratifs de `config/models.yaml`.
+
+Les deux répondent à « quel modèle », sur deux catalogues **sans aucun
+lien** : le premier ne lit pas `models.yaml`, le second ne connaît pas les
+profils. Ce sont bien deux autorités concurrentes.
+
+Et `RuntimeRouter`, `RuntimeDecisionEngine`, `RuntimeSelector` — la pile
+de décision du RAL — ne sont **construits nulle part** en production, pas
+plus que le contrat `ral.model_router.ModelRouterInterface`, qui n'a
+aucune implémentation. Le RAL déclare une autorité qu'il n'exerce pas.
+
+Les unifier est un jalon, pas une passe : les deux décideurs sont
+justifiés séparément par des mesures, et les fusionner sans mesure
+recréerait exactement le genre de choix supposé que ce dépôt poursuit.
+
+### Un septième faux positif de sous-chaîne, dans la garde elle-même
+
+`runtime_id = "ollama"` contient « llama ». La garde qui interdit les tags
+de modèles codés en dur s'y est accrochée. Réécrite pour exiger un chiffre
+— un tag porte toujours une taille ou une version, une famille non.
+
+### Mesures
+
+Sur les 7 fichiers du chemin d'inférence :
+
+| | avant | après |
+|---|---|---|
+| constructions `OllamaClient` | 6 | 6 |
+| modules distinguant le fournisseur | 2 | 6 |
+| replis de routage **muets** | 4 | **0** |
+| replis de routage tracés | 6 | 10 |
+
+23 gardes ajoutées. Suite complète : **5 437 vertes**, 3 ignorées.
+Frontend : 126 vertes, typecheck propre.
+
+
 ## HOS-240, HOS-241 — Les runs qu'on perdait, et le modèle qu'on n'inscrivait pas (2026-09-03)
 
 Deuxième passe de consolidation : les deux dettes structurantes du

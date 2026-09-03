@@ -83,6 +83,9 @@ def _run_en_dict(run: Any) -> dict[str, Any]:
         "modele": run.modele,
         "runtime": run.runtime,
         "fournisseur": run.fournisseur,
+        # HOS-242 : comment ce run a été routé — demandé, servi, repli.
+        # Vide quand rien n'a tourné : « on ne sait pas », pas « direct ».
+        "decision": run.decision,
         "agent": run.agent,
         "workspace": run.workspace,
         "projet": run.projet,

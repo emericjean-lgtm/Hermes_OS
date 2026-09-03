@@ -194,7 +194,13 @@ class OllamaClient:
         content = "".join(tokens)
         return ChatResponse(
             content=content,
-            metadata={"model": used_model, "provider": "ollama"},
+            # HOS-242 : `provider` nomme la **surface** appelee (le
+            # runtime), `fournisseur` nomme **qui a servi les poids**. Les
+            # deux valaient « ollama » et etaient donc indiscernables ;
+            # ici la reponse est locale par construction, et le dire
+            # permet de la distinguer d'un poids servi a distance.
+            metadata={"model": used_model, "provider": "ollama",
+                      "fournisseur": "local"},
         )
 
     async def chat_stream(

@@ -48,6 +48,36 @@ EXECUTION_EVENTS: dict[str, str] = {
 logger = logging.getLogger("hermes_os.execution.mission")
 
 
+def _decision_en_json(meta: dict, modele: str, runtime_servi: str) -> str:
+    """La décision de routage, réduite à ce qu'on saura relire (HOS-242).
+
+    Quatre faits, et l'écart entre eux : ce que le routeur a demandé, ce
+    que l'exécuteur a réellement appelé, ce qui a servi les poids, et le
+    modèle. Sans cela, « pourquoi cette mission a-t-elle tourné en local
+    alors que le cloud était demandé ? » n'a de réponse que dans un
+    journal qui a déjà défilé.
+
+    Les valeurs absentes restent absentes : une clé manquante se lit
+    « on ne sait pas », une valeur inventée se lit comme un fait.
+    """
+    import json
+
+    demande = str(meta.get("runtime_demande_par_le_routeur") or "")
+    servi = str(runtime_servi or "")
+    fait = {
+        "runtime_demande": demande,
+        "runtime_servi": servi,
+        "modele": str(modele or ""),
+        "fournisseur": str(meta.get("fournisseur") or ""),
+    }
+    # Le repli n'est nommé que lorsqu'il est **constaté** : un routeur qui
+    # n'a rien demandé n'a pas été défait.
+    if demande and servi and demande != servi:
+        fait["repli"] = f"{demande} indisponible, servi par {servi}"
+    fait = {c: v for c, v in fait.items() if v}
+    return json.dumps(fait, ensure_ascii=False, sort_keys=True) if fait else ""
+
+
 def _unique(values: Any) -> list[str]:
     """Non-empty values, de-duplicated, in first-seen order."""
     seen: dict[str, None] = {}
@@ -467,6 +497,13 @@ class MissionExecutor:
             # que personne ne la remplissait — la question « quel modele
             # a reellement execute cette mission ? » etait sans reponse.
             task.model_used = served_model
+            # HOS-242 : le fournisseur et la decision de routage, dans
+            # le meme mouvement. `metadata` porte deja les deux ;
+            # aucune source nouvelle n'est ouverte ici.
+            meta_sortie = getattr(outcome, "metadata", None) or {}
+            task.provider_used = str(meta_sortie.get("fournisseur") or "")
+            task.decision_de_routage = _decision_en_json(
+                meta_sortie, served_model, outcome.runtime_id)
 
             # 3. Validate
             sm.transition(ExecutionState.VALIDATING, f"Validating task {task_id}")
@@ -690,7 +727,9 @@ class MissionExecutor:
             self._registre.constater(
                 identifiant,
                 runtime=self._joindre(t.assigned_runtime for t in tasks),
-                modele=self._joindre(t.model_used for t in tasks))
+                modele=self._joindre(t.model_used for t in tasks),
+                fournisseur=self._joindre(t.provider_used for t in tasks),
+                decision=self._joindre(t.decision_de_routage for t in tasks))
         except Exception:
             logger.warning("constat d'exécution non inscrit", exc_info=True)
 
