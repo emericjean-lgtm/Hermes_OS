@@ -1,5 +1,15 @@
 # Roadmap — Hermes OS
 
+> **Ce fichier est l'historique de la consolidation** (jalons HOS-xxx,
+> confrontation au cahier des charges, dettes constatées). Il reste la
+> trace de ce qui a été réparé et pourquoi.
+>
+> **La trajectoire à venir vit ailleurs**, depuis le 2026-09-04 :
+> `docs/HERMES_OS_ROADMAP_STATE.md` dit où l'on en est en une page, et
+> `docs/HERMES_OS_MASTER_ROADMAP.md` porte la roadmap comparative §1→§14,
+> les sources externes, le registre de décisions et les écarts ouverts.
+> Un travail de roadmap commence par l'état, pas par ce fichier.
+
 > **État réel du dépôt au 2026-09-02, après HOS-212.**
 >
 > Ce fichier était figé à HOS-120 (2026-08-15) : **quatre-vingt-douze

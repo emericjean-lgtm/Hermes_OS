@@ -149,6 +149,27 @@ s'importer, sans qu'une ligne de Hermes OS ait changé.
 l'interpréteur de l'agent. Ne jamais remplacer ce chemin par
 `sys.executable` : `.venv` n'a aucune des dépendances de l'agent.
 
+## La roadmap est un document, pas une mémoire de session
+
+Avant tout travail de roadmap — ouvrir une section, la faire avancer, la
+déclarer close :
+
+1. lire `docs/HERMES_OS_ROADMAP_STATE.md`, qui tient en une page et dit
+   quelle section est active ;
+2. lire cette section dans `docs/HERMES_OS_MASTER_ROADMAP.md` ;
+3. vérifier que `HEAD` correspond au `BASELINE` qu'annonce l'état, ou
+   relever l'écart avant de commencer ;
+4. rester dans le périmètre de la section active ;
+5. mettre à jour l'état **et** le statut de la section en fin de passe.
+
+**Une section ne passe pas 🟢 parce qu'un rapport l'affirme.** Le §0 de la
+roadmap maître donne l'échelle — de `PRESENT` à `DEMONSTRATED` — et aucun
+niveau ne s'infère d'un autre. Trois des défauts les plus coûteux du
+projet vivaient entre « le code existe » et « quelque chose l'appelle » :
+le pipeline de connecteurs, `Statut.PERDU` que rien ne posait, et deux
+contrôles de sécurité livrés, testés, marqués faits, sans un seul
+appelant.
+
 ## Commandes
 
 ```bash
