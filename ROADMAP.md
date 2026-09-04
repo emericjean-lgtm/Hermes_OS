@@ -446,7 +446,21 @@ l'origine et non la confiance déclarée, l'autre que l'identité d'un projet
 vient du registre et qu'un identifiant inconnu est refusé sans rien
 écrire. La suite backend standard est de nouveau entièrement verte.
 
-**T-21 — cohérence Mission ↔ Run Ledger.** HOS-252 a rendu durable l'état
+**T-21 — ✅ tranché et prouvé (HOS-253).** Le contrat était déjà tenu par
+la conception : pas de clé étrangère, un instantané par run, aucune
+suppression exposée par `Registre`, et ni `de_la_mission` ni `reprendre`
+ni `reconcilier` ne consultent le magasin des missions. Une mission
+supprimée laisse ses runs lisibles ; l'absence de mission n'est ni une
+`Cause`, ni une condition de réconciliation. Il manquait l'écrit et la
+preuve — 24 tests, dont un redémarrage à deux processus. Les huit runs
+historiques sont conservés intacts.
+
+**Ce qui reste ouvert.** Aucune fonctionnalité ne supprime une mission :
+`__delitem__` n'a zéro appelant de production. Ajouter un
+`DELETE /missions/{id}` demanderait d'abord de décider d'une politique de
+rétention.
+
+**Historique du sujet.** HOS-252 a rendu durable l'état
 d'une mission ; il reste l'asymétrie inverse. Huit runs des deux missions
 de diagnostic supprimées en passe 19 restent en base : `Registre` n'expose
 aucune suppression, et retirer des lignes SQL à la main contournerait la

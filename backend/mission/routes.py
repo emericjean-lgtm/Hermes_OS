@@ -238,8 +238,41 @@ class _RegistreMissions:
         return mission
 
     def __delitem__(self, mission_id: str) -> None:
-        # Une suppression **voulue**, contrairement à l'éviction : elle
-        # emporte la ligne.
+        """Retirer une mission — **sans jamais toucher ses runs** (T-21).
+
+        Une suppression *voulue*, contrairement à l'éviction : elle emporte
+        la ligne du magasin en plus de l'entrée de cache. `_evincer` ne
+        libère que la mémoire ; ici la mission disparaît pour de bon.
+
+        ## Ce qui n'est pas supprimé, et pourquoi
+
+        **Les runs de cette mission restent.** `de_la_mission()` continue
+        de les rendre, avec leur objectif, leur modèle, leur runtime, leur
+        fournisseur, leur workspace, leur tentative et leur contrat — le
+        run porte son propre instantané depuis HOS-219, précisément pour
+        rester lisible sans son sujet.
+
+        Aucune cascade ne doit être ajoutée. Le Ledger existe parce que,
+        la nuit du 29 au 30 août, la trace disparaissait : un journal
+        d'audit dont les lignes s'effacent avec leur sujet n'est plus un
+        journal. `Registre` n'expose d'ailleurs aucune suppression, et
+        `MagasinMissions.supprimer` ne touche que la table `missions` —
+        les deux moitiés du contrat, chacune de son côté.
+
+        Un run dont la mission a disparu n'en devient ni perdu ni douteux :
+        l'absence de mission n'est ni une `Cause`, ni une condition de
+        réconciliation. Celle-ci décide sur la seule preuve qui vaut — le
+        processus porteur existe-t-il encore.
+
+        ## Ce que cette primitive n'est pas
+
+        **Pas une fonctionnalité produit.** Aucune route, aucun service ne
+        l'appelle : mesuré en passe 21, zéro appelant de production. Elle
+        sert aux tests et à un geste d'opérateur délibéré. Ajouter un
+        `DELETE /missions/{id}` demanderait d'abord de décider d'une
+        politique de rétention — ce qui n'est pas fait, et l'absence de
+        porte est aujourd'hui ce qui protège.
+        """
         present = False
         with self._verrou:
             if mission_id in self._missions:

@@ -1,3 +1,81 @@
+## HOS-253 — Une mission peut disparaitre ; ce qu'elle a fait, non (2026-09-04)
+
+Passe 22, implementation de T-21. La plus petite de la serie, et
+volontairement : **aucun code de production nouveau**.
+
+### La question, et sa reponse mesuree
+
+La passe 19 a supprime deux missions de diagnostic. Leurs huit runs sont
+restes, dont un `en_cours` : un journal dont le sujet a disparu. Que
+signifie un run dont la mission n'existe plus ?
+
+La passe 21 a trace les appels reels plutot que de lire des noms, et la
+reponse etait que le contrat etait **deja tenu par la conception** :
+
+- aucune cle etrangere entre `runs.mission` et `missions.mission_id` ;
+- `MagasinMissions.supprimer` ne touche que la table `missions` ;
+- `Registre` n'expose aucune suppression, et le gel terminal vit dans le
+  SQL, sur chaque colonne ;
+- `de_la_mission`, `reprendre` et `reconcilier` ne consultent **jamais**
+  le magasin des missions — verifie sur l'arbre syntaxique de chacune ;
+- le run porte son propre instantane depuis HOS-219 : objectif, modele,
+  runtime, fournisseur, workspace, projet, tentative, contrat.
+
+Il n'y avait donc rien a construire. Ce qui manquait etait que personne
+ne l'ecrive et que rien ne le prouve.
+
+### Le fait qui reformule le sujet
+
+**Il n'existe aucune fonctionnalite de suppression de mission.** Zero
+appelant de production pour `_RegistreMissions.__delitem__` : pas de
+route, pas de service, pas de politique. Les huit orphelins ne viennent
+pas d'un trou de conception mais d'un geste d'operateur qui a employe une
+primitive de test comme outil.
+
+D'ou la seule modification de production de cette passe : le contrat,
+ecrit sur `__delitem__`. La suppression emporte la mission et son entree
+de cache, **jamais ses runs** ; aucune cascade ne doit y etre ajoutee ; et
+cette primitive n'est pas une fonctionnalite produit — ajouter un
+`DELETE /missions/{id}` demanderait d'abord de decider d'une politique de
+retention.
+
+### Ce que la mission absente n'est pas
+
+Ni une `Cause`, ni une condition de reconciliation, ni une raison de
+transformer `EN_COURS` en `PERDU`. La reconciliation continue de decider
+sur la seule preuve qui vaut : le processus porteur existe-t-il encore.
+Un test le montre par symetrie — meme scenario avec et sans la mission,
+resultat identique — et la raison inscrite nomme le processus disparu,
+jamais la mission.
+
+Deux chemins de reprise restent distincts et le restent : une mission
+absente fait refuser explicitement la reprise de mission, tandis que
+`Registre.reprendre()` continue de fonctionner par lignee du run parent,
+sans qu'aucune mission soit reconstruite.
+
+### Les gardes mordent, mesure
+
+Trois mutations posees puis retirees :
+
+- cascade reelle `DELETE FROM runs` dans `MagasinMissions.supprimer` →
+  **14 rouges**, dont le redemarrage a deux processus ;
+- reconciliation consultant le magasin des missions → **3 rouges** ;
+- `Cause.MISSION_ABSENTE` ajoutee → **1 rouge**.
+
+Une premiere version de la premiere mutation n'a fait rougir que la garde
+AST : elle ouvrait un `Registre()` par defaut, donc une autre base que
+celle du test. Refaite sur la vraie base partagee, elle a fait rouge le
+comportement. La lecon vaut d'etre notee : une mutation qui ne rougit pas
+peut accuser la mutation autant que le test.
+
+### Les huit runs
+
+Inchanges, et c'est verifie avant et apres : memes identifiants, memes
+statuts, aucune cause inventee. `dbde3e7cbf` reste `en_cours` — son
+processus porteur est mort, et la reconciliation existante le fermera au
+prochain demarrage du backend, en `PERDU` / `Cause.PROCESSUS`, sans
+qu'une ligne nouvelle soit necessaire. Aucun nettoyage, aucun SQL direct.
+
 ## HOS-252 — Ce qu'un test de cablage mesurait vraiment (2026-09-04)
 
 Passe 20, implementation des quatre decisions de la passe 19. Quatre

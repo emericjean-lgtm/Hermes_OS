@@ -188,20 +188,45 @@ def test_une_meme_tentative_garde_son_t0(magasin):
 
 
 def test_une_nouvelle_tentative_repart_avec_un_nouveau_t0(magasin):
-    """`start_mission` est ce qui ouvre une tentative, et il repose t0."""
+    """`start_mission` est ce qui ouvre une tentative, et il repose t0.
+
+    ## Pourquoi une sentinelle plutôt que `second > premier`
+
+    La première version comparait les deux horodatages. Elle a échoué une
+    fois dans la suite complète, avec les deux valeurs **identiques à la
+    microseconde** : `datetime.now()` a une granularité d'environ 16 ms
+    sous Windows, et deux appels rapprochés peuvent rendre exactement la
+    même valeur. Le test mesurait la résolution de l'horloge, pas le
+    comportement.
+
+    Relâcher en `>=` aurait été pire : un `start_mission` qui ne
+    réécrirait plus rien passerait. On pose donc une valeur que ce code ne
+    peut pas produire, et on vérifie qu'elle a disparu — ce qui prouve la
+    réécriture quelle que soit l'horloge, et ne dépend d'aucun délai.
+    """
+    from datetime import datetime, timezone
+
     graphe = _chaine(magasin)
     mission, noeuds, aretes = _mission(2)
     graphe.build_graph(mission, noeuds, aretes)
     graphe.start_mission(mission)
     premier = _relire(magasin, mission).started_at
+    assert premier is not None
 
+    # Une valeur qu'aucun `datetime.now()` ne rendra jamais.
+    sentinelle = datetime(1999, 1, 1, tzinfo=timezone.utc)
+    mission.started_at = sentinelle
     # La reprise remet la mission en READY (retry_policy) ; on rejoue le
     # démarrage comme le ferait une seconde tentative.
     mission.status = MissionStatus.READY
     graphe.start_mission(mission)
     second = _relire(magasin, mission).started_at
 
-    assert second > premier, "une nouvelle tentative doit repartir d'un t0 neuf"
+    assert second != sentinelle, (
+        "une nouvelle tentative doit reposer son t0 ; celui de la tentative "
+        "précédente est resté en base")
+    assert second == mission.started_at, "le t0 persisté n'est pas celui posé"
+    assert second >= premier
 
 
 # ═══ Atomicité : le cache ne ment pas ════════════════════════════════
