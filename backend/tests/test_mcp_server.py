@@ -9,8 +9,10 @@ from backend.tests.conftest import open_mcp_session
 
 # These go through the real MCP wire protocol (initialize, list_tools,
 # call_tool) over an in-process ASGI transport — not a mocked shortcut.
-# memory_index/memory_search aren't covered here for the same reason as
-# elsewhere: they need a live Ollama server for embeddings.
+# memory_index still needs a live Ollama server for embeddings, so it is
+# not covered here. memory_search is (HOS-251): it searches two stores
+# and answers from the memory one even when the document index is down,
+# which is exactly the HOS-086 contract — so it runs here without Ollama.
 #
 # open_mcp_session is a plain async context manager (not a fixture) —
 # see its docstring in conftest.py for why: fixture teardown runs in a
@@ -521,30 +523,138 @@ async def test_projects_create_list_update_delete_roundtrip(monkeypatch, tmp_pat
 
 
 async def test_project_id_filters_tasks_memory_and_messages(monkeypatch, tmp_path):
-    # One wiring test covering project_id across the deterministic tools
-    # (no live Ollama needed) touched by the project_id rollout.
+    """Le `project_id` traverse les outils déterministes — et c'est
+    l'identifiant d'un projet **réellement enregistré** (T-13).
+
+    Ce test passait deux chaînes libres, `"proj-1"` et `"proj-2"`. Elles
+    plombaient correctement, et c'est bien ce qui posait problème : deux
+    orthographes du même projet ne se voyaient pas, et un identifiant
+    inventé rendait une liste vide — qui se lit « ce projet n'a rien
+    mémorisé » — au lieu d'un refus. L'identité vient donc désormais de
+    `projects_create`, comme en production.
+    """
+    import uuid
+
     async with open_mcp_session(monkeypatch, tmp_path) as session:
-        await session.call_tool("tasks_create", {"title": "a", "project_id": "proj-1"})
-        await session.call_tool("tasks_create", {"title": "b", "project_id": "proj-2"})
-        tasks = _result(await session.call_tool("tasks_list", {"project_id": "proj-1"}))
-        assert [t["title"] for t in tasks] == ["a"]
+        alpha = _result(await session.call_tool("projects_create", {"name": "Alpha"}))
+        beta = _result(await session.call_tool("projects_create", {"name": "Beta"}))
+        a, b = alpha["id"], beta["id"]
+
+        # T-13 : l'identite est `projects.id`, un UUID que le registre a
+        # emis — pas une etiquette que l'appelant a choisie.
+        assert uuid.UUID(a) and uuid.UUID(b)
+        assert a != b
+
+        await session.call_tool("tasks_create", {"title": "a", "project_id": a})
+        await session.call_tool("tasks_create", {"title": "b", "project_id": b})
+        assert [t["title"] for t in _result(
+            await session.call_tool("tasks_list", {"project_id": a}))] == ["a"]
 
         await session.call_tool(
-            "memory_remember", {"type": "preference", "content": "x", "project_id": "proj-1"}
-        )
+            "memory_remember", {"type": "preference", "content": "x", "project_id": a})
         await session.call_tool(
-            "memory_remember", {"type": "preference", "content": "y", "project_id": "proj-2"}
-        )
-        memories = _result(await session.call_tool("memory_list", {"project_id": "proj-1"}))
-        assert [m["content"] for m in memories] == ["x"]
+            "memory_remember", {"type": "preference", "content": "y", "project_id": b})
+
+        # `memory_list` est une lecture **systeme** : elle ne filtre pas la
+        # quarantaine et n'est pas dans la liste blanche de l'agent. Ce
+        # qu'elle prouve ici est l'isolation de ce qui a ete ecrit, pas ce
+        # que l'agent a le droit de lire — c'est l'objet du test plus bas.
+        assert [m["content"] for m in _result(
+            await session.call_tool("memory_list", {"project_id": a}))] == ["x"]
+        assert [m["content"] for m in _result(
+            await session.call_tool("memory_list", {"project_id": b}))] == ["y"]
 
         await session.call_tool(
             "security_evaluate",
-            {"action_type": "network_call", "description": "ping", "project_id": "proj-1"},
+            {"action_type": "network_call", "description": "ping", "project_id": a},
         )
-        messages = _result(await session.call_tool("messages_list", {"project_id": "proj-1"}))
+        messages = _result(await session.call_tool("messages_list", {"project_id": a}))
         assert messages
-        assert all(m["project_id"] == "proj-1" for m in messages)
+        assert all(m["project_id"] == a for m in messages)
+
+
+async def test_un_projet_inconnu_est_refuse_et_rien_ne_s_ecrit(monkeypatch, tmp_path):
+    """Un identifiant qui ne résout vers rien est refusé, **et l'écriture
+    n'a pas lieu** (T-13).
+
+    Le refus seul ne suffirait pas : une mémoire écrite puis rendue
+    invisible serait de la donnée orpheline qu'aucune liste ne montre et
+    qu'aucune promotion ne peut atteindre.
+    """
+    import uuid
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        connu = _result(await session.call_tool("projects_create", {"name": "Alpha"}))["id"]
+        await session.call_tool(
+            "memory_remember", {"type": "fact", "content": "legitime", "project_id": connu})
+
+        # Bien forme, jamais enregistre : c'est la resolution qui tranche,
+        # pas la syntaxe.
+        fantome = str(uuid.uuid4())
+        refus = await session.call_tool(
+            "memory_remember", {"type": "fact", "content": "orpheline", "project_id": fantome})
+        assert refus.isError is True
+
+        lecture = await session.call_tool("memory_search", {"query": "x", "project_id": fantome})
+        assert lecture.isError is True, "une lecture inconnue doit refuser, pas rendre []"
+
+        # Et rien n'a ete ecrit sous l'identifiant fantome — ni ailleurs.
+        tout = _result(await session.call_tool("memory_list", {}))
+        assert [m["content"] for m in tout] == ["legitime"]
+
+
+async def test_la_recherche_de_l_agent_voit_son_projet_et_le_permanent(monkeypatch, tmp_path):
+    """Depuis A : A et le permanent, jamais B (T-13 + T-11).
+
+    Le chemin réel, de bout en bout : `memory_remember` écrit en `AGENT`,
+    donc en quarantaine ; un humain nommé promeut ; `memory_search` résout
+    le projet, applique la portée, puis le filtre. Sans la promotion, les
+    trois écritures resteraient invisibles — et c'est vérifié avant.
+    """
+    from backend.core.agent_registry import get_agent_registry
+
+    async with open_mcp_session(monkeypatch, tmp_path) as session:
+        a = _result(await session.call_tool("projects_create", {"name": "Alpha"}))["id"]
+        b = _result(await session.call_tool("projects_create", {"name": "Beta"}))["id"]
+
+        ecrites = {}
+        for cle, projet, contenu in (
+            ("a", a, "Alpha migre vers PostgreSQL"),
+            ("b", b, "Beta migre vers SQLite"),
+            ("permanent", None, "Toujours migrer par petits pas"),
+        ):
+            charge = {"type": "decision", "content": contenu}
+            if projet is not None:
+                charge["project_id"] = projet
+            ecrites[cle] = _result(await session.call_tool("memory_remember", charge))["id"]
+
+        echo = get_agent_registry().get("echo")
+
+        # Avant promotion : la quarantaine tient, quel que soit le projet.
+        assert _result(await session.call_tool(
+            "memory_search", {"query": "migre", "project_id": a})) == []
+
+        for identifiant in ecrites.values():
+            echo.promouvoir(identifiant, par="emeric")
+
+        depuis_a = [h["content"] for h in _result(await session.call_tool(
+            "memory_search", {"query": "migre", "project_id": a}))]
+        depuis_b = [h["content"] for h in _result(await session.call_tool(
+            "memory_search", {"query": "migre", "project_id": b}))]
+        permanent = [h["content"] for h in _result(await session.call_tool(
+            "memory_search", {"query": "migre"}))]
+
+        assert "Alpha migre vers PostgreSQL" in depuis_a
+        assert "Toujours migrer par petits pas" in depuis_a
+        assert "Beta migre vers SQLite" not in depuis_a
+
+        assert "Beta migre vers SQLite" in depuis_b
+        assert "Toujours migrer par petits pas" in depuis_b
+        assert "Alpha migre vers PostgreSQL" not in depuis_b
+
+        # T-11 : sans projet, le niveau permanent **seul**. Jamais un
+        # joker qui rendrait les deux projets.
+        assert permanent == ["Toujours migrer par petits pas"]
 
 
 async def test_memory_remember_list_forget_roundtrip(monkeypatch, tmp_path):

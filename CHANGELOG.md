@@ -1,3 +1,70 @@
+## HOS-251 — Deux tests qui affirmaient le contrat d'avant (2026-09-04)
+
+Passe 17. HOS-249/250 avaient change deux contrats ; deux tests les
+affirmaient encore, laisses rouges et nommes dans le commit precedent au
+titre de l'exception de `CLAUDE.md`. Ils adoptent ici les nouveaux.
+
+### Ce qui ne devait surtout pas arriver
+
+Les rendre verts par le symptome. `assert hits` en `assert hits == []`
+aurait suffi a faire taire les deux, sans qu'aucune ligne ne demontre
+*pourquoi* la reponse est vide — et une reponse vide est exactement ce
+que produit une regression du filtre, un projet mal resolu, ou une base
+qu'on n'a pas ouverte. Un vert obtenu ainsi aurait couvert les trois.
+
+### T-16 — l'incident de HOS-086 tient, la premisse a change
+
+`test_memory_search_answers_without_the_document_index` protegeait un
+vrai defaut : `memory_search` interroge deux magasins independants, et la
+panne de l'un ne doit pas vider ce que l'autre sait. Ce qu'il faisait
+d'obsolete etait d'ecrire **sans provenance** — donc `INCONNUE`, donc en
+quarantaine.
+
+Il ecrit desormais deux memoires dans la meme seconde, par les deux
+chemins reels : le chemin humain, qui pose `HUMAIN`, et l'outil MCP, qui
+pose `AGENT` lui-meme. L'index documentaire tombe, une seule revient. Et
+ce qui les separe est relu en base : `origine` et l'etat de quarantaine,
+pas le contenu ni la fraicheur. L'ecriture de l'agent porte
+`confidence=1.0` et les tags `verified`, `trusted`, `human-approved` —
+verifies presents dans la ligne, donc l'assertion n'est pas creuse — et
+n'obtient rien. Une promotion humaine nommee la rend visible par le meme
+appel.
+
+Une matrice a cinq origines complete au niveau de l'entree durable ce que
+`test_memoire_quarantaine.py` verifiait sur l'objet `Provenance` seul.
+
+### T-13 — l'identite vient du registre
+
+`test_project_id_filters_tasks_memory_and_messages` passait `"proj-1"` et
+`"proj-2"`. Le filtrage marchait, et c'est ce qui posait probleme : deux
+orthographes du meme projet ne se voyaient pas, et un identifiant invente
+rendait une liste vide — qui se lit « ce projet n'a rien memorise » — au
+lieu d'un refus.
+
+Les identifiants viennent maintenant de `projects_create`, comme en
+production. Deux tests s'ajoutent : un UUID bien forme mais jamais
+enregistre est refuse **et rien ne s'ecrit** — un refus qui laisserait une
+ligne orpheline serait pire que pas de refus du tout — et la recherche
+depuis A rend A et le permanent, jamais B, apres promotion.
+
+### Les assertions mordent, mesure
+
+Trois mutations posees et retirees, chacune sur le mecanisme que les
+tests pretendent demontrer :
+
+- filtre de quarantaine retire → **4 rouges** (dont `agent`, `web` et
+  l'origine absente ; `humain` et `systeme` restent verts, donc la
+  matrice discrimine) ;
+- resolution de projet neutralisee → **1 rouge**, celui du refus ;
+- portee neutralisee → **1 rouge**, celui de l'isolation A/B.
+
+### Aucun code de production modifie
+
+Le nouveau contrat etait deja implemente et deja garde ; il manquait des
+tests qui l'affirment. Le seul autre changement est un commentaire
+d'en-tete devenu faux : `memory_search` n'a plus besoin d'Ollama pour
+etre teste, puisque repondre sans l'index est precisement son contrat.
+
 ## HOS-249, HOS-250 — La memoire de l'agent etait un fait des qu'il l'ecrivait (2026-09-04)
 
 Passes 15 et 16. Le jalon 2 (HOS-216) avait pose la quarantaine ; elle
