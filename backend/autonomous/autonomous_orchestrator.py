@@ -392,12 +392,54 @@ class AutonomousOrchestrator:
             return True
 
     def cancel_goal(self, goal_id: str) -> bool:
+        """Annuler un objectif, et le faire **atteindre l'exécution**.
+
+        ## Ce que ce drapeau ne faisait pas
+
+        `goal.status = GoalStatus.CANCELLED` était tout ce que cette
+        méthode faisait, et **personne ne lisait ce champ** hors des
+        compteurs de `get_status`. La marche du graphe, elle, s'arrête sur
+        `mission.status`, pas sur celui de l'objectif : l'annulation était
+        donc une étiquette posée sur un objectif qui continuait de
+        travailler. HOS-102 avait corrigé l'*accessibilité* de cet appel —
+        le verrou tenu pendant toute l'inférence le rendait injoignable —
+        mais pas son *effet*.
+
+        ## Ce qu'annuler veut dire ici
+
+        `graph_executor.cancel_mission` reste la primitive canonique, et
+        c'est celle qu'on appelle : rien de neuf n'est écrit pour annuler.
+        Sa sémantique est **cesser d'engager**, pas interrompre :
+
+        * aucune tâche nouvelle n'est engagée après l'annulation ;
+        * un nœud déjà engagé va au bout de son propre plafond — c'est
+          l'invariant du dépôt, le même qui fait que le budget missionnel
+          ne tue rien (HOS-247), et cette méthode ne le change pas ;
+        * l'effet est donc différé d'au plus un plafond de nœud.
+
+        Rend `True` dès que l'objectif existe : l'annulation est *prise en
+        compte*. Un objectif sans mission — refusé à la planification,
+        déjà rapporté — n'a rien à arrêter, et ce n'est pas un échec.
+        """
         with self._lock:
             goal = self._goals.get(goal_id)
             if goal is None:
                 return False
             goal.status = GoalStatus.CANCELLED
-            return True
+            session_id = self._session_by_goal.get(goal_id)
+            session = self._sessions.get(session_id) if session_id else None
+            mission_id = getattr(session, "mission_id", None)
+
+        # Hors du verrou, comme `start_goal` : `cancel_mission` publie un
+        # événement, et tenir ce verrou pendant une publication est ce qui
+        # rendait l'annulation elle-même injoignable (HOS-102).
+        if mission_id and self.graph_executor is not None:
+            from backend.mission import routes as mission_routes
+
+            mission = mission_routes.get_mission_by_id(mission_id)
+            if mission is not None:
+                self.graph_executor.cancel_mission(mission)
+        return True
 
     def get_goal(self, goal_id: str) -> AutonomousGoal | None:
         with self._lock:

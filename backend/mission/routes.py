@@ -153,6 +153,34 @@ class _RegistreMissions:
             self._missions.move_to_end(mission_id)
             self._evincer()
 
+    def persister(self, mission: Mission) -> None:
+        """Écrire une **mutation** d'une mission déjà connue (HOS-252).
+
+        Deux différences avec `__setitem__`, et une seule raison pour les
+        deux : ici, un échec d'écriture doit se voir.
+
+        `__setitem__` sert la **création** et avale l'échec du magasin —
+        « une correction de persistance qui empêcherait de créer une
+        mission serait un recul », et c'est toujours vrai. Mais il met
+        alors le cache à jour quand même : la mémoire affirme une
+        persistance qui n'a pas eu lieu, et c'est exactement le défaut que
+        HOS-252 corrige. Une mutation déterminante — démarrage, nœud
+        terminal, fin, annulation — est ce dont dépendent le budget
+        missionnel et la reprise ; l'écrire à moitié est pire que ne pas
+        l'écrire.
+
+        Donc : **le disque d'abord, le cache seulement s'il a accepté, et
+        l'erreur remonte à l'appelant.** Le cache ne prétend jamais qu'une
+        mutation est durable alors qu'elle ne l'est pas.
+        """
+        magasin = self._magasin
+        if magasin is not None:
+            magasin.enregistrer(mission)
+        with self._verrou:
+            self._missions[mission.mission_id] = mission
+            self._missions.move_to_end(mission.mission_id)
+            self._evincer()
+
     def _evincer(self) -> None:
         """Sous verrou uniquement. **Ne touche que le cache** (HOS-245).
 
@@ -423,6 +451,20 @@ def register_mission(mission: Mission) -> None:
     entry points into one.
     """
     _missions[mission.mission_id] = mission
+
+
+def persist_mission(mission: Mission) -> None:
+    """Rendre durable une mutation déterminante d'une mission (HOS-252).
+
+    Injectée dans `GraphExecutor` par le bootstrap plutôt qu'importée par
+    lui : `mission/graph_executor.py` n'a aucune raison de connaître le
+    routeur, et le lui faire connaître inverserait la dépendance entre la
+    couche d'exécution et la couche HTTP.
+
+    C'est le **même** magasin que la création — `MagasinMissions`, via le
+    registre. Aucun second stockage, aucun second cache canonique.
+    """
+    _missions.persister(mission)
 
 
 def get_mission_by_id(mission_id: str) -> Optional[Mission]:

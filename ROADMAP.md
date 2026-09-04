@@ -446,6 +446,15 @@ l'origine et non la confiance déclarée, l'autre que l'identité d'un projet
 vient du registre et qu'un identifiant inconnu est refusé sans rien
 écrire. La suite backend standard est de nouveau entièrement verte.
 
+**T-21 — cohérence Mission ↔ Run Ledger.** HOS-252 a rendu durable l'état
+d'une mission ; il reste l'asymétrie inverse. Huit runs des deux missions
+de diagnostic supprimées en passe 19 restent en base : `Registre` n'expose
+aucune suppression, et retirer des lignes SQL à la main contournerait la
+seule autorité du Ledger. Un run qui désigne une mission absente est le
+symétrique du défaut que HOS-245 avait fermé. Décision dédiée à prendre :
+suppression propre côté `Registre`, ou réconciliation qui sache dire
+« mission absente ».
+
 #### Ce qui manque vraiment
 
 Mission Contract · Run Ledger et lineage · Context Relay · Loop

@@ -542,8 +542,53 @@ class TestEventWiring:
         8 topics were still being dropped after the drift was declared fixed.
         Watching the hub's own rejection log while exercising the subsystems
         catches that regardless of how the topic is constructed.
+
+        ## Ce que ce test garde, et ce qu'il a cédé (HOS-252, T-17)
+
+        Il garde le **chemin autonome réel** : interprétation de l'objectif,
+        décomposition par un vrai modèle, mission, DAG, agents. Les familles
+        `autonomous.*` et `planning.*` n'existent que là, et c'est ce qui
+        justifie qu'un test coûte des minutes.
+
+        Il a cédé la preuve du **câblage** à
+        `backend/tests/test_cablage_des_evenements.py`, qui l'établit en
+        0,4 s sur la même chaîne de production. Mesuré en passe 18 : ce
+        test-ci tournait 608 s sans terminer, pour une couverture de topics
+        acquise à 187 s, avec un plafond de conception de ~4 800 s.
+
+        ## Pourquoi il se termine maintenant
+
+        Dès que sa propriété est démontrée, il **annule** l'objectif par la
+        route de production (`cancel_goal`, HOS-252/T-18). L'annulation
+        n'interrompt pas un nœud engagé — c'est l'invariant du dépôt — donc
+        l'attente restante est bornée par le plafond de nœud que
+        l'architecture a déjà décidé, `plafond_du_noeud()`. Le dépasser
+        n'est pas un délai de confort : c'est le graphe qui a franchi son
+        propre dernier recours, et le test échoue en le disant.
         """
+        import threading
+        import time
+
+        from backend.mission.graph_executor import plafond_du_noeud
+
+        # Les familles que **seul** le chemin autonome produit. Nommées une
+        # par une, comme côté rapide : un compteur resterait vert si l'une
+        # disparaissait pendant qu'une autre apparaît.
+        attendus = (
+            "autonomous.goal.received",
+            "autonomous.goal.analyzed",
+            "autonomous.plan.created",
+            "autonomous.execution.started",
+            "planning.completed",
+            "mission.created",
+            "mission.started",
+            # Publié par le **vrai** RealTaskExecutor, donc introuvable dans
+            # le test rapide, dont la couture le remplace.
+            "execution.task_started",
+        )
+
         dropped: list[str] = []
+        vus: list[str] = []
 
         class Catch(logging.Handler):
             def emit(self, record: logging.LogRecord) -> None:
@@ -551,20 +596,58 @@ class TestEventWiring:
                 if "not published" in text:
                     dropped.append(text)
 
+        hub = bootstrap.container.get("event_hub")
+        publier = hub.publish
+
+        def publier_et_noter(event_type, payload=None, *a, **k):
+            vus.append(str(event_type))
+            return publier(event_type, payload, *a, **k)
+
         handler = Catch()
         hub_logger = logging.getLogger("backend.core.event_hub")
         previous = hub_logger.level
         hub_logger.setLevel(logging.WARNING)
         hub_logger.addHandler(handler)
+        hub.publish = publier_et_noter
+
+        moteur = bootstrap.container.get("autonomous_engine")
+        fil = threading.Thread(
+            target=lambda: moteur.start_goal("Build an API"),
+            name="assemblage-objectif", daemon=True)
+        borne = plafond_du_noeud()
         try:
-            bootstrap.container.get("autonomous_engine").start_goal("Build an API")
             bootstrap.container.get("security_engine").check_access(
                 principal_id="a1", resource_type="tool", resource_id="exec"
             )
             bootstrap.container.get("policy_engine").evaluate(
                 {"agent_id": "a1", "operation": "write", "resource": "/tmp/probe"}
             )
+
+            fil.start()
+            limite = time.monotonic() + borne
+            while time.monotonic() < limite:
+                if all(t in vus for t in attendus) or not fil.is_alive():
+                    break
+                time.sleep(1.0)
+
+            manquants = [t for t in attendus if t not in vus]
+            assert manquants == [], (
+                f"le chemin autonome n'a pas publié {manquants} en {borne:.0f} s")
+
+            # Assez vu : on cesse d'engager. Un nœud déjà engagé termine.
+            objectifs = moteur.list_goals(limit=1)
+            if objectifs:
+                # `AutonomousEngine.list_goals` rend des dicts
+                # (`to_dict()`), pas les objets de l'orchestrateur.
+                reponse = moteur.cancel_goal(objectifs[0]["goal_id"])
+                assert reponse["success"] is True
+            fil.join(timeout=borne)
+            assert not fil.is_alive(), (
+                f"la marche du graphe n'a pas atteint son état terminal {borne:.0f} s "
+                "après l'annulation, alors que le plafond de nœud est censé la "
+                "borner — le dernier recours du graphe a été franchi")
         finally:
+            hub.publish = publier
             hub_logger.removeHandler(handler)
             hub_logger.setLevel(previous)
 

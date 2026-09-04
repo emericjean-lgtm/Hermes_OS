@@ -78,6 +78,7 @@ class GraphExecutor:
         execute_node: Optional[Callable[[MissionNode], bool]] = None,
         max_parallel_tasks: Optional[int] = None,
         step_timeout_s: Optional[float] = None,
+        persister: Optional[Callable[[Mission], None]] = None,
     ) -> None:
         # Resolu a la construction et non a l'import : un defaut de
         # parametre figerait la valeur au chargement du module, et une
@@ -94,6 +95,20 @@ class GraphExecutor:
         self._snapshots: dict = {}
         self._on_event = on_event
         self._execute_node = execute_node or (lambda n: True)
+        #: Ce qui rend durable une transition déterminante (HOS-252).
+        #:
+        #: Même forme que `on_event` et `execute_node` — un appelable
+        #: injecté, `None` par défaut, donc le comportement d'avant pour
+        #: qui construit ce moteur sans rien passer. Le bootstrap y branche
+        #: `mission.routes.persist_mission`, c'est-à-dire le magasin M-8
+        #: déjà existant.
+        #:
+        #: Mesuré avant HOS-252 : une mission ayant tourné 531 s et réussi
+        #: six nœuds se relisait sur disque `READY / started_at=None /
+        #: tous PENDING`. Le registre des runs survivait, son sujet non —
+        #: et `started_at`, qui est le t0 canonique du budget (HOS-248),
+        #: ne franchissait pas la frontière du processus.
+        self._persister = persister
         # HOS-068: bounded, deliberately small — see mission_max_parallel_tasks
         # in backend/core/config.py for the VRAM-exhaustion rationale on this
         # deployment's 16 GB card.
@@ -202,6 +217,11 @@ class GraphExecutor:
             mission.status = MissionStatus.RUNNING
             mission.started_at = datetime.now(timezone.utc)
 
+        # Avant tout travail : `started_at` est le t0 du budget, et une
+        # mission qui travaille sans que son t0 soit durable repart d'un
+        # budget entier au premier redémarrage.
+        self._rendre_durable(mission)
+
         # HOS-092: fingerprint the workspace now, so completion can be
         # confronted with what physically changed rather than with the
         # agent's account of it. Best-effort by construction — a snapshot
@@ -258,6 +278,7 @@ class GraphExecutor:
 
             if success:
                 self._resolver.mark_completed(mission, node.node_id)
+                self._rendre_durable(mission)
                 if self._on_event:
                     self._on_event("mission.node_completed", {
                         "mission_id": mission.mission_id,
@@ -266,6 +287,7 @@ class GraphExecutor:
                     }, severity="info")
             else:
                 self._resolver.mark_failed(mission, node.node_id)
+                self._rendre_durable(mission)
                 if self._on_event:
                     self._on_event("mission.node_failed", {
                         "mission_id": mission.mission_id,
@@ -311,6 +333,14 @@ class GraphExecutor:
                         # which is exactly how this was first written and what
                         # the retry tests caught.
                         self._suggest_retry(mission, verification)
+
+                        # Le statut terminal, `completed_at` et le verdict
+                        # de vérification : ce qu'un lecteur d'après coup
+                        # vient chercher. Après `_suggest_retry`, qui peut
+                        # remettre la mission en READY pour une seconde
+                        # tentative — on persiste l'état réellement atteint,
+                        # pas celui qu'on avait avant de décider.
+                        self._rendre_durable(mission)
 
                         if self._on_event:
                             ev_type = "mission.completed" if all_success else "mission.completed"
@@ -530,12 +560,30 @@ class GraphExecutor:
             logger.debug("workspace verification failed", exc_info=True)
             return None
 
+    def _rendre_durable(self, mission: Mission) -> None:
+        """Écrire la mutation courante, ou laisser l'échec remonter.
+
+        Pas de `try/except` : un magasin qui refuse d'écrire une
+        transition déterminante rend la mission ingouvernable — budget
+        sans t0, reprise sans état de nœuds — et continuer produirait
+        exactement l'incohérence mémoire/disque que HOS-252 ferme. Le
+        silence coûterait plus cher que l'erreur.
+
+        Sans persisteur injecté, ne fait rien : c'est le comportement
+        d'avant HOS-252, que gardent les appelants qui construisent ce
+        moteur sans magasin.
+        """
+        if self._persister is not None:
+            self._persister(mission)
+
     def cancel_mission(self, mission: Mission) -> bool:
         with self._lock:
             if mission.status == MissionStatus.COMPLETED:
                 return False
             mission.status = MissionStatus.CANCELLED
             mission.completed_at = datetime.now(timezone.utc)
+
+        self._rendre_durable(mission)
 
         if self._on_event:
             self._on_event("mission.cancelled", {

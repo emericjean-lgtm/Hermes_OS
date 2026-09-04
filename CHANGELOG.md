@@ -1,3 +1,126 @@
+## HOS-252 — Ce qu'un test de cablage mesurait vraiment (2026-09-04)
+
+Passe 20, implementation des quatre decisions de la passe 19. Quatre
+sujets, une meme forme : la primitive existait deja et n'etait pas
+branchee, ou existait et n'etait pas verifiee.
+
+### T-17 — un test de cablage qui mesurait une mission autonome
+
+`test_no_real_subsystem_event_is_dropped` prouvait que l'EventHub ne jette
+rien, en lancant un objectif autonome complet. Mesure en passe 18 : deux
+reproductions de 608 s et 531 s **sans terminer**, pour une couverture de
+topics acquise a 187 s, avec un plafond de conception de ~4 800 s — budget
+de mission 3 600 s, verifie entre deux taches seulement, plus le plafond
+d'un noeud engage.
+
+La preuve du cablage vit desormais dans
+`backend/tests/test_cablage_des_evenements.py` : **0,4 s**, sur la vraie
+chaine `GraphExecutor -> MissionExecutor -> EventDispatcher -> EventHub`.
+Rien n'est simule de la publication ; la seule couture est l'exécuteur de
+tache, un parametre du constructeur de `MissionExecutor` depuis toujours
+et prevu pour cela. Consequence assumee : `execution.task_completed` est
+attendu du cote lent, parce que c'est `RealTaskExecutor` qui le publie —
+l'affirmer du cote rapide reviendrait a verifier un evenement que le test
+aurait lui-meme emis.
+
+Les topics sont **nommes un par un**, pas comptes : un `len(events) >= 26`
+reste vert quand un topic disparait pendant qu'un autre apparait, ce qui
+est exactement la derive surveillee.
+
+Le test long reste, reste `lent`, et garde ce que lui seul prouve — le
+chemin autonome reel, avec ses familles `autonomous.*` et `planning.*`. Il
+se termine maintenant : des sa propriete demontree, il annule l'objectif
+par la route de production, et l'attente restante est bornee par
+`plafond_du_noeud()`. Depasser cette borne n'est pas un delai de confort,
+c'est le graphe qui a franchi son propre dernier recours, et le test le
+dit.
+
+**Une derive vivante trouvee au passage.** `mission.completed` etait publie
+par `graph_executor` et absent de `EVENT_TYPES`. Le commentaire du
+catalogue affirmait qu'« un ancien jet nommait des topics qu'aucun
+emetteur n'utilise (mission.completed) » : vrai du scan, faux du code — le
+topic y passe par une variable, invisible a la collecte AST des litteraux.
+Le hub le delivrait avec un avertissement, mais tout abonne qui filtre par
+type — le Cockpit — ne voyait jamais la fin d'une mission. C'est
+exactement le mode de defaillance decrit par HOS-066B, retrouve par le
+nouveau test.
+
+### T-18 — une annulation qui n'annulait rien
+
+`cancel_goal` posait `goal.status = CANCELLED` et s'arretait la. **Personne
+ne lisait ce champ** hors des compteurs de `get_status` : la marche du
+graphe s'arrete sur `mission.status`. HOS-102 avait corrige
+l'*accessibilite* de cet appel — le verrou tenu pendant toute l'inference
+le rendait injoignable — pas son *effet*.
+
+Aucune primitive nouvelle : `graph_executor.cancel_mission` existait, elle
+etait effective, et c'est elle qu'on appelle. Aucun mecanisme de
+terminaison de processus non plus — l'invariant « un noeud engage n'est
+pas interrompu » est celui du budget missionnel (HOS-247) et il tient ici
+aussi, prouve par un test qui lance un noeud, annule pendant qu'il
+travaille, et verifie qu'il termine.
+
+La reponse de la route porte desormais sa semantique : « aucune tache
+nouvelle ne sera engagee ; un noeud deja engage termine son travail ». Un
+operateur qui lit `success: true` ne doit pas comprendre « arrete
+maintenant ».
+
+Verifie aussi : une seule route `/missions/{id}/cancel` est reellement
+montee, celle de `mission/routes.py`, qui vise `Mission`. Celle de
+`api/router.py`, qui vise `MissionInstance`, n'est montee nulle part —
+`mission_control.py` le documentait deja depuis HOS-072. Pas de collision.
+
+### T-19 — le journal survivait, son sujet non
+
+`MagasinMissions` n'etait ecrit que par `__setitem__`, c'est-a-dire une
+seule fois, a l'enregistrement, avant tout demarrage. Mesure : une mission
+ayant tourne 531 s et reussi six noeuds sur sept se relisait sur disque
+`READY / started_at=None / tous PENDING`.
+
+Consequence directe sur HOS-248 : `started_at` est le **t0 canonique du
+budget**, et il ne franchissait pas la frontiere du processus. Une mission
+reprise apres redemarrage repartait avec 3 600 s entieres. C'est le
+pendant exact de HOS-245, qui avait rendu durable l'*existence* d'une
+mission : ici c'est son *etat*.
+
+Aucun second stockage. Le persisteur est un appelable injecte dans
+`GraphExecutor`, de la meme forme que `on_event` et `execute_node` qui y
+etaient deja, et le bootstrap y branche le magasin M-8. Points d'ecriture :
+demarrage, noeud terminal, mission terminale, annulation.
+
+`_RegistreMissions.persister()` ecrit le disque **d'abord** et le cache
+seulement s'il a accepte, en laissant l'erreur remonter. `__setitem__`
+garde sa tolerance pour la creation — « une correction de persistance qui
+empecherait de creer une mission serait un recul » — mais il mettait le
+cache a jour meme en cas d'echec : la memoire affirmait une durabilite qui
+n'existait pas. Prouve par un magasin qui refuse d'ecrire.
+
+La preuve de survie se fait dans **deux processus** : l'un ecrit, l'autre
+relit, et seul le disque parle.
+
+### T-20 — l'isolation existait, sa verification non
+
+La passe 18 avait conclu que la suite lente ecrivait dans
+`AppData/Local/HermesOS`, sur la foi de deux missions bien reelles
+trouvees la. Elles venaient de sondes autonomes, qui ne chargent aucun
+`conftest` ; la suite est isolee depuis HOS-215. Une passe entiere avait
+ete batie sur ce constat faux.
+
+`conftest.py` verifie desormais ce qu'il pose : chemins canonicalises des
+deux cotes — `resolve()` suit liens et jonctions, `normcase` gele casse et
+separateurs — et l'imbrication compte autant que l'egalite. La suite
+s'arrete avant le premier test plutot que d'ecrire. Elle ne supprime rien
+et ne touche a aucun reglage : ce serait pire que le probleme.
+
+### Ce qui reste ouvert
+
+Huit runs des deux missions de diagnostic restent en base apres la
+suppression de leurs missions en passe 19. `Registre` n'expose aucune
+suppression, et supprimer des lignes SQL a la main contournerait la seule
+autorite du Ledger. L'incoherence est symetrique de celle que HOS-245
+avait fermee — le journal survit, son sujet a disparu — et attend une
+decision dediee (T-21).
+
 ## HOS-251 — Deux tests qui affirmaient le contrat d'avant (2026-09-04)
 
 Passe 17. HOS-249/250 avaient change deux contrats ; deux tests les

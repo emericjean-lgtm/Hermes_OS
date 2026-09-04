@@ -153,6 +153,65 @@ def _suspendre_pour_les_lents(request: pytest.FixtureRequest):
 os.environ["HERMES_DATA_DIR"] = tempfile.mkdtemp(prefix="hermes_donnees_")
 
 
+# ── Et une verification que cette isolation tient (HOS-252) ────────────
+#
+# La ligne ci-dessus isole depuis HOS-215, et rien ne le **verifiait**.
+# L'ecart s'est vu au pire endroit : la passe 18 a conclu que la suite
+# lente ecrivait dans la vraie base de l'utilisateur, sur la foi de deux
+# missions bien reelles trouvees dans `AppData/Local/HermesOS`. Elles
+# venaient de sondes autonomes, qui ne chargent aucun `conftest` — la
+# suite, elle, etait isolee depuis le debut. Un diagnostic faux, et une
+# passe entiere batie dessus.
+#
+# Cette garde rend l'erreur impossible dans les deux sens : si la suite
+# pointait vraiment vers l'etat de l'utilisateur, elle s'arreterait avant
+# le premier test au lieu d'ecrire ; et si quelqu'un l'affirme sans que ce
+# soit vrai, la garde le contredit.
+#
+# Elle ne supprime rien et ne touche a aucun reglage : elle compare deux
+# chemins et refuse de continuer.
+
+def racines_confondues(racine_test, racine_reelle) -> bool:
+    """La racine de test est-elle celle de l'utilisateur, ou dedans ?
+
+    Canonicalisee des deux cotes : `resolve()` suit les liens et les
+    jonctions et absolutise, `normcase` gele la casse et les separateurs —
+    sans quoi `C:/Users/x/AppData` et `c:/users/x/appdata` designeraient
+    le meme dossier sans se ressembler, ce qui est le cas normal sous
+    Windows.
+
+    « Dedans » compte autant qu'« egale » : ecrire dans un sous-dossier de
+    l'etat reel le pollue tout autant.
+    """
+    from pathlib import Path
+
+    def canonique(chemin):
+        return Path(os.path.normcase(str(Path(chemin).expanduser().resolve())))
+
+    essai, vraie = canonique(racine_test), canonique(racine_reelle)
+    return essai == vraie or vraie in essai.parents
+
+
+def _verifier_l_isolation() -> None:
+    from backend.core.etat import _racine_systeme
+
+    essai = os.environ["HERMES_DATA_DIR"]
+    vraie = _racine_systeme()
+    if racines_confondues(essai, vraie):
+        raise RuntimeError(
+            "la suite de tests utiliserait l'etat reel de l'utilisateur.\n"
+            f"  racine de test  : {essai}\n"
+            f"  racine reelle   : {vraie}\n"
+            "  raison          : les deux chemins canonicalises coincident, "
+            "ou la seconde contient la premiere.\n"
+            "Aucun test n'est execute : une suite qui ecrit dans la base, la "
+            "memoire et les instantanes de l'utilisateur les corrompt sans "
+            "que rien ne le dise.")
+
+
+_verifier_l_isolation()
+
+
 # Le harnais (HOS-138) tient une session Hermes Agent ouverte pour toute la
 # duree d'une mission. C'est le mode normal en production, et c'est
 # exactement ce qu'un test unitaire ne doit pas declencher : la garde reseau

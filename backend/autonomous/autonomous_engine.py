@@ -62,8 +62,22 @@ class AutonomousEngine:
         return {"success": ok, "goal_id": goal_id}
 
     def cancel_goal(self, goal_id: str) -> dict:
+        """Annuler un objectif.
+
+        `semantique` est dans la réponse parce que le mot « annulé » se
+        lit spontanément comme « arrêté maintenant », et que ce n'est pas
+        ce qui se produit : un nœud déjà engagé termine. Un opérateur qui
+        voit `success: true` et retrouve un agent au travail trente
+        secondes plus tard doit pouvoir comprendre pourquoi sans lire le
+        code (HOS-252).
+        """
         ok = self._orchestrator.cancel_goal(goal_id)
-        return {"success": ok, "goal_id": goal_id}
+        return {
+            "success": ok,
+            "goal_id": goal_id,
+            "semantique": "aucune tâche nouvelle ne sera engagée ; un nœud "
+                          "déjà engagé termine son travail",
+        }
 
     def get_status(self) -> dict:
         return self._orchestrator.get_status()

@@ -1088,10 +1088,16 @@ def _make_graph_executor(c: Any) -> Any:
     """
     from backend.mission.graph_executor import GraphExecutor
     from backend.mission.node_execution import make_node_executor
+    from backend.mission.routes import persist_mission
 
     return GraphExecutor(
         on_event=_dispatcher(c, "mission_executor"),
         execute_node=make_node_executor(c.get("execution_controller")),
+        # HOS-252 : les transitions déterminantes d'une mission — démarrage,
+        # nœud terminal, fin, annulation — deviennent durables. Le magasin
+        # est celui de M-8 ; l'injection évite que la couche d'exécution
+        # importe le routeur.
+        persister=persist_mission,
     )
 
 

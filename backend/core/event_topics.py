@@ -188,6 +188,18 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     "mission.step_timeout",
     "mission.node_ready",
     "mission.started",
+    # HOS-252 : emis par `graph_executor.execute_step`, et absent d'ici
+    # jusqu'ici. Le commentaire en tete de ce bloc disait « un ancien
+    # jet nommait des topics qu'aucun emetteur n'utilise
+    # (mission.completed) » — c'etait vrai du scan, pas du code : le topic
+    # y est passe par une **variable**, `ev_type`, que la collecte AST des
+    # litteraux ne peut pas voir. Exactement le mode de defaillance que
+    # HOS-066B avait decrit, retrouve par le test de cablage.
+    #
+    # Consequence avant correction : le hub le delivrait avec un
+    # avertissement, mais tout abonne qui filtre par type — le Cockpit —
+    # ne voyait jamais la fin d'une mission.
+    "mission.completed",
     # HOS-092: emitted when a mission reports success over a workspace that
     # did not change. Separate from mission.completed on purpose — the green
     # event stays green, and this one makes the contradiction impossible to
