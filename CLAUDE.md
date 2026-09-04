@@ -179,4 +179,21 @@ jamais avec un `npm run dev` détaché.
 - Les commentaires expliquent la raison d'être, pas le fonctionnement — une
   règle sans son pourquoi se fait supprimer au premier refactoring.
 - Les tests nomment l'incident qu'ils empêchent.
-- Ne jamais commiter sans que la suite complète soit verte.
+- Ne jamais commiter sans que la suite complète soit verte. **Une seule
+  exception**, et elle se mérite : un test qui affirme un contrat
+  architectural qu'on vient de remplacer. Il n'est ni faux ni cassé — il
+  est **périmé**, et le réécrire dans la passe même qui change le contrat
+  reviendrait à écrire la preuve et la chose prouvée de la même main.
+  Conditions cumulatives, faute de quoi la suite rouge reste interdite :
+  1. chaque test toléré est **nommé dans le message de commit**, avec le
+     contrat qu'il affirme et celui qui l'a remplacé ;
+  2. son échec est une **assertion** sur ce contrat, mesurée — le même
+     test passe au commit précédent, et échoue ici sur la ligne qu'on
+     attend. Un test qui échoue autrement cache autre chose ;
+  3. **aucun autre rouge**, aucune désélection nouvelle, aucune assertion
+     affaiblie, aucun test supprimé ni marqué `skip`/`xfail` ;
+  4. une passe dédiée, annoncée, les réécrit ensuite.
+  Rien ici n'autorise une suite rouge « en attendant ». Le précédent qui
+  a coûté cher est plus haut, à `testpaths` : ce fichier a déjà transformé
+  une commande étroite en angle mort de vingt-deux jours. Un test toléré
+  qu'aucun commit ne nomme redevient exactement ça.

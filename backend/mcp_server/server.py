@@ -339,8 +339,21 @@ def memory_remember(
     """Store a long-term memory entry (preference, decision, etc.).
     Deduplicated automatically by exact content within the same type and
     project."""
+    # HOS-249 : `Origine.AGENT` est pose **ici**, par Hermes OS, parce que
+    # c'est ici qu'on sait qui appelle. L'outil MCP n'expose aucun
+    # parametre de provenance : un agent qui pourrait ecrire
+    # `origine=HUMAIN` se declarerait fiable lui-meme.
+    #
+    # `AGENT` n'est pas dans `ORIGINES_DE_CONFIANCE`, et c'est delibere —
+    # le modele ecrit depuis ce qu'il a lu, et c'est par la qu'une
+    # injection voyage. Une memoire ecrite par l'agent part donc en
+    # quarantaine et n'en sort que par `promouvoir()`, avec un humain
+    # nomme.
+    from backend.memory.confiance import Origine
+
     entry = _echo().remember(
-        type_=type, content=content, tags=tags, confidence=confidence, project_id=project_id
+        type_=type, content=content, tags=tags, confidence=confidence,
+        project_id=_projet_resolu(project_id), origine=Origine.AGENT,
     )
     return _memory_to_dict(entry)
 
@@ -364,6 +377,43 @@ def memory_index(
     return _echo().index_document(doc_id, text, metadata or {}, project_id=project_id)
 
 
+def _projet_resolu(project_id: str | None) -> str | None:
+    """Verifier qu'un `project_id` designe un projet reel (HOS-249).
+
+    `None` traverse : c'est le niveau permanent (§12), un choix
+    documente, pas une absence.
+
+    Un identifiant qui ne resout vers rien leve `ProjetInconnu` plutot que
+    de rendre une liste vide. Une liste vide se lit « ce projet n'a rien
+    memorise » ; un refus se lit « ce projet n'existe pas ». Meme contrat
+    qu'Aegis sur le meme parametre — « don't fail open on the unexpected ».
+    """
+    if project_id is None:
+        return None
+    from backend.memory.episodic import ProjetInconnu
+
+    try:
+        from backend.projects.store import get_project_store
+
+        if get_project_store().get(project_id) is not None:
+            return project_id
+    except ProjetInconnu:
+        raise
+    except Exception as erreur:
+        # Fermer, jamais ouvrir, quand on n'a pas su verifier. Le message
+        # porte la cause : une premiere version avalait jusqu'a l'ImportError
+        # d'un module mal nomme et refusait donc **tous** les projets en
+        # annoncant un registre illisible. Sans danger — ferme — mais faux,
+        # et invisible sans la cause.
+        raise ProjetInconnu(
+            f"projet {project_id!r} non verifiable : {type(erreur).__name__} "
+            f"— {erreur}") from erreur
+    raise ProjetInconnu(
+        f"projet {project_id!r} inconnu — aucun projet de ce nom. Utilise "
+        "l'identifiant rendu par la liste des projets, ou omets le "
+        "parametre pour la memoire permanente.")
+
+
 def memory_search(query: str, n_results: int = 5, project_id: str | None = None) -> list[dict]:
     """Search everything Hermes remembers, optionally scoped to a project.
 
@@ -378,10 +428,15 @@ def memory_search(query: str, n_results: int = 5, project_id: str | None = None)
     does not, so a remembered fact stays retrievable even when Ollama is
     down rather than the whole call failing.
     """
+    # HOS-249 : meme resolution qu'a l'ecriture. `None` = niveau permanent
+    # (§12), jamais « tous les projets » — la confusion des deux niveaux
+    # est la facon dont une decision prise pour un projet finit lue comme
+    # une regle globale.
+    projet = _projet_resolu(project_id)
     echo = _echo()
-    results = echo.search_memories(query, n_results=n_results, project_id=project_id)
+    results = echo.search_memories_pour_agent(query, n_results=n_results, project_id=projet)
     try:
-        results.extend(echo.recall(query, n_results=n_results, project_id=project_id))
+        results.extend(echo.recall(query, n_results=n_results, project_id=projet))
     except Exception as exc:  # embeddings unavailable — memories still answer
         logger.warning("memory_search: document index unavailable (%s)", exc)
     return results[: n_results * 2]

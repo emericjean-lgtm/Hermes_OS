@@ -78,7 +78,32 @@ class EchoAgent:
         tags: list[str] | None = None,
         confidence: float = 1.0,
         project_id: str | None = None,
+        origine: "object | None" = None,
     ) -> MemoryEntry:
+        """Ecrire un souvenir durable, avec une provenance posee par Hermes.
+
+        `origine` est un `confiance.Origine`, **jamais un champ libre de
+        l'appelant distant** : le chemin MCP passe `Origine.AGENT`, et
+        l'agent n'a aucun moyen de demander autre chose. Un ecrivain qui
+        pourrait se declarer `HUMAIN` sortirait de quarantaine tout seul,
+        ce qui viderait la protection de son sens (HOS-249).
+
+        Sans `origine` — un appelant interne qui ne s'est pas prononce —
+        l'entree reste sans provenance, donc `INCONNUE`, donc en
+        quarantaine. C'est le sens de lecture qui protege.
+
+        `confidence` reste ce qu'elle a toujours ete : une metadonnee
+        libre. Elle n'accorde aucune confiance, et le filtre ne la lit
+        pas.
+        """
+        from backend.memory.confiance import Provenance
+
+        # `depuis()` **est** la regle : « une origine non humaine est mise
+        # en quarantaine quoi qu'il arrive — l'appelant ne peut pas
+        # demander la confiance, il ne peut que declarer d'ou ca vient ».
+        # Construire une `Provenance` a la main contournerait exactement
+        # ce que cette fabrique protege.
+        provenance = None if origine is None else Provenance.depuis(origine)
         with self._session_factory() as session:
             return episodic.add_memory(
                 session,
@@ -87,6 +112,7 @@ class EchoAgent:
                 tags=tags,
                 confidence=confidence,
                 project_id=project_id,
+                provenance=provenance,
             )
 
     def list_memories(
@@ -94,6 +120,40 @@ class EchoAgent:
     ) -> list[MemoryEntry]:
         with self._session_factory() as session:
             return episodic.list_memories(session, type_=type_, project_id=project_id)
+
+    def search_memories_pour_agent(
+        self, query: str, *, n_results: int = 5, project_id: str | None = None
+    ) -> list[dict]:
+        """La meme recherche, vue par un **agent** (HOS-249).
+
+        Deux choses de plus que `search_memories` : la portee — `None` rend
+        le niveau permanent seul, jamais tous les projets — et le filtre de
+        quarantaine, `confiance.filtrer`, celui-la meme que le Context
+        Relay.
+
+        Une methode separee plutot qu'un drapeau : la console, les rapports
+        et l'API ont le droit de tout voir, et leur retirer ce droit pour
+        proteger l'agent aurait casse un tableau de bord sans rien
+        proteger. **Ce sont deux droits differents, pas deux
+        implementations du meme.**
+        """
+        with self._session_factory() as session:
+            entries = episodic.search_pour_agent(
+                session, query, limit=n_results, project_id=project_id,
+            )
+            return [
+                {
+                    "id": e.id,
+                    "type": e.type,
+                    "content": e.content,
+                    "tags": e.tags,
+                    "confidence": e.confidence,
+                    "project_id": e.project_id,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                    "source": "memory",
+                }
+                for e in entries
+            ]
 
     def permanent_memory(self) -> list[dict]:
         """Entries attached to no project — the §12 permanent level."""
@@ -106,6 +166,20 @@ class EchoAgent:
         loaded once before working on a project."""
         with self._session_factory() as session:
             return project_memory.project_brief(session, project_id)
+
+    def promouvoir(self, memory_id: str, *, par: str):
+        """Sortir une memoire de quarantaine (HOS-250).
+
+        Passe-plat vers `episodic.promouvoir`, comme les autres methodes
+        de cette classe : la regle et la transaction restent dans le
+        module de stockage, ou elles sont a un seul endroit.
+
+        **Pas d'outil MCP correspondant, delibere.** Une promotion
+        atteignable par l'agent serait une auto-promotion, et le modele
+        de confiance repose entierement sur le fait qu'elle ne l'est pas.
+        """
+        with self._session_factory() as session:
+            return episodic.promouvoir(session, memory_id, par=par)
 
     def forget(self, memory_id: str) -> bool:
         with self._session_factory() as session:

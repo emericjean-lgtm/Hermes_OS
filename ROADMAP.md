@@ -438,7 +438,15 @@ globale · notifications · Operator · palette de commandes · Mission DAG ·
 | Architecture plugin | un fichier, pas de manifeste ni de permissions |
 | Agent Room | embryon |
 | Agents CLI externes | `hermes_agent_cli` seul, pas d'abstraction |
-| Promotion mémoire | pas de quarantaine, donc rien à promouvoir |
+| Promotion mémoire | ✅ **Fait (HOS-249/250)** — la quarantaine couvrait la mémoire de travail et pas la mémoire persistante : `memory_remember` écrivait sans provenance et `memory_search` relisait sans filtre. `promouvoir()` publiait `memory.promoted` **sans rien écrire**. Un seul chemin persiste désormais, par l'API locale, jamais par MCP |
+
+Deux tests historiques restent volontairement rouges après HOS-249/250 —
+`test_memory_search_answers_without_the_document_index` et
+`test_mcp_server::test_project_id_filters_tasks_memory_and_messages`. Ils
+affirment les contrats d'avant (« une mémoire écrite par l'agent est
+relisible par l'agent », « `project_id` est une chaîne libre ») ; une
+passe dédiée les réécrira sur T-13 et T-16. Voir l'exception nommée dans
+`CLAUDE.md`.
 
 #### Ce qui manque vraiment
 

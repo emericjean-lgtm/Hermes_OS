@@ -107,14 +107,32 @@ class MemoryManager:
         return souvenir
 
     def promouvoir(self, souvenir: Any, par: str) -> Any:
-        """Sortir un souvenir de quarantaine, en nommant qui l'a décidé."""
+        """Sortir un souvenir de quarantaine, en nommant qui l'a décidé.
+
+        **Portée : la mémoire de travail volatile de ce gestionnaire.**
+        Un souvenir persistant (`memory.episodic.MemoryEntry`) ne se
+        promeut pas ici : sa provenance est calculée depuis ses colonnes,
+        et l'écrire demande une transaction. `episodic.promouvoir()` le
+        fait, et c'est le seul chemin qui persiste.
+
+        Levait un succès silencieux avant HOS-250 : l'affectation
+        échouait sur `AttributeError`, le repli cherchait un `metadata`
+        absent, rien n'était écrit — et `memory.promoted` était publié.
+        Une promotion qui ne promeut pas est pire qu'une absence de
+        promotion, parce qu'on la croit.
+        """
         promue = provenance_de(souvenir).promouvoir(par)
         try:
             souvenir.provenance = promue
         except AttributeError:
             meta = getattr(souvenir, "metadata", None)
-            if isinstance(meta, dict):
-                meta["provenance"] = promue
+            if not isinstance(meta, dict):
+                raise TypeError(
+                    f"{type(souvenir).__name__} ne peut pas porter une "
+                    "provenance promue ici. Une mémoire persistante se "
+                    "promeut par `backend.memory.episodic.promouvoir()`, "
+                    "qui écrit en base et relit le résultat.") from None
+            meta["provenance"] = promue
         if self._on_event:
             self._on_event("memory.promoted", {
                 "par": par, "origine": promue.origine.value})

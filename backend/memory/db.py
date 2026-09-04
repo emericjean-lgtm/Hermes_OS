@@ -113,7 +113,88 @@ def _add_missing_columns(engine: Engine) -> list[str]:
     return added
 
 
+def _projets_par_racine(connection) -> dict[str, str]:
+    """`root_path` → `projects.id`, pour les projets reellement connus.
+
+    Lu en SQL plutot qu'a travers `ProjectStore` : ce module est importe
+    par tout ce qui touche a la memoire, et lui donner une dependance vers
+    la couche projets creerait un cycle pour une lecture de deux colonnes.
+    """
+    try:
+        lignes = connection.execute(
+            text("SELECT id, root_path FROM projects WHERE root_path IS NOT NULL"))
+    except Exception:          # table absente : rien a resoudre
+        return {}
+    return {racine: identifiant for identifiant, racine in lignes if racine}
+
+
+def _migrer_les_projets_de_memoire(engine: Engine) -> list[str]:
+    """Convertir `memory_long.project_id` d'un chemin vers `projects.id`.
+
+    ## Pourquoi
+
+    Un chemin de fichiers n'est pas une identite metier : il casse au
+    premier deplacement, il est herite a tort par un projet recree au meme
+    endroit, et il expose l'arborescence de l'utilisateur dans une base
+    qui peut etre exportee. `projects.id` est un UUID, c'est deja ce que
+    `MissionContext.project_id` porte et ce qu'Aegis resout.
+
+    ## Ce qu'elle ne fait pas
+
+    **Elle ne devine rien.** Une ligne n'est convertie que si son
+    `project_id` est exactement le `root_path` d'un projet connu. Une
+    ligne qui ne resout pas est laissee telle quelle et **signalee** —
+    c'est le contrat d'Aegis sur le meme parametre, « don't fail open on
+    the unexpected », applique a une migration.
+
+    Elle ne touche ni au contenu, ni a la date, ni a `confidence`, ni a
+    la provenance. Une migration qui transformerait une provenance
+    inconnue en provenance connue serait une falsification.
+
+    ## Idempotence
+
+    Une ligne deja convertie porte un UUID, qui n'est le `root_path`
+    d'aucun projet : elle ne correspond plus a aucune cle et n'est donc
+    pas retouchee. Un second passage ne fait rien.
+    """
+    convertis: list[str] = []
+    with engine.begin() as connection:
+        try:
+            connection.execute(text("SELECT 1 FROM memory_long LIMIT 1"))
+        except Exception:      # table absente : rien a migrer
+            return convertis
+        par_racine = _projets_par_racine(connection)
+        if not par_racine:
+            return convertis
+
+        lignes = list(connection.execute(text(
+            "SELECT id, project_id FROM memory_long WHERE project_id IS NOT NULL")))
+        inconnus: list[str] = []
+        for identifiant, projet in lignes:
+            cible = par_racine.get(projet)
+            if cible is None:
+                if projet not in par_racine.values():
+                    inconnus.append(projet)
+                continue        # deja un UUID connu, ou non resolu
+            connection.execute(
+                text("UPDATE memory_long SET project_id = :cible WHERE id = :id"),
+                {"cible": cible, "id": identifiant})
+            convertis.append(identifiant)
+
+    if convertis:
+        logger.info("memory_long : %d entree(s) converties du chemin vers "
+                    "projects.id", len(convertis))
+    for projet in sorted(set(inconnus)) if lignes else []:
+        logger.warning(
+            "memory_long : project_id %r ne resout vers aucun projet connu — "
+            "laisse tel quel, jamais devine", projet)
+    return convertis
+
+
 def init_db(engine: Engine) -> None:
     _load_all_models()
     Base.metadata.create_all(engine)
     _add_missing_columns(engine)
+    # HOS-249 : apres les colonnes, les donnees. L'ordre compte — la
+    # migration lit `project_id`, qui doit exister.
+    _migrer_les_projets_de_memoire(engine)

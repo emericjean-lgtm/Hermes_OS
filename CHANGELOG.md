@@ -1,3 +1,73 @@
+## HOS-249, HOS-250 — La memoire de l'agent etait un fait des qu'il l'ecrivait (2026-09-04)
+
+Passes 15 et 16. Le jalon 2 (HOS-216) avait pose la quarantaine ; elle
+protegeait la memoire de travail et pas celle qui survit au redemarrage.
+
+### Le defaut, mesure
+
+`memory_remember` — l'outil MCP que l'agent appelle — ecrivait dans
+`memory_long` **sans provenance**, et `memory_search` relisait la table
+sans filtre. Une phrase lue sur une page web devenait donc, en un
+aller-retour, un fait que l'agent citait comme le sien. C'est le chemin
+exact par lequel une injection de prompt voyage, et il etait ouvert.
+
+Rien n'a eu besoin d'etre invente pour le fermer : `Provenance.depuis()`
+appliquait deja la regle, `filtrer()` existait, `ORIGINES_DE_CONFIANCE`
+excluait deja `AGENT` et `WEB`. Le travail a consiste a **appliquer ces
+politiques la ou elles manquaient**, pas a en ecrire de nouvelles.
+
+### `promouvoir()` annoncait un succes sans rien ecrire
+
+Trace ligne a ligne : `souvenir.provenance = promue` levait
+`AttributeError` (propriete calculee), le repli cherchait un `metadata`
+que `MemoryEntry` n'a pas, rien n'etait ecrit — et `memory.promoted`
+etait publie. Une promotion qui ne promeut pas est pire qu'une absence de
+promotion : on la croit. La facade leve desormais ; le seul chemin qui
+persiste est `episodic.promouvoir()`, qui commit, relit, et refuse le
+succes si la memoire est encore en quarantaine apres ecriture.
+
+Chemins de promotion persistante : **0 → 1**. Outils MCP d'elevation :
+**0 → 0**, et une garde AST le tient — `promu_par` n'est assigne qu'en un
+seul endroit du depot.
+
+### Ce que la promotion ne fait pas
+
+Elle ne change pas l'origine. Une memoire ecrite par l'agent reste
+`agent` pour toujours : `Provenance` separait deja « d'ou ca vient » de
+« ce qu'on en fait », donc `promu_par` renseigne suffit a basculer la
+seconde en laissant la premiere intacte. Sans quoi on ne saurait plus
+repondre, apres coup, a « d'ou venait cette information ? ».
+
+`promu_par` est **obligatoire et non vide**, et c'est une trace d'audit,
+pas une preuve : Hermes OS n'a aucun mecanisme d'identite humaine — son
+conventionnel d'accord humain existant, `POST /security/approvals/{id}`,
+n'en porte pas non plus. Ce qui fait foi est le **canal** : la route est
+servie par l'API locale et n'existe pas comme outil MCP. Aucune identite
+n'a ete inventee pour l'occasion.
+
+### Identite de projet
+
+`project_id` etait une chaine libre. Il est desormais l'identifiant
+canonique d'un projet enregistre ; un identifiant qui ne resout vers rien
+leve `ProjetInconnu` au lieu de rendre une liste vide — une liste vide se
+lit « ce projet n'a rien memorise », un refus se lit « ce projet n'existe
+pas ». Meme contrat qu'Aegis sur le meme parametre.
+
+Les lignes historiques sont migrees chemin → identifiant au demarrage,
+par jointure sur `root_path`. La migration ne devine rien : une ligne qui
+ne resout pas reste telle quelle avec un avertissement, et **aucune
+provenance inconnue n'est transformee en provenance connue**.
+
+### Deux tests historiques laisses rouges, delibere
+
+`test_memory_search_answers_without_the_document_index` et
+`test_mcp_server::test_project_id_filters_tasks_memory_and_messages`
+affirment les contrats d'avant — « une memoire ecrite par l'agent est
+relisible par l'agent » et « `project_id` est une chaine libre ». Ils ne
+sont pas casses : ils sont **perimes**. Ils sont laisses intacts et
+rouges, et une passe dediee les reecrira sur les contrats T-13 et T-16.
+Voir l'exception nommee dans `CLAUDE.md`.
+
 ## HOS-248 — Un budget que chaque noeud remettait a zero (2026-09-03)
 
 Passe 10. HOS-247 avait rendu le budget effectif ; il restait sans effet
