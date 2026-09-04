@@ -255,6 +255,23 @@ class GpuMonitor:
             return None
         vram_total_gb = max(sizes) / 1e9
 
+        # §6.2 / A-12 : **par processus, plus par adaptateur.**
+        #
+        # Mesuré au même instant sur la même carte, un modèle de 11,9 Gio
+        # résident :
+        #
+        #     GPU Adapter Memory\Dedicated Usage  ->  3,99 Gio
+        #     GPU Process Memory\Dedicated Usage  -> 12,70 Gio
+        #
+        # L'adaptateur sous-déclarait d'un facteur trois, et c'est cette
+        # valeur que le Cockpit affichait : « il reste de la place » là où
+        # il n'en restait pas. C'est le sens dangereux de l'erreur.
+        #
+        # Le compteur par processus est celui que
+        # `model_bench.gpu_dedicated_bytes` utilise déjà, et celui que
+        # `CLAUDE.md` désigne comme la seule occupation réelle — `/api/ps`
+        # ne porte que les poids, ni le cache KV ni les tampons de calcul.
+        #
         # GPU load + dedicated VRAM in use: Windows' own cross-vendor
         # performance counters (built in since Windows 10 1809, no
         # vendor tool needed). Summed across every adapter/process —
@@ -264,7 +281,7 @@ class GpuMonitor:
         used_output = self._run_command(
             [
                 "powershell", "-NoProfile", "-Command",
-                "(Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction Stop)"
+                "(Get-Counter '\\GPU Process Memory(*)\\Dedicated Usage' -ErrorAction Stop)"
                 ".CounterSamples | Measure-Object -Property CookedValue -Sum "
                 "| Select-Object -ExpandProperty Sum",
             ]

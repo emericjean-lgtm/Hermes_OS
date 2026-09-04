@@ -17,7 +17,7 @@
 | §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | ~~A-2~~ fermé · **fermer A-3** | Hermes OS |
 | §4 | Cloud / Providers / Quota | **🟡** | ~~A-1~~ fermé · **fermer A-10** | Hermes OS |
 | §5 | Runtime / RAL / Model Intelligence | 🟢 | aucune | Hermes OS |
-| §6 | Cognitive Scheduler / Resource Intelligence | 🟠 | audit de décision | AIOS ; Hermes Agent |
+| §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 audité · §6.2 livré · **R-3/R-4/R-6 ouverts** | AIOS ; Hermes Agent |
 | §7 | Advanced Agent Orchestration | 🟠 | audit de décision | Hermes Agent ; OpenHands ; Autonomous OS |
 | §8 | Memory Learning / Experience | 🟡 | analyse d'écart | Hermes Agent |
 | §9 | Mission Control / Operator Observability | 🟡 | analyse d'écart | Paperclip ; Hermes Agentic OS |
@@ -319,8 +319,29 @@ journalisée et le modèle servi atterrit dans le Ledger.
 
 ## §6 — Cognitive Scheduler / Resource Intelligence — 🟠 PLANNED
 
-**Section active.** Rien n'existe. Ce qui suit est un cadrage, pas un
-plan d'implémentation : la passe suivante doit d'abord **décider**.
+**§6.1 audité, §6.2 livré, la section reste ouverte.**
+
+L'audit §6.1 a trouvé que §6 n'était pas absent mais **fragmenté en
+quatre décisions locales qui ne se parlent pas** : le plafond de
+parallélisme, le budget de mission, l'admission VRAM, le courtier de
+quotas. La frontière retenue, sans autorité nouvelle :
+
+> Le **RAL** choisit *avec quoi* travailler. **`ResourceManager`** dit *si
+> la machine peut le porter*. **`Mission`** dit *combien de temps on a*.
+> **`QuotaBroker`** dit *si le fournisseur veut bien*.
+
+§6.2 (HOS-257) a fermé les trois MUST HAVE : l'admission couvre désormais
+le chemin agentique, la décision compte les réservations — deux
+réservations de 8 Gio ne passent plus sur une carte de 16 — et le
+compteur GPU du Cockpit lit par processus au lieu de par adaptateur, qui
+sous-déclarait d'un facteur trois.
+
+**Restent ouverts** : R-3 (parallélisme dérivé de la capacité plutôt que
+constante), R-4 (capacité globale entre missions concurrentes), R-6
+(comptabilité VRAM/CPU par mission), et A-15 (la source d'admission
+retombe sur `/api/ps` quand `rocm-smi` manque).
+
+Ce qui suit reste le cadrage d'origine.
 
 ### §6.1 — Capability routing
 `tâche → capacités requises → runtimes/modèles/agents disponibles → route`.

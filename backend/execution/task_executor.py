@@ -744,10 +744,27 @@ class RealTaskExecutor:
             boucle_d_outils = True
 
         started = time.perf_counter()
+        allocation = None
         try:
             active_chat = self._cloud_chat if use_cloud else chat
-            if not use_cloud and runtime_id != "hermes-agent":
-                self._check_vram_admission(model)
+            if not use_cloud:
+                # §6.2 / R-1 : **plus d'exception pour le chemin agentique.**
+                #
+                # `runtime_id != "hermes-agent"` excluait précisément le
+                # consommateur le plus lourd : un processus complet qui
+                # charge un modèle et enchaîne jusqu'à douze tours sur la
+                # même carte. Le chemin normal d'une mission liée à un
+                # workspace passe par là — c'est-à-dire le cas courant.
+                #
+                # Ici et pas dans les adaptateurs : `_hermes_agent_chat_for`
+                # rend une fermeture qui couvre **les deux** harnais, le
+                # jetable (`hermes_agent_cli`) et le persistant (ACP). Une
+                # porte par adaptateur en aurait fait deux, et le troisième
+                # serait né sans.
+                modele_admis = (
+                    self._agentic_model(model, str(getattr(task, "task_type", "") or ""))
+                    if runtime_id == "hermes-agent" else model)
+                allocation = self._admettre_et_reserver(modele_admis)
             # Les racines ne partent qu'au chemin cloud : c'est le seul
             # où quelque chose sort de la machine, et les ajouter au
             # chemin local casserait les appelants qui injectent leur
@@ -829,6 +846,13 @@ class RealTaskExecutor:
                     f"runtime {runtime_id!r} could not execute task "
                     f"{getattr(task, 'task_id', '?')}: {type(exc).__name__}: {exc}"
                 ) from exc
+        finally:
+            # §6.2 : toutes les sorties passent ici — succès, exception,
+            # délai dépassé, annulation, repli cloud. Une réservation qui
+            # survit à sa tâche condamne la capacité pour les suivantes,
+            # et rien ne viendrait la reprendre : le gestionnaire n'a pas
+            # d'expiration.
+            self._liberer(allocation)
 
         duration_ms = (time.perf_counter() - started) * 1000.0
         content, meta = self._read_response(response)
@@ -1372,6 +1396,66 @@ class RealTaskExecutor:
             except Exception:
                 logger.warning("local_fallback_for a échoué", exc_info=True)
         return None
+
+    def _admettre_et_reserver(self, model: str):
+        """Attendre la place, puis **la retenir** avant de lancer (§6.2).
+
+        ## Pourquoi vérifier ne suffisait pas
+
+        `_check_vram_admission` demandait « y a-t-il la place ? » et
+        lançait. Entre les deux, rien ne retenait quoi que ce soit : deux
+        nœuds parallèles obtenaient la même réponse sur le même compteur
+        physique, puis chargeaient tous les deux.
+
+        `reserve_resources` existait et n'avait aucun appelant hors d'une
+        route HTTP. Le brancher tel quel n'aurait rien réglé : la décision
+        ignorait `_allocations` — mesuré, deux réservations de 8 Gio
+        passaient sur une carte de 16 dont 2 déjà pris. Le compte des
+        réservations a été ajouté au même endroit que la décision.
+
+        ## La séquence, sans fenêtre
+
+            admission (attente + éviction si besoin)
+              └─ réservation, sous le verrou du gestionnaire
+                   └─ lancement
+
+        La réservation refait le contrôle **sous verrou** : entre la fin de
+        l'attente et l'enregistrement, personne ne peut s'intercaler. Si
+        elle échoue malgré l'attente, on refuse — aucun lancement.
+
+        Rend l'identifiant d'allocation, ou `None` quand il n'y a rien à
+        réserver (pas de gestionnaire, pas d'estimation, GPU absent).
+        """
+        if self._resource_manager is None or self._vram_gb_for is None:
+            return None
+        self._check_vram_admission(model)
+        try:
+            vram_gb = self._vram_gb_for(model)
+        except Exception:
+            return None
+        if not vram_gb or vram_gb <= 0:
+            return None
+
+        resultat = self._resource_manager.reserve_resources(
+            int(vram_gb * 1024 ** 3), "ollama", model_name=model)
+        if not resultat.success:
+            raise RuntimeUnavailableError(
+                f"réservation refusée pour {model!r} "
+                f"({vram_gb:.1f} Gio) : {resultat.reason or 'capacité insuffisante'}")
+        return getattr(resultat.allocation, "allocation_id", None)
+
+    def _liberer(self, allocation) -> None:
+        """Rendre la capacité, quoi qu'il soit arrivé.
+
+        Ne lève jamais : une libération qui échoue ne doit pas masquer
+        l'erreur qui a mené jusqu'ici, ni transformer un succès en échec.
+        """
+        if allocation is None or self._resource_manager is None:
+            return
+        try:
+            self._resource_manager.release_resources(allocation)
+        except Exception:  # pragma: no cover - le gestionnaire a disparu
+            logger.debug("libération de %s impossible", allocation, exc_info=True)
 
     def _check_vram_admission(self, model: str) -> None:
         """Wait for real VRAM headroom before starting local inference

@@ -1,3 +1,93 @@
+## HOS-257 — Verifier n'est pas reserver (2026-09-04)
+
+§6.2. Trois defauts MUST HAVE de l'audit §6.1, fermes ensemble parce
+qu'ils sont le meme defaut vu de trois cotes : une decision de ressource
+prise sur une mesure incomplete.
+
+### R-1 — le chemin le plus lourd etait le seul non controle
+
+`task_executor` portait `if not use_cloud and runtime_id !=
+"hermes-agent"`. L'exception visait precisement le consommateur le plus
+lourd : un processus complet qui charge un modele et enchaine jusqu'a
+douze tours sur la meme carte. Une simple completion avait une admission,
+un agent n'en avait pas — et l'agent est le chemin **normal** d'une
+mission liee a un workspace.
+
+La porte est posee la ou les deux harnais convergent :
+`_hermes_agent_chat_for` rend une fermeture qui couvre le jetable
+(`hermes_agent_cli`) comme le persistant (ACP). Une porte par adaptateur
+en aurait fait deux, et le troisieme serait ne sans.
+
+### R-2 / A-13 — le verrou n'etait pas le probleme
+
+`reserve_resources` existait sans appelant hors d'une route HTTP. Le
+brancher tel quel n'aurait **rien regle** : la decision ignorait
+`self._allocations`. Mesure avant correction, carte simulee de 16 Gio
+dont 2 deja pris :
+
+    reserve(8 Gio) -> True
+    reserve(8 Gio) -> True        18 Gio promis sur 16
+
+Le verrou serialisait bien deux decisions — mais chacune lisait un
+compteur physique que la premiere n'avait pas fait bouger, un modele
+reserve n'occupant la VRAM qu'une fois **charge**. Le compte des
+reservations est donc entre dans la decision, au meme endroit qu'elle.
+
+Consequence assumee : une fois le modele charge, sa consommation est
+comptee deux fois — compteur physique **et** reservation — jusqu'a la
+liberation. On refuse parfois une allocation qui aurait tenu, jamais
+l'inverse. Meme prudence que `_check_vram_admission` : « occasionally
+waiting when the model was already loaded, never the other way around ».
+
+La liberation est dans un `finally` : succes, exception, delai depasse,
+annulation, repli cloud. Une reservation qui survit a sa tache condamne
+la capacite, et rien ne viendrait la reprendre — le gestionnaire n'a pas
+d'expiration.
+
+### A-12 — et le rapport §6.1 avait la conclusion a l'envers
+
+L'audit §6.1 affirmait que l'admission lisait la bonne source et le
+Cockpit la mauvaise. **C'etait l'inverse de ce que la mesure dit**, et je
+l'avais deduit du fait que l'admission refusait, sans verifier ce que
+chacune lisait.
+
+Mesure, meme instant, meme carte, un modele de 11,9 Gio resident :
+
+    GPU Adapter Memory\Dedicated Usage   ->  3,99 Gio   <- le Cockpit
+    GPU Process Memory\Dedicated Usage   -> 12,70 Gio   <- la verite
+    /api/ps (somme size_vram)            -> 12,80 Gio   <- l'admission
+
+Le compteur **par adaptateur** sous-declarait d'un facteur trois, dans le
+sens dangereux — celui qui fait croire qu'il reste de la place. Le
+compteur **par processus** est celui que `model_bench.gpu_dedicated_bytes`
+utilise deja et que `CLAUDE.md` designe comme la seule occupation reelle.
+Le moniteur systeme le lit desormais : la carte affiche 14,08 / 17,16 Gio
+la ou elle annoncait 4,28.
+
+`/api/ps` reste ce qu'il est — les poids des modeles residents, sans le
+cache KV ni les tampons — et garde son role d'information sur les modeles
+charges. Il n'est pas presente comme une mesure de la VRAM physique.
+
+### Ce qui n'est pas ferme
+
+La source de l'**admission** reste `/api/ps` quand `rocm-smi` est absent,
+ce qui est le cas sur cette machine. C'est une mesure des poids seuls :
+elle sous-estime par construction. Canoniser une source demande de
+decider ce que `ResourceManager` lit quand `rocm-smi` manque, et cette
+decision n'a pas ete prise ici. Consigne **A-15**.
+
+### Les mutations, dont une qui a demasque une assertion morte
+
+Cinq mutations, cinq rouges. La premiere n'a d'abord fait rougir que deux
+tests sur trois : la garde structurelle cherchait
+`runtime_id != "hermes-agent"` avec des guillemets doubles dans un texte
+produit par `ast.unparse`, **qui les normalise en simples**. L'assertion
+ne pouvait donc jamais correspondre. Corrigee, la mutation la fait rougir.
+
+C'est le troisieme garde-fou de cette serie de passes dont une mutation
+revele qu'il ne gardait rien. Le motif est constant : une assertion
+ecrite sur une **forme** plutot que sur une propriete.
+
 ## HOS-256 — Deux protections declarees, jamais appelees (2026-09-04)
 
 Fermeture de A-2, second defaut P1 de l'audit global J25.

@@ -138,8 +138,15 @@ def _windows_run_command(args: list[str]) -> str | None:
     script = args[-1]
     if "HardwareInformation.qwMemorySize" in script:
         return _WIN_REGISTRY_VRAM
-    if "GPU Adapter Memory" in script:
+    # §6.2 / A-12 : le compteur **par processus** remplace celui par
+    # adaptateur, qui sous-déclarait d'un facteur trois — 3,99 Gio annoncés
+    # quand les processus en détenaient 12,70 sur la même carte.
+    if "GPU Process Memory" in script:
         return _WIN_GPU_USED
+    if "GPU Adapter Memory" in script:
+        raise AssertionError(
+            "le compteur par adaptateur est de retour : il sous-déclare la "
+            "VRAM réellement occupée")
     if "GPU Engine" in script:
         return _WIN_GPU_LOAD
     if "Win32_Processor" in script:

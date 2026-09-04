@@ -9,8 +9,8 @@
 
 ```
 CURRENT_SECTION:      §6 — Cognitive Scheduler / Resource Intelligence
-CURRENT_SUBSECTION:   §6.1 — Capability routing
-CURRENT_STATUS:       🟠 PLANNED
+CURRENT_SUBSECTION:   §6.3 — Parallélisme dérivé de la capacité (R-3)
+CURRENT_STATUS:       🟡 §6.1 audité · §6.2 livré (HOS-257)
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
@@ -21,6 +21,7 @@ LAST_AUDIT:                    J25 — audit global final indépendant
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                inévitable par construction
                                A-2 fermé (HOS-256) — HOS-217/218 câblés
+                               §6.2 livré (HOS-257) — admission + réservation
 ```
 
 `CURRENT_SECTION: §6` signifie **« §6 est le prochain chantier »**, pas
@@ -56,6 +57,7 @@ avant que le contrat soit tranché.
 |---|---|---|
 | ~~Contournement du pare-feu cloud (A-1)~~ — **fermé HOS-255** | security | §4 |
 | Le pare-feu ignore `sk-or-v1-…` (A-10) | security | §4 |
+| Source d'admission = `/api/ps` sans `rocm-smi` (A-15) | architectural | §6 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
 | Points de reprise pris et jamais restaurables (A-3) | functional | §3 |
 | Portée projet MCP validée mais non autorisée (A-4) | security | §8 / §10 |

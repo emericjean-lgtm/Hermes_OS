@@ -5,6 +5,8 @@ Central orchestrator for resource monitoring, allocation, and event publishing.
 
 from __future__ import annotations
 
+import dataclasses
+
 import threading
 from typing import Callable, Optional
 
@@ -109,6 +111,17 @@ class ResourceManager:
 
     # ── Allocation ─────────────────────────────────────────
 
+    def _octets_reserves(self, resource_type: ResourceType) -> int:
+        """Ce qui est promis et pas encore visible sur le compteur physique.
+
+        Lu sans verrou : `reserve_resources` tient déjà `self._lock` quand
+        il appelle `can_allocate`, et ce verrou n'est pas réentrant. La
+        lecture d'un `dict` sous le GIL ne corrompt rien, et la décision
+        qui compte — celle qui enregistre — est bien sérialisée.
+        """
+        return sum(a.bytes_requested for a in self._allocations.values()
+                   if not a.released and a.resource_type is resource_type)
+
     def can_allocate(
         self,
         bytes_requested: int,
@@ -117,14 +130,58 @@ class ResourceManager:
         model_name: Optional[str] = None,
         priority: int = 0,
     ) -> ResourceAllocationResult:
-        """Check if a resource allocation is possible."""
+        """Cette allocation est-elle possible, réservations comprises ?
+
+        ## Le défaut que ce compte corrige (§6.2, A-13)
+
+        La décision se prenait sur le **seul compteur physique**, sans
+        jamais regarder `self._allocations`. Mesuré sur une carte simulée
+        de 16 Gio dont 2 déjà pris : deux réservations de 8 Gio passaient
+        toutes les deux — 18 Gio promis sur 16 disponibles.
+
+        `reserve_resources` tient pourtant un verrou. Le verrou n'était pas
+        le problème : il sérialisait deux décisions qui, chacune, lisaient
+        un compteur que la première n'avait pas encore fait bouger. Un
+        modèle réservé n'occupe la VRAM qu'une fois **chargé**, et le
+        chargement vient après.
+
+        ## Ce que le compte coûte, et dans quel sens
+
+        Une fois le modèle chargé, sa consommation apparaît sur le compteur
+        physique **et** reste comptée dans la réservation : elle est donc
+        comptée deux fois jusqu'à la libération. On refuse ainsi parfois
+        une allocation qui aurait tenu — **jamais l'inverse**. C'est la
+        même prudence assumée que `_check_vram_admission` : « occasionally
+        waiting when the model was already loaded, never the other way
+        around ».
+        """
         gpu = self.get_gpu_info()
-        snapshot = self.get_memory_snapshot() if resource_type == ResourceType.RAM else ResourceSnapshot(
-            resource_type=ResourceType.VRAM,
-            total_bytes=gpu.vram_total_bytes,
-            used_bytes=gpu.vram_used_bytes,
-            free_bytes=gpu.vram_free_bytes,
-        )
+        reserves = self._octets_reserves(resource_type)
+
+        if resource_type == ResourceType.RAM:
+            base = self.get_memory_snapshot()
+            snapshot = ResourceSnapshot(
+                resource_type=ResourceType.RAM,
+                total_bytes=base.total_bytes,
+                used_bytes=base.used_bytes + reserves,
+                free_bytes=max(0, base.free_bytes - reserves),
+            )
+        else:
+            snapshot = ResourceSnapshot(
+                resource_type=ResourceType.VRAM,
+                total_bytes=gpu.vram_total_bytes,
+                used_bytes=gpu.vram_used_bytes + reserves,
+                free_bytes=max(0, gpu.vram_free_bytes - reserves),
+            )
+            # La politique lit la VRAM sur `gpu_info`, pas sur le snapshot :
+            # il faut donc lui présenter la même vue augmentée, sans quoi
+            # le compte des réservations resterait sans effet.
+            gpu = dataclasses.replace(
+                gpu,
+                vram_used_bytes=gpu.vram_used_bytes + reserves,
+                vram_free_bytes=max(0, gpu.vram_free_bytes - reserves),
+            )
+
         return self._policy.can_allocate(
             snapshot, gpu, bytes_requested, runtime_id, model_name, priority
         )
