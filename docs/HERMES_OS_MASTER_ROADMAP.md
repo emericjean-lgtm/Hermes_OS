@@ -15,7 +15,7 @@
 | §1 | Contract & Verification | 🟢 | aucune | Hermes OS |
 | §2 | Run Ledger & Execution Lineage | 🟢 | aucune | Hermes OS |
 | §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | **fermer A-2, A-3** | Hermes OS |
-| §4 | Cloud / Providers / Quota | **🟡** | **fermer A-1** | Hermes OS |
+| §4 | Cloud / Providers / Quota | **🟡** | ~~A-1~~ fermé · **fermer A-10** | Hermes OS |
 | §5 | Runtime / RAL / Model Intelligence | 🟢 | aucune | Hermes OS |
 | §6 | Cognitive Scheduler / Resource Intelligence | 🟠 | audit de décision | AIOS ; Hermes Agent |
 | §7 | Advanced Agent Orchestration | 🟠 | audit de décision | Hermes Agent ; OpenHands ; Autonomous OS |
@@ -246,7 +246,21 @@ la restauration des points de reprise : l'exposer, ou cesser d'en prendre.
 - `CloudCapability` dans le RAL, `QuotaBroker` tri-état, taxonomie
   d'échecs.
 
-**Ce qui l'empêche d'être 🟢 — A-1.**
+**A-1 — fermé le 2026-09-04 (HOS-255).** La garde vit désormais dans
+`OpenRouterClient.chat` et `chat_events`, c'est-à-dire là où est la
+socket : tout appelant y passe par construction. Router les replis vers
+`_cloud_chat` était impossible sans perdre le streaming de `BaseAgent`.
+Une liste blanche structurelle de fichiers autorisés à parler à
+OpenRouter empêche la réapparition d'un troisième chemin. Le goulet garde
+courtier, quota et publication. Trois mutations vérifiées.
+
+**Ce qui l'empêche encore d'être 🟢 — A-10.** Le pare-feu reconnaît
+`sk-…` comme secret et **ignore `sk-or-v1-…`**, le format de clé
+d'OpenRouter lui-même — mesuré. Défaut de **détection**, distinct du
+défaut de **routage** que A-1 était. Le corriger touche aux motifs et
+peut produire des faux positifs bloquants : passe dédiée.
+
+<details><summary>A-1 — le défaut tel qu'il était (conservé)</summary>
 
 Le commentaire de `_cloud_chat` affirme : *« c'est le seul passage par
 lequel un prompt part chez un tiers »*. **Faux, mesuré :**
@@ -264,11 +278,10 @@ condition de routine sur ce matériel. La fuite que HOS-227 décrit dans sa
 propre docstring — le chemin absolu du workspace, donc le nom de
 l'utilisateur et de son client — repart par ces deux chemins, non filtrée.
 
-`OPENROUTER_API_KEY` n'étant pas posée sur cette machine, le chemin est
-**inerte ici** et s'active par configuration seule.
+`OPENROUTER_API_KEY` n'étant pas posée sur cette machine, le chemin était
+**inerte** et s'activait par configuration seule.
 
-**Prochaine action.** Router les deux replis par `_cloud_chat`, ou
-interdire le repli distant hors du goulet.
+</details>
 
 ---
 
@@ -519,7 +532,8 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 
 | ID | Classe | Gap | Section | Preuve |
 |---|---|---|---|---|
-| A-1 | **security** | Deux chemins envoient un prompt cloud sans pare-feu | §4 | `base_agent.py:279`, `task_decomposer.py:489`, `grep -c pare_feu = 0` |
+| ~~A-1~~ | **security** | ~~Deux chemins envoient un prompt cloud sans pare-feu~~ — **fermé HOS-255** | §4 | garde dans `OpenRouterClient`, liste blanche structurelle, 3 mutations |
+| **A-10** | **security** | Le pare-feu ignore `sk-or-v1-…`, le format de clé d'OpenRouter | §4 | mesuré : `sk-…` → refusé ; `sk-or-v1-…` → autorisé, aucun constat |
 | A-2 | **security** | HOS-217/218 livrés, testés, **0 appelant** | §3 | 0 référence hors module pour toute leur API |
 | A-3 | **functional** | Points de reprise pris, jamais restaurables | §3 | `prendre` 1 appelant, `restaurer` 0, aucune route |
 | A-4 | **security** | Portée projet MCP validée, non **autorisée** | §8/§10 | `_projet_resolu` vérifie l'existence seule ; le `project_id` vient du texte du modèle |
@@ -612,7 +626,8 @@ des passes ne sont pas reconstituées.
 | T-20 | 2026-09-04 | Isolation des tests | ADAPT | l'isolation existait, sa vérification non | garde-fou négatif au conftest | HOS-252 | 🟢 appliqué |
 | T-21 | 2026-09-04 | Mission ↔ Run Ledger | ADOPT | un journal dont les lignes s'effacent avec leur sujet n'est plus un journal | pas de cascade ; l'absence de mission n'est pas une `Cause` | HOS-253 | 🟢 appliqué |
 | **T-22** | — | §6.1 — autorité d'ordonnancement | **ouvert** | un ordonnanceur est par nature une seconde autorité au-dessus du RAL | à trancher **avant** toute ligne de §6 | §6 | 🟠 à décider |
-| **T-23** | — | A-1 — replis cloud hors pare-feu | **ouvert** | le goulet prétend être seul et ne l'est pas | router ou interdire | §4 | 🔴 bloquant |
+| T-23 | 2026-09-04 | A-1 — replis cloud hors pare-feu | **ADAPT** | le goulet prétendait être seul et ne l'était pas ; le router était impossible sans perdre le streaming | garde dans le client, autorité inchangée | HOS-255 | 🟢 appliqué |
+| **T-27** | — | A-10 — motifs de détection du pare-feu | **ouvert** | il ignore le format de clé de son propre fournisseur | élargir les motifs sans produire de faux positifs bloquants | §4 | 🟠 à décider |
 | **T-24** | — | A-2 — contrôles de sécurité non câblés | **ouvert** | posture de sécurité imaginaire | câbler ou retirer le ✅ | §3 | 🔴 bloquant |
 | **T-25** | — | A-3 — restauration des points de reprise | **ouvert** | on prend ce qu'on ne sait pas rendre | exposer ou cesser de prendre | §3 | 🟠 à décider |
 | **T-26** | — | A-4 — habilitation de portée projet | **ouvert** | l'isolation repose sur la bonne foi du modèle | modèle d'habilitation à définir | §8 | 🟠 à décider |

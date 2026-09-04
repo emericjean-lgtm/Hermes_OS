@@ -117,17 +117,78 @@ class OpenRouterClient:
 
     # ── chat ─────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _filtrer(messages: list[dict[str, Any]],
+                 racines: "list[str] | None") -> list[dict[str, Any]]:
+        """Le pare-feu de données, appliqué **ici** (HOS-255, A-1).
+
+        ## Pourquoi dans le client, et pas seulement au-dessus
+
+        `_make_cloud_chat` examinait déjà avant d'envoyer, et son
+        commentaire affirmait être « le seul passage par lequel un prompt
+        part chez un tiers ». C'était faux, mesuré : `BaseAgent`
+        (`base_agent.py:279`) et `TaskDecomposer`
+        (`task_decomposer.py:489`) détiennent chacun un client et
+        l'appellent directement en repli d'une panne locale — HOS-066C
+        précède HOS-227 et n'a jamais été routé à travers lui. Ni l'un ni
+        l'autre ne contenait une seule occurrence de `pare_feu`.
+
+        Les router vers `_make_cloud_chat` était le premier réflexe et il
+        ne tient pas : ce goulet est **non-streaming** et rend une réponse
+        complète, alors que `BaseAgent` diffuse. L'y forcer aurait fait
+        arriver chaque réponse d'un bloc — une régression fonctionnelle
+        pour fermer un trou de sécurité.
+
+        La garde vit donc là où est la socket. Toute méthode de cette
+        classe qui parle à OpenRouter y passe, présent et futur appelant
+        confondus, et il n'y a **pas de second pare-feu** : c'est le même
+        `pare_feu.examiner`, la même et unique autorité.
+
+        ## Ce que le goulet garde
+
+        `_make_cloud_chat` conserve son rôle entier — publication de la
+        décision, courtier, quota, disjoncteur. Il examine avant d'appeler
+        et cette classe réexamine : mesuré idempotent, un texte déjà
+        caviardé rend `AUTORISE` sans constat et sans modification. Le
+        coût est un second passage sur du texte propre ; le gain est qu'un
+        appelant qui ne connaît pas le goulet ne peut plus rien envoyer.
+
+        `racines` reste optionnel parce que tous les appelants ne
+        connaissent pas les racines de workspace : le goulet les passe,
+        un repli d'agent n'en a pas. Sans elles, le caviardage des chemins
+        internes repose sur les motifs seuls — moins précis, jamais nul.
+        """
+        from backend.security import pare_feu
+
+        decision = pare_feu.examiner(messages, racines=racines or [])
+        if not decision.envoyable:
+            # `OpenRouterUnavailableError` et non une exception neuve :
+            # tous les appelants savent déjà se replier sur le local
+            # dessus, et se replier sur le local est **exactement** ce
+            # qu'il faut faire quand le pare-feu refuse — le travail se
+            # fait, rien ne sort.
+            raise OpenRouterUnavailableError(
+                f"pare-feu de données : {decision.raison}")
+        return decision.messages
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
         *,
         model: str,
         num_ctx: int | None = None,
+        racines: list[str] | None = None,
     ) -> ChatResponse:
         """Non-streaming completion, capturing OpenRouter's own reported
         ``usage`` counters (real prompt/completion token counts — not the
         character-count estimate RealTaskExecutor falls back to when a
-        runtime doesn't report them)."""
+        runtime doesn't report them).
+
+        ``racines`` : les racines de workspace, quand l'appelant les
+        connaît, pour que le pare-feu caviarde les chemins internes — voir
+        ``_filtrer``.
+        """
+        messages = self._filtrer(messages, racines)
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -186,6 +247,7 @@ class OpenRouterClient:
         top_p: float | None = None,
         num_ctx: int | None = None,
         think: bool | None = None,
+        racines: list[str] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Streams via Server-Sent Events (``data: {...}`` lines, terminated
         by ``data: [DONE]``). ``num_ctx``/``think`` are accepted for
@@ -194,7 +256,12 @@ class OpenRouterClient:
         reasoning-token streaming is a per-model OpenRouter feature this
         client does not opt into, since its shape hasn't been verified) —
         both are silently ignored rather than guessed at.
+
+        ``racines`` : comme pour ``chat`` — voir ``_filtrer``. Le filtre
+        est appliqué **avant** la première requête, donc avant qu'un seul
+        octet parte, et non pendant le flux.
         """
+        messages = self._filtrer(messages, racines)
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,

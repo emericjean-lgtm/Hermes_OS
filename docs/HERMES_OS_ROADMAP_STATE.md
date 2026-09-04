@@ -18,6 +18,8 @@ LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
 BASELINE:                      528a0d37ac2fb323f338a68e325e69cdb192478e
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
+LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
+                               inévitable par construction
 ```
 
 `CURRENT_SECTION: §6` signifie **« §6 est le prochain chantier »**, pas
@@ -31,12 +33,15 @@ LAST_AUDIT:                    J25 — audit global final indépendant
 J25. Ce sont des corrections, pas des fonctionnalités, et elles touchent
 des sections déclarées terminées :
 
-1. **A-1** — deux chemins envoient un prompt à OpenRouter sans passer par
-   le pare-feu de données (`base_agent.py:279`,
-   `task_decomposer.py:489`). Bloque §4.
+1. ~~**A-1**~~ — **fermé le 2026-09-04 (HOS-255)**. La garde est dans
+   `OpenRouterClient`, donc inévitable ; une liste blanche structurelle
+   empêche un troisième chemin.
 2. **A-2** — `security/derive_workspace.py` et
    `security/surveillance_flux.py` sont implémentés, testés, déclarés
    ✅ *Fait* au ROADMAP, et n'ont **aucun appelant**. Bloque §3.
+3. **A-10** — trouvé en fermant A-1 : le pare-feu ignore `sk-or-v1-…`,
+   le format de clé d'OpenRouter. Défaut de détection, pas de routage.
+   Bloque §4.
 
 Puis : phase de décision §6.1 (capability routing), sans écrire de code
 avant que le contrat soit tranché.
@@ -47,7 +52,8 @@ avant que le contrat soit tranché.
 
 | Gap | Classe | Section |
 |---|---|---|
-| Contournement du pare-feu cloud (A-1) | security | §4 |
+| ~~Contournement du pare-feu cloud (A-1)~~ — **fermé HOS-255** | security | §4 |
+| Le pare-feu ignore `sk-or-v1-…` (A-10) | security | §4 |
 | Contrôles de sécurité non câblés (A-2) | security | §3 |
 | Points de reprise pris et jamais restaurables (A-3) | functional | §3 |
 | Portée projet MCP validée mais non autorisée (A-4) | security | §8 / §10 |

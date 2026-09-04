@@ -1,3 +1,91 @@
+## HOS-255 — Le goulet cloud n'etait pas le seul passage (2026-09-04)
+
+Fermeture de A-1, le premier des deux defauts P1 de l'audit global J25.
+
+### Ce que le commentaire affirmait, et ce que la mesure a dit
+
+`_make_cloud_chat` examine bien avant d'envoyer, et son commentaire
+disait : « c'est le seul passage par lequel un prompt part chez un
+tiers ». Faux, mesure :
+
+    base_agent.py:279        self._cloud_client.chat_events(model, messages, …)
+    task_decomposer.py:489   self._cloud_client.chat_events(model, messages, …)
+    grep -c pare_feu  ->  0  dans les deux fichiers
+
+HOS-066C a livre un repli de resilience — tente quand le flux local
+echoue avant d'avoir rendu un seul morceau — et il precede HOS-227
+d'assez loin pour n'avoir jamais ete route a travers lui. Le declencheur
+est une panne d'Ollama : sur ce materiel, une condition de routine. La
+fuite que HOS-227 decrit dans sa propre docstring — le chemin absolu du
+workspace, donc le nom de l'utilisateur et celui de son client —
+repartait par la, non filtree.
+
+### La cartographie avant de corriger
+
+L'audit signalait deux lignes. Les tracer toutes en a montre **quatre**
+fichiers qui parlent a OpenRouter :
+
+| fichier | ce qu'il envoie | verdict |
+|---|---|---|
+| `connectors/openrouter_client.py` | tout | le seul wrapper |
+| `ral/adapters/openrouter.py` | construit ce meme client | couvert |
+| `model_intelligence/benchmark_scheduler.py` | ses propres prompts **constants** | rien a examiner |
+| `model_intelligence/cloud_catalog.py` | `GET /models`, credits | n'envoie aucun message |
+
+Corriger les deux lignes signalees aurait laisse la question ouverte pour
+la suivante.
+
+### Pourquoi la garde est dans le client
+
+Router les deux replis vers `_make_cloud_chat` etait le premier reflexe.
+Il ne tient pas : **ce goulet est non-streaming** et rend une reponse
+complete, alors que `BaseAgent` diffuse. L'y forcer aurait fait arriver
+chaque reponse d'un bloc — une regression fonctionnelle pour fermer un
+trou de securite.
+
+La garde vit donc la ou est la socket : `OpenRouterClient.chat` et
+`chat_events`, les deux seules sorties de la seule classe qui parle a
+OpenRouter. `chat_stream` delegue a `chat_events` et en herite. Tout
+appelant present et futur y passe **par construction**, sans avoir a le
+savoir.
+
+**Aucun second pare-feu** : c'est le meme `pare_feu.examiner`, la meme et
+unique autorite. Le goulet garde son role entier — publication de la
+decision, courtier, quota, disjoncteur — et rien de la logique de quota
+n'a bouge. Le double examen est mesure idempotent : un texte deja
+caviarde rend `AUTORISE`, sans constat et sans modification.
+
+Un refus leve `OpenRouterUnavailableError`, deja comprise par tous les
+appelants comme « replie-toi sur le local ». C'est exactement ce qu'il
+faut faire quand le pare-feu refuse : le travail se fait, rien ne sort.
+
+### Le garde-fou, structurel
+
+Deux tests « le pare-feu a ete appele » n'auraient pas attrape A-1 : le
+defaut etait un **troisieme chemin** que personne n'avait pense a tester.
+La garde est donc une liste blanche de fichiers autorises a parler a
+OpenRouter, chacun avec sa raison ecrite. Un nouveau chemin la fait
+rougir tant qu'il n'y est pas ajoute delibarement.
+
+Mutations : filtre retire de `chat_events` -> 5 rouges ; retire de
+`chat()` -> 6 rouges ; un appel direct rouvert dans `base_agent` -> la
+garde structurelle rougit en nommant le fichier.
+
+### Un defaut de detection, trouve en chemin et **non corrige**
+
+Le pare-feu reconnait `sk-…` comme secret et **ignore `sk-or-v1-…`**, le
+format de cle d'OpenRouter lui-meme :
+
+    cle openrouter  -> autorise   aucun constat
+    cle openai      -> refuse     secret
+    chemin windows  -> caviarde   interne
+
+C'est un defaut de **detection**, distinct de A-1 qui etait un defaut de
+**routage**. Le fermer demande de toucher aux motifs, ce qui peut
+produire des faux positifs bloquant des envois legitimes : cela merite sa
+propre passe. Consigne comme A-10. Fermer A-1 ne signifie donc pas que le
+pare-feu voit tout — seulement qu'on ne peut plus le contourner.
+
 ## HOS-254 — Deux evenements que le Cockpit ne pouvait pas filtrer (2026-09-04)
 
 Passe 24, fermeture des ecarts releves par l'audit de consolidation.
