@@ -138,10 +138,22 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     "discovery.error",
     "discovery.new_models_found",
     # execution
+    # HOS-254 : emis par `mission_executor` sur le chemin du budget
+    # (`_refuser_pour_budget`) et absent d'ici jusqu'ici. Le hub le
+    # delivrait en avertissant, mais un abonne qui filtre par type — le
+    # Cockpit — ne voyait jamais qu'une mission s'etait arretee sur son
+    # budget. Meme famille que `mission.completed` (HOS-252) : un topic
+    # que la collecte AST des litteraux ne relie a aucun catalogue.
+    "execution.budget_depasse",
     "execution.completed",
     "execution.failed",
     "execution.optimized",
     "execution.planning",
+    # HOS-254 : emis quand la taxonomie juge une cause reprenable et que le
+    # plafond de tentatives n'est pas atteint. Comme le budget ci-dessus,
+    # il ne se produit que sur un chemin d'echec — c'est pourquoi le test
+    # de cablage, qui n'exercait que la trace nominale, ne l'avait pas vu.
+    "execution.retry",
     "execution.started",
     "execution.task_completed",
     "execution.task_started",

@@ -56,8 +56,16 @@ _aegis_engine: Optional[Any] = None
 #:   Un serveur qui tourne des semaines les garde toutes, avec leurs nœuds
 #:   et leurs `result_summary`.
 #:
-#: La persistance, elle, **reste à faire** : au redémarrage la liste est
-#: vide, et c'est écrit ici plutôt que sous-entendu.
+#: La persistance a été faite depuis, en deux temps : HOS-245 a rendu
+#: durable l'**existence** d'une mission — `MagasinMissions` est la source
+#: de vérité, ce cache n'est qu'une borne devant elle, et l'éviction ne
+#: perd plus rien — puis HOS-252 son **état**, en persistant les
+#: transitions déterminantes. Un redémarrage recharge donc l'une et
+#: l'autre.
+#:
+#: Ce commentaire disait encore le contraire jusqu'à HOS-254, douze lignes
+#: au-dessus d'une docstring qui affirmait l'inverse : le même fichier se
+#: contredisait, et c'est le premier des deux qu'un lecteur rencontre.
 #:
 #: 200 n'est pas une mesure. C'est un ordre de grandeur : bien au-delà de ce
 #: qu'une session d'usage produit, bien en deçà de ce qui pèse.

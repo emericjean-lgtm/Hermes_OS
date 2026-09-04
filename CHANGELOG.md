@@ -1,3 +1,80 @@
+## HOS-254 — Deux evenements que le Cockpit ne pouvait pas filtrer (2026-09-04)
+
+Passe 24, fermeture des ecarts releves par l'audit de consolidation.
+
+### Le defaut, et pourquoi le test de la passe 20 l'avait manque
+
+`execution.retry` et `execution.budget_depasse` sont publies par
+`mission_executor` et n'etaient dans aucun catalogue. Depuis HOS-066B le
+hub delivre un topic inconnu en avertissant plutot que de le jeter : rien
+n'etait perdu, mais **tout abonne qui filtre par type ne les voyait
+jamais** — precisement les deux signaux qu'un operateur cherche quand une
+mission se comporte mal, la reprise et le budget atteint.
+
+Le test de cablage de HOS-252 aurait du les trouver. Il ne visitait que la
+**trace nominale** : ces deux topics ne se produisent que sur des chemins
+d'exception. Un test de cablage qui ne visite qu'un chemin ne cable qu'un
+chemin.
+
+La verification de declaration est donc parametree sur quatre chemins
+reels — nominal, echec/reprise, annulation, budget — et la liste `CHEMINS`
+est desormais la vraie assertion : y ajouter un chemin qui publie un topic
+non catalogue rend le test rouge sans qu'on ait a le prevoir.
+
+Le chemin du budget passe par `MissionExecutor.prepare/execute_task`,
+c'est-a-dire le chemin de production de `POST /execution/start` ; la seule
+chose de test est la **valeur** du budget. Rien n'est publie
+artificiellement : c'est `_refuser_pour_budget` qui emet.
+
+Un second test garde le garde : si l'un des deux topics cessait d'etre
+emis, le test parametre resterait vert — il ne verifie que la declaration
+de ce qu'il voit.
+
+### Mutations
+
+- `execution.retry` retire du catalogue → 1 rouge, sur le chemin echec ;
+- `execution.budget_depasse` retire → 1 rouge, sur le chemin budget ;
+- les chemins d'exception retires de `CHEMINS`, **et** les deux topics
+  retires du catalogue → **8 verts**. C'est l'angle mort de la passe 20,
+  reproduit a la demande.
+
+### Un commentaire qui contredisait son propre fichier
+
+`mission/routes.py` affirmait encore que « la persistance reste a faire :
+au redemarrage la liste est vide », douze lignes au-dessus d'une docstring
+disant que `MagasinMissions` est la source de verite. HOS-245 avait rendu
+durable l'existence d'une mission, HOS-252 son etat. Le premier des deux
+textes est celui qu'un lecteur rencontre — et c'est ce genre d'ecart qui a
+fait batir une passe entiere sur un constat faux en passe 18.
+
+### `_memory_.db`
+
+Retire du depot, apres avoir etabli les faits plutot que de les supposer :
+
+- ajoute par `d5f4794`, avant HOS-215 ;
+- **deja migre** : le fichier identique (meme sha256, 45 056 octets) vit
+  dans la racine d'etat, sous `memoire/` ;
+- aucune table metier n'a de ligne — `goals`, `sessions`, `events`,
+  `metrics` sont vides ; il reste une table nommee `test` ;
+- aucun test n'en depend, aucune fixture ne le charge ;
+- la documentation ne le cite qu'au passe, comme exemple de ce qui vivait
+  dans le depot ;
+- `scripts/migrer_etat.py` le nomme dans sa table de demenagement et
+  **saute une source absente** — verifie en le relancant.
+
+L'entree du script reste : elle sert aux copies de travail anterieures a
+HOS-215, qui portent encore le fichier.
+
+En passe 23 j'avais ecrit « aucun code ne le nomme ». C'etait faux : je
+n'avais cherche que dans `backend/` et `frontend/src`. Le script de
+migration le nommait.
+
+### Ce qui n'a pas ete touche
+
+`data/db/hermes.db`, 17,7 Mio, non suivi et ignore par git, vestige
+d'avant HOS-215 : ce sont des donnees d'utilisateur, et leur sort est une
+decision separee.
+
 ## HOS-253 — Une mission peut disparaitre ; ce qu'elle a fait, non (2026-09-04)
 
 Passe 22, implementation de T-21. La plus petite de la serie, et

@@ -197,7 +197,75 @@ def test_chaque_topic_du_chemin_nominal_atteint_le_hub(rejets):
     assert rejets.rejets == []
 
 
-def test_les_topics_publies_sont_declares(rejets):
+def _trace_du_chemin_nominal():
+    hub, graphe = _chaine_reelle()
+    mission, noeuds, aretes = _mission_a_deux_noeuds()
+    graphe.build_graph(mission, noeuds, aretes)
+    graphe.start_mission(mission)
+    _marcher(graphe, mission)
+    return hub.vus
+
+
+def _trace_du_chemin_d_echec():
+    """Un runtime indisponible : la taxonomie juge la cause reprenable et
+    `mission_executor` publie `execution.retry`."""
+    hub, graphe = _chaine_reelle(_ExecuteurDeterministe(reussit=False))
+    mission, noeuds, aretes = _mission_a_deux_noeuds()
+    graphe.build_graph(mission, noeuds, aretes)
+    graphe.start_mission(mission)
+    _marcher(graphe, mission)
+    return hub.vus
+
+
+def _trace_de_l_annulation():
+    hub, graphe = _chaine_reelle()
+    mission, noeuds, aretes = _mission_a_deux_noeuds()
+    graphe.build_graph(mission, noeuds, aretes)
+    graphe.start_mission(mission)
+    graphe.cancel_mission(mission)
+    return hub.vus
+
+
+def _trace_du_budget():
+    """Le vrai chemin du budget, avec un budget de test minuscule.
+
+    `MissionExecutor.prepare/execute_task` est le chemin de production —
+    celui de `POST /execution/start` — et la seule chose de test ici est
+    la **valeur** du budget. Rien n'est publié artificiellement : c'est
+    `_refuser_pour_budget` qui émet, comme en mission réelle.
+    """
+    import time
+
+    from backend.execution.execution_models import ExecutionMeta, TaskExecution
+
+    hub = _HubObserve()
+    dispatcher = EventDispatcher(system_bus=None, event_hub=hub, source="test")
+    moteur = MissionExecutor(task_executor=_ExecuteurDeterministe(),
+                             on_event=dispatcher)
+    meta = ExecutionMeta(mission_id="budget", max_duration_seconds=0.001,
+                         max_retries_per_task=0)
+    sm = moteur.prepare(meta, [TaskExecution(task_id="t1", mission_id="budget")])
+    # Le budget se vérifie **avant** d'engager la tâche : il suffit qu'il
+    # soit consommé, et 1 ms l'est dès la construction terminée.
+    time.sleep(0.05)
+    moteur.execute_task(sm, "t1")
+    moteur.finalize(sm)
+    return hub.vus
+
+
+#: Les quatre chemins que le câblage doit couvrir. Nommés plutôt
+#: qu'implicites : c'est la liste qu'on étend quand un cinquième chemin
+#: publie quelque chose de nouveau.
+CHEMINS = {
+    "nominal": _trace_du_chemin_nominal,
+    "échec/retry": _trace_du_chemin_d_echec,
+    "annulation": _trace_de_l_annulation,
+    "budget": _trace_du_budget,
+}
+
+
+@pytest.mark.parametrize("chemin", sorted(CHEMINS))
+def test_les_topics_publies_sont_declares(rejets, chemin):
     """La dérive que le test historique cherchait, sous sa forme actuelle.
 
     Depuis HOS-066B le hub **délivre** un topic inconnu au lieu de le
@@ -208,17 +276,40 @@ def test_les_topics_publies_sont_declares(rejets):
     C'est ce test qui a trouvé `mission.completed` absent du catalogue :
     `graph_executor` le publie par une variable, invisible à la collecte
     AST des littéraux.
-    """
-    hub, graphe = _chaine_reelle()
-    mission, noeuds, aretes = _mission_a_deux_noeuds()
-    graphe.build_graph(mission, noeuds, aretes)
-    graphe.start_mission(mission)
-    _marcher(graphe, mission)
 
-    non_declares = sorted({t for t in hub.vus if t not in EVENT_TYPES})
+    ## Pourquoi il est paramétré depuis HOS-254
+
+    Il n'exerçait que la **trace nominale**. Deux topics ne se produisent
+    que sur des chemins d'exception — `execution.retry` quand la taxonomie
+    juge une cause reprenable, `execution.budget_depasse` quand une tâche
+    n'est pas engagée — et tous deux étaient publiés sans être catalogués,
+    donc invisibles à tout abonné qui filtre par type. Un test de câblage
+    qui ne visite qu'un chemin ne câble qu'un chemin.
+
+    La liste `CHEMINS` est la vraie assertion : ajouter un
+    `publish("execution.nouveau")` sur l'un d'eux rend ce test rouge sans
+    qu'on ait à le savoir à l'avance.
+    """
+    vus = CHEMINS[chemin]()
+
+    assert vus, f"le chemin {chemin!r} n'a publié aucun événement"
+    non_declares = sorted({t for t in vus if t not in EVENT_TYPES})
     assert non_declares == [], (
-        "topics publiés par du vrai code et absents de EVENT_TYPES — un "
-        f"abonné filtrant par type ne les verra jamais : {non_declares}")
+        f"chemin {chemin!r} : topics publiés par du vrai code et absents de "
+        f"EVENT_TYPES — un abonné filtrant par type ne les verra jamais : "
+        f"{non_declares}")
+
+
+def test_les_chemins_d_exception_publient_bien_ce_qu_on_croit():
+    """Le garde-fou du garde-fou.
+
+    Si `execution.retry` ou `execution.budget_depasse` cessaient d'être
+    émis, le test paramétré ci-dessus resterait vert — il ne vérifie que
+    la déclaration de ce qu'il voit. Ces deux assertions garantissent
+    qu'il voit bien quelque chose à vérifier.
+    """
+    assert "execution.retry" in _trace_du_chemin_d_echec()
+    assert "execution.budget_depasse" in _trace_du_budget()
 
 
 def test_le_chemin_d_echec_publie_aussi(rejets):
