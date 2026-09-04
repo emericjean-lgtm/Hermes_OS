@@ -541,8 +541,8 @@ que trois manques que j'avais classés « confort » sont des **contrôles**
 | **0** | ✅ **Fait le 2026-09-02** — deux arbres de tests réparés | voir I.5 | — |
 | 1 | ✅ **Fait (HOS-215)** — état hors du dépôt, 26,6 Mio migrés | 18 Mo de base, 8,2 de bus, 2,2 de snapshots dans le dépôt. Tout ce qui suit se construirait dans un dossier qu'une mise à jour efface | petit, bloquant |
 | 2 | ✅ **Fait (HOS-216)** — origine non humaine en quarantaine | défense contre l'injection de prompt ; une mémoire d'agent devient un fait immédiatement | petit |
-| 3 | ✅ **Fait (HOS-217)** — dix fichiers gouvernants surveillés | un agent peut planter des hooks ou un serveur MCP dans le dépôt qu'il traite | moyen |
-| 4 | ✅ **Fait (HOS-218)** — canary, report 512, silence, coût | répond à §14 et §22 d'un coup ; transposable presque tel quel | moyen |
+| 3 | ✅ **Fait (HOS-217)**, et **branché le 2026-09-04 (HOS-256)** sur la couture d'instantané de mission — livré en J3, il n'avait aucun appelant jusque-là | un agent peut planter des hooks ou un serveur MCP dans le dépôt qu'il traite | moyen |
+| 4 | ✅ **Fait (HOS-218)**, et **branché le 2026-09-04 (HOS-256)** sur les deux lanceurs d'agent — livré en J4, il n'avait aucun appelant jusque-là | répond à §14 et §22 d'un coup ; transposable presque tel quel | moyen |
 | 5 | ✅ **Fait (HOS-221)** — Contract tri-état + Run Ledger + lignée, branchés sur `MissionExecutor` | le manque le plus coûteux, démontré en production | 56 gardes |
 | 6 | ✅ **Fait (HOS-222)** — verdict tri-état, instantané qui sait dire qu'il n'a pas lu | un « on ne sait pas » n'est pas un « c'est bon » — ni un « c'est mauvais » | 19 gardes |
 | 7 | ✅ **Fait (HOS-223)** — commit détaché + repli vérifié, couplé à l'état de mission | Hermes ne savait pas annuler une modification | 28 gardes |

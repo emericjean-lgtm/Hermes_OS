@@ -54,6 +54,8 @@ import re
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from backend.security import surveillance_flux
 from typing import Any, Optional
 
 logger = logging.getLogger("hermes_os.ral.acp")
@@ -138,6 +140,30 @@ class Tour:
         return self.stop == "end_turn" and bool(self.texte.strip())
 
 
+def _surveiller(session: "SessionAgent", texte: str) -> None:
+    """Faire passer un morceau de sortie devant la surveillance (HOS-218).
+
+    Ne lève pas et ne coupe pas : le module l'a toujours dit — il
+    rapporte, la décision appartient à l'appelant. Ici l'appelant est une
+    session longue, et couper le processus au milieu d'un tour laisserait
+    une mission dans un état que personne ne sait lire.
+
+    Ce qu'on fait est donc : journaliser en `error`, publier, et **marquer
+    la session**. `_echanger` refuse ensuite d'en tirer un résultat — une
+    fuite constatée ne doit pas continuer d'alimenter le Ledger et le
+    relais de contexte.
+    """
+    garde = getattr(session, "garde", None)
+    if garde is None:
+        return
+    alerte = garde.bloc(texte)
+    if alerte is None:
+        return
+    session.fuite = alerte
+    logger.error("fuite détectée dans la sortie de l'agent : %s — %s",
+                 alerte.motif.value, alerte.detail)
+
+
 @dataclass
 class SessionAgent:
     """Une session ACP vivante. Un processus, plusieurs tours."""
@@ -151,6 +177,18 @@ class SessionAgent:
     #: dans `DEVNULL` a rendu invisible, une séance entière durant, un
     #: blocage que ses quatre dernières lignes expliquaient.
     journal: Any = field(default_factory=lambda: deque(maxlen=LIGNES_DE_JOURNAL))
+    #: La surveillance de flux de cette session (HOS-218, branchée en A-2).
+    #:
+    #: Une par session, et pas une par tour : `SurveillanceFlux` garde un
+    #: report de 512 caractères entre deux blocs, et c'est précisément ce
+    #: qui attrape un secret coupé en deux par la fragmentation du flux.
+    #: La recréer à chaque tour jetterait ce report.
+    garde: Any = None
+    #: Le témoin planté dans l'environnement de cette session.
+    canary: str = ""
+    #: L'alerte, si une fuite a été constatée. Une session marquée ne
+    #: rend plus de résultat : ce qu'elle produirait porterait le secret.
+    fuite: Any = None
     #: Le modèle actuellement servi par la session. Retenu pour ne pas
     #: rebasculer à chaque tour sur un modèle déjà en place : chaque bascule
     #: reconstruit l'agent côté Hermes Agent.
@@ -346,6 +384,7 @@ class HermesAgentACP:
         ok, raison = self.disponible()
         if not ok:
             raise RuntimeError(raison)
+        canary = surveillance_flux.fabriquer_canary()
         proc = await asyncio.create_subprocess_exec(
             # Jamais `-m acp_adapter` directement : le lanceur interdit aux
             # sous-processus de l'agent d'hériter du canal ACP, sans quoi le
@@ -359,12 +398,24 @@ class HermesAgentACP:
             # `config/hooks/garde_workspace.py`. Le terminal de l'agent ne
             # demande aucune permission : sans cette référence, le hook n'a
             # rien à quoi comparer et se tait.
-            env={**os.environ, "HERMES_OS_WORKSPACE": str(Path(cwd).resolve())},
+            # HOS-218, branché en A-2 : `{**os.environ}` donne au
+            # sous-processus **tout** l'environnement du parent — chaque
+            # secret de la machine. Le témoin y est planté sous un nom qui
+            # ressemble à un vrai secret, et sa réapparition dans la sortie
+            # prouve que l'agent lit son environnement et le recrache.
+            env=surveillance_flux.environnement_avec_canary(
+                {**os.environ, "HERMES_OS_WORKSPACE": str(Path(cwd).resolve())},
+                canary),
             # Sans quoi une notification JSON-RPC de plus de
             # 64 Kio fait perdre le tour. Voir `TAMPON_FLUX`.
             limit=TAMPON_FLUX,
         )
-        session = SessionAgent(cwd=cwd, proc=proc)
+        session = SessionAgent(cwd=cwd, proc=proc, canary=canary)
+        # HOS-218 : une surveillance par session, pour que le report de
+        # 512 caractères traverse les tours. `secrets_connus` reste vide
+        # ici — l'agent tient sa propre clé, que ce lanceur ne connaît
+        # pas ; le témoin, lui, suffit à dire « il lit son environnement ».
+        session.garde = surveillance_flux.SurveillanceFlux(canary=canary)
         session.journal_fichier = _fichier_de_journal(cwd)
         session.verrou = asyncio.Lock()
         session._lecteur = asyncio.create_task(self._suivre_journal(session))
@@ -492,6 +543,7 @@ class HermesAgentACP:
                 return
             texte = ligne.decode("utf-8", "replace").rstrip()
             if texte:
+                _surveiller(session, texte)
                 session.journal.append(texte)
                 logger.debug("agent: %s", texte)
                 _archiver(session, texte)
@@ -499,6 +551,14 @@ class HermesAgentACP:
     async def _echanger(self, session: SessionAgent, methode: str,
                         params: dict, delai: float, collecte: list, *,
                         au_fil_de_l_eau: Any = None) -> dict:
+        # HOS-218 : une session dont la sortie a déjà porté un secret ne
+        # sert plus. Refuser ici plutôt qu'au tour suivant : ce qu'elle
+        # rendrait entrerait dans le Run Ledger et dans le prompt suivant.
+        if getattr(session, "fuite", None) is not None:
+            raise RuntimeError(
+                "session refusée : une fuite a été détectée dans la sortie "
+                f"de l'agent ({session.fuite.motif.value} — "
+                f"{session.fuite.detail})")
         session.compteur += 1
         identifiant = session.compteur
         message = {"jsonrpc": "2.0", "id": identifiant,
@@ -519,8 +579,10 @@ class HermesAgentACP:
                 raise RuntimeError(
                     f"{methode} : flux fermé par l'agent"
                     f"{await _pourquoi_ferme(session)}")
+            brut = ligne.decode("utf-8", "replace")
+            _surveiller(session, brut)
             try:
-                recu = json.loads(ligne.decode("utf-8", "replace"))
+                recu = json.loads(brut)
             except json.JSONDecodeError:
                 continue
             if recu.get("method") and recu.get("id") is not None:

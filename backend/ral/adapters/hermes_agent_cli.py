@@ -44,6 +44,7 @@ from typing import Any
 
 from backend.ral.capabilities import ChatResponse, CapabilityInterface
 from backend.ral.event_bus import EventBusInterface, Topic
+from backend.security import surveillance_flux
 from backend.ral.runtime import CapabilitySet, RuntimeStatus
 
 
@@ -303,6 +304,20 @@ class HermesAgentCliChatCapability:
         env["HERMES_INFERENCE_MODEL"] = model
         env["PYTHONUTF8"] = "1"
 
+        # HOS-218, branché en A-2. `os.environ.copy()` donne au
+        # sous-processus **tout** l'environnement du parent — chaque
+        # secret de la machine — et sa sortie n'était examinée par rien.
+        # Le témoin est une fausse valeur, de la forme d'un secret, sous
+        # un nom qui ressemble à un vrai : un agent qui filtre son
+        # environnement sur des noms sensibles doit l'attraper aussi,
+        # sinon le témoin ne témoigne de rien.
+        #
+        # Ici plutôt qu'ailleurs parce que c'est le **seul** endroit où
+        # Hermes OS lance un agent : poser le témoin en amont laisserait
+        # un lanceur futur sans surveillance.
+        canary = surveillance_flux.fabriquer_canary()
+        env = surveillance_flux.environnement_avec_canary(env, canary)
+
         # ---------------------------------------------------------------
         # CLI command
         # ---------------------------------------------------------------
@@ -466,6 +481,28 @@ class HermesAgentCliChatCapability:
             errors="replace",
         )
 
+        # HOS-218 : la sortie, avant qu'elle ne serve à quoi que ce soit.
+        #
+        # Le processus est déjà terminé — la surveillance ne le tue pas,
+        # elle constate. Mais rendre un résultat qui contient un secret
+        # le ferait entrer dans le Run Ledger, dans le relais de contexte
+        # et dans le prompt suivant : la fuite se propagerait par les
+        # mécanismes mêmes qui servent à tracer. On refuse donc le
+        # résultat.
+        #
+        # `secrets_connus` porte la clé réellement passée au
+        # sous-processus : le témoin dit « il lit son environnement », la
+        # clé dit « il a recraché celle-là ». Les deux méritent d'être
+        # attrapés, et le module écarte de lui-même les valeurs trop
+        # courtes pour ne pas sonner sur une sortie normale.
+        alerte = self._surveiller_la_sortie(
+            canary, stdout, stderr, model=model, task_id=task_id)
+        if alerte is not None:
+            raise HermesAgentCliError(
+                f"fuite détectée dans la sortie de Hermes Agent : "
+                f"{alerte.detail}"
+            )
+
         session_id = (
             _extract_session_id(stdout)
             or str(
@@ -571,6 +608,40 @@ class HermesAgentCliChatCapability:
             content=content,
             metadata=metadata,
         )
+
+    def _surveiller_la_sortie(self, canary: str, stdout: str, stderr: str,
+                              *, model: str, task_id: str):
+        """Ce que l'agent a dit contenait-il ce qu'il n'aurait pas dû voir ?
+
+        Une seule poussée : le processus est terminé, on tient toute la
+        sortie. Le report de 512 caractères que `SurveillanceFlux` tient
+        entre deux blocs sert au flux ; ici il ne coûte rien et garde le
+        même code des deux côtés, plutôt qu'une seconde implémentation
+        « pour le cas non-streaming ».
+
+        Rend l'alerte, ou `None`. Ne décide pas : c'est l'appelant qui
+        refuse le résultat, comme le module l'a toujours demandé.
+        """
+        garde = surveillance_flux.SurveillanceFlux(
+            canary=canary,
+            secrets_connus=[self._config.api_key],
+        )
+        for morceau in (stdout, stderr):
+            alerte = garde.bloc(morceau)
+            if alerte is not None:
+                self._publish(
+                    Topic.TASK_FAILED,
+                    {
+                        "runtime": "hermes-agent",
+                        "model": model,
+                        "reason": "fuite_detectee",
+                        "motif": alerte.motif.value,
+                        "detail": alerte.detail,
+                        "task_id": task_id,
+                    },
+                )
+                return alerte
+        return None
 
     def _publish(
         self,

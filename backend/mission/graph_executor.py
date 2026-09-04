@@ -93,6 +93,12 @@ class GraphExecutor:
         # once at completion. Keyed by mission so concurrent missions cannot
         # read each other's baseline.
         self._snapshots: dict = {}
+        # HOS-217 : l'empreinte des fichiers gouvernants, prise au
+        # démarrage et consommée une fois à l'arrivée — même cycle de vie
+        # que `_snapshots` juste au-dessus, et clé par mission pour que
+        # deux missions concurrentes ne lisent pas la ligne de base l'une
+        # de l'autre.
+        self._gouvernants: dict = {}
         self._on_event = on_event
         self._execute_node = execute_node or (lambda n: True)
         #: Ce qui rend durable une transition déterminante (HOS-252).
@@ -435,9 +441,76 @@ class GraphExecutor:
             root = self._workspace_root(mission)
             if root:
                 self._snapshots[mission.mission_id] = snapshot(root)
+                self._relever_les_gouvernants(mission, root)
                 self._prendre_le_filet(mission, root)
         except Exception:  # pragma: no cover - diagnostics never block a run
             logger.debug("workspace snapshot failed", exc_info=True)
+
+    def _relever_les_gouvernants(self, mission: Mission, root: str) -> None:
+        """L'empreinte des fichiers qui gouvernent l'agent (HOS-217, A-2).
+
+        ## La menace, et pourquoi elle n'était couverte par rien
+
+        Le workspace contient des fichiers qui gouvernent l'agent
+        lui-même : `CLAUDE.md` porte des consignes qu'il lit, `.mcp.json`
+        déclare des serveurs d'outils, `.claude/hooks/` exécute du code.
+        Un dépôt cloné arrive avec les siens ; un agent qui travaille dans
+        le workspace peut écrire dans les siens et **élargir ses propres
+        permissions**.
+
+        Aegis ne l'attrape pas : sa liste blanche accorde la racine du
+        projet, et ces fichiers sont dedans. `file_tools._est_protege` non
+        plus — la liste `.hermes/proteges.txt` est déclarative, vit dans
+        le workspace, et sa docstring dit elle-même qu'elle « évite une
+        perte » et « n'est pas une frontière de sécurité ». Mesuré en A-2 :
+        aucun autre mécanisme ne traite ces dix fichiers spécialement.
+
+        ## Pourquoi ici
+
+        L'instantané de workspace est **déjà** pris à cet endroit et
+        confronté à l'arrivée. La dérive de gouvernance est la même
+        question — « qu'est-ce qui a changé pendant la mission ? » — posée
+        sur une liste de fichiers différente. La poser ailleurs aurait
+        créé un second moment de mesure là où il en existe un.
+
+        Aucune politique n'est inventée : le résultat entre dans le verdict
+        de vérification, qui a déjà ses consommateurs — `mission.metadata`,
+        `mission.unverified`, `_suggest_retry`. Le module l'a toujours
+        demandé : il mesure, quelqu'un d'autre tranche.
+        """
+        try:
+            from backend.security import derive_workspace
+
+            self._gouvernants[mission.mission_id] = derive_workspace.relever(root)
+        except Exception:  # pragma: no cover - un diagnostic ne bloque pas
+            logger.debug("relevé des fichiers gouvernants impossible", exc_info=True)
+
+    def _derive_des_gouvernants(self, mission: Mission, root: str) -> dict | None:
+        """Ce que les fichiers gouvernants sont devenus pendant la mission.
+
+        Rend `None` quand il n'y a rien à dire — pas de workspace, pas de
+        ligne de base. Un `None` se lit « non mesuré » ; un dictionnaire
+        avec `derive: false` se lit « mesuré, rien n'a bougé ». C'est la
+        règle tri-état de HOS-222, et elle vaut ici parce qu'un silence
+        se lirait comme une absence de dérive.
+        """
+        base = self._gouvernants.pop(mission.mission_id, None)
+        if base is None or not root:
+            return None
+        try:
+            from backend.security import derive_workspace
+
+            ecarts = derive_workspace.comparer(base, derive_workspace.relever(root))
+            return {
+                "derive": derive_workspace.a_derive(ecarts),
+                "resume": derive_workspace.resume(ecarts),
+                "ecarts": [{"chemin": e.chemin, "etat": e.etat.value}
+                           for e in ecarts],
+            }
+        except Exception:  # pragma: no cover
+            logger.debug("comparaison des fichiers gouvernants impossible",
+                         exc_info=True)
+            return None
 
     def _prendre_le_filet(self, mission: Mission, root: str) -> None:
         """Poser un point de reprise avant que la mission touche au disque.
@@ -541,6 +614,10 @@ class GraphExecutor:
             # disque (HOS-122).
             result = verify(mission.mission_id, reported_success, root, before,
                             after, mission=mission)
+            verdict = result.as_dict()
+            derive = self._derive_des_gouvernants(mission, root)
+            if derive is not None:
+                verdict["derive_gouvernante"] = derive
 
             # HOS-123 : la trace de ce qui a été *mesuré*, laissée dans le
             # projet lui-même. Un cahier de quarante sections se fait en
@@ -555,7 +632,7 @@ class GraphExecutor:
                 mission.objective or mission.description or mission.title,
                 result,
             )
-            return result.as_dict()
+            return verdict
         except Exception:  # pragma: no cover
             logger.debug("workspace verification failed", exc_info=True)
             return None

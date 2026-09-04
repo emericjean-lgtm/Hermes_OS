@@ -20,6 +20,7 @@ LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                inévitable par construction
+                               A-2 fermé (HOS-256) — HOS-217/218 câblés
 ```
 
 `CURRENT_SECTION: §6` signifie **« §6 est le prochain chantier »**, pas
@@ -29,16 +30,17 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
 
 ## NEXT_ACTION
 
-**Avant d'ouvrir §6**, refermer les deux défauts P1 trouvés par l'audit
-J25. Ce sont des corrections, pas des fonctionnalités, et elles touchent
+**Les deux défauts P1 de l'audit J25 sont fermés.** Ce qui reste avant
+d'ouvrir §6 est de niveau P2 ou moins. Ce sont des corrections, pas des fonctionnalités, et elles touchent
 des sections déclarées terminées :
 
 1. ~~**A-1**~~ — **fermé le 2026-09-04 (HOS-255)**. La garde est dans
    `OpenRouterClient`, donc inévitable ; une liste blanche structurelle
    empêche un troisième chemin.
-2. **A-2** — `security/derive_workspace.py` et
-   `security/surveillance_flux.py` sont implémentés, testés, déclarés
-   ✅ *Fait* au ROADMAP, et n'ont **aucun appelant**. Bloque §3.
+2. ~~**A-2**~~ — **fermé le 2026-09-04 (HOS-256)**. Les deux contrôles
+   sont câblés sur des coutures existantes ; une garde structurelle sur
+   les lanceurs de sous-processus empêche qu'un troisième naisse sans
+   surveillance.
 3. **A-10** — trouvé en fermant A-1 : le pare-feu ignore `sk-or-v1-…`,
    le format de clé d'OpenRouter. Défaut de détection, pas de routage.
    Bloque §4.
@@ -54,7 +56,7 @@ avant que le contrat soit tranché.
 |---|---|---|
 | ~~Contournement du pare-feu cloud (A-1)~~ — **fermé HOS-255** | security | §4 |
 | Le pare-feu ignore `sk-or-v1-…` (A-10) | security | §4 |
-| Contrôles de sécurité non câblés (A-2) | security | §3 |
+| ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
 | Points de reprise pris et jamais restaurables (A-3) | functional | §3 |
 | Portée projet MCP validée mais non autorisée (A-4) | security | §8 / §10 |
 | Workflows utilisateur écrits dans le dépôt (A-5) | technical debt | §3 |

@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | §1 | Contract & Verification | 🟢 | aucune | Hermes OS |
 | §2 | Run Ledger & Execution Lineage | 🟢 | aucune | Hermes OS |
-| §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | **fermer A-2, A-3** | Hermes OS |
+| §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | ~~A-2~~ fermé · **fermer A-3** | Hermes OS |
 | §4 | Cloud / Providers / Quota | **🟡** | ~~A-1~~ fermé · **fermer A-10** | Hermes OS |
 | §5 | Runtime / RAL / Model Intelligence | 🟢 | aucune | Hermes OS |
 | §6 | Cognitive Scheduler / Resource Intelligence | 🟠 | audit de décision | AIOS ; Hermes Agent |
@@ -101,8 +101,8 @@ de la rouvrir si le motif tombe.
 | J0 | Deux arbres de tests réparés | `tests/` (53 % du dépôt) n'était exécuté par personne |
 | J1 | HOS-215 — état hors du dépôt | 26,6 Mio qu'une mise à jour effaçait |
 | J2 | HOS-216 — origine non humaine en quarantaine | défense contre l'injection de prompt |
-| J3 | HOS-217 — dix fichiers gouvernants surveillés | ⚠️ **livré, jamais câblé** (A-2) |
-| J4 | HOS-218 — canary, report, silence, coût | ⚠️ **livré, jamais câblé** (A-2) |
+| J3 | HOS-217 — dix fichiers gouvernants surveillés | livré ; **câblé en HOS-256** (A-2) |
+| J4 | HOS-218 — canary, report, silence, coût | livré ; **câblé en HOS-256** (A-2) |
 | J5 | HOS-221 — Contract tri-état + Run Ledger + lignée | 56 gardes |
 | J6 | HOS-222 — verdict tri-état | « on ne sait pas » ≠ « c'est bon » |
 | J7 | HOS-223 — commit détaché + repli vérifié | ⚠️ **la moitié restauration est injoignable** (A-3) |
@@ -214,7 +214,16 @@ C'est le composant le plus solide du dépôt. Niveau : `DEMONSTRATED`.
 - **Aegis reste l'unique autorité** : `approval_engine` est délibérément
   débranché — « deux portes vivantes valent moins qu'une ».
 
-**Ce qui l'empêche d'être 🟢.**
+**A-2 — fermé le 2026-09-04 (HOS-256).** Les deux invariants étaient
+réels et non couverts : ni Aegis ni `_est_protege` ne traitent les dix
+fichiers gouvernants, et rien n'examinait la sortie d'un agent lancé avec
+tout l'environnement du parent. Ils sont branchés sur des coutures
+existantes — l'instantané de mission pour HOS-217, les deux lanceurs
+d'agent pour HOS-218 — sans nouvelle politique ni nouvelle autorité. Une
+garde structurelle sur les lanceurs de sous-processus a d'ailleurs trouvé
+le second lanceur avant qu'on déclare la protection active.
+
+**Ce qui l'empêche encore d'être 🟢.**
 
 | Défaut | Mesure |
 |---|---|
@@ -534,7 +543,7 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 |---|---|---|---|---|
 | ~~A-1~~ | **security** | ~~Deux chemins envoient un prompt cloud sans pare-feu~~ — **fermé HOS-255** | §4 | garde dans `OpenRouterClient`, liste blanche structurelle, 3 mutations |
 | **A-10** | **security** | Le pare-feu ignore `sk-or-v1-…`, le format de clé d'OpenRouter | §4 | mesuré : `sk-…` → refusé ; `sk-or-v1-…` → autorisé, aucun constat |
-| A-2 | **security** | HOS-217/218 livrés, testés, **0 appelant** | §3 | 0 référence hors module pour toute leur API |
+| ~~A-2~~ | **security** | ~~HOS-217/218 livrés, testés, 0 appelant~~ — **fermé HOS-256** | §3 | câblés sur les coutures existantes, 6 mutations, garde structurelle des lanceurs |
 | A-3 | **functional** | Points de reprise pris, jamais restaurables | §3 | `prendre` 1 appelant, `restaurer` 0, aucune route |
 | A-4 | **security** | Portée projet MCP validée, non **autorisée** | §8/§10 | `_projet_resolu` vérifie l'existence seule ; le `project_id` vient du texte du modèle |
 | A-5 | **technical debt** | Workflows utilisateur écrits dans le dépôt | §3 | `save_workflow()` → `./data/workflows`, hors `preserve_set()` |
@@ -628,7 +637,7 @@ des passes ne sont pas reconstituées.
 | **T-22** | — | §6.1 — autorité d'ordonnancement | **ouvert** | un ordonnanceur est par nature une seconde autorité au-dessus du RAL | à trancher **avant** toute ligne de §6 | §6 | 🟠 à décider |
 | T-23 | 2026-09-04 | A-1 — replis cloud hors pare-feu | **ADAPT** | le goulet prétendait être seul et ne l'était pas ; le router était impossible sans perdre le streaming | garde dans le client, autorité inchangée | HOS-255 | 🟢 appliqué |
 | **T-27** | — | A-10 — motifs de détection du pare-feu | **ouvert** | il ignore le format de clé de son propre fournisseur | élargir les motifs sans produire de faux positifs bloquants | §4 | 🟠 à décider |
-| **T-24** | — | A-2 — contrôles de sécurité non câblés | **ouvert** | posture de sécurité imaginaire | câbler ou retirer le ✅ | §3 | 🔴 bloquant |
+| T-24 | 2026-09-04 | A-2 — contrôles de sécurité non câblés | **ADOPT** | les deux invariants étaient réels *et* non couverts par ailleurs | câblés sur les coutures existantes, aucune politique nouvelle | HOS-256 | 🟢 appliqué |
 | **T-25** | — | A-3 — restauration des points de reprise | **ouvert** | on prend ce qu'on ne sait pas rendre | exposer ou cesser de prendre | §3 | 🟠 à décider |
 | **T-26** | — | A-4 — habilitation de portée projet | **ouvert** | l'isolation repose sur la bonne foi du modèle | modèle d'habilitation à définir | §8 | 🟠 à décider |
 

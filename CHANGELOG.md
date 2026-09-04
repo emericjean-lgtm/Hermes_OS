@@ -1,3 +1,104 @@
+## HOS-256 — Deux protections declarees, jamais appelees (2026-09-04)
+
+Fermeture de A-2, second defaut P1 de l'audit global J25.
+
+### Le constat, retrace de bout en bout
+
+`security/derive_workspace.py` (HOS-217) et
+`security/surveillance_flux.py` (HOS-218) etaient implementes, testes, et
+declares ✅ **Fait** au ROADMAP. Tracage complet — imports absolus et
+relatifs, instanciations, appels, decorateurs, chaines de caracteres,
+`getattr`, imports dynamiques, hooks de demarrage, injections, routes,
+scripts d'operateur : **zero reference de production**. Chaque module
+n'etait cite que par son propre fichier de test.
+
+Les quelques occurrences de production que le premier tracage remontait —
+`comparer`, `resume`, `enregistrer`, `relire`, `Ecart`, `Etat`, `REPORT` —
+sont toutes des **homonymes** : `git_ref.py` definit son propre `Ecart`,
+`maj/sante.py` son propre `Etat`, `workspace_models.py` a `REPORT` comme
+membre d'enumeration. Aucun n'importe les modules de securite. Verifie un
+par un plutot que suppose.
+
+Ce n'etaient pas des protections. C'etait du code.
+
+### Ce que la mesure a montre de pire
+
+**HOS-218.** `hermes_agent_cli` lance le sous-processus avec
+`os.environ.copy()` — **tout** l'environnement du parent, chaque secret de
+la machine — plus un `OPENAI_API_KEY` explicite. Sa sortie etait decodee
+et analysee pour en extraire un identifiant de session, et rien n'y
+cherchait de secret. L'exposition que le canary devait detecter etait donc
+maximale, et la detection absente.
+
+**HOS-217.** Ni Aegis ni `file_tools` ne traitent specialement les dix
+fichiers gouvernants. La liste blanche d'Aegis accorde la racine du
+projet, et `CLAUDE.md`, `.mcp.json`, `.claude/hooks/` sont dedans.
+`_est_protege` lit `.hermes/proteges.txt` — une liste **declarative**, qui
+vit dans le workspace, qu'un agent peut donc reecrire, et dont la
+docstring dit elle-meme qu'elle « evite une perte » et « n'est pas une
+frontiere de securite ».
+
+Les deux invariants etaient donc reels **et** non couverts. Cas A des
+deux cotes : on branche.
+
+### Ou chaque controle vit, et pourquoi la
+
+**HOS-218 → les lanceurs d'agent.** Le temoin est plante dans
+l'environnement du sous-processus et la sortie est examinee au retour.
+Poser cela plus haut — dans l'executeur de tache — laisserait sans
+surveillance un lanceur ajoute demain.
+
+Le garde-fou structurel a d'ailleurs trouve **un second lanceur** avant
+qu'on declare quoi que ce soit : le harnais persistant de HOS-137
+(`hermes_agent_acp`) lance le meme agent, garde ouvert entre les taches,
+avec `{**os.environ}`. Il porte desormais la meme surveillance — une par
+session, pour que le report de 512 caracteres traverse les tours et
+attrape un secret coupe en deux entre deux lignes.
+
+La surveillance ne tue rien : le module l'a toujours dit, il rapporte et
+l'appelant tranche. Ce qu'on empeche est que le resultat **serve** — un
+secret recrache entrerait sinon dans le Run Ledger, dans le relais de
+contexte et dans le prompt suivant. La fuite se propagerait par les
+mecanismes memes qui servent a tracer.
+
+**HOS-217 → la couture d'instantane de mission.** `_snapshot_workspace`
+prend deja une empreinte au demarrage et `_verify_workspace` la confronte
+a l'arrivee. La derive de gouvernance est la meme question posee sur une
+autre liste de fichiers ; la poser ailleurs aurait cree un second moment
+de mesure la ou il en existe un.
+
+**Aucune politique n'est inventee.** Le resultat entre dans le verdict de
+verification, qui a deja ses consommateurs — `mission.metadata`,
+`mission.unverified`, `_suggest_retry`. Le module demandait exactement
+cela : mesurer, et laisser quelqu'un d'autre trancher.
+
+Un `None` signifie « non mesure », un `derive: false` signifie « mesure,
+rien n'a bouge ». Confondre les deux ferait passer une absence de mesure
+pour une absence de derive — la regle tri-etat de HOS-222 appliquee ici.
+
+### Deux mutations qui n'ont pas rougi, et ce qu'elles ont appris
+
+Six mutations posees. Deux sont d'abord restees vertes, et c'etaient les
+tests qui avaient tort :
+
+* retirer l'examen de la sortie en gardant `alerte = None` conservait la
+  **forme** que le test verifiait — un `if` sur `alerte` avec un `raise`.
+  La forme sans l'appel ne prouve rien ;
+* retirer le releve de la ligne de base laissait tout vert parce que les
+  tests appelaient `_relever_les_gouvernants` eux-memes au lieu de passer
+  par `start_mission`. Un test qui appelle le garde-fou a la place du
+  produit ne prouve pas que le produit l'appelle.
+
+Les deux tests ont ete renforces, pas les assertions affaiblies. Apres
+correction, les six mutations rougissent.
+
+### Statut documentaire
+
+Le ROADMAP disait ✅ **Fait** pour les deux depuis leur ecriture. C'etait
+vrai du code et faux du systeme. Les entrees portent desormais la date de
+branchement et l'endroit ou le controle vit, parce que « fait » sans « et
+appele » est precisement ce que A-2 a coute.
+
 ## HOS-255 — Le goulet cloud n'etait pas le seul passage (2026-09-04)
 
 Fermeture de A-1, le premier des deux defauts P1 de l'audit global J25.
