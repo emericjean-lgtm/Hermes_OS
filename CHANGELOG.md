@@ -1,3 +1,165 @@
+## HOS-261 — Une empreinte n'est pas une propriete du modele (2026-09-05)
+
+A-18, trouve en fermant R-6. Le rapport notait « l'empreinte declaree du
+role `swift` est 2,1x trop basse » et laissait la question ouverte. Elle
+ne l'etait pas tout a fait : la mesure de R-6 et la valeur declaree ne
+portaient pas sur la meme chose.
+
+### Ce que la mesure de R-6 comparait sans le savoir
+
+`config/models.yaml` declare `swift: vram_gb 2.05` avec le commentaire
+« measured at this num_ctx » et `num_ctx: 16384`. La sonde de R-6 avait
+charge le tag **sans** passer d'options, donc au `PARAMETER num_ctx
+131072` de son Modelfile. Deux fenetres, deux caches KV, deux empreintes.
+
+Remesure au compteur canonique (A-15), carte videe entre chaque, meme
+tag, residence confirmee par `/api/ps` en inventaire seulement :
+
+    num_ctx  16384 -> 2,02 Gio      (context_length: 16384)
+    num_ctx 131072 -> 4,33 Gio      (context_length: 128000)
+
+La valeur declaree est donc **juste a son contexte**. Ce n'etait pas une
+valeur obsolete.
+
+### Le vrai defaut, qui est ailleurs
+
+`_vram_gb_for` est indexe par **tag**, jamais par role. Il ne sait pas
+quel contexte sera servi — et le harnais de Hermes Agent passe par `/v1`,
+**qui ne transporte pas `num_ctx`** (c'est le sujet meme de
+`backend/runtime/context_guard.py` : « Nothing in the request can override
+it »). Sur ce chemin, Ollama applique le Modelfile : 131072.
+
+Reserver 2,05 Gio pour une charge de 4,33 — l'ecart de couverture est de
+2,28 Gio par tache. Demontre sur cas controles :
+
+    carte a  8,00 Gio : 2 reservations accordees -> 16,66 Gio -> deborde de 0,68
+    carte a 10,00 Gio : 2 reservations accordees -> 18,66 Gio -> deborde de 2,68
+
+Le plafond de 90 % de la politique protegeait le chiffre **declare**, pas
+le chiffre **servi**.
+
+Aggravant, et c'est ce qui rend le defaut atteignable au quotidien :
+`_HERMES_AGENT_FALLBACK_MODEL` **est** ce tag, et `_agentic_model`
+substitue vers lui tout modele non prouve agentique — mesure sur cette
+machine, `agentic_capable` est faux pour les quatre tags interroges, donc
+toute tache agentique y atterrit.
+
+### L'audit de la table entiere
+
+Douze roles, sept tags. Le contexte declare par le role a ete compare a
+celui que le Modelfile du tag sert reellement :
+
+    role                 tag                    vram_gb  ctx role  ctx tag  ratio
+    advanced_analysis    qwen3.6-35b-128k        13.68    131072   131072    1.0x
+    code                 gpt-oss-20b-64k         13.03     65536    65536    1.0x
+    code_agentic         gpt-oss-20b-64k         13.03     65536    65536    1.0x
+    orchestrator         gpt-oss-20b-64k         13.03     65536    65536    1.0x
+    reasoning            qwen3.6-35b-128k        13.68    131072   131072    1.0x
+    reasoning_escalation muse-glimmer-64k        13.06     65536    65536    1.0x
+    security             qwen3.6-35b-128k        13.68    131072   131072    1.0x
+    standard             ornith-9b-256k          13.50    262144   262144    1.0x
+    vision               gemma4-12b-256k         12.24    262144   262144    1.0x
+    swift                lfm2.5-2.6b-125k         2.05     16384   131072    8.0x
+    double_check         lfm2.5-2.6b-125k         2.05     16384   131072    8.0x
+
+Un seul tag, deux roles. C'est aussi pourquoi `vision` tombait juste dans
+la mesure de R-6 et `swift` non : les deux etaient homogenes pour l'un,
+pas pour l'autre.
+
+### Consequence sur R-3 : aucune, et c'est demontre
+
+R-3 derive sa capacite du **maximum** des roles — 13,68 Gio,
+`qwen3.6-35b-128k`, dont le contexte declare et le contexte servi
+coincident. Le seul role sous-declare l'est tres en dessous de ce maximum
+(2,05 -> 4,33), et la correction ne le deplace pas :
+`_empreinte_de_tache_octets()` vaut 13,68 Gio avant comme apres.
+
+R-3 n'etait donc pas fausse. L'exposition etait dans la **reservation**,
+pas dans la capacite derivee — et il fallait le mesurer pour le savoir
+plutot que de le supposer dans un sens ou dans l'autre.
+
+### La correction, et la premiere version qui etait fausse
+
+**Premiere tentative : ecraser `vram_gb` avec le pire cas.** Elle a fait
+rougir `test_recommend_with_vram_constraint`, et le test avait raison. Le
+**routeur** demande « quel modele tient dans ce budget », en sachant qu'il
+le servira au `num_ctx` du role : pour lui, 2,05 est la bonne reponse.
+Porter 4,33 dans ce champ faisait echouer toute recommandation sous
+4,33 Gio et privait le catalogue de son seul modele leger.
+
+Deux consommateurs posent deux questions differentes, et un seul chiffre
+ne peut pas repondre aux deux. D'ou deux champs :
+
+    vram_gb      2.05   ce que ce **role** coute a son propre num_ctx
+                        -> ce que le **routeur** lit
+    vram_gb_max  4.33   le pire cas que ce **tag** puisse servir,
+        vram_gb_max_num_ctx: 131072
+                        -> ce que l'**admission** retient
+
+`vram_gb_max` est absent partout ailleurs : les neuf autres roles ont un
+`num_ctx` egal a celui de leur Modelfile, et les deux chiffres y
+coincident.
+
+On retient parfois plus que necessaire sur la route native ; on ne retient
+jamais moins que ce qui se charge. Meme prudence que §6.2 et A-15.
+
+Et la table d'empreintes prend le **maximum** des roles qui partagent un
+tag, plus le dernier lu : deux roles peuvent declarer le meme tag avec
+deux chiffres, et l'ordre du dictionnaire decidait alors lequel servait a
+reserver.
+
+Aucune autorite nouvelle : le catalogue fournit une **estimation
+declaree**, `ResourceManager` decide, R-6 observe. L'en-tete du fichier
+dit maintenant laquelle des trois il est.
+
+### Un rouge qui ne vient pas d'ici
+
+`test_missions_persistantes.py::test_l_eviction_libere_la_memoire_sans_
+rien_detruire` echoue lance seul — et il echoue **4 fois sur 4 au commit
+`4d1798a`**, verifie dans un worktree. Il passe dans l'ordre de la suite
+complete, avant comme apres. C'est le mecanisme de **A-19** rencontre sur
+un second test : `_RegistreMissions` hydrate son cache depuis le magasin
+durable et l'etat depend de ce qui a tourne avant. Hors perimetre, et
+consigne comme seconde occurrence de A-19 plutot que comme un defaut
+nouveau — la cause est la meme.
+
+### Trois mutations qui restaient vertes
+
+Sur douze, trois ne faisaient rougir aucun test, et chacune designait une
+faiblesse de mes tests :
+
+- « l'empreinte devient une constante 13.68 » — le test comparait la
+  derivation au meme fichier, donc une constante figee a la valeur du jour
+  y passait. Reecrit : on change le catalogue et on exige que le resultat
+  bouge.
+- « la table prend le dernier lu » — la garde cherchait `"max("` et
+  `"_vram_by_model.get("` dans le **texte** de la fonction, et les deux
+  chaines y existent ailleurs. C'est le meme motif que les gardes mortes
+  de §6.2 et A-15 : une assertion ecrite sur une sous-chaine. Reecrit sur
+  le comportement de la vraie fabrique — atteinte en construisant
+  `_make_task_executor` avec un conteneur a deux methodes, ce qui rend
+  `_vram_gb_for` testable au lieu d'etre une fermeture inatteignable. Il a
+  fallu, en plus, ordonner le catalogue de test avec **le plus lourd en
+  premier**, sans quoi « le dernier » et « le maximum » rendent la meme
+  reponse et le test ne distingue rien.
+- « un tag inconnu recoit 0.0 » — le test verifiait un dictionnaire
+  reconstruit dans le test, pas la vraie fermeture. Reecrit sur
+  `_vram_gb_for`. La difference reste de **contrat** et non de
+  comportement — `_admettre_et_reserver` sort sur `if not vram_gb` dans
+  les deux cas — et le test le dit.
+
+### Ce qui n'est pas garanti
+
+Que 4,33 Gio soit un pire cas absolu. C'est le pire cas **mesure** pour la
+fenetre que le Modelfile sert aujourd'hui. Un Modelfile reecrit plus large
+le deplacerait, et rien ne le detecterait automatiquement : le garde-fou
+verifie la coherence des donnees declarees, pas la recette du tag. Consigne
+**A-20**.
+
+Et neuf des onze roles n'ont qu'un seul point de mesure, a leur contexte
+declare. Le test le dit explicitement plutot que de laisser croire que
+toute la table a ete remesuree.
+
 ## HOS-260 — Ce qu'un run a coute a la machine (2026-09-05)
 
 R-6, le dernier defaut MUST HAVE de l'audit §6.1. Le registre portait les

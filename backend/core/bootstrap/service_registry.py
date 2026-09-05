@@ -277,10 +277,32 @@ def _make_task_executor(c: Any) -> Any:
     # (models.yaml is small and cached by load_models_config's lru_cache
     # anyway) into a flat model-tag -> vram_gb map for the admission check
     # below, decoupled from whichever router object picked the model.
+    # A-18 : le **maximum** des rôles qui partagent un tag, pas le dernier
+    # lu. Deux rôles peuvent déclarer le même tag avec deux chiffres — c'est
+    # le cas de `swift` et `double_check` — et l'ordre du dictionnaire
+    # déciderait alors lequel sert à réserver. Prendre le maximum rend
+    # l'ordre sans effet et va dans le seul sens acceptable : retenir
+    # parfois trop, jamais trop peu.
     _vram_by_model: dict[str, float] = {}
     for _role in load_models_config().get("roles", {}).values():
         if isinstance(_role, dict) and _role.get("model") and _role.get("vram_gb"):
-            _vram_by_model[_role["model"]] = float(_role["vram_gb"])
+            _tag = _role["model"]
+            # A-18 : le **pire cas du tag** quand il est declare, et le
+            # maximum des roles qui le partagent.
+            #
+            # `vram_gb` repond a « combien ce role coute a son num_ctx » —
+            # ce que le routeur demande. Ici la question est autre :
+            # « combien retenir pour ce tag », sans savoir quel chemin le
+            # demandera. Le harnais agentique passe par `/v1`, qui ne
+            # transporte pas `num_ctx` : Ollama y sert la fenetre du
+            # Modelfile. Mesure sur `lfm2.5-2.6b-125k` : 2,02 Gio a 16k,
+            # 4,33 a 131072.
+            #
+            # Le maximum, et non le dernier lu : deux roles peuvent porter
+            # le meme tag avec deux chiffres, et l'ordre du dictionnaire
+            # deciderait alors de ce qui est reserve.
+            _pire = float(_role.get("vram_gb_max") or _role["vram_gb"])
+            _vram_by_model[_tag] = max(_pire, _vram_by_model.get(_tag, 0.0))
 
     def _vram_gb_for(model: str) -> Optional[float]:
         """Real, benchmarked VRAM footprint for a resolved model tag

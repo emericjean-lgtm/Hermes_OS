@@ -112,6 +112,16 @@ c'est la source d'admission, et la seule définition de la requête —
 `backend/model_intelligence/model_bench.py` (`gpu_dedicated_bytes`) pour
 un processus nommé.
 
+**Une empreinte n'est pas une propriété du modèle** (A-18, HOS-261).
+Elle dépend du **contexte servi**, parce que le cache KV est alloué à la
+taille de la fenêtre : `lfm2.5-2.6b-125k` coûte 2,02 Gio à 16k et 4,33 à
+131072. Le `/v1` qu'emprunte Hermes Agent ne transporte pas `num_ctx`, et
+`_vram_gb_for` est indexé par **tag** : il ne sait pas quelle fenêtre sera
+servie. `config/models.yaml` porte donc deux chiffres — `vram_gb`, ce que
+le rôle coûte à son propre `num_ctx`, pour le routeur ; `vram_gb_max`, le
+pire cas du tag, pour l'admission. Un chiffre unique répondrait faux à
+l'un des deux.
+
 **Quatre grandeurs, quatre noms** (R-6, HOS-260). La **capacité** est ce
 que la carte porte ; le **besoin déclaré** est l'empreinte de
 `config/models.yaml`, une estimation ; la **réservation** est ce qu'un run

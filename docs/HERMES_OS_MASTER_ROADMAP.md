@@ -363,9 +363,17 @@ l'écart est attribuable. L'attribution exacte est impossible ici — le
 serveur Ollama sert tous les runs depuis un seul processus — et le
 système le dit au lieu de le masquer.
 
+A-18 (HOS-261) a établi que l'empreinte déclarée n'est pas une propriété
+du modèle : elle dépend du **contexte servi**. `lfm2.5-2.6b-125k` coûte
+2,02 Gio à 16k et 4,33 à 131072, et le harnais agentique passe par `/v1`,
+qui ne transporte pas `num_ctx`. Le catalogue porte donc deux chiffres —
+`vram_gb` pour le routeur, `vram_gb_max` pour l'admission. R-3 n'était pas
+faussée : elle dérive du maximum, et ce rôle-là est homogène.
+
 **Restent ouverts** : A-16 (aucune sonde d'occupation sur Linux sans
 `rocm-smi` — `/sys/class/drm` existe, rien ici ne permet de l'exercer),
-A-17, A-18 (une empreinte déclarée mesurée deux fois trop basse), A-19.
+A-17, A-19, A-20 (rien ne détecte qu'un Modelfile a été élargi sous une
+empreinte déclarée).
 
 Ce qui suit reste le cadrage d'origine.
 

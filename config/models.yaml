@@ -59,6 +59,38 @@
 # the total by several GB, always in the direction that makes a second
 # model look loadable when it is not.
 #
+# ── Ce que `vram_gb` signifie exactement (A-18) ────────────────────────
+#
+# Une empreinte n'est pas une propriete du modele seul : elle depend du
+# **contexte servi**, parce que le cache KV est alloue a la taille de la
+# fenetre. Le meme tag mesure 2,02 Gio a 16k et 4,33 a 128k.
+#
+# Deux consommateurs posent deux questions differentes, et un seul
+# chiffre ne peut pas repondre aux deux :
+#
+#   `vram_gb`     — ce que ce **role** coute a son propre `num_ctx`, en
+#                   gibioctets, mesure au compteur canonique (A-15). C'est
+#                   ce que le **routeur** lit : il choisit un modele en
+#                   sachant a quelle fenetre il le servira.
+#
+#   `vram_gb_max` — le pire cas que ce **tag** puisse servir, avec
+#                   `vram_gb_max_num_ctx` pour dire a quelle fenetre.
+#                   Absent quand les deux coincident, ce qui est le cas de
+#                   tous les roles sauf ceux de `lfm2.5-2.6b-125k`. C'est
+#                   ce que l'**admission** retient.
+#
+# Pourquoi l'admission a besoin du pire cas : `_vram_gb_for` est indexe par
+# tag et sert a **reserver** avant de charger. Il ne sait pas quel chemin
+# demandera le modele, et le harnais agentique passe par `/v1`, qui ne
+# transporte pas `num_ctx`. Une empreinte mesuree a une fenetre plus
+# etroite que celle qui sera servie fait retenir moins que ce qui se
+# charge — et le plafond de 90 % protege alors un chiffre qui n'existe
+# pas.
+#
+# C'est une **estimation declaree**, pas une mesure de l'execution en
+# cours : la mesure, c'est R-6 (`runs.vram_machine_*`). Les deux ne se
+# confondent pas — voir CLAUDE.md, « quatre grandeurs, quatre noms ».
+#
 # ── Les tags sont construits, pas tires tels quels ────────────────────────
 #
 # Aucun modele de ce tableau n'existe sous ce nom chez son editeur : chaque
@@ -117,12 +149,47 @@ roles:
   swift:
     model: lfm2.5-2.6b-125k
     tier: turbo
-    # 2.05 GiB measured at this num_ctx, 0 % CPU offload, 187.6 tok/s — the
-    # fastest model in the catalogue and the cheapest that still scores
-    # 3/3 agentic and 100 on extraction. 16k rather than its full 125k:
-    # the ladder shows 1.75 GiB at 4k and 2.33 at 32k, and routing and
-    # classification never need the room.
+    # 187.6 tok/s, 0 % CPU offload — the fastest model in the catalogue
+    # and the cheapest that still scores 100 on extraction. 16k rather
+    # than its full 125k: the ladder shows 1.75 GiB at 4k, 2.05 at 16k and
+    # 2.33 at 32k, and routing and classification never need the room.
+    #
+    # ── A-18 : pourquoi `vram_gb` n'est pas 2.05 ──────────────────────
+    #
+    # `num_ctx: 16384` n'est demande que par la route native, qui
+    # transporte `options.num_ctx`. Le harnais de Hermes Agent passe par
+    # `/v1`, **qui ne le transporte pas** (voir
+    # backend/runtime/context_guard.py) : Ollama y applique alors le
+    # `PARAMETER num_ctx 131072` du Modelfile.
+    #
+    # Or `_vram_gb_for` est indexe par **tag**, pas par role : il ne sait
+    # pas quel contexte sera servi. Mesure au compteur canonique (A-15),
+    # carte videe entre chaque, le meme tag :
+    #
+    #     num_ctx 16384  -> 2,02 Gio     (ce que la route native coute)
+    #     num_ctx 131072 -> 4,33 Gio     (ce que `/v1` sert)
+    #
+    # Declarer 2,05 faisait retenir 2,05 pour une charge de 4,33. Deux
+    # reservations accordees sur une carte a 8 Gio faisaient deborder de
+    # 0,68 Gio ; a 10 Gio, de 2,68. Le plafond de 90 % protegeait le
+    # chiffre declare, pas le chiffre servi.
+    #
+    # Deux consommateurs, deux questions, et c'est pour cela qu'il y a
+    # deux champs :
+    #
+    #   `vram_gb`     — ce que ce role coute **a son propre num_ctx**.
+    #                   C'est ce que le routeur doit lire : il choisit un
+    #                   modele en sachant qu'il le servira a 16k.
+    #   `vram_gb_max` — le pire cas que ce **tag** puisse servir. C'est ce
+    #                   que l'admission doit retenir : indexee par tag,
+    #                   elle ne sait pas quel chemin la demandera.
+    #
+    # Aggravant, et c'est ce qui rend le defaut atteignable au quotidien :
+    # ce tag est `_HERMES_AGENT_FALLBACK_MODEL`, vers lequel tout modele
+    # non prouve agentique est substitue.
     vram_gb: 2.05
+    vram_gb_max: 4.33
+    vram_gb_max_num_ctx: 131072
     always_loaded: true
     num_ctx: 16384
     description: Ultra-fast routing and classification.
@@ -238,7 +305,15 @@ roles:
     # tok/s and 100 on extraction; its 3/4 in reasoning — it answers 1 to
     # the trap where the answer is 5 — is acceptable for a second opinion
     # and is the reason it is not the primary reasoning role.
+    #
+    # A-18 : meme tag que `swift`, donc meme pire cas — et il doit etre
+    # declare ici aussi. `_vram_gb_for` prend le maximum des roles qui
+    # partagent un tag, mais deux valeurs divergentes sur le meme tag sont
+    # une contradiction que le prochain lecteur tranchera dans le mauvais
+    # sens.
     vram_gb: 2.05
+    vram_gb_max: 4.33
+    vram_gb_max_num_ctx: 131072
     num_ctx: 16384
     description: Cheap parallel verification pass.
 
