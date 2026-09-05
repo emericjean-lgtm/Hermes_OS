@@ -378,10 +378,49 @@ empreinte déclarée).
 
 Ce qui suit reste le cadrage d'origine.
 
-### §6.1 — Capability routing
-`tâche → capacités requises → runtimes/modèles/agents disponibles → route`.
-Aujourd'hui l'arbitrage tranche runtime et modèle, mais aucune notion de
-*capacité requise* n'est extraite de la tâche.
+### §6.1 — Capability routing — 🟡 PARTIAL (HOS-262)
+
+`tâche → capacités requises → runtimes/modèles/agents disponibles →
+route`. La capacité requise **est** extraite : le type de tâche porté par
+le nœud de mission (HOS-070) atteint le routeur, qui le confronte à des
+notes par type mesurées (HOS-144).
+
+**Ce qui a été trouvé et fermé.** Le routeur classait juste et n'était
+jamais écouté. `rank_models` filtrait sur `predict_vram_usage`, qui
+multipliait l'empreinte **mesurée** par `task.complexity + 1.0` — et
+`complexity` est le **nombre de mots du titre**. Les cinq modèles
+compétents étaient éliminés et seul le plus petit survivait, sur les cinq
+types de tâche essayés, avec le motif « Low VRAM footprint » qui
+attribuait mal la cause. C'était une **troisième** autorité de capacité,
+après `ResourceManager` (R-3) et l'empreinte déclarée (A-18), et c'est
+elle qui gagnait. Après correction, cinq tâches sur trois modèles
+différents, motif « Excellent task fit (100 %) ».
+
+**Les autorités, délimitées.**
+
+| chemin | autorité de sélection |
+|---|---|
+| Chat / agents | `core.router.ModelRouter` — rôles de `models.yaml`, tier, candidats |
+| Mission / `task_executor` | `model_intelligence.AdaptiveRouter` — profils mesurés, `TaskType`, plafond VRAM |
+
+Deux autorités sur deux chemins disjoints, décision T/P-4 (**REJECT** de
+la fusion) confirmée par cette passe : chacune est seule sur son chemin.
+`ResourceManager` ne choisit aucun modèle ; il fournit le plafond et
+décide l'admission. Le RAL reste l'autorité du routage fournisseur.
+
+**Ce qui reste ouvert, et pourquoi §6.1 n'est pas 🟢.**
+- **G-12** — `_agentic_model` substitue tout modèle non prouvé par
+  `_HERMES_AGENT_FALLBACK_MODEL`. Le magasin de sondes étant vide,
+  **0 décision sur 5** survit au chemin agentique. Délibéré (HOS-096), et
+  désormais **tracé** — mais le repli est le modèle le plus faible du
+  catalogue, lui-même non prouvé.
+- **G-13** — `_get_records_for_task` rend `[]` en dur et
+  `_compute_speed_score` rend 0,000 : deux dimensions sur cinq de
+  `compute_model_score` sont inertes.
+
+Tant que G-12 tient, le routage est correct **et sans effet** sur le
+chemin agentique. §6.1 décrit donc une décision juste qu'un repli
+systématique défait.
 
 ### §6.2 — Ordonnancement conscient des ressources
 VRAM, RAM, CPU, fenêtre de contexte, coût, latence, disponibilité,
@@ -890,6 +929,7 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | **A-10** | **security** | Le pare-feu ignore `sk-or-v1-…`, le format de clé d'OpenRouter | §4 | mesuré : `sk-…` → refusé ; `sk-or-v1-…` → autorisé, aucun constat |
 | ~~A-2~~ | **security** | ~~HOS-217/218 livrés, testés, 0 appelant~~ — **fermé HOS-256** | §3 | câblés sur les coutures existantes, 6 mutations, garde structurelle des lanceurs |
 | A-3 | **functional** | Points de reprise pris, jamais restaurables | §3 | `prendre` 1 appelant, `restaurer` 0, aucune route |
+| ~~A-19~~ | **test** | ~~`_RegistreMissions` hydrate sur un ordre non garanti~~ — **fermé HOS-262** | §3 | `ORDER BY cree_le DESC, rowid DESC` ; 0/20 → 5/20 avant, 25/25 après |
 | A-4 | **security** | Portée projet MCP validée, non **autorisée** | §8/§10 | `_projet_resolu` vérifie l'existence seule ; le `project_id` vient du texte du modèle |
 | A-5 | **technical debt** | Workflows utilisateur écrits dans le dépôt | §3 | `save_workflow()` → `./data/workflows`, hors `preserve_set()` |
 | A-6 | **technical debt** | `runtimesClient` pointe vers des routes inexistantes et n'est pas consommé | §9 | `/runtimes/health` absent des 423 routes |
@@ -907,6 +947,8 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | G-9 | **technical debt** | 8 runs orphelins ; aucune suppression exposée par `Registre` | §2 | dette acceptée, voir STATE |
 | G-10 | **architectural** | La promotion d'un souvenir n'a **aucune route HTTP** | §8 | `promouvoir` à 4 niveaux, testé ; `memory/routes.py` n'expose que search/graph/experiences/index/statistics |
 | G-11 | **technical debt** | `assigned_tools` d'une tâche est planifié et **jamais invoqué** | §7 | `task_executor.py:31` le documente ; l'agent a ses propres outils, la sélection du planificateur est décorative |
+| **G-12** | **architectural** | Le repli agentique défait **toutes** les décisions du routeur | §6/§7 | mesuré : 0 décision sur 5 survit ; le repli est le modèle le plus faible du catalogue et lui-même non prouvé |
+| G-13 | **technical debt** | Deux dimensions sur cinq du score modèle sont inertes | §6 | `_get_records_for_task` rend `[]` en dur ; `_compute_speed_score` rend 0,000 pour les six profils |
 
 ---
 
@@ -970,7 +1012,7 @@ identifiants `T-0` à `T-21` sont utilisés ; les décisions passées ne sont
 pas réécrites ici, et celles dont la trace ne vit que dans l'historique
 des passes ne sont pas reconstituées.
 
-**Prochain identifiant libre : `T-22`.**
+**Prochain identifiant libre : `T-30`.**
 
 | ID | Date | Sujet | Décision | Raison | Impact | Référence | Statut |
 |---|---|---|---|---|---|---|---|
@@ -988,6 +1030,8 @@ des passes ne sont pas reconstituées.
 | **T-25** | — | A-3 — restauration des points de reprise | **ouvert** | on prend ce qu'on ne sait pas rendre | exposer ou cesser de prendre | §3 | 🟠 à décider |
 | **T-26** | — | A-4 — habilitation de portée projet | **ouvert** | l'isolation repose sur la bonne foi du modèle | modèle d'habilitation à définir | §8 | 🟠 à décider |
 | **T-28** | — | §15.1 — Chat et Cowork : deux surfaces ou deux modes ? | **ouvert** | les deux partagent déjà le Run Ledger et le bus ; les séparer ferait deux histoires pour une exécution | trancher **avant** toute ligne de §15 | §15 | 🟠 à décider |
+| T-22 | 2026-09-05 | §6.1 — autorité d'ordonnancement | **ADAPT** | l'architecture existante suffisait : deux routeurs sur deux chemins disjoints, `ResourceManager` fournissant le plafond. Aucun ordonnanceur n'était requis | retirer la troisième estimation de capacité, laisser les autorités en place | HOS-262 | 🟢 appliqué |
+| **T-29** | — | G-12 — un modèle non sondé peut-il piloter la boucle ? | **ouvert** | le repli défait 100 % des décisions et n'est pas plus prouvé que ce qu'il remplace | sonder, ou changer la règle de repli | §6/§7 | 🟠 à décider |
 
 ### Décisions de rejet conservées
 
@@ -1010,4 +1054,5 @@ des passes ne sont pas reconstituées.
 | Date | Baseline | Changement |
 |---|---|---|
 | 2026-09-04 | `528a0d3` | Création. §3 et §4 rétrogradées 🟡 sur les mesures de l'audit J25, contre le statut 🟢 attendu par le cahier. Registre ouvert à T-22. |
+| 2026-09-05 | `04624ae` | §6.1 passée 🟡 sur mesure : le routeur classait juste et n'était jamais écouté. T-22 tranché (ADAPT) — l'architecture suffisait. A-19 fermé en chemin, cette passe le faisant sortir. G-12 et G-13 ouverts. |
 | 2026-09-05 | `6dfa78a` | §15 créée — couche produit consommant §1→§13, aucune autorité nouvelle. Deux écarts relevés en la construisant (G-10, G-11), une décision ouverte (T-28), trois idées rejetées avec leur raison. §15 **ne devient pas la section active** : §6.1 et A-10 la précèdent. |

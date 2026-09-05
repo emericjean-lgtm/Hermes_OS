@@ -929,6 +929,21 @@ class RealTaskExecutor:
                 # l'absence de client cloud ne le defasse. L'ecart entre
                 # les deux **est** la trace du repli.
                 "runtime_demande_par_le_routeur": runtime_demande or "",
+                # §6.1 : le modèle que le **routeur** avait choisi, quand il
+                # n'est pas celui qui a servi.
+                #
+                # Le repli de *runtime* était tracé depuis HOS-242 ; celui
+                # de **modèle** ne l'était pas. Or `_agentic_model`
+                # substitue tout modèle non prouvé agentique par
+                # `_HERMES_AGENT_FALLBACK_MODEL`, et mesuré sur ce dépôt —
+                # magasin de sondes vide — cela vise **la totalité** des
+                # décisions : le routeur classe cinq tâches sur cinq
+                # modèles différents, et cinq fois sur cinq c'est le repli
+                # qui tourne. Sans cette clé, le registre disait quel
+                # modèle avait servi sans jamais dire qu'un autre avait été
+                # choisi, et « pourquoi ce modèle ? » n'avait pas de
+                # réponse relisible.
+                "modele_demande_par_le_routeur": model or "",
                 # HOS-243 : qui a tranché, et sur quels avis.
                 "arbitrage": decision.to_dict(),
                 "token_counts": "reported" if meta.get("prompt_tokens") else "estimated",

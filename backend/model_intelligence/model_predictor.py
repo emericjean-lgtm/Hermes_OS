@@ -60,9 +60,50 @@ class ModelPredictor:
 
     def predict_vram_usage(self, profile: ModelProfile,
                             task: TaskContext) -> int:
-        base_vram = profile.vram_required_mb
-        context_mult = min(2.0, task.complexity + 1.0)
-        return int(base_vram * context_mult)
+        """L'empreinte declaree du modele, sans multiplicateur invente (§6.1).
+
+        ## Ce que cette methode faisait
+
+            context_mult = min(2.0, task.complexity + 1.0)
+            return int(base_vram * context_mult)
+
+        Elle multipliait une empreinte **mesuree** par 1,3 a 2,0 selon
+        `task.complexity` — qui est le **nombre de mots du titre de la
+        tache** (`_infer_complexity` : >30 mots -> 0,8 ; >15 -> 0,5 ; sinon
+        0,3). La longueur d'une phrase decidait donc si un modele tenait
+        sur la carte.
+
+        ## Pourquoi c'etait faux, mesure
+
+        Le cache KV est alloue a la taille de la **fenetre**, pas a celle du
+        prompt. A-18 l'a mesure sur `lfm2.5-2.6b-125k` : 2,02 Gio a
+        `num_ctx` 16384 et 4,33 a 131072 — c'est le contexte servi qui
+        change l'empreinte, et il est deja dans le chiffre declare. R-6 a
+        mesure ce que l'usage reel y ajoute : entre un cache vide et un
+        cache rempli de 3 210 jetons, 14,954 -> 15,115 Gio, soit **+1 %**.
+        Le multiplicateur en inventait jusqu'a +100 %.
+
+        ## Ce que cela produisait
+
+        Mesure sur le catalogue reel, `code_generation`, plafond 15 000 Mo :
+        les cinq modeles capables etaient elimines — `gpt-oss-20b-64k`
+        declare 13 342 Mo, le multiplicateur en annoncait 17 344 — et seul
+        `lfm2.5-2.6b-125k` survivait. Le classement, lui, etait juste :
+        sans le filtre, gpt-oss sort a 0,672 contre 0,434, avec un
+        `task_score` de 1,00 contre 0,28.
+
+        Le motif rendu disait « Low VRAM footprint » : le modele n'avait pas
+        ete choisi pour sa sobriete, les autres avaient ete elimines par une
+        estimation gonflee.
+
+        ## L'invariant
+
+        La capacite se decide **une fois**. `ResourceManager` en est
+        l'autorite depuis R-3 ; le catalogue porte l'empreinte declaree
+        depuis A-18. Une troisieme estimation, ici, en faisait une seconde
+        autorite silencieuse — et c'est elle qui gagnait.
+        """
+        return int(profile.vram_required_mb)
 
     def rank_models(self, profiles: list[ModelProfile],
                      records: list[ModelPerformanceRecord],

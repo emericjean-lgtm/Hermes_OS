@@ -1,3 +1,132 @@
+## HOS-262 — Le type de tache decide enfin du modele (2026-09-05)
+
+§6.1. Le routeur classait juste et n'etait jamais ecoute : un filtre place
+apres lui eliminait tous les modeles competents.
+
+### Mesure, catalogue reel, cinq types de tache
+
+`AdaptiveRouter` est l'autorite de selection du chemin mission. Ses
+profils portent des notes **par type de tache**, versees depuis le magasin
+de mesures (HOS-144) et fortement discriminantes :
+
+    gpt-oss-20b-64k      code_generation 1.00
+    lfm2.5-2.6b-125k     code_generation 0.28
+
+Il recommandait pourtant `lfm2.5-2.6b-125k` — le plus petit modele du
+catalogue, 2,7 Md — pour **les cinq** taches essayees, y compris
+« analyser la faille de securite » et « concevoir l'architecture ». Motif
+rendu : « Low VRAM footprint ».
+
+### La cause : une troisieme estimation de capacite
+
+Ni le classement ni les notes. `rank_models` filtre sur
+`predict_vram_usage`, qui multipliait l'empreinte **mesuree** par
+`task.complexity + 1.0`, soit 1,3 a 2,0. Et `task.complexity` est le
+**nombre de mots du titre de la tache** (`_infer_complexity` : >30 mots
+-> 0,8 ; >15 -> 0,5 ; sinon 0,3).
+
+La longueur d'une phrase decidait donc si un modele tenait sur la carte :
+
+    modele                declare   « predit »   plafond   verdict
+    gpt-oss-20b-64k        13 342     17 344     15 000    elimine
+    qwen3.6-35b-128k       14 008     18 210     15 000    elimine
+    muse-glimmer-64k       13 373     17 384     15 000    elimine
+    ornith-9b-256k         13 824     17 971     15 000    elimine
+    gemma4-12b-256k        12 533     16 292     15 000    elimine
+    lfm2.5-2.6b-125k        2 099      2 728     15 000    seul retenu
+
+Le classement etait juste : sans ce filtre, `gpt-oss` sort a 0,672 contre
+0,434 — l'ecart de 0,238 vient de son `task_score` de 1,00 contre 0,28.
+
+Le motif « Low VRAM footprint » **attribuait mal la cause** : le modele
+n'avait pas ete choisi pour sa sobriete, les autres avaient ete elimines.
+
+### Pourquoi le multiplicateur etait faux, mesure
+
+Le cache KV est alloue a la taille de la **fenetre**, pas a celle du
+prompt. A-18 l'a mesure : 2,02 Gio a `num_ctx` 16384 et 4,33 a 131072 —
+c'est le contexte servi qui compte, et il est deja dans le chiffre
+declare. R-6 a mesure ce que l'usage y ajoute : entre un cache vide et un
+cache rempli de 3 210 jetons, 14,954 -> 15,115 Gio, soit **+1 %**. Le
+multiplicateur en inventait jusqu'a +100 %.
+
+C'etait donc une **troisieme** autorite de capacite, apres `ResourceManager`
+(R-3) et l'empreinte declaree (A-18) — et c'est elle qui gagnait.
+
+### Apres correction
+
+    tache                                    modele choisi        motif
+    ecrire les tests unitaires               gpt-oss-20b-64k      Excellent task fit (100%)
+    analyser la faille de securite           qwen3.6-35b-128k     Excellent task fit (100%)
+    resumer ce document                      ornith-9b-256k       Excellent task fit (100%)
+    concevoir l'architecture                 qwen3.6-35b-128k     Excellent task fit (100%)
+    classer ces tickets                      ornith-9b-256k       Excellent task fit (100%)
+
+Le role influence enfin la selection — c'est la question meme de §6.1, et
+la reponse etait « non » jusqu'ici.
+
+### Un repli qui ne se voyait pas
+
+`_agentic_model` substitue tout modele non prouve agentique par
+`_HERMES_AGENT_FALLBACK_MODEL`. Le magasin de sondes etant vide sur cette
+machine, cela vise **la totalite** des decisions : mesure apres
+correction, le routeur classe cinq taches sur trois modeles differents, et
+**0 sur 5** survit au chemin agentique.
+
+C'est delibere (HOS-096 : un modele non mesure est *non prouve*, pas
+capable) et le registre enregistre bien le modele qui a **servi**. Ce qui
+manquait est que la substitution se **voie** : le repli de *runtime* etait
+trace depuis HOS-242, celui de **modele** ne l'etait pas. Deux cles s'y
+ajoutent, `modele_demande` et `substitution`, nommees seulement quand
+l'ecart est constate.
+
+Le fait que le repli soit lui-meme le modele le plus faible du catalogue —
+0,28 sur le code — et lui aussi non prouve, est consigne en **G-12**, non
+corrige : le trancher demande de decider si un modele non sonde peut
+piloter la boucle, ce qui est une question de §7.
+
+### A-19 ferme en chemin, parce que cette passe le faisait sortir
+
+Mesure dans le meme arbre, la meme base : `test_au_dela_la_plus_ancienne_
+terminee_quitte_le_cache` echouait **0 fois sur 20** avant les
+modifications de §6.1 et **5 fois sur 20** apres — non parce que §6.1
+touche aux missions, mais parce qu'a cette echelle un changement d'octets
+ailleurs suffit a deplacer un tirage.
+
+Cause : `MagasinMissions` ordonnait sur `cree_le` seul. L'horloge de
+Windows a une granularite d'environ 15,6 ms — cinq missions enregistrees
+d'affilee portent le **meme** horodatage, et SQLite les rend alors dans un
+ordre qu'il ne garantit pas. Or `_RegistreMissions` documente un FIFO
+(« Ordonne par insertion ») et son `__len__` hydrate le cache depuis ces
+requetes.
+
+`ORDER BY cree_le DESC, rowid DESC` — `rowid` est l'ordre d'insertion et
+il est unique. Le contrat annonce devient vrai au lieu d'etre probable.
+25 executions, 25 vertes. Deux tests pinnent desormais l'ordre a
+horodatage egal.
+
+### Les mutations
+
+Dix, dix rouges. La premiere version de l'une d'elles restait verte :
+« la substitution n'est plus publiee » vidait la **valeur** en gardant la
+**cle**, et le test cherchait la cle parmi les chaines de la fonction. Une
+cle presente et vide ne trace rien. Reecrit sur le comportement — un
+`execute` reel, et la valeur relue dans les metadonnees.
+
+C'est le cinquieme garde-fou de cette serie de passes dont une mutation
+revele qu'il ne gardait pas ce qu'on croyait, et toujours pour la meme
+raison : une assertion ecrite sur une **forme** plutot que sur une
+propriete.
+
+### Ce qui n'est pas ferme
+
+`_get_records_for_task` rend `[]` en dur : la fiabilite vaut 0,5 pour
+tous les modeles et les mesures d'execution n'entrent jamais dans le
+classement. De meme, `_compute_speed_score` rend 0,000 pour les six
+profils. Deux dimensions sur cinq de `compute_model_score` sont donc
+inertes. Consigne **G-13**, non corrige : les brancher change la
+ponderation et demande sa propre mesure.
+
 ## HOS-261 — Une empreinte n'est pas une propriete du modele (2026-09-05)
 
 A-18, trouve en fermant R-6. Le rapport notait « l'empreinte declaree du

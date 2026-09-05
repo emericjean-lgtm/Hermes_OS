@@ -35,6 +35,58 @@ def _mission(identifiant: str, statut: MissionStatus = MissionStatus.COMPLETED
     return mission
 
 
+class TestLOrdreDurable:
+    """Deux missions de la même milliseconde se départagent (A-19).
+
+    `MagasinMissions` ordonnait sur `cree_le` seul. L'horloge de Windows a
+    une granularité d'environ 15,6 ms : cinq missions enregistrées
+    d'affilée portent le **même** horodatage, et SQLite les rendait alors
+    dans un ordre qu'il ne garantit pas.
+
+    `_RegistreMissions` documente pourtant un FIFO — « Ordonné par
+    insertion » — et son `__len__` hydrate le cache depuis ces requêtes.
+    Le contrat existait, rien ne le faisait tenir : mesuré,
+    `test_au_dela_la_plus_ancienne_terminee_quitte_le_cache` échouait
+    **5 fois sur 20**, et 0 sur 25 une fois `rowid` ajouté au tri.
+    """
+
+    def _magasin(self, tmp_path):
+        from backend.mission.persistance import MagasinMissions
+        from backend.storage.database_manager import DatabaseConfig, DatabaseManager
+
+        return MagasinMissions(
+            DatabaseManager(DatabaseConfig(name=str(tmp_path / "missions"))))
+
+    def test_l_ordre_est_celui_de_l_insertion_a_horodatage_egal(self, tmp_path):
+        from datetime import datetime, timezone
+
+        magasin = self._magasin(tmp_path)
+        instant = datetime.now(timezone.utc)
+        for i in range(6):
+            mission = _mission(f"m{i}")
+            # Le cas réel, forcé : le même horodatage pour toutes.
+            mission.created_at = instant
+            magasin.enregistrer(mission)
+
+        assert magasin.identifiants() == [f"m{i}" for i in range(5, -1, -1)], (
+            "à horodatage égal, l'ordre n'est plus celui de l'insertion — "
+            "l'éviction du cache redevient un tirage")
+
+    def test_l_ordre_reste_stable_d_une_lecture_a_l_autre(self, tmp_path):
+        from datetime import datetime, timezone
+
+        magasin = self._magasin(tmp_path)
+        instant = datetime.now(timezone.utc)
+        for i in range(6):
+            mission = _mission(f"m{i}")
+            mission.created_at = instant
+            magasin.enregistrer(mission)
+
+        lectures = {tuple(magasin.identifiants()) for _ in range(10)}
+        assert len(lectures) == 1, (
+            f"dix lectures ont rendu {len(lectures)} ordres différents")
+
+
 class TestLaBorne:
     def test_en_deca_de_la_borne_rien_n_est_evince(self):
         registre = _RegistreMissions(maximum=10)

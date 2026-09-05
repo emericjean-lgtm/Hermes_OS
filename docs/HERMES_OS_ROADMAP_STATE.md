@@ -10,14 +10,15 @@
 ```
 CURRENT_SECTION:      §6 — Cognitive Scheduler / Resource Intelligence
 CURRENT_SUBSECTION:   §6.6 — Ordonnancement cognitif (non ouvert)
+                      §6.1 🟡 — routage juste, défait par le repli (G-12)
 CURRENT_STATUS:       🟡 §6.1 audité · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
-                      A-18 fermé (HOS-261)
+                      A-18 fermé (HOS-261) · §6.1 🟡 + A-19 fermé (HOS-262)
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      6dfa78a (A-18 fermé) — dernier commit de code
+BASELINE:                      04624ae (§15 créée) — dernier commit avant §6.1
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -31,13 +32,22 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                par run, avec sa limite d'attribution
                                A-18 fermé (HOS-261) — l'empreinte déclarée
                                couvre le contexte réellement servi
+                               §6.1 🟡 (HOS-262) — le type de tâche décide
+                               enfin ; A-19 fermé en chemin
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
 est audité, §6.2 livré (HOS-257), A-15 fermé (HOS-258), §6.5 fermé par
 R-3/R-4 (HOS-259), la comptabilité physique par R-6 (HOS-260) et les
-empreintes déclarées par A-18 (HOS-261). Restent §6.1 (capability
-routing) et §6.6, qu'aucune passe n'a ouverts.
+empreintes déclarées par A-18 (HOS-261). Reste §6.6, qu'aucune passe n'a
+ouverte.
+
+**§6.1 est passée 🟡 le 2026-09-05 (HOS-262).** Le routeur classait juste
+et n'était jamais écouté : un filtre placé après lui multipliait
+l'empreinte mesurée par le **nombre de mots du titre** de la tâche, et
+éliminait les cinq modèles compétents. Corrigé et démontré. Elle n'est pas
+🟢 parce que **G-12** la vide de son effet sur le chemin agentique : le
+repli substitue 100 % des décisions.
 
 **§15 — Hermes Assistant — a été créée le 2026-09-05 et n'est pas la
 section active.** Elle est une couche produit qui consomme §1→§13 ; la
@@ -76,8 +86,11 @@ ou moins :
 pas parce qu'elle est prête. Ce qui la précède :
 
 1. **A-10** ferme §4 ;
-2. **T-22 / §6.1** tranche l'autorité d'ordonnancement ;
-3. **T-28** tranche le contrat Chat/Cowork — sans lui, §15 ne peut pas
+2. ~~**T-22 / §6.1**~~ — **tranché le 2026-09-05 (ADAPT)** : l'architecture
+   existante suffisait, aucun ordonnanceur n'était requis ;
+3. **T-29** décide si un modèle non sondé peut piloter la boucle — sans
+   quoi le routage reste juste et sans effet (G-12) ;
+4. **T-28** tranche le contrat Chat/Cowork — sans lui, §15 ne peut pas
    commencer.
 
 Quand §15 s'ouvrira, **§15.5 est l'entrée à privilégier**, et c'est la
@@ -106,7 +119,9 @@ mentirait sur ce qu'il fait.
 | Rien ne détecte un Modelfile élargi sous une empreinte (A-20) | architectural | §6 |
 | La promotion d'un souvenir n'a aucune route HTTP (G-10) | architectural | §8 |
 | `assigned_tools` planifié et jamais invoqué (G-11) | technical debt | §7 |
-| `_RegistreMissions.__len__` hydrate au milieu d'un test (A-19) | test | §3 |
+| ~~`_RegistreMissions` hydrate sur un ordre non garanti (A-19)~~ — **fermé HOS-262** | test | §3 |
+| Le repli agentique défait toutes les décisions du routeur (G-12) | architectural | §6/§7 |
+| Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
 | Points de reprise pris et jamais restaurables (A-3) | functional | §3 |

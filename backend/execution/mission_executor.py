@@ -67,6 +67,7 @@ def _decision_en_json(meta: dict, modele: str, runtime_servi: str) -> str:
 
     demande = str(meta.get("runtime_demande_par_le_routeur") or "")
     servi = str(runtime_servi or "")
+    modele_demande = str(meta.get("modele_demande_par_le_routeur") or "")
     fait = {
         "runtime_demande": demande,
         "runtime_servi": servi,
@@ -77,6 +78,13 @@ def _decision_en_json(meta: dict, modele: str, runtime_servi: str) -> str:
     # n'a rien demandé n'a pas été défait.
     if demande and servi and demande != servi:
         fait["repli"] = f"{demande} indisponible, servi par {servi}"
+    # §6.1 : et le même constat pour le **modèle**. `_agentic_model`
+    # substitue tout modèle non prouvé agentique ; le registre notait
+    # jusqu'ici le modèle servi sans dire qu'un autre avait été choisi.
+    if modele_demande and modele and modele_demande != str(modele):
+        fait["modele_demande"] = modele_demande
+        fait["substitution"] = (
+            f"{modele_demande} choisi par le routeur, {modele} engagé")
     fait = {c: v for c, v in fait.items() if v}
     return json.dumps(fait, ensure_ascii=False, sort_keys=True) if fait else ""
 

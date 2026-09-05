@@ -231,14 +231,31 @@ class MagasinMissions:
             "SELECT document FROM missions WHERE mission_id = ?", (mission_id,))
         return self._depuis(ligne) if ligne else None
 
+    #: Départage deux missions créées dans la même milliseconde (A-19).
+    #:
+    #: `cree_le` seul ne suffit pas : l'horloge de Windows a une granularité
+    #: d'environ 15,6 ms, et cinq missions enregistrées d'affilée portent le
+    #: **même** horodatage. `ORDER BY cree_le DESC` les rendait alors dans
+    #: un ordre que SQLite ne garantit pas.
+    #:
+    #: `_RegistreMissions` documente pourtant l'inverse — « Ordonné par
+    #: insertion : c'est ce qui fait de l'éviction un FIFO » — et son
+    #: `__len__` hydrate le cache depuis ces requêtes. Le contrat existait,
+    #: rien ne le faisait tenir : mesuré, `test_au_dela_la_plus_ancienne_
+    #: terminee_quitte_le_cache` échouait 5 fois sur 20 selon le tirage.
+    #:
+    #: `rowid` est l'ordre d'insertion, et il est unique. Le FIFO annoncé
+    #: devient donc vrai au lieu d'être probable.
+    _ORDRE = "ORDER BY cree_le DESC, rowid DESC"
+
     def tous(self) -> list[Any]:
         """Toutes les missions, les plus récentes d'abord."""
         return [m for m in (self._depuis(l) for l in self._db.fetch_all(
-            "SELECT document FROM missions ORDER BY cree_le DESC")) if m]
+            f"SELECT document FROM missions {self._ORDRE}")) if m]
 
     def identifiants(self) -> list[str]:
         return [dict(l)["mission_id"] for l in self._db.fetch_all(
-            "SELECT mission_id FROM missions ORDER BY cree_le DESC")]
+            f"SELECT mission_id FROM missions {self._ORDRE}")]
 
     def nombre(self) -> int:
         ligne = self._db.fetch_one("SELECT COUNT(*) AS n FROM missions")
