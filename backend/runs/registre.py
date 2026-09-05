@@ -142,6 +142,33 @@ class Run:
     jetons_sortie: int = 0
     cout: float = 0.0
 
+    #: R-6 — ce que ce run a coûté à la machine, en **octets**, et ce
+    #: qu'on n'en sait pas. `None` partout tant que rien n'a été mesuré :
+    #: `0` dirait « mesuré, rien pris », ce qui est faux dans le sens
+    #: dangereux. Détail des quatre grandeurs et de pourquoi elles ne se
+    #: confondent pas : `backend/runs/consommation.py`.
+    #:
+    #: Ce que **ce run** a fait retenir auprès de `ResourceManager`. Exact
+    #: et propre au run — c'est la seule des trois qui le soit. Une
+    #: promesse, pas une mesure : le modèle n'occupe la carte qu'une fois
+    #: chargé.
+    vram_reservee_octets: Optional[int] = None
+    #: L'occupation de la **machine** relevée avant que ce run n'engage
+    #: quoi que ce soit. Pas « ce que le run occupait » : la carte porte
+    #: aussi le bureau, un navigateur, et les autres runs.
+    vram_machine_debut_octets: Optional[int] = None
+    #: La plus haute occupation **machine** parmi les points de mesure
+    #: réellement pris — le début et la fin de chaque tâche. C'est un
+    #: **minorant** du vrai pic : rien n'échantillonne entre les deux, et
+    #: R-6 n'ouvre pas de fil de sondage pour cela.
+    vram_machine_pic_octets: Optional[int] = None
+    #: Ce run était-il la seule allocation Hermes de bout en bout ? C'est
+    #: la condition sans laquelle l'écart `pic - debut` n'est attribuable
+    #: à personne. `True` ne dit pas « la carte n'a servi qu'à lui » — un
+    #: navigateur compte aussi — mais « aucun autre run n'a partagé la
+    #: fenêtre ». `None` quand on n'a pas su regarder.
+    exclusif: Optional[bool] = None
+
     contrat: str = ""
     #: Comment ce run a été routé, en JSON compact (HOS-242) : ce que le
     #: routeur a demandé, ce qui a réellement servi, le fournisseur, et le
@@ -190,6 +217,12 @@ CREATE TABLE IF NOT EXISTS runs (
     fini_le TEXT,
     processus TEXT,
     decision TEXT,
+    -- R-6. Nullables par contrat : NULL se lit « non mesuré », 0 se
+    -- lirait « mesuré, rien pris ». L'unité est dans le nom.
+    vram_reservee_octets INTEGER,
+    vram_machine_debut_octets INTEGER,
+    vram_machine_pic_octets INTEGER,
+    exclusif INTEGER,
     FOREIGN KEY (parent) REFERENCES runs(identifiant)
 );
 CREATE INDEX IF NOT EXISTS runs_mission ON runs(mission, cree_le);
@@ -230,7 +263,17 @@ class Registre:
         remplir pour les lignes déjà là ne doit pas être ajoutée en douce.
         """
         presentes = {ligne[1] for ligne in conn.execute("PRAGMA table_info(runs)")}
-        for nom, type_sql in (("processus", "TEXT"), ("decision", "TEXT")):
+        for nom, type_sql in (("processus", "TEXT"), ("decision", "TEXT"),
+                              # R-6 : une base ouverte avant cette passe
+                              # n'a pas ces colonnes, et l'`INSERT` nommé
+                              # d'`ouvrir()` y échouerait — plus aucun run
+                              # ne s'ouvrirait. Additives et nullables :
+                              # les lignes déjà là restent « non mesuré »,
+                              # ce qu'elles sont.
+                              ("vram_reservee_octets", "INTEGER"),
+                              ("vram_machine_debut_octets", "INTEGER"),
+                              ("vram_machine_pic_octets", "INTEGER"),
+                              ("exclusif", "INTEGER")):
             if nom not in presentes:
                 conn.execute(f"ALTER TABLE runs ADD COLUMN {nom} {type_sql}")
 
@@ -311,6 +354,43 @@ class Registre:
             return
         self._changer_sans_statut(identifiant, **faits)
 
+    #: Ce que `mesurer` accepte d'écrire, et rien d'autre. Une liste
+    #: blanche plutôt qu'un `setattr` libre : le registre est la trace, et
+    #: une trace où n'importe quoi peut s'écrire n'en est plus une.
+    MESURES = ("vram_reservee_octets", "vram_machine_debut_octets",
+               "vram_machine_pic_octets", "exclusif")
+
+    def mesurer(self, identifiant: str, **mesures: Any) -> None:
+        """Inscrire ce que ce run a coûté à la machine (R-6).
+
+        Séparée de `constater`, qui filtre ses valeurs sur leur véracité
+        (`if v`) : ici, `0` octet est une mesure légitime — une carte au
+        repos — et `exclusif=False` est un fait. Les faire disparaître
+        parce qu'ils sont faux au sens de Python transformerait « mesuré à
+        zéro » en « non mesuré », qui est l'inverse.
+
+        `None` signifie « pas de mesure » et n'écrit rien : la colonne
+        garde sa valeur, et une colonne vide se lit « on ne sait pas ».
+
+        Le même gel terminal que partout ailleurs : un run arrivé ne se
+        réécrit pas, même pour lui ajouter un chiffre.
+
+        **Comptabilité passive.** Rien ici n'est relu par une décision
+        d'admission ; `ResourceManager` reste seul à décider, et ne lit
+        jamais cette table.
+        """
+        inconnues = set(mesures) - set(self.MESURES)
+        if inconnues:
+            raise ValueError(
+                f"`mesurer` n'écrit que des mesures physiques ; "
+                f"{sorted(inconnues)} n'en sont pas")
+        a_ecrire = {n: v for n, v in mesures.items() if v is not None}
+        if not a_ecrire:
+            return
+        if "exclusif" in a_ecrire:
+            a_ecrire["exclusif"] = 1 if a_ecrire["exclusif"] else 0
+        self._changer_sans_statut(identifiant, **a_ecrire)
+
     def reprendre(self, identifiant: str, *, motif: str, **remplacements: Any) -> Run:
         """Ouvrir une reprise, rattachée à celle qui a échoué.
 
@@ -329,7 +409,13 @@ class Registre:
         for jetable in ("identifiant", "statut", "cause", "raison", "cree_le",
                         "demarre_le", "fini_le", "jetons_entree",
                         "jetons_sortie", "cout", "decision", "modele",
-                        "fournisseur"):
+                        "fournisseur",
+                        # R-6 : une reprise n'hérite pas des mesures de la
+                        # tentative qui a échoué. Les recopier ferait dire
+                        # à la nouvelle qu'elle a consommé ce que l'autre
+                        # avait consommé, sans que rien ne l'ait mesuré.
+                        "vram_reservee_octets", "vram_machine_debut_octets",
+                        "vram_machine_pic_octets", "exclusif"):
             champs.pop(jetable, None)
         champs.update(remplacements)
         champs["parent"] = parent.identifiant
@@ -429,6 +515,11 @@ class Registre:
         d.pop("processus", None)
         d["statut"] = Statut(d.get("statut") or "en_attente")
         d["cause"] = Cause(d["cause"]) if d.get("cause") else None
+        # SQLite n'a pas de booléen : la colonne rend 0, 1 ou NULL, et les
+        # trois doivent rester distincts en Python. `bool(None)` vaudrait
+        # `False` — « ce run partageait la carte » là où on ne sait pas.
+        brut = d.get("exclusif")
+        d["exclusif"] = None if brut is None else bool(brut)
         return Run(**d)
 
 

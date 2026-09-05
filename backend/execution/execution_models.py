@@ -202,6 +202,19 @@ class TaskExecution:
     completed_at: datetime | None = None
     duration_ms: float = 0.0
     resources_used: dict[str, float] = field(default_factory=dict)
+    #: R-6 — ce que cette tentative a constaté de la machine, en octets.
+    #:
+    #: Séparé de `resources_used` pour une raison mesurée : celui-ci n'est
+    #: écrit qu'au retour normal d'`execute` (`mission_executor`, « with
+    #: self._lock: task.resources_used = outcome.resources() »), et le
+    #: chemin `RuntimeUnavailableError` sort **avant**. Une tâche en échec
+    #: y perdrait toute trace physique, alors que c'est précisément le cas
+    #: où l'on veut savoir ce que la carte portait.
+    #:
+    #: Écrit par `RealTaskExecutor` dans son `finally`, donc sur toutes les
+    #: sorties. Clés absentes = non mesuré ; jamais de zéro par défaut.
+    #: Sémantique complète : `backend/runs/consommation.py`.
+    ressources_physiques: dict[str, Any] = field(default_factory=dict)
     validation_outcome: ValidationOutcome | None = None
 
 

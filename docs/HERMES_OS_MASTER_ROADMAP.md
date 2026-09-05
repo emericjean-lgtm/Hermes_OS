@@ -17,7 +17,7 @@
 | §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | ~~A-2~~ fermé · **fermer A-3** | Hermes OS |
 | §4 | Cloud / Providers / Quota | **🟡** | ~~A-1~~ fermé · **fermer A-10** | Hermes OS |
 | §5 | Runtime / RAL / Model Intelligence | 🟢 | aucune | Hermes OS |
-| §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 audité · §6.2 livré · A-15 fermé · R-3/R-4 fermés · **R-6 ouvert** | AIOS ; Hermes Agent |
+| §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 audité · §6.2 · A-15 · R-3/R-4 · R-6 fermés · **§6.1 routing et §6.6 ouverts** | AIOS ; Hermes Agent |
 | §7 | Advanced Agent Orchestration | 🟠 | audit de décision | Hermes Agent ; OpenHands ; Autonomous OS |
 | §8 | Memory Learning / Experience | 🟡 | analyse d'écart | Hermes Agent |
 | §9 | Mission Control / Operator Observability | 🟡 | analyse d'écart | Paperclip ; Hermes Agentic OS |
@@ -356,9 +356,16 @@ qui fait respecter cette borne est porté par l'unique `GraphExecutor` du
 conteneur, donc partagé — deux missions concurrentes donnaient
 auparavant quatre nœuds simultanés pour une borne de deux.
 
-**Restent ouverts** : R-6 (comptabilité VRAM/CPU par mission), A-16
-(aucune sonde d'occupation sur Linux sans `rocm-smi` — `/sys/class/drm`
-existe, rien ici ne permet de l'exercer), A-17.
+R-6 (HOS-260) a fermé la comptabilité physique. Un run conserve ce que
+la machine portait, en octets, et **ce qu'il ne sait pas attribuer** :
+l'occupation est celle de la machine, pas du run, et `exclusif` dit si
+l'écart est attribuable. L'attribution exacte est impossible ici — le
+serveur Ollama sert tous les runs depuis un seul processus — et le
+système le dit au lieu de le masquer.
+
+**Restent ouverts** : A-16 (aucune sonde d'occupation sur Linux sans
+`rocm-smi` — `/sys/class/drm` existe, rien ici ne permet de l'exercer),
+A-17, A-18 (une empreinte déclarée mesurée deux fois trop basse), A-19.
 
 Ce qui suit reste le cadrage d'origine.
 
@@ -391,7 +398,7 @@ l'une des deux grandeurs.
 Vérifier les ressources **avant** d'engager. `_check_vram_admission` existe
 déjà dans `task_executor` : point de départ, pas à réinventer.
 
-### §6.4 — VRAM / résidence des modèles
+### §6.4 — VRAM / résidence des modèles — comptabilité fermée par R-6
 Estimation mémoire, admission, chargement/déchargement, éviction,
 coexistence, prévention d'OOM. Contrainte matérielle documentée :
 RX 6800, ~16 Gio, et le motif d'attention change le calcul du cache KV

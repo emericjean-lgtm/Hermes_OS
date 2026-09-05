@@ -783,6 +783,25 @@ class MissionExecutor:
         except Exception:
             logger.warning("constat d'exécution non inscrit", exc_info=True)
 
+        # R-6 : ce que ce run a coûté à la machine, avant de clore — un
+        # run terminal est gelé, y compris pour lui ajouter un chiffre.
+        #
+        # Même forme que les jetons juste au-dessus : agrégé depuis les
+        # tâches, sans ouvrir aucune source nouvelle. Les grandeurs
+        # physiques ne s'additionnent pourtant pas comme des jetons — voir
+        # `consommation.agreger`, qui prend le maximum d'une réservation et
+        # non sa somme, parce que les tâches ne tiennent pas la carte en
+        # même temps.
+        try:
+            from backend.runs.consommation import agreger
+
+            mesures = agreger([getattr(t, "ressources_physiques", None) or {}
+                               for t in tasks])
+            if mesures:
+                self._registre.mesurer(identifiant, **mesures)
+        except Exception:
+            logger.warning("consommation physique non inscrite", exc_info=True)
+
         try:
             self._registre.terminer(identifiant, statut, raison=raison,
                                     cause=cause,

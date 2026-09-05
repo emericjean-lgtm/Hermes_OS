@@ -232,6 +232,7 @@ def _runtime_demande(brut: str) -> str:
 #: Importe au niveau module : `_apres_des_tours_perdus` est une fonction
 #: de module, pas une methode, et le registre n'importe pas l'executeur.
 from backend.ral.adapters.sessions_de_mission import PLAFOND_TOURS_PERDUS
+from backend.runs.consommation import ObservationPhysique
 
 def modele_impose(task_type: str = "") -> str:
     """Le modele que l'operateur impose, pour ce type de tache ou pour tous.
@@ -745,6 +746,10 @@ class RealTaskExecutor:
 
         started = time.perf_counter()
         allocation = None
+        # R-6 : la comptabilité physique de cette tentative. Passive — elle
+        # lit `ResourceManager`, ne lui demande rien et ne décide de rien.
+        observation = ObservationPhysique()
+        observe = False
         try:
             active_chat = self._cloud_chat if use_cloud else chat
             if not use_cloud:
@@ -764,7 +769,17 @@ class RealTaskExecutor:
                 modele_admis = (
                     self._agentic_model(model, str(getattr(task, "task_type", "") or ""))
                     if runtime_id == "hermes-agent" else model)
-                allocation = self._admettre_et_reserver(modele_admis)
+                # R-6 : la ligne de base **avant** l'admission, donc avant
+                # que ce run ne pousse quoi que ce soit sur la carte. La
+                # prendre après ferait démarrer la mesure au-dessus de sa
+                # propre empreinte.
+                #
+                # Chemin local seulement : un run cloud n'occupe pas cette
+                # carte, et lui coller un relevé GPU de 1,6 s donnerait un
+                # chiffre sans rapport avec lui.
+                observe = True
+                observation.relever(self._resource_manager, ligne_de_base=True)
+                allocation = self._admettre_et_reserver(modele_admis, observation)
             # Les racines ne partent qu'au chemin cloud : c'est le seul
             # où quelque chose sort de la machine, et les ajouter au
             # chemin local casserait les appelants qui injectent leur
@@ -847,6 +862,23 @@ class RealTaskExecutor:
                     f"{getattr(task, 'task_id', '?')}: {type(exc).__name__}: {exc}"
                 ) from exc
         finally:
+            # R-6 : le relevé final **avant** la libération. Après, notre
+            # allocation a disparu et le compte des autres ne dirait plus
+            # si ce run avait la carte pour lui seul.
+            #
+            # Ici plutôt qu'au retour normal : succès, exception, délai
+            # dépassé, annulation et repli cloud passent tous par ce
+            # `finally`, et un run en échec est justement celui dont on
+            # veut savoir ce que la carte portait.
+            if observe:
+                observation.relever(self._resource_manager, allocation)
+                mesures = observation.to_dict()
+                if mesures:
+                    try:
+                        task.ressources_physiques = mesures
+                    except Exception:  # pragma: no cover - tâche factice
+                        logger.debug("tâche sans champ de comptabilité",
+                                     exc_info=True)
             # §6.2 : toutes les sorties passent ici — succès, exception,
             # délai dépassé, annulation, repli cloud. Une réservation qui
             # survit à sa tâche condamne la capacité pour les suivantes,
@@ -1397,7 +1429,7 @@ class RealTaskExecutor:
                 logger.warning("local_fallback_for a échoué", exc_info=True)
         return None
 
-    def _admettre_et_reserver(self, model: str):
+    def _admettre_et_reserver(self, model: str, observation=None):
         """Attendre la place, puis **la retenir** avant de lancer (§6.2).
 
         ## Pourquoi vérifier ne suffisait pas
@@ -1436,12 +1468,19 @@ class RealTaskExecutor:
         if not vram_gb or vram_gb <= 0:
             return None
 
+        octets = int(vram_gb * 1024 ** 3)
         resultat = self._resource_manager.reserve_resources(
-            int(vram_gb * 1024 ** 3), "ollama", model_name=model)
+            octets, "ollama", model_name=model)
         if not resultat.success:
             raise RuntimeUnavailableError(
                 f"réservation refusée pour {model!r} "
                 f"({vram_gb:.1f} Gio) : {resultat.reason or 'capacité insuffisante'}")
+        # R-6 : la seule des grandeurs physiques qui soit exacte **et**
+        # propre à ce run. Notée ici parce que c'est ici qu'elle existe ;
+        # une promesse, pas une mesure — le modèle n'occupe la carte
+        # qu'une fois chargé.
+        if observation is not None:
+            observation.noter_la_reservation(octets)
         return getattr(resultat.allocation, "allocation_id", None)
 
     def _liberer(self, allocation) -> None:

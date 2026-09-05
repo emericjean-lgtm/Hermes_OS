@@ -112,6 +112,16 @@ c'est la source d'admission, et la seule définition de la requête —
 `backend/model_intelligence/model_bench.py` (`gpu_dedicated_bytes`) pour
 un processus nommé.
 
+**Quatre grandeurs, quatre noms** (R-6, HOS-260). La **capacité** est ce
+que la carte porte ; le **besoin déclaré** est l'empreinte de
+`config/models.yaml`, une estimation ; la **réservation** est ce qu'un run
+a fait retenir, une promesse ; l'**occupation observée** est ce que la
+machine portait, une mesure — et elle appartient à la machine, pas au run.
+Le serveur Ollama sert tous les runs depuis un seul processus : aucun
+compteur ne dit lequel a pris quoi, et `runs.exclusif` dit si l'écart est
+attribuable plutôt que de le supposer. Une donnée moins précise mais
+honnête vaut mieux qu'une donnée précise et fausse.
+
 **Une seule vérité de capacité, et personne ne la recalcule** (R-3/R-4,
 HOS-259). `ResourceManager` répond à « combien de tâches tiennent »
 (`places_disponibles`) ; `GraphExecutor` pose la question et respecte la

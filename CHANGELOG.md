@@ -1,3 +1,156 @@
+## HOS-260 — Ce qu'un run a coute a la machine (2026-09-05)
+
+R-6, le dernier defaut MUST HAVE de l'audit §6.1. Le registre portait les
+jetons et le cout monetaire d'un run depuis HOS-221, et rien de physique :
+« cette mission a-t-elle sature la carte ? » n'avait pas de reponse
+conservee, alors que la telemetrie existait depuis A-15 — elle n'etait
+rattachee a aucun run.
+
+### La question qui decide de tout : que sait-on vraiment attribuer ?
+
+La source canonique somme `GPU Process Memory` sur **tous** les
+processus, et le modele vit dans le serveur Ollama, qui sert tous les runs
+a la fois. Deux runs simultanes partagent le meme processus : aucun
+compteur ne dit lequel a pris quoi. Le chemin agentique n'aide pas — le
+sous-processus de Hermes Agent ne detient presque pas de VRAM, c'est
+Ollama qui la detient pour lui.
+
+**L'attribution exacte est donc impossible ici.** Le systeme ne pretend
+pas le contraire : c'est le point de cette passe, plus que les colonnes.
+
+### Quatre grandeurs qui ne se confondent pas
+
+| grandeur | ce que c'est | ou |
+|---|---|---|
+| capacite | ce que la carte porte au total | `ResourceManager` |
+| besoin declare | l'empreinte du modele, `config/models.yaml` | estimation |
+| **reservation** | ce que **ce run** a fait retenir | `vram_reservee_octets` |
+| **occupation observee** | ce que la **machine** portait | `vram_machine_*` |
+
+Une reservation est une promesse, pas une mesure. Une occupation machine
+est une mesure, mais pas celle du run. `exclusif` dit si l'ecart entre le
+debut et le pic est attribuable — et sans lui, il ne l'est pas.
+
+### Mesure sur la vraie carte
+
+    run 1, succes                debut 1,148 Gio  pic 8,231 Gio  exclusif=True
+    run 2, echec du runtime      debut 8,231 Gio  pic 8,231 Gio  exclusif=True
+    runs 3 et 4, en meme temps                    pic 8,231 Gio  exclusif=False
+
+Les deux runs concurrents voient le meme 8,231 Gio et **aucun des deux**
+ne se le voit attribuer. C'est tout l'objet de `exclusif`, et c'est la
+difference entre une donnee moins precise mais honnete et une donnee
+precise et fausse.
+
+### Ou la mesure est prise, et pourquoi seulement la
+
+Deux points : avant l'admission — donc avant que ce run ne pousse quoi que
+ce soit — et dans le `finally` d'`execute`, avant la liberation. Aucun fil
+de sondage n'est ouvert pour R-6.
+
+Consequence assumee et ecrite dans le nom : `vram_machine_pic_octets` est
+le plus haut des relevés **reellement pris**, donc un **minorant** du vrai
+pic. Le nommer `vram_peak_bytes` aurait laisse croire l'inverse.
+
+Le releve final est dans le `finally` parce que c'est le seul endroit que
+succes, exception, delai depasse, annulation et repli cloud traversent
+tous — et un run en echec est justement celui dont on veut savoir ce que
+la carte portait. `resources_used` ne convenait pas : `mission_executor`
+ne l'ecrit qu'au retour normal, et le chemin `RuntimeUnavailableError`
+sort avant.
+
+### Comptabilite passive
+
+`consommation.py` lit `ResourceManager` et ne lui demande rien : ni
+`can_allocate`, ni `reserve_resources`, ni `release_resources`. Et
+reciproquement, aucun module d'admission n'importe le registre. Deux
+gardes structurelles tiennent les deux sens : refermer cette boucle
+ferait de la trace une entree de decision, ce que R-6 s'interdit.
+
+### Persistance
+
+Quatre colonnes nullables sur la table `runs` existante, par le mecanisme
+additif de HOS-240 — `CREATE TABLE IF NOT EXISTS` ne fait rien sur une
+base deja la, et l'`INSERT` nomme d'`ouvrir()` y echouerait : plus aucun
+run ne s'ouvrirait. Une correction d'observabilite aurait casse
+l'execution ; c'est deja arrive.
+
+`NULL` se lit « non mesure », jamais « zero consomme ». `mesurer()` est
+separee de `constater()` pour cette raison precise : `constater` filtre
+ses valeurs sur `if v` et ferait disparaitre un `0` octet — une carte au
+repos — et un `exclusif=False`, qui est un fait.
+
+L'unite est dans le nom de chaque colonne. « memory » ou « GiB » sans
+definition est la maniere habituelle de perdre un facteur 1024 trois mois
+plus tard.
+
+### Deux tests a moi qui ne prouvaient pas ce qu'ils annoncaient
+
+**Le test de concurrence etait instable** — rouge une fois sur six,
+mesure. Il exigeait que les deux taches se declarent non exclusives ; or
+le releve final precede la liberation, et si l'autre a deja libere, une
+tache ne voit plus personne et se declare seule — ce qui est exact pour
+l'instant ou elle a regarde. Exiger `False` des deux, c'est exiger une
+coincidence, pas une propriete. Reecrit avec une barriere **dans** le
+`chat` (donc apres l'admission) et des tenues asymetriques : la tache
+courte releve forcement pendant que la longue detient sa reservation.
+Dix executions, dix vertes.
+
+**Le test d'annulation testait autre chose que son nom.** Il affirmait
+qu'une `CancelledError` descend de `BaseException` et n'est retenue que
+par le `finally`. Mesure : sur ce chemin, elle ressort d'`execute` en
+`RuntimeUnavailableError` — elle est convertie avant. La mutation « plus
+de capture sur annulation » ne faisait donc rougir aucun test, parce
+qu'il n'y avait rien de distinct a retirer. Le contrat de conversion est
+desormais ecrit et verifie, et un second test leve une `KeyboardInterrupt`
+— une vraie `BaseException` qui traverse tous les gestionnaires — pour
+prouver ce que le `finally` retient et qu'un `except Exception` perdrait.
+
+### Les mutations
+
+Dix, dix rouges : enregistrement supprime (9), mesure prise sur `/api/ps`
+(14), gibioctets sous un nom d'octets (13), « non mesure » devenu zero
+(1), le run s'attribuant toute la carte (5), persistance supprimee (7),
+admission consultant le registre (1), capture retiree sur exception (5),
+capture quittant le `finally` pour un `except Exception` (1), seconde
+autorite de mesure (1).
+
+### Un defaut trouve par la mesure, laisse ouvert
+
+R-6 a rendu visible ce qu'il devait rendre visible. Carte videe entre
+chaque, un modele a la fois :
+
+    modele                 declare   occupation   ratio
+    lfm2.5-2.6b-125k      2,05 Gio     4,33 Gio    2,1x
+    gemma4-12b-256k      12,24 Gio    12,24 Gio    1,0x
+
+L'empreinte declaree de `config/models.yaml` est exacte pour l'un et
+**deux fois trop basse** pour l'autre. C'est la table que R-3 utilise pour
+deriver la capacite : si la sous-declaration touche aussi les roles
+lourds, `places_disponibles` sur-estime. Deux points ne suffisent pas a
+l'affirmer. Consigne **A-18**, non corrige.
+
+### Un second, expose et non cree
+
+Le couple `test_runs_perdus.py` + `test_registre_missions.py` lance a la
+main devient rouge avec cette passe et etait vert en `28a7ad7` — verifie
+dans un worktree, pas deduit.
+
+Mecanisme trace : `_RegistreMissions.__len__` **hydrate le cache depuis le
+magasin durable au milieu du test**, et
+`test_au_dela_la_plus_ancienne_terminee_quitte_le_cache` affirme ensuite
+le contenu de ce cache. Or les missions ecrites par le test precedent du
+meme fichier portent toutes le **meme `created_at` a la microseconde
+pres** : leur ordre de relecture est une egalite tranchee par SQLite. Le
+test dependait donc d'un ordre que rien ne garantit ; cette passe a
+deplace le tirage, elle ne l'a pas cree.
+
+Les commandes du projet restent vertes — `pytest -q` et `pytest -m lent`,
+avant comme apres. Le defaut n'apparait que dans un ordre de fichiers
+compose a la main. Consigne **A-19**, non corrige : reparer ce test
+demande de decider si `__len__` a le droit d'hydrater, ce qui est une
+question sur `_RegistreMissions` et non sur R-6.
+
 ## HOS-259 — Combien de taches, et qui le sait (2026-09-05)
 
 R-3 et R-4, les deux derniers defauts MUST HAVE de l'audit §6.1 hors R-6.
