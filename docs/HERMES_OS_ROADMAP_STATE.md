@@ -17,7 +17,7 @@ CURRENT_STATUS:       🟡 §6.1 audité · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      9f98031 (A-18 fermé) — 4d1798a pour R-6
+BASELINE:                      6dfa78a (A-18 fermé) — dernier commit de code
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -35,8 +35,16 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
 est audité, §6.2 livré (HOS-257), A-15 fermé (HOS-258), §6.5 fermé par
-R-3/R-4 (HOS-259) et la comptabilité physique par R-6 (HOS-260). Restent
-§6.1 (capability routing) et §6.6, qu'aucune passe n'a ouverts.
+R-3/R-4 (HOS-259), la comptabilité physique par R-6 (HOS-260) et les
+empreintes déclarées par A-18 (HOS-261). Restent §6.1 (capability
+routing) et §6.6, qu'aucune passe n'a ouverts.
+
+**§15 — Hermes Assistant — a été créée le 2026-09-05 et n'est pas la
+section active.** Elle est une couche produit qui consomme §1→§13 ; la
+créer ne la rend pas prioritaire, et deux de ses sous-chantiers sont
+bloqués par des dettes qui vivent ailleurs (A-3 pour la reprise, A-4 pour
+les artefacts, G-10 pour le contrôle mémoire). Le contrat §15.1 (T-28)
+doit être tranché avant toute ligne de produit.
 
 ---
 
@@ -61,6 +69,28 @@ ou moins :
    sémantique ; rien ici ne permet de l'exercer, et une sonde non
    mesurée reproduirait la faute que A-15 vient de corriger.
 
+### Et §15 dans tout ça
+
+**§15 n'est pas le prochain chantier.** Elle a été formalisée le
+2026-09-05 parce que la trajectoire produit n'était écrite nulle part —
+pas parce qu'elle est prête. Ce qui la précède :
+
+1. **A-10** ferme §4 ;
+2. **T-22 / §6.1** tranche l'autorité d'ordonnancement ;
+3. **T-28** tranche le contrat Chat/Cowork — sans lui, §15 ne peut pas
+   commencer.
+
+Quand §15 s'ouvrira, **§15.5 est l'entrée à privilégier**, et c'est la
+mesure qui le dit plutôt qu'une préférence : `DecisionExplainer` produit
+des explications que personne ne demande (A-8), la provenance est exposée
+et affichée nulle part (G-3), et §6 vient de rendre la ressource honnête.
+Tout y est monté, testé, et sans consommateur — meilleur rapport
+valeur/coût du dépôt, et aucune dépendance ouverte.
+
+§15.4 (Cowork) est à l'inverse **bloqué** : `checkpoint.restaurer` n'a
+aucun appelant (A-3), et un bouton « reprendre » sans restauration
+mentirait sur ce qu'il fait.
+
 ---
 
 ## OPEN_CRITICAL_ARCHITECTURAL_GAPS
@@ -74,6 +104,8 @@ ou moins :
 | ~~Comptabilité VRAM/CPU par Run (R-6)~~ — **fermé HOS-260** | observability | §6 |
 | ~~Empreinte déclarée sous le contexte servi (A-18)~~ — **fermé HOS-261** | architectural | §6 |
 | Rien ne détecte un Modelfile élargi sous une empreinte (A-20) | architectural | §6 |
+| La promotion d'un souvenir n'a aucune route HTTP (G-10) | architectural | §8 |
+| `assigned_tools` planifié et jamais invoqué (G-11) | technical debt | §7 |
 | `_RegistreMissions.__len__` hydrate au milieu d'un test (A-19) | test | §3 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
@@ -120,7 +152,14 @@ ou moins :
 1. lire ce fichier ;
 2. lire la section active de `docs/HERMES_OS_MASTER_ROADMAP.md` ;
 3. vérifier que `git rev-parse HEAD` correspond à `BASELINE`, ou relever
-   l'écart avant de commencer ;
+   l'écart avant de commencer. **Et vérifier que ce SHA existe encore** :
+   le 2026-09-05, `BASELINE` nommait `9f98031`, un commit rendu orphelin
+   par un `--amend` postérieur à son inscription. Un pointeur qui désigne
+   un objet inatteignable ne dit rien.
+   **La cause était la convention elle-même** : `BASELINE` nommait le
+   commit de la passe en cours, écrit par `--amend` — donc un SHA que
+   l'amendement suivant invalidait, à chaque fois. Depuis le 2026-09-05
+   il nomme le **dernier commit de code**, jamais celui qui l'écrit ;
 4. travailler **dans le périmètre de la section active** ;
 5. mettre à jour ce fichier **et** le statut de la section en fin de
    passe ;

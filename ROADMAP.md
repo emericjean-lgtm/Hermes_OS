@@ -203,6 +203,14 @@ du code qui a changé depuis.
 
 ## C. Frontend — retours utilisateur après la refonte SODIUM
 
+> **Depuis le 2026-09-05, la trajectoire de cette section vit en §15**
+> (`docs/HERMES_OS_MASTER_ROADMAP.md`) — *Frontend ↔ Backend Product
+> Parity / Hermes Assistant*. Les points ouverts ci-dessous y sont
+> repris et datés : « voir la décomposition réelle » et « résultats plus
+> poussés » deviennent §15.3 et §15.5, le fil conversationnel de
+> l'Autonomous devient §15.4. **Ce tableau reste l'état constaté en
+> 2026-08-13** et n'est pas réécrit.
+
 Relevés le 2026-08-13 (`docs/frontend-backlog.md`), statut revérifié le
 2026-08-15. **Calendrier : après ACP** — ACP change ce qu'il y a à
 afficher (pensées en streaming, demandes d'approbation, sessions

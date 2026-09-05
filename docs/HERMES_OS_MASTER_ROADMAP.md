@@ -26,6 +26,7 @@
 | §12 | Plugins / Extensibility | 🟠 | reporté | Hermes Agent |
 | §13 | Voice / Multimodal | ⚪ | reporté | Hermes Agent |
 | §14 | Specialized Studios | ⚪ | observation | multiples |
+| §15 | Frontend ↔ Backend Product Parity / Hermes Assistant | 🟠 | **§15.1 contrat à trancher (T-28)** · §15.5 réalisable | ChatGPT ; LM Studio Bionic |
 
 > **§3 et §4 divergent du statut attendu par le cahier de la passe 25.**
 > Celui-ci les annonçait 🟢. L'audit global J25 a mesuré, sur le code au
@@ -621,6 +622,263 @@ ambiguïtés.
 
 ---
 
+## §15 — Frontend ↔ Backend Product Parity / Hermes Assistant — 🟠 PLANNED
+
+**§15 est une couche produit, pas un second backend.** Elle n'introduit
+aucune source de vérité : elle consomme celles qui existent. Toute
+capacité qui aurait besoin d'une autorité nouvelle n'appartient pas à
+§15 — elle appartient à la section qui possède déjà le domaine, et §15
+attend.
+
+> **La règle de cette section.** Une fonctionnalité d'Assistant ne se
+> déclare pas faite parce que son endpoint existe. §0 s'applique
+> intégralement : `PRESENT` n'est pas `CALLED`, et une route montée que
+> personne n'appelle est le défaut le plus fréquent de ce dépôt.
+
+### Pourquoi cette section existe, mesuré
+
+L'audit J25 avait déjà chiffré l'écart, et §9 le porte : **142 des 302
+routes `/api/v1` montées ne sont jamais appelées par le frontend**. Le
+constat de cette passe est plus précis, et il est le sujet même de §15 —
+des capacités **livrées, testées, et sans consommateur produit** :
+
+| capacité | backend | frontend | niveau réel |
+|---|---|---|---|
+| Explication de décision (`DecisionExplainer`) | 3 routes montées | **0 appel** | `CALLED` = non (A-8) |
+| Quarantaine / provenance mémoire | 4 champs exposés | **0 affichage** | `ACTUALLY USED` = non (G-3) |
+| Promotion d'un souvenir | 4 niveaux, testé | **aucune route HTTP** | `PRESENT` (G-10) |
+| Points de reprise | `prendre` appelé | `restaurer` **0 appelant** | `CALLED` = non (A-3) |
+| Cycle de vie des skills | 9 routes, **aucune création** | liste seule | `PRESENT` (G-5) |
+| `assigned_tools` d'une tâche | planifié, jamais invoqué | — | décoratif (G-11) |
+
+§15 n'invente donc pas un produit : elle **branche celui qui est déjà
+construit**, et nomme ce qui manque réellement.
+
+### Ce que l'Assistant est aujourd'hui, mesuré
+
+`frontend/src/features/conversation/` — 2 824 lignes, 12 fichiers. Ce qui
+est **`ACTUALLY USED`**, vérifié en suivant les appels et non les imports :
+
+- **Chat en flux** — `POST /conversation/stream`, NDJSON, canal de
+  raisonnement séparé de la réponse ;
+- **Décision de routage affichée** — `RoutingBadge` rend modèle, tier,
+  rôle, raisonnement, intention et **la raison** : le « pourquoi ce
+  modèle » existe déjà pour le tour de chat ;
+- **Fenêtre de contexte** — `used_tokens_estimate` / `window`, affichée ;
+- **Appels d'outils réels** — `onToolCall` / `onToolResult` rendus dans
+  la transcription. Et il y en a **treize**, pas un : `web_search` en
+  permanence, plus les onze opérations de fichiers de
+  `workspace_chat_tools` et les deux exécuteurs de
+  `verification_chat_tools` **dès qu'un projet validé est lié à la
+  session**. L'Assistant sait donc déjà lire, écrire, déplacer et
+  supprimer dans un workspace, et y lancer une vérification ;
+- **Sessions** — liste, suppression, contexte, via les commandes slash ;
+- **Projet lié à la session**, sélecteur de modèle, pièces jointes,
+  entrée vocale, aperçu web.
+
+Ce qui **n'existe nulle part dans le frontend** — vérifié par recherche
+sur l'arbre entier : `cowork`, `worklog`, `fork`, `artifact` (hors banc de
+modèles), invocation `@skill`.
+
+Le plus proche d'un Cowork est le **Centre Autonome** (567 lignes) :
+objectifs, statut, chronologie, rapport, actions, démarrage. Les
+primitives d'un travail long **existent donc déjà** — elles vivent dans un
+Centre d'opérateur, pas dans l'Assistant.
+
+### Ce que §15 consomme, et ne redéfinit pas
+
+```
+§15 → consomme §2   Run Ledger        lignée, tentatives, motif de reprise, consommation
+§15 → consomme §3   Aegis, reprises   approbations, bac à sable, points de reprise
+§15 → consomme §5   RAL               modèle, runtime, fournisseur, décision de routage
+§15 → consomme §6   ResourceManager   capacité, admission, portillon, occupation mesurée
+§15 → consomme §7   Orchestration     sous-agents, propriété des processus
+§15 → consomme §8   Memory            provenance, quarantaine, promotion
+§15 → consomme §9   Observabilité     explications, progression, trajectoire
+§15 → consomme §10  Skills            découverte, sélection, cycle de vie
+§15 → consomme §11  Collaboration     relecteurs, conseil, délégation
+§15 → consomme §13  Voice/Multimodal  entrée vocale, documents, images
+```
+
+Aucune flèche ne part de §15 vers une décision. L'Assistant **montre** et
+**demande** ; il ne décide ni de l'admission, ni du routage, ni de la
+mémoire.
+
+---
+
+### Chronologie
+
+L'ordre ci-dessous suit les **dépendances mesurées**, pas la valeur
+perçue. Deux sous-chantiers sont réalisables aujourd'hui ; les autres
+attendent une section qui les porte.
+
+#### §15.1 — Assistant foundation / product contract — 🟠 réalisable
+
+Écrire le contrat produit : ce qu'est une **session** de Chat, ce qu'est
+un **Cowork**, ce que chacun garantit, et lequel des deux possède quoi.
+Aucune ligne de produit avant que ce contrat soit tranché — c'est la même
+discipline que T-22 impose à §6.
+
+**Question à trancher : Chat et Cowork sont-ils deux surfaces ou deux
+modes d'une seule ?** Le dépôt penche pour *deux modes* : la session de
+conversation et l'objectif autonome partagent déjà le Run Ledger et le
+bus d'événements, et les séparer en deux produits créerait deux histoires
+pour une seule exécution. À décider en T-28.
+
+**Critère de passage.** Le contrat nomme, pour chaque surface, l'autorité
+consultée et l'identifiant qui corrèle (session, `run_id`, `mission_id`).
+
+#### §15.2 — Chat UX consolidation — 🟠 réalisable
+
+Coquille de l'Assistant, navigation entre sessions, composeur, pièces
+jointes, sélection de modèle, flux, rail de contexte responsive.
+Consolidation de ce qui existe : aucune dépendance ouverte.
+
+**Critère de passage.** Aucune régression sur le flux NDJSON ni sur
+l'affichage du routage ; les sessions restent lisibles après redémarrage.
+
+#### §15.3 — Context & Workspace — 🟡 partiellement bloqué
+
+Contexte de projet, fichiers, artefacts, aperçus, **inspecteur de
+contexte** — ce qui a réellement servi ce tour : sources, mémoire,
+fichiers, outils.
+
+L'inspecteur est **réalisable** : `/conversation/{id}/context` existe et
+n'est consommé que par une commande slash.
+
+Les **artefacts** ne le sont pas — mais pas pour la raison qu'on
+attendrait. Les opérations existent : onze outils de fichiers sont déjà
+offerts au modèle, sous Aegis, dès qu'un projet validé est lié. Ce qui
+manque est double :
+
+- **la surface** — rien ne montre ce qui a été produit, ni ses versions.
+  `backend/workspace/*` est une comptabilité en mémoire de créneaux
+  d'exécution et ne touche pas le disque : ce n'est pas le magasin
+  d'artefacts qu'on pourrait croire d'après son nom ;
+- **la garantie** — la portée projet repose sur la bonne foi du modèle
+  (**A-4**). Un panneau d'artefacts au-dessus de cela afficherait une
+  isolation que personne ne fait respecter.
+
+**Dépend de** : A-4 (habilitation de portée projet, §8/§10).
+
+#### §15.4 — Cowork — 🔴 bloqué sur une dépendance nommée
+
+Objectif, plan, progression, **worklog**, exécution en arrière-plan,
+interruption et **reprise**, fork/branche.
+
+Ce qui existe : objectifs, chronologie, rapport, annulation. Ce qui
+manque, et c'est structurel :
+
+- **la reprise n'existe pas** — `checkpoint.restaurer` a zéro appelant et
+  aucune route (**A-3**). Un Cowork qui propose « reprendre » sans
+  restauration mentirait sur son bouton ;
+- **fork/branche** n'a pas de primitive. `Registre.reprendre()` donne une
+  lignée de tentatives, pas une branche de conversation. Créer l'une à
+  partir de l'autre serait reconstruire un objet plausible — la famille de
+  défaut que le registre de rejets nomme déjà ;
+- **le worklog** est presque là : la chronologie du Centre Autonome et le
+  bus d'événements le portent ; il n'est pas dans l'Assistant.
+
+**Et une asymétrie qui décide d'où bâtir Cowork.** Le **chat** dispose de
+treize outils réels quand un projet est lié ; une **tâche de mission**
+n'en appelle aucun — `assigned_tools` est planifié et jamais invoqué
+(G-11), l'agent apportant les siens. Bâtir Cowork sur le chemin de mission
+suppose donc de résoudre G-11 ; le bâtir sur le chemin de conversation
+hérite d'outils qui marchent déjà. C'est une question de §15.1, et elle
+n'est pas tranchée.
+
+**Dépend de** : A-3 (§3), §7 (orchestration), et de la décision T-28.
+
+#### §15.5 — Explainability & resource visibility — 🟠 réalisable, et le meilleur rapport
+
+Le « pourquoi ? » — action, modèle, routage, refus —, le contexte
+réellement utilisé, l'état d'exécution, les ressources, le budget, la
+provenance.
+
+**C'est le sous-chantier le moins cher et le plus rentable**, et la mesure
+le dit : `DecisionExplainer` produit déjà des explications que **personne
+ne demande** (A-8), la provenance est exposée et **affichée nulle part**
+(G-3), et §6 vient de rendre la ressource honnête — `occupation_mesuree`
+distingue « mesuré » de « non mesuré », `runs.vram_machine_*` et
+`exclusif` disent ce qu'un run a coûté **et ce qu'on ne sait pas lui
+attribuer**.
+
+Aucune dépendance ouverte : tout est monté, testé, et sans consommateur.
+
+**Critère de passage.** Une explication affichée cite la route qui l'a
+produite ; une jauge de ressource n'affiche jamais un chiffre quand
+`occupation_mesuree` est faux.
+
+#### §15.6 — Skills & Memory UX — 🟡 partiellement bloqué
+
+Invocation `@`, découverte et suggestion de skills, mémoire proposée puis
+validée, provenance et contrôle utilisateur.
+
+Le **contrôle mémoire** est bloqué par construction : `promouvoir` existe
+à quatre niveaux et est testé, mais `backend/memory/routes.py` n'expose
+que `search`, `graph`, `experiences`, `index`, `statistics` — **aucune
+route de promotion** (**G-10**). L'utilisateur ne peut pas accepter un
+souvenir parce qu'aucune API ne le lui permet.
+
+Les **skills** : 9 routes, dont aucune ne **crée** un skill (G-5).
+
+**Dépend de** : G-10 (§8), G-5 (§10).
+
+#### §15.7 — Research / multimodal / voice — 🟠 dépend de §13
+
+Recherche structurée multi-source, sources et citations, documents,
+images, voix.
+
+Aujourd'hui : un seul outil de recherche, `web_search`, un résultat
+DuckDuckGo rendu dans la transcription. Il n'y a ni pipeline multi-source,
+ni citations, ni synthèse. §13 est ⚪ *observation only*.
+
+**Dépend de** : §13.
+
+#### §15.8 — Collaboration avancée — 🟠 dépend de §7/§11
+
+Sous-agents, relecteurs, multi-agent, conseil, supervision, fork
+synchronisé. §11 est 🟡 avec `CollaborationEngine` non intégré (G-4, 10
+routes sur 14 jamais appelées) ; §7 est 🟠.
+
+**Ne pas commencer** avant que §7 et §11 aient tranché leur contrat — un
+relecteur bâti sur une délégation non décidée hérite de son ambiguïté.
+
+#### §15.9 — Advanced Assistant capabilities — 🟠 à décider au cas par cas
+
+Réservé aux capacités dont l'analyse démontre une valeur **et** une
+compatibilité. Le registre ci-dessous en retient quatre et en rejette
+trois ; il n'est pas destiné à grossir sans preuve.
+
+---
+
+### Idées retenues — parce que Hermes peut les tenir et pas les autres
+
+| Idée | Pourquoi elle est possible **ici** | Consomme | Où |
+|---|---|---|---|
+| **Réponse vérifiée** — « j'affirme avoir écrit X ; voici la preuve sur disque » | `mission/verification.py` compare le workspace avant/après et émet `mission.unverified`, et `verification_chat_tools` expose déjà deux exécuteurs au chat. La matière existe ; elle n'est pas à l'écran — ce que `ROADMAP.md` §C notait déjà le 2026-08-13. | §1, §2 | §15.5 |
+| **Honnêteté de ressource** — « mesuré » / « non mesuré », jamais une jauge inventée | A-15 a rendu `occupation_mesuree` explicite ; R-6 distingue réservation, occupation machine et attribuabilité | §6 | §15.5 |
+| **Lignée d'exécution lisible** — « pourquoi la tentative 1 a échoué » | le Ledger porte `parent`, `tentative`, `motif_de_reprise` depuis HOS-221 ; rien ne les affiche | §2 | §15.4 |
+| **Mémoire à provenance visible** — pourquoi ce souvenir est digne de confiance | `Origine` et `ORIGINES_DE_CONFIANCE` existent ; la promotion n'est possible que par l'API locale | §8 | §15.6 |
+
+### Idées rejetées — conservées pour ne pas les reproposer
+
+| Idée | Décision | Raison |
+|---|---|---|
+| Canvas d'édition collaborative | **REJECT** | pas de CRDT, pas d'identité multi-utilisateur ; exigerait une autorité nouvelle pour un gain d'UX |
+| Projets/sessions synchronisés entre appareils | **REJECT** | `utilisateur` vaut `"local"` et **n'est pas une identité vérifiée** — un test le garde. Sans authentification, la synchronisation serait une promesse fausse |
+| Relecteur agentique séparé (*Auto Review*) **maintenant** | **DEFER → §15.8** | l'idée est bonne — séparer un jugement déterministe d'un relecteur agentique — mais §7 et §11 n'ont pas tranché leur contrat de délégation |
+
+### Ce que §15 ne fera pas
+
+Créer une `Session`, un `Projet`, un `Artefact` ou un `Worklog` comme
+**nouvelle** source de vérité. Chacun de ces objets a déjà un propriétaire :
+la session appartient à `conversation`, le projet à `ProjectStore`, la
+trace au Run Ledger et au bus d'événements. Une seconde vérité produite
+pour l'UX est exactement le défaut que §0 décrit.
+
+---
+
 # KNOWN OPEN GAPS
 
 Chaque écart porte sa classe. **Dette actuelle et capacité future ne se
@@ -647,6 +905,8 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | G-7 | **architectural** | Maturation du modèle de propriété des processus | §7 | identité seulement dans la ligne de commande |
 | G-8 | **technical debt** | Deux vocabulaires « mission » (`Mission` / `MissionInstance`) | §7 | deux routes homonymes, une seule montée |
 | G-9 | **technical debt** | 8 runs orphelins ; aucune suppression exposée par `Registre` | §2 | dette acceptée, voir STATE |
+| G-10 | **architectural** | La promotion d'un souvenir n'a **aucune route HTTP** | §8 | `promouvoir` à 4 niveaux, testé ; `memory/routes.py` n'expose que search/graph/experiences/index/statistics |
+| G-11 | **technical debt** | `assigned_tools` d'une tâche est planifié et **jamais invoqué** | §7 | `task_executor.py:31` le documente ; l'agent a ses propres outils, la sélection du planificateur est décorative |
 
 ---
 
@@ -727,6 +987,7 @@ des passes ne sont pas reconstituées.
 | T-24 | 2026-09-04 | A-2 — contrôles de sécurité non câblés | **ADOPT** | les deux invariants étaient réels *et* non couverts par ailleurs | câblés sur les coutures existantes, aucune politique nouvelle | HOS-256 | 🟢 appliqué |
 | **T-25** | — | A-3 — restauration des points de reprise | **ouvert** | on prend ce qu'on ne sait pas rendre | exposer ou cesser de prendre | §3 | 🟠 à décider |
 | **T-26** | — | A-4 — habilitation de portée projet | **ouvert** | l'isolation repose sur la bonne foi du modèle | modèle d'habilitation à définir | §8 | 🟠 à décider |
+| **T-28** | — | §15.1 — Chat et Cowork : deux surfaces ou deux modes ? | **ouvert** | les deux partagent déjà le Run Ledger et le bus ; les séparer ferait deux histoires pour une exécution | trancher **avant** toute ligne de §15 | §15 | 🟠 à décider |
 
 ### Décisions de rejet conservées
 
@@ -738,6 +999,9 @@ des passes ne sont pas reconstituées.
 | `approval_engine` branché en parallèle d'Aegis | **REJECT** | deux portes vivantes valent moins qu'une |
 | Reconstruction d'une `Mission` depuis un `Run` | **REJECT** | produirait une mission plausible et fausse — la famille de défaut la plus coûteuse du projet |
 | Import de `AgentGateway` (Autonomous OS) | **OBSERVE** | référence architecturale ; rien n'indique que Hermes OS doive reproduire cette structure |
+| Canvas d'édition collaborative (§15) | **REJECT** | pas de CRDT ni d'identité multi-utilisateur ; exigerait une autorité nouvelle pour un gain d'UX |
+| Projets/sessions synchronisés entre appareils (§15) | **REJECT** | `utilisateur` vaut `"local"` et n'est pas une identité vérifiée — un test le garde |
+| Relecteur agentique séparé, *Auto Review* (§15) | **DEFER → §15.8** | l'idée tient ; §7 et §11 n'ont pas tranché leur contrat de délégation |
 
 ---
 
@@ -746,3 +1010,4 @@ des passes ne sont pas reconstituées.
 | Date | Baseline | Changement |
 |---|---|---|
 | 2026-09-04 | `528a0d3` | Création. §3 et §4 rétrogradées 🟡 sur les mesures de l'audit J25, contre le statut 🟢 attendu par le cahier. Registre ouvert à T-22. |
+| 2026-09-05 | `6dfa78a` | §15 créée — couche produit consommant §1→§13, aucune autorité nouvelle. Deux écarts relevés en la construisant (G-10, G-11), une décision ouverte (T-28), trois idées rejetées avec leur raison. §15 **ne devient pas la section active** : §6.1 et A-10 la précèdent. |
