@@ -112,6 +112,16 @@ c'est la source d'admission, et la seule définition de la requête —
 `backend/model_intelligence/model_bench.py` (`gpu_dedicated_bytes`) pour
 un processus nommé.
 
+**Une seule vérité de capacité, et personne ne la recalcule** (R-3/R-4,
+HOS-259). `ResourceManager` répond à « combien de tâches tiennent »
+(`places_disponibles`) ; `GraphExecutor` pose la question et respecte la
+réponse. Il ne lit ni la carte, ni `/api/ps`, ni un compteur — et le
+portillon qui applique la borne n'autorise rien : le franchir ne donne
+aucun droit sur la VRAM, seule la réservation en donne. Un second calcul
+de capacité, où qu'il naisse, rend les deux divergents ; c'est le défaut
+que `mission_max_parallel_tasks` incarnait, avec une constante d'un côté
+et la carte de l'autre.
+
 **Et l'admission a déjà été trompée par ce piège** (A-15, HOS-258) : sans
 `rocm-smi`, ce qui est le cas ici, `ResourceManager` retombait sur
 `/api/ps`. Mesuré carte chargée, il annonçait 12,74 Gio occupés sur

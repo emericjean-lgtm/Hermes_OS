@@ -350,11 +350,26 @@ class TestGraphExecutorParallelism:
 
         assert elapsed >= 0.28  # two 0.15s slots, back to back
 
-    def test_default_max_parallel_reads_settings(self):
+    def test_sans_source_de_capacite_le_reglage_sert_de_repli(self):
+        """R-3 a change ce contrat.
+
+        Ce test affirmait `executor._max_parallel == settings
+        .mission_max_parallel_tasks` : la constante **decidait**. Elle ne
+        decrit aucune capacite — mesuree sur cette carte avec l'empreinte
+        relevee du role `reasoning`, la machine tient une tache, pas deux.
+        Le reglage n'est plus qu'un repli, et le test le dit desormais dans
+        les deux sens : repli quand rien ne sait, ignore quand quelqu'un
+        sait.
+        """
         from backend.core.config import get_settings
 
-        executor = GraphExecutor()
-        assert executor._max_parallel == get_settings().mission_max_parallel_tasks
+        nu = GraphExecutor()
+        assert nu._limite_de_concurrence() == get_settings().mission_max_parallel_tasks
+
+        renseigne = GraphExecutor(capacite_max=lambda: 7)
+        assert renseigne._limite_de_concurrence() == 7, (
+            "la constante decide encore alors qu'une capacite reelle est "
+            "disponible")
 
     def test_failed_node_among_parallel_batch_marked_failed_not_completed(self):
         def flaky_execute(node: MissionNode) -> bool:

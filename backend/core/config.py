@@ -123,14 +123,23 @@ class Settings(BaseSettings):
     # parallelism win into a swapping loss. Set to 1 for the previous
     # strictly-sequential behaviour.
     workflow_max_parallel: int = 4
-    # Same VRAM concern as workflow_max_parallel above, but deliberately
-    # its own, smaller setting (HOS-068) rather than reusing that one:
-    # mission DAG nodes can each recommend a *different* full-size role
-    # model (config/models.yaml — several already measured at 12-15GB on
-    # this ~17.16GB card, see HOS-065C's real benchmark data), which is a
-    # heavier VRAM footprint per concurrent task than a workflow's
-    # lighter-weight tool calls. 2 is the conservative default; raise it
-    # only on a card with real headroom to spare.
+    # Repli, plus décision (R-3).
+    #
+    # Ce nombre décidait de la concurrence des missions. Il ne décrivait
+    # pourtant aucune capacité : mesuré sur cette carte de 15,98 Gio avec
+    # l'empreinte relevée du rôle `reasoning` — 13,68 Gio,
+    # `config/models.yaml` — il en tient **une**, pas deux. Le graphe en
+    # lançait deux ; la seconde occupait un fil, brûlait son attente
+    # d'admission, puis échouait le nœud.
+    #
+    # `GraphExecutor` demande désormais la borne à `ResourceManager`
+    # (`places_disponibles`), qui est la seule autorité de capacité depuis
+    # A-15. Cette valeur ne sert plus que lorsqu'aucune source de capacité
+    # n'est câblée — un `GraphExecutor` construit nu, dans un test.
+    #
+    # La relever ne relève donc plus la concurrence réelle. Pour cela, il
+    # faut de la VRAM libre, ou des modèles plus légers dans
+    # `config/models.yaml`.
     mission_max_parallel_tasks: int = 2
 
     # Tours d'inférence-plus-outils qu'un *nœud de mission* peut consommer

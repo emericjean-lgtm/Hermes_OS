@@ -191,6 +191,53 @@ class ResourceManager:
             snapshot, gpu, bytes_requested, runtime_id, model_name, priority
         )
 
+    #: Au-dela, la question ne se pose plus (R-3). Seize taches
+    #: simultanees depassent de loin tout ce que cette classe de machine
+    #: porte ; la borne existe pour que la boucle ci-dessous se termine,
+    #: pas pour exprimer une politique.
+    PLACES_MAX = 16
+
+    def places_disponibles(
+        self,
+        octets_par_tache: int,
+        runtime_id: str = "ollama",
+        resource_type: ResourceType = ResourceType.VRAM,
+    ) -> int:
+        """Combien de tâches de cette taille tiennent **encore** (R-3).
+
+        ## Pourquoi cette question était posée à une constante
+
+        `mission_max_parallel_tasks = 2` ne dit pas « la machine porte deux
+        tâches » : il dit « quelqu'un a écrit 2 ». Mesuré sur la carte de
+        15,98 Gio avec l'empreinte relevée du rôle `reasoning` — 13,68 Gio,
+        `config/models.yaml`, pas une estimation — il en tient **une**. Le
+        graphe en lançait deux ; la seconde occupait un fil, brûlait son
+        attente d'admission, puis échouait le nœud.
+
+        ## Pourquoi aucun calcul de capacité n'est refait ici
+
+        La réponse est obtenue en posant `can_allocate` la même question
+        qu'une réservation poserait, pour une, deux, trois tâches — la
+        politique étant linéaire en octets demandés, `n` places tiennent
+        exactement quand `n × octets` tiennent. Il n'y a donc pas de
+        seconde vérité de capacité : c'est la première, interrogée
+        autrement.
+
+        Conséquences héritées, et voulues : les réservations actives
+        comptent (§6.2), et une carte dont l'occupation n'a pas été mesurée
+        rend **zéro** (A-15) — pas « autant qu'on veut ».
+        """
+        if octets_par_tache <= 0:
+            return 0
+        places = 0
+        while places < self.PLACES_MAX:
+            essai = self.can_allocate(
+                octets_par_tache * (places + 1), runtime_id, resource_type)
+            if not essai.success:
+                break
+            places += 1
+        return places
+
     def reserve_resources(
         self,
         bytes_requested: int,

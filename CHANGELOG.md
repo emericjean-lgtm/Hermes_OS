@@ -1,3 +1,117 @@
+## HOS-259 — Combien de taches, et qui le sait (2026-09-05)
+
+R-3 et R-4, les deux derniers defauts MUST HAVE de l'audit §6.1 hors R-6.
+Meme defaut vu de deux cotes : la concurrence etait decidee sans regarder
+la machine, et decidee deux fois.
+
+### R-3 — une constante n'est pas une capacite
+
+`mission_max_parallel_tasks = 2` ne dit pas « la machine porte deux
+taches » : il dit « quelqu'un a ecrit 2 ». Mesure : la meme constante
+valait pour une carte pleine (0 place reelle) et pour une carte de 48 Gio
+(7 places). Elle ne suivait rien.
+
+Avec l'empreinte **relevee** du role `reasoning` — 13,68 Gio,
+`config/models.yaml`, la meme table que l'admission utilise deja sous le
+nom `_vram_gb_for` — la carte de 15,98 Gio en tient **une**. Le graphe en
+lancait deux. §6.2 empechait bien la carte d'etre sur-engagee ; ce qui
+restait, mesure, etait ceci :
+
+    t1   4.2 s  REFUSEE : no VRAM admission for 'qwen3.6-35b-128k'
+    t2   4.2 s  REFUSEE : no VRAM admission for 'qwen3.6-35b-128k'
+
+Le second noeud occupait un fil, brulait son attente d'admission, puis
+echouait. Le degat n'etait pas la VRAM — elle etait protegee — mais des
+noeuds echoues pour une raison qui n'a rien a voir avec leur travail.
+
+`GraphExecutor` demande desormais la borne a `ResourceManager`
+(`places_disponibles`), a chaque etape, et ne la met pas en cache : une
+capacite lue une fois au demarrage serait une constante de plus. Mesure
+apres correction, empreinte 13,68 Gio :
+
+    carte 15,98 Gio, 0,0 occupes -> 1 place
+    carte 15,98 Gio, 0,9 occupes -> 0 place
+    carte 48,00 Gio              -> 3 places
+    carte 80,00 Gio              -> 5 places
+    occupation non mesuree       -> 0 place   (A-15 traverse)
+
+`places_disponibles` ne refait aucun calcul de capacite : la politique
+etant lineaire en octets demandes, elle pose a `can_allocate` la question
+« n taches tiennent-elles » en demandant `n x octets`. Une seule verite,
+interrogee autrement — et les reservations actives comptent, comme en
+§6.2.
+
+**Jamais moins d'une place.** Une capacite nulle ne doit pas figer la
+machine : c'est l'admission de `RealTaskExecutor` qui refuse alors la
+tache, avec sa raison, la ou la taille reelle du modele est connue. Le
+portillon ne refuse rien.
+
+### R-4 — la borne etait celle d'un appel
+
+`execute_step` ouvrait un `ThreadPoolExecutor` par appel. Le conteneur
+n'a pourtant qu'**un** `GraphExecutor`. Deux missions concurrentes,
+mesure avant correction :
+
+    _max_parallel par mission : 2
+    pic de noeuds simultanes  : 4
+
+Quatre noeuds pour une borne de deux, sans qu'aucune ligne ne soit
+fausse : chaque mission respectait sa limite, et les limites
+s'additionnaient.
+
+Le portillon est porte par l'instance de `GraphExecutor`, donc partage
+par toutes les missions. C'est ce partage, et lui seul, qui empeche deux
+decisions locales de s'additionner. Il enveloppe **les deux** chemins
+d'`execute_step` — le pool et l'execution directe : n'en garder qu'un
+laisserait deux missions a un seul noeud chacune tourner cote a cote sans
+que rien ne les compte, ce qui est R-4 avec un noeud de moins.
+
+### Ce que le portillon n'est pas
+
+Il ne connait aucune capacite et n'en calcule aucune : la limite lui est
+**passee**. Il ne classe pas, ne priorise pas, ne prempte pas, ne
+reordonne pas. Il n'autorise rien non plus : le franchir ne donne aucun
+droit sur la carte ; la reservation reste seule a en donner (§6.2), et
+elle peut refuser apres.
+
+Un ordonnanceur decide *qui* passe et *quand*. Celui-ci decide seulement
+*combien a la fois*, sur un chiffre qu'il ne possede pas. Aucune
+autorite nouvelle : le RAL choisit, `ResourceManager` sait, le graphe
+repartit, `Mission` borne le temps, `QuotaBroker` le fournisseur.
+
+### Un ecart de semantique trouve en chemin
+
+Les deux chemins d'`execute_step` traitaient differemment un
+`execute_node` qui **leve** : le pool recueillait l'exception dans
+`future.result()` et notait le noeud en echec, le chemin sequentiel la
+laissait remonter et emportait la marche du graphe. Deux semantiques
+d'echec pour le meme rappel, selon un nombre de places — c'est-a-dire
+selon la VRAM libre. Homogeneisees ici, parce que le portillon passe
+desormais par les deux.
+
+### Une mutation qui a demasque le compteur de mutations
+
+La mutation « ne jamais rendre la place » a d'abord ete rapportee
+**verte**. Elle ne l'etait pas : les tests attendaient le delai du
+portillon — 1200 s par defaut — et le delai de garde de pytest tuait la
+session sans imprimer de resume, que le compteur lisait « 0 rouge ».
+
+Deux corrections : les tests bornent explicitement ce delai a 3 s, et une
+garde directe verifie le compteur de places sans aucune attente — sortie
+normale, sortie par exception, entree refusee. Elle echoue desormais en
+3,2 s avec un message. Une garde qui pend n'est pas une garde (HOS-112).
+
+C'est le quatrieme garde-fou de cette serie de passes dont une mutation
+revele qu'il ne gardait pas ce qu'on croyait ; cette fois, c'est
+l'instrument de mesure lui-meme qui mentait.
+
+### Ce qui reste ouvert
+
+R-6 (comptabilite VRAM/CPU par Run) et A-17. `Mission.priority` reste lu
+par personne (A-14) : le portillon ne l'utilise pas, et c'est
+deliberement hors perimetre — la priorite est du ressort d'un
+ordonnanceur, que cette passe s'interdit d'introduire.
+
 ## HOS-258 — Ce que mesure la source d'admission (2026-09-05)
 
 A-15, decouvert en fermant §6.2. `GPUMonitor` essayait `rocm-smi`, puis

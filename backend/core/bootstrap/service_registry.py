@@ -1080,6 +1080,65 @@ def _make_execution_engine(c: Any) -> Any:
 
 # ── Mission layer ─────────────────────────────────────────────────────
 
+def _empreinte_de_tache_octets() -> Optional[int]:
+    """Ce qu'une tâche peut coûter au pire, en VRAM (R-3).
+
+    ## Pourquoi le maximum, et pourquoi pas une prédiction
+
+    Au moment où le graphe décide **combien** de nœuds lancer, personne ne
+    sait encore quel modèle chacun prendra : c'est le RAL qui tranchera,
+    plus tard, à l'intérieur de l'exécuteur. La seule borne honnête est
+    donc le plus lourd des rôles configurés — 13,68 Gio ici, le rôle
+    `reasoning`.
+
+    Ces chiffres sont **relevés**, pas estimés : `config/models.yaml` porte
+    un `vram_gb` par rôle, et c'est la même table que
+    `_make_task_executor` donne déjà à l'admission sous le nom
+    `_vram_gb_for`. Aucune seconde estimation n'est introduite ; §9 du
+    cahier interdisait d'en inventer une, et il n'y en avait pas besoin.
+
+    Conservateur par construction : une mission de tâches légères se verra
+    accorder moins de places qu'elle n'aurait pu en tenir. On sous-répartit
+    parfois ; on ne sur-répartit jamais.
+
+    `None` quand aucun rôle ne déclare de `vram_gb` — le graphe retombe
+    alors sur son repli documenté plutôt que sur un chiffre inventé.
+    """
+    from backend.core.config import load_models_config
+
+    empreintes = [
+        float(role["vram_gb"])
+        for role in load_models_config().get("roles", {}).values()
+        if isinstance(role, dict) and role.get("vram_gb")
+    ]
+    if not empreintes:
+        return None
+    return int(max(empreintes) * 1024 ** 3)
+
+
+def _capacite_de_la_machine(c: Any) -> Optional[int]:
+    """Combien de tâches la machine porte à cet instant.
+
+    Une seule ligne de fond : la question est posée à `ResourceManager` et
+    à personne d'autre. Le graphe ne lit ni la carte, ni `/api/ps`, ni un
+    compteur — il lit cette réponse.
+
+    `None` signifie « je ne sais pas » et laisse le graphe sur son repli ;
+    `0` signifie « mesuré, plus de place », et le graphe le traduit en une
+    seule tâche à la fois, l'admission de `RealTaskExecutor` restant seule
+    à pouvoir refuser (A-15, §6.2).
+    """
+    gestionnaire = c.try_get("resource_manager")
+    empreinte = _empreinte_de_tache_octets()
+    if gestionnaire is None or empreinte is None:
+        return None
+    try:
+        return int(gestionnaire.places_disponibles(empreinte))
+    except Exception:
+        logger.debug("capacité machine indisponible", exc_info=True)
+        return None
+
+
 def _make_graph_executor(c: Any) -> Any:
     """The DAG traverser, with its node hook bound to the real engine.
 
@@ -1103,6 +1162,10 @@ def _make_graph_executor(c: Any) -> Any:
         # est celui de M-8 ; l'injection évite que la couche d'exécution
         # importe le routeur.
         persister=persist_mission,
+        # R-3 : la concurrence suit la capacité réelle au lieu de
+        # `mission_max_parallel_tasks`. Une fermeture, pas le gestionnaire
+        # lui-même : le graphe ne doit pouvoir lui demander que ça.
+        capacite_max=lambda: _capacite_de_la_machine(c),
     )
 
 

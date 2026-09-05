@@ -17,7 +17,7 @@
 | §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | ~~A-2~~ fermé · **fermer A-3** | Hermes OS |
 | §4 | Cloud / Providers / Quota | **🟡** | ~~A-1~~ fermé · **fermer A-10** | Hermes OS |
 | §5 | Runtime / RAL / Model Intelligence | 🟢 | aucune | Hermes OS |
-| §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 audité · §6.2 livré · A-15 fermé · **R-3/R-4/R-6 ouverts** | AIOS ; Hermes Agent |
+| §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 audité · §6.2 livré · A-15 fermé · R-3/R-4 fermés · **R-6 ouvert** | AIOS ; Hermes Agent |
 | §7 | Advanced Agent Orchestration | 🟠 | audit de décision | Hermes Agent ; OpenHands ; Autonomous OS |
 | §8 | Memory Learning / Experience | 🟡 | analyse d'écart | Hermes Agent |
 | §9 | Mission Control / Operator Observability | 🟡 | analyse d'écart | Paperclip ; Hermes Agentic OS |
@@ -347,11 +347,18 @@ qwen3.6-35b avec son cache KV : `/api/ps` annonçait 12,737 Gio occupés
 là où la carte en portait 15,115, et laissait admettre un modèle de
 1,5 Gio sur 0,870 Gio libres.
 
-**Restent ouverts** : R-3 (parallélisme dérivé de la capacité plutôt que
-constante), R-4 (capacité globale entre missions concurrentes), R-6
-(comptabilité VRAM/CPU par mission), et A-16 (aucune sonde d'occupation
-sur Linux sans `rocm-smi` — `/sys/class/drm` existe, rien ici ne permet
-de l'exercer).
+R-3/R-4 (HOS-259) ont fermé la concurrence. Elle ne vient plus d'une
+constante : `GraphExecutor` demande la borne à `ResourceManager` à chaque
+étape, avec l'empreinte relevée du plus lourd des rôles configurés
+(13,68 Gio, `config/models.yaml`). Mesuré : la carte de 15,98 Gio en
+tient **une**, pas les deux que la constante annonçait. Et le portillon
+qui fait respecter cette borne est porté par l'unique `GraphExecutor` du
+conteneur, donc partagé — deux missions concurrentes donnaient
+auparavant quatre nœuds simultanés pour une borne de deux.
+
+**Restent ouverts** : R-6 (comptabilité VRAM/CPU par mission), A-16
+(aucune sonde d'occupation sur Linux sans `rocm-smi` — `/sys/class/drm`
+existe, rien ici ne permet de l'exercer), A-17.
 
 Ce qui suit reste le cadrage d'origine.
 
@@ -390,10 +397,28 @@ coexistence, prévention d'OOM. Contrainte matérielle documentée :
 RX 6800, ~16 Gio, et le motif d'attention change le calcul du cache KV
 d'un facteur 7 (Muse Glimmer, fenêtre glissante 2048).
 
-### §6.5 — Séquentiel vs parallèle
-Le graphe exécute déjà en parallèle borné par `mission_max_parallel_tasks`.
-Ce qui manque est le **choix** : laisser l'ordonnanceur décider plutôt
-qu'appliquer une constante.
+### §6.5 — Séquentiel vs parallèle — 🟢 fermé par R-3/R-4 (HOS-259)
+Le graphe exécutait en parallèle borné par `mission_max_parallel_tasks`.
+La borne vient désormais de `ResourceManager`, relue à chaque étape, et
+un portillon partagé par toutes les missions l'applique globalement.
+
+**La frontière, écrite pour qu'on ne la refranchisse pas :**
+
+| Qui | Décide de quoi |
+|---|---|
+| RAL | quel modèle, quel runtime, quel fournisseur |
+| **`ResourceManager`** | **la capacité physique — seule autorité** |
+| `GraphExecutor` | quels nœuds sont candidats, et combien à la fois |
+| `Mission` | le budget temporel |
+| `QuotaBroker` | la capacité du fournisseur |
+| Run Ledger | la trace |
+
+Le graphe **demande** la borne ; il ne la calcule pas. Le portillon
+n'autorise rien : franchir le portillon ne donne aucun droit sur la
+carte, c'est la réservation de §6.2 qui en donne, et elle peut refuser
+après. Un ordonnanceur déciderait *qui* passe et *quand* ; celui-ci
+décide seulement *combien à la fois*, sur un chiffre qu'il ne possède
+pas. §6.6 reste ouvert, et le restera tant que ce contrat suffit.
 
 ### §6.6 — Ordonnancement cognitif
 Choix de stratégie selon difficulté, coût, confiance, criticité, ressources,

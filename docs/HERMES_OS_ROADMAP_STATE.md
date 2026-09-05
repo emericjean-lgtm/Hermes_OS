@@ -9,14 +9,14 @@
 
 ```
 CURRENT_SECTION:      §6 — Cognitive Scheduler / Resource Intelligence
-CURRENT_SUBSECTION:   §6.3 — Parallélisme dérivé de la capacité (R-3)
+CURRENT_SUBSECTION:   §6.6 — Ordonnancement cognitif (non ouvert)
 CURRENT_STATUS:       🟡 §6.1 audité · §6.2 livré (HOS-257)
-                      A-15 fermé (HOS-258)
+                      A-15 fermé (HOS-258) · R-3/R-4 fermés (HOS-259)
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      c5c1b98 (A-15 fermé) — 528a0d3 pour J24
+BASELINE:                      deb3158 (R-3/R-4 fermés) — 9c4ac6c pour A-15
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -24,11 +24,13 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                A-2 fermé (HOS-256) — HOS-217/218 câblés
                                §6.2 livré (HOS-257) — admission + réservation
                                A-15 fermé (HOS-258) — source GPU canonique
+                               R-3/R-4 fermés (HOS-259) — concurrence
+                               dérivée de la capacité, bornée globalement
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
-est audité, §6.2 livré (HOS-257) et A-15 fermé (HOS-258) ; §6.3 à §6.6
-n'ont pas commencé.
+est audité, §6.2 livré (HOS-257), A-15 fermé (HOS-258), §6.5 fermé par
+R-3/R-4 (HOS-259). Restent R-6 et §6.6, qu'aucune passe n'a ouverts.
 
 ---
 
@@ -38,9 +40,9 @@ n'ont pas commencé.
 A-2, HOS-256), et A-15 avec eux (HOS-258). Ce qui reste est de niveau P2
 ou moins :
 
-1. **R-3** — le parallélisme de mission est une constante (2), pas une
-   dérivation de la capacité. La mesure existe désormais et est fiable :
-   c'est ce qui rend R-3 abordable, et c'est la suite naturelle de §6.
+1. ~~**R-3 / R-4**~~ — **fermés le 2026-09-05 (HOS-259)**. La borne vient
+   de `ResourceManager`, relue à chaque étape ; le portillon qui
+   l'applique est partagé par toutes les missions.
 2. **A-10** — trouvé en fermant A-1 : le pare-feu ignore `sk-or-v1-…`,
    le format de clé d'OpenRouter. Défaut de détection, pas de routage.
    Bloque §4.
@@ -60,6 +62,7 @@ ou moins :
 | Le pare-feu ignore `sk-or-v1-…` (A-10) | security | §4 |
 | ~~Source d'admission = `/api/ps` (A-15)~~ — **fermé HOS-258** | architectural | §6 |
 | Aucune sonde d'occupation sur Linux sans `rocm-smi` (A-16) | architectural | §6 |
+| Comptabilité VRAM/CPU par Run (R-6) | observability | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
 | Points de reprise pris et jamais restaurables (A-3) | functional | §3 |

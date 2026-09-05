@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -66,6 +68,75 @@ def plafond_du_noeud() -> float:
     return max(STEP_TIMEOUT_S, budget_du_tour() * MARGE_SUR_LE_BUDGET)
 
 
+class Portillon:
+    """Le nombre de nœuds en cours d'exécution, pour **toute** la machine.
+
+    ## Le défaut qu'il ferme (R-4)
+
+    `execute_step` ouvrait un `ThreadPoolExecutor` par appel. Deux missions
+    concurrentes en ouvraient donc deux, chacune bornée à
+    `mission_max_parallel_tasks`. Mesuré avant correction, sur le
+    `GraphExecutor` **unique** du conteneur : deux missions de deux nœuds
+    ont donné **quatre nœuds simultanés pour une borne de deux**. La borne
+    n'était pas celle de la machine, c'était celle d'un appel.
+
+    ## Ce que ce portillon n'est pas
+
+    Il ne connaît aucune capacité et n'en calcule aucune : la limite lui
+    est **passée** à chaque entrée, par un appelant qui l'a demandée à
+    `ResourceManager`. Il ne classe pas, ne priorise pas, ne préempte pas,
+    ne réordonne pas — il retient, et c'est tout. Il n'autorise rien non
+    plus : franchir le portillon ne donne aucun droit sur la carte ; la
+    réservation reste seule à en donner (§6.2), et elle peut refuser après.
+
+    Autrement dit : un ordonnanceur décide *qui* passe et *quand*. Celui-ci
+    décide seulement *combien à la fois*, sur un chiffre qu'il ne possède
+    pas.
+    """
+
+    def __init__(self) -> None:
+        self._cv = threading.Condition()
+        self._occupees = 0
+
+    @property
+    def occupees(self) -> int:
+        with self._cv:
+            return self._occupees
+
+    @contextmanager
+    def place(self, limite: int, delai_s: float):
+        """Occuper une place, ou rendre `False` si l'attente a expiré.
+
+        Le délai est celui de l'étape (`_step_timeout_s`) : au-delà,
+        l'étape elle-même a cessé d'attendre ses nœuds, et retenir plus
+        longtemps ne protégerait plus rien. Aucune constante nouvelle.
+        """
+        obtenue = self._entrer(limite, delai_s)
+        try:
+            yield obtenue
+        finally:
+            if obtenue:
+                self._sortir()
+
+    def _entrer(self, limite: int, delai_s: float) -> bool:
+        limite = max(1, int(limite))
+        echeance = time.monotonic() + max(0.0, delai_s)
+        with self._cv:
+            while self._occupees >= limite:
+                restant = echeance - time.monotonic()
+                if restant <= 0:
+                    return False
+                self._cv.wait(timeout=min(restant, 1.0))
+                limite = max(1, int(limite))
+            self._occupees += 1
+            return True
+
+    def _sortir(self) -> None:
+        with self._cv:
+            self._occupees = max(0, self._occupees - 1)
+            self._cv.notify()
+
+
 class GraphExecutor:
     """Executes missions by traversing the DAG.
 
@@ -79,6 +150,7 @@ class GraphExecutor:
         max_parallel_tasks: Optional[int] = None,
         step_timeout_s: Optional[float] = None,
         persister: Optional[Callable[[Mission], None]] = None,
+        capacite_max: Optional[Callable[[], Optional[int]]] = None,
     ) -> None:
         # Resolu a la construction et non a l'import : un defaut de
         # parametre figerait la valeur au chargement du module, et une
@@ -115,17 +187,98 @@ class GraphExecutor:
         #: et `started_at`, qui est le t0 canonique du budget (HOS-248),
         #: ne franchissait pas la frontière du processus.
         self._persister = persister
-        # HOS-068: bounded, deliberately small — see mission_max_parallel_tasks
-        # in backend/core/config.py for the VRAM-exhaustion rationale on this
-        # deployment's 16 GB card.
-        self._max_parallel = (
+        # R-3 : ce que la machine porte, demandé à qui le sait.
+        #
+        # `mission_max_parallel_tasks` décidait de la concurrence. Il ne
+        # décrit pourtant aucune capacité : mesuré sur la carte de
+        # 15,98 Gio avec l'empreinte relevée du rôle `reasoning`
+        # (13,68 Gio, `config/models.yaml`), il tient **une** tâche, pas
+        # deux. La constante reste, mais comme **repli** — quand aucune
+        # source de capacité n'est câblée, ce qui est le cas d'un
+        # `GraphExecutor` construit nu dans un test.
+        #
+        # `capacite_max` est branché au bootstrap sur
+        # `ResourceManager.places_disponibles`. Le graphe ne calcule aucune
+        # capacité : il pose la question et respecte la réponse.
+        self._capacite_max = capacite_max
+        self._repli_parallelisme = (
             max_parallel_tasks
             if max_parallel_tasks is not None
             else get_settings().mission_max_parallel_tasks
         )
+        # R-4 : une seule instance de `GraphExecutor` vit au conteneur, et
+        # ce portillon est porté par elle — donc partagé par toutes les
+        # missions. C'est ce partage, et lui seul, qui empêche deux limites
+        # locales de s'additionner.
+        self._portillon = Portillon()
+
+    def _limite_de_concurrence(self) -> int:
+        """Combien de nœuds peuvent tourner à cet instant, sur la machine.
+
+        Demandé à chaque étape et non mis en cache : la capacité bouge —
+        un modèle se charge, une réservation se libère, une sonde cesse de
+        répondre. Une valeur figée au démarrage serait une constante de
+        plus, ce que R-3 reproche à celle qu'elle remplace.
+
+        **Jamais moins de un.** Une capacité nulle — carte pleine, ou
+        occupation non mesurée (A-15) — ne doit pas figer la machine :
+        c'est l'admission de `RealTaskExecutor` qui refuse alors la tâche,
+        avec sa raison, à l'endroit où la taille réelle du modèle est
+        connue. Le portillon ne sert qu'à ne pas sur-répartir ; il ne
+        décide d'aucun refus.
+        """
+        if self._capacite_max is None:
+            return max(1, self._repli_parallelisme)
+        try:
+            places = self._capacite_max()
+        except Exception:
+            logger.debug("capacité indisponible — repli sur la constante",
+                         exc_info=True)
+            return max(1, self._repli_parallelisme)
+        if places is None:
+            return max(1, self._repli_parallelisme)
+        return max(1, int(places))
+
+    def _executer_sous_portillon(self, node: MissionNode, limite: int) -> bool:
+        """Un nœud ne démarre que si la machine a une place pour lui.
+
+        Le portillon enveloppe **les deux** chemins d'`execute_step` — le
+        pool et l'exécution directe. N'en garder qu'un laisserait deux
+        missions à un seul nœud chacune s'exécuter côte à côte sans que
+        rien ne les compte, ce qui est exactement R-4 avec un nœud de
+        moins.
+        """
+        with self._portillon.place(limite, self._step_timeout_s) as obtenue:
+            if not obtenue:
+                logger.error(
+                    "mission %s : le nœud %r n'a pas obtenu de place en %.0f s "
+                    "(limite %d)", node.mission_id, node.title,
+                    self._step_timeout_s, limite)
+                if self._on_event:
+                    self._on_event("mission.node_sature", {
+                        "mission_id": node.mission_id,
+                        "node_id": node.node_id,
+                        "title": node.title,
+                        "limite": limite,
+                    }, severity="error")
+                return False
+            try:
+                return self._execute_node(node)
+            except Exception:
+                # Les deux chemins d'`execute_step` traitaient une exception
+                # differemment : le pool la recueillait dans
+                # `future.result()` et notait le noeud en echec, le chemin
+                # sequentiel la laissait remonter et emportait la marche du
+                # graphe avec elle. Deux semantiques d'echec pour le meme
+                # `execute_node`, selon un nombre de places — c'est-a-dire
+                # selon la VRAM libre. Ici, une seule.
+                logger.exception(
+                    "mission %s : le noeud %r a leve", node.mission_id, node.title)
+                return False
 
     def _recolter_en_parallele(
-        self, mission: Mission, ready: list[MissionNode], max_workers: int
+        self, mission: Mission, ready: list[MissionNode], max_workers: int,
+        limite: int,
     ) -> dict[str, bool]:
         """Exécuter les nœuds prêts, sans jamais attendre sans fin (HOS-112).
 
@@ -155,7 +308,8 @@ class GraphExecutor:
         pool = ThreadPoolExecutor(max_workers=max_workers)
         try:
             future_to_node = {
-                pool.submit(self._execute_node, node): node for node in ready
+                pool.submit(self._executer_sous_portillon, node, limite): node
+                for node in ready
             }
             try:
                 for future in as_completed(future_to_node, timeout=self._step_timeout_s):
@@ -252,7 +406,12 @@ class GraphExecutor:
         return True
 
     def execute_step(self, mission: Mission) -> int:
-        """Execute all ready nodes, up to ``self._max_parallel`` concurrently.
+        """Execute all ready nodes, within the machine's concurrency bound.
+
+        La borne vient de `_limite_de_concurrence` — c'est-à-dire de
+        `ResourceManager` — et non plus d'une constante (R-3), et le
+        portillon qui la fait respecter est partagé par toutes les
+        missions (R-4).
 
         Nodes are dispatched to a thread pool (HOS-068) — genuine concurrency
         is only possible because MissionExecutor.execute_task() no longer
@@ -271,13 +430,18 @@ class GraphExecutor:
             node.status = NodeStatus.RUNNING
 
         results: dict[str, bool] = {}
-        max_workers = min(len(ready), self._max_parallel) if ready else 0
+        limite = self._limite_de_concurrence()
+        max_workers = min(len(ready), limite) if ready else 0
 
         if max_workers <= 1:
+            # Séquentiel ici, mais toujours sous le portillon : une autre
+            # mission peut être en train d'exécuter son unique nœud au
+            # même instant, et rien d'autre ne les compterait ensemble.
             for node in ready:
-                results[node.node_id] = self._execute_node(node)
+                results[node.node_id] = self._executer_sous_portillon(node, limite)
         else:
-            results.update(self._recolter_en_parallele(mission, ready, max_workers))
+            results.update(
+                self._recolter_en_parallele(mission, ready, max_workers, limite))
 
         for node in ready:
             success = results.get(node.node_id, False)
