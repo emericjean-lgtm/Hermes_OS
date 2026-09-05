@@ -43,6 +43,17 @@ class GPUInfo:
     temperature_celsius: Optional[float] = None
     utilization_pct: Optional[float] = None
     available: bool = True
+    # A-15 : « carte absente » et « carte présente, occupation non
+    # mesurée » menaient toutes deux à `available=False, total=0`, que la
+    # politique traduisait en « pas de contrainte VRAM » — donc en
+    # autorisation. Les deux états appellent pourtant des décisions
+    # opposées : sans carte il n'y a rien à contraindre ; avec une carte
+    # qu'on ne sait pas lire, on ne sait pas s'il reste de la place.
+    #
+    # `False` n'est jamais accompagné de chiffres d'occupation : ils
+    # valent 0 et ne doivent pas être lus. Un consommateur qui les lit
+    # sans regarder ce drapeau reconstruit exactement A-15.
+    occupation_mesuree: bool = True
 
 
 @dataclass

@@ -56,7 +56,11 @@ def _real_vram_mb(*, total: bool = False) -> int | None:
         return None
     try:
         gpu = _resource_manager.get_gpu_info()
-        if not gpu.available or gpu.vram_total_bytes <= 0:
+        # A-15 : même raison qu'en `service_registry._max_vram_mb_now` —
+        # un zéro de prudence n'est pas une mesure et ne doit pas
+        # contraindre une recommandation.
+        if (not gpu.available or gpu.vram_total_bytes <= 0
+                or not getattr(gpu, "occupation_mesuree", True)):
             return None
         bytes_value = gpu.vram_total_bytes if total else gpu.vram_free_bytes
         return max(0, int(bytes_value / (1024 * 1024)))

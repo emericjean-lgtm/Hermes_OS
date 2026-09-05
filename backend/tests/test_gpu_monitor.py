@@ -139,8 +139,10 @@ def _windows_run_command(args: list[str]) -> str | None:
     if "HardwareInformation.qwMemorySize" in script:
         return _WIN_REGISTRY_VRAM
     # §6.2 / A-12 : le compteur **par processus** remplace celui par
-    # adaptateur, qui sous-déclarait d'un facteur trois — 3,99 Gio annoncés
-    # quand les processus en détenaient 12,70 sur la même carte.
+    # adaptateur, qui sous-déclare la VRAM réellement occupée. Le facteur
+    # trois annoncé en §6.2 ne s'est pas reproduit — remesuré pendant A-15,
+    # l'écart est de 0,445 Gio, stable, toujours dans le même sens. Le
+    # garde-fou reste : la direction de l'erreur suffit à le justifier.
     if "GPU Process Memory" in script:
         return _WIN_GPU_USED
     if "GPU Adapter Memory" in script:

@@ -301,7 +301,12 @@ def _make_task_executor(c: Any) -> Any:
             return 8192
         try:
             gpu = resource_manager.get_gpu_info()
-            if not gpu.available or gpu.vram_total_bytes <= 0:
+            # A-15 : `occupation_mesuree` faux veut dire que
+            # `vram_free_bytes` vaut 0 par prudence, pas que la carte est
+            # pleine. Le lire tel quel ferait recommander le plus petit
+            # modèle du catalogue au lieu du repli documenté.
+            if (not gpu.available or gpu.vram_total_bytes <= 0
+                    or not getattr(gpu, "occupation_mesuree", True)):
                 return 8192
             return max(0, int(gpu.vram_free_bytes / (1024 * 1024)))
         except Exception:

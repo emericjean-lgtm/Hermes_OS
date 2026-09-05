@@ -53,6 +53,7 @@ from typing import Protocol
 from backend.connectors.ollama_client import OllamaClientProtocol
 from backend.core.agent_registry import get_agent_registry
 from backend.core.config import Settings, get_settings
+from backend.runtime.resources import vram_physique
 
 
 class CommandRunner(Protocol):
@@ -257,15 +258,18 @@ class GpuMonitor:
 
         # §6.2 / A-12 : **par processus, plus par adaptateur.**
         #
-        # Mesuré au même instant sur la même carte, un modèle de 11,9 Gio
-        # résident :
+        # Le relevé de §6.2 annonçait un facteur trois — 3,99 Gio par
+        # adaptateur contre 12,70 par processus. **Il ne se reproduit
+        # pas** : remesuré trois fois de suite pendant A-15, carte chargée
+        # d'un modèle de 12,74 Gio, l'adaptateur donne 14,669 Gio et les
+        # processus 15,115, soit 0,445 Gio d'écart, stable. La sonde qui a
+        # produit le 3,99 n'a pas été conservée et n'est plus auditable ;
+        # le chiffre est donc retiré plutôt que répété.
         #
-        #     GPU Adapter Memory\Dedicated Usage  ->  3,99 Gio
-        #     GPU Process Memory\Dedicated Usage  -> 12,70 Gio
-        #
-        # L'adaptateur sous-déclarait d'un facteur trois, et c'est cette
-        # valeur que le Cockpit affichait : « il reste de la place » là où
-        # il n'en restait pas. C'est le sens dangereux de l'erreur.
+        # Ce qui reste vrai et mesuré : l'écart existe, il va toujours dans
+        # le même sens — l'adaptateur sous-déclare — et le compteur par
+        # processus est celui que `model_bench.gpu_dedicated_bytes` utilise
+        # déjà. Le choix ne change pas ; son ampleur annoncée, si.
         #
         # Le compteur par processus est celui que
         # `model_bench.gpu_dedicated_bytes` utilise déjà, et celui que
@@ -278,15 +282,17 @@ class GpuMonitor:
         # an approximation on a multi-GPU machine (iGPU + discrete),
         # but the iGPU's contribution is typically negligible next to
         # the discrete card's.
-        used_output = self._run_command(
-            [
-                "powershell", "-NoProfile", "-Command",
-                "(Get-Counter '\\GPU Process Memory(*)\\Dedicated Usage' -ErrorAction Stop)"
-                ".CounterSamples | Measure-Object -Property CookedValue -Sum "
-                "| Select-Object -ExpandProperty Sum",
-            ]
+        # A-15 : la requete elle-meme vit dans
+        # `runtime/resources/vram_physique.py` et nulle part ailleurs. Deux
+        # ecritures de la meme question finissent par diverger — c'est
+        # ainsi que le Cockpit et l'admission ont fini par lire deux
+        # compteurs differents. Ici, seule la maniere d'executer la
+        # commande change ; la question posee est la meme.
+        occupation = vram_physique.occupation_physique_octets(
+            executer=lambda requete: self._run_command(
+                ["powershell", "-NoProfile", "-Command", requete]),
         )
-        vram_used_gb = (self._parse_float(used_output) or 0.0) / 1e9 if used_output else 0.0
+        vram_used_gb = (occupation / 1e9) if occupation is not None else 0.0
 
         load_output = self._run_command(
             [

@@ -9,7 +9,7 @@ import {
 } from "@/hooks/use-api";
 import { CenterHeader } from "@/components/center-scaffold";
 import { Badge } from "@/components/ui/card";
-import { formatGio } from "@/lib/format";
+import { formatGio, vramLibre } from "@/lib/format";
 
 // This Center was fabricated end to end, and dangerously so: it reported an
 // "NVIDIA A100 80GB" with 81920 MB VRAM, an "AMD EPYC (8C/16T)" CPU and
@@ -262,7 +262,7 @@ export default function DeploymentCenter({ imbrique = false }: { imbrique?: bool
                 />
                 <ProfileCard
                   title="VRAM libre"
-                  value={gpu ? `${formatGio(gpu.vram_free_bytes)} Gio` : "—"}
+                  value={gpu ? `${formatGio(vramLibre(gpu))} Gio` : "—"}
                   icon="💽"
                 />
                 <ProfileCard

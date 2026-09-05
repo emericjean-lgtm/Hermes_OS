@@ -1,3 +1,146 @@
+## HOS-258 — Ce que mesure la source d'admission (2026-09-05)
+
+A-15, decouvert en fermant §6.2. `GPUMonitor` essayait `rocm-smi`, puis
+`nvidia-smi`, puis **retombait sur `/api/ps`**. Sur cette machine —
+Windows, AMD RX 6800 — les deux premiers n'existent pas : le repli etait
+le chemin **normal** de l'admission, et il repondait sans erreur.
+
+Or les deux ne repondent pas a la meme question. `rocm-smi` dit ce qui
+est occupe sur la carte ; `/api/ps` dit ce que **pesent les modeles
+residents d'Ollama** — sans cache KV, sans tampons de calcul, sans un
+octet de ce que tient un autre processus.
+
+### La mesure, trois etats de charge, meme carte de 15,984 Gio
+
+    etat                     /api/ps    occupation reelle    ecart
+    aucun modele              0,000            1,314        +1,314
+    qwen3.6-35b resident     12,737           14,954        +2,216
+    meme modele, cache KV    12,737           15,115        +2,377
+
+L'ecart va toujours dans le meme sens et il **grandit** : `/api/ps` est
+reste fige a 12,737 pendant que l'occupation montait de 161 Mio — ce qui
+montait etait le cache KV, qu'il ne voit pas. Une marge forfaitaire
+n'aurait donc pas suffi.
+
+### Ce que cela donnait sur le vrai chemin
+
+Rejoue sur `ResourceManager.can_allocate`, a l'etat 3, ou il restait
+0,870 Gio :
+
+    demande            /api/ps    occupation reelle
+    1,0 Gio             ADMIS          refuse
+    1,5 Gio             ADMIS          refuse
+    2,0 Gio            refuse          refuse
+
+Le modele de 1,5 Gio admis se serait charge sur 0,87 Gio libres : il
+aurait deborde en memoire systeme, repondu dix fois plus lentement, et
+**sans erreur**. C'est exactement la classe de defaut que `CLAUDE.md`
+decrit — un succes qui n'en est pas un.
+
+### La decision
+
+Source canonique de l'admission : l'**occupation physique de la
+machine**, definie une seule fois dans
+`backend/runtime/resources/vram_physique.py` — somme de
+`\GPU Process Memory(*)\Dedicated Usage` sur tous les processus. Meme
+semantique que `rocm-smi`, qui reste prioritaire la ou il existe.
+
+`/api/ps` garde son role : dire quels modeles sont residents et ce qu'ils
+pesent. Il n'est plus une source de VRAM physique nulle part.
+
+Quand aucune sonde ne repond, le moniteur ne rend plus de chiffre. Il
+distingue deux etats que `available=False, total=0` confondait :
+
+- **pas de carte** — aucune contrainte VRAM a faire respecter, admission
+  inchangee, ce qui est correct sur une machine sans GPU ;
+- **carte presente, occupation illisible** — `occupation_mesuree=False`,
+  et la politique **refuse**. Aucune politique nouvelle : le refus
+  emprunte le mecanisme existant, `_check_vram_admission` attend
+  `vram_wait_s` puis leve `RuntimeUnavailableError`, et une sonde qui
+  revient pendant l'attente debloque la tache d'elle-meme.
+
+### Le drapeau devait remonter, sinon il deplacait la confusion
+
+Une carte non mesuree porte `vram_used_bytes: 0`. Sans rien de plus, le
+Cockpit l'aurait affichee « 0,0 / 16,0 Gio, 0 % » — soit une carte au
+repos, la meme erreur un etage plus haut. `occupation_mesuree` entre donc
+dans `get_status()`, dans le type du frontend, et dans trois aides
+partagees (`vramOccupee`, `vramLibre`, `vramPourcent`) que les huit
+surfaces d'affichage appellent. `formatGio(null)` rendait deja « — ».
+
+`check_thresholds` recevait le meme zero et concluait « 0 %, sain ». Une
+surveillance qui rassure sans avoir regarde est pire que pas de
+surveillance : les seuils sont sautes quand l'occupation n'est pas
+mesuree.
+
+### Une affirmation de §6.2 qui ne se reproduit pas
+
+§6.2 chiffrait la sous-declaration du compteur **par adaptateur** a un
+facteur trois : 3,99 contre 12,70 Gio. **Remesure pendant A-15, carte
+portant un modele de 12,74 Gio, sur trois releves espaces et stables :**
+
+    GPU Adapter Memory\Dedicated Usage  -> 14,669 Gio
+    GPU Process Memory\Dedicated Usage  -> 15,115 Gio
+
+Soit 0,445 Gio, 2,9 %. La sonde qui avait produit le 3,99 n'a pas ete
+conservee et n'est plus auditable ; le chiffre est donc **retire** du
+CHANGELOG, du code et des tests plutot que repete. Ce qui reste mesure :
+l'ecart existe, il va toujours dans le meme sens, et le choix du compteur
+par processus ne change pas. Son ampleur annoncee, si.
+
+### Ce que cela coute
+
+1,60 s par mesure reelle contre 0,02 s pour `/api/ps` — PowerShell est
+demarre a chaque fois. Le cache de 2 s du moniteur absorbe les appels
+rapproches : cinq `poll()` de suite coutent 1,60 s au total. Une tache
+vit entre 60 et 900 s ; c'est le bon echange.
+
+### Ce qui n'est pas ferme
+
+Sur Linux sans `rocm-smi`, aucune sonde ne repond et le registre Windows
+n'existe pas : l'etat est « pas de carte detectable », donc admission
+sans contrainte. Le kernel AMD publie pourtant
+`/sys/class/drm/card*/device/mem_info_vram_used`, de meme semantique.
+Rien ici ne permet de l'exercer, et ecrire une sonde non mesuree serait
+reproduire la faute que cette passe corrige. Consigne **A-16**.
+
+### Un rouge qui ne vient pas d'ici
+
+La suite complete (`pytest -m ""`) n'est pas verte, et ne l'etait pas non
+plus avant. `tests/integration/test_assembly.py::TestEventWiring::
+test_no_real_subsystem_event_is_dropped` lance un objectif autonome reel
+et attend qu'un noeud engage se termine ; le delai de garde global est de
+60 s (`pytest.ini`, HOS-112).
+
+Mesure, GPU au repos, aucun modele resident, meme test lance seul :
+il depasse le delai **au commit `03f4f96` comme apres A-15**, avec des
+piles identiques ligne pour ligne — le fil est bloque dans `_run_coro`
+sur une inference, pas dans l'admission. Un worktree sur `03f4f96` a servi
+a le verifier plutot qu'une deduction.
+
+Le rapport §6.2 annoncait « suite complete 5979 passed » : c'etait vrai ce
+jour-la, et ca ne se reproduit pas — ce test depend de quel modele le
+routeur choisit et de sa vitesse. Consigne **A-17**, hors perimetre.
+
+Ce qui est vert : boucle courte 5740 / 0, et suite lente 267 / 0 en
+mettant ce seul test de cote.
+
+### Les mutations
+
+Huit, huit rouges : `/api/ps` remis en source (4), fail-closed supprime
+(3), priorite inversee (2), carte non lue presentee comme mesuree (2),
+`ResourceManager` contourne par l'agent (3), deuxieme autorite de mesure
+(1), compteur par adaptateur (4), source canonique restreinte a un
+processus (1).
+
+Deux tests de §6.2 affirmaient l'ancien contrat — « le fichier
+`monitoring/gpu_monitor.py` contient la chaine `GPU Process Memory(*)` ».
+La requete ayant demenage dans la source canonique, ils sont **reecrits
+sur la propriete** — quel compteur est interroge, et par combien de
+definitions — dans la passe meme qui change le contrat, parce que la
+reecriture est verifiable independamment : la meme propriete est gardee
+deux fois, dans deux fichiers, et les mutations G et H la font rougir.
+
 ## HOS-257 — Verifier n'est pas reserver (2026-09-04)
 
 §6.2. Trois defauts MUST HAVE de l'audit §6.1, fermes ensemble parce
@@ -56,6 +199,13 @@ Mesure, meme instant, meme carte, un modele de 11,9 Gio resident :
     GPU Adapter Memory\Dedicated Usage   ->  3,99 Gio   <- le Cockpit
     GPU Process Memory\Dedicated Usage   -> 12,70 Gio   <- la verite
     /api/ps (somme size_vram)            -> 12,80 Gio   <- l'admission
+
+> **Amendement du 2026-09-05 (HOS-258).** Le releve par adaptateur ne se
+> reproduit pas. Remesure trois fois pendant A-15, carte portant un modele
+> de 12,74 Gio : adaptateur 14,669 Gio, processus 15,115 — 0,445 Gio, soit
+> 2,9 %, et non un facteur trois. La sonde d'origine n'a pas ete conservee
+> et n'est plus auditable. Le choix du compteur par processus reste juste ;
+> le chiffre qui le justifiait ici est faux et ne doit pas etre repris.
 
 Le compteur **par adaptateur** sous-declarait d'un facteur trois, dans le
 sens dangereux — celui qui fait croire qu'il reste de la place. Le

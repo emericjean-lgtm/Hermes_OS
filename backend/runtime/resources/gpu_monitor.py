@@ -12,14 +12,32 @@ import threading
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
+from backend.runtime.resources import vram_physique
 from backend.runtime.resources.resource_models import GPUInfo
 
 
 class GPUMonitor:
     """Monitor GPU resources (VRAM, temperature, utilisation).
 
-    Uses rocm-smi on AMD or nvidia-smi on NVIDIA when available.
-    Falls back to ollama ps for VRAM estimates otherwise.
+    ## La chaîne de sondes, et pourquoi `/api/ps` n'y est plus (A-15)
+
+    `rocm-smi`, puis `nvidia-smi`, puis les compteurs Windows. Les trois
+    mesurent la même chose — l'occupation physique de la carte — et c'est
+    la seule sémantique que l'admission sait interpréter.
+
+    `/api/ps` en était le quatrième maillon. Il mesure autre chose : les
+    **poids** des modèles résidents d'Ollama, sans le cache KV, sans les
+    tampons de calcul, sans un octet de ce que tient un autre processus.
+    Sur cette machine, ni `rocm-smi` ni `nvidia-smi` n'existent : ce repli
+    de sémantique différente était le chemin **normal** de l'admission, et
+    il sous-estimait l'occupation de 1,3 à 2,4 Gio selon la charge —
+    toujours dans le sens qui fait croire qu'il reste de la place. Détail
+    mesuré dans `vram_physique`.
+
+    Quand aucune sonde ne répond mais que la carte existe, le moniteur le
+    dit (`occupation_mesuree=False`) au lieu de rendre un chiffre. Il n'y a
+    pas de repli silencieux vers une autre sémantique : c'était le défaut.
+
     Thread-safe.
     """
 
@@ -47,17 +65,48 @@ class GPUMonitor:
             return self._info
 
     def _poll_now(self) -> GPUInfo:
-        """Internal: attempt various monitoring methods."""
+        """Internal: attempt various monitoring methods.
+
+        Trois sondes de même sémantique, puis l'aveu. Jamais un repli vers
+        une mesure qui répond à une autre question (A-15).
+        """
         info = self._try_rocm_smi()
         if info is not None:
             return info
         info = self._try_nvidia_smi()
         if info is not None:
             return info
-        info = self._try_ollama_ps()
+        info = self._try_compteurs_windows()
         if info is not None:
             return info
-        return GPUInfo(available=False)
+        return self._non_mesure()
+
+    def _non_mesure(self) -> GPUInfo:
+        """Aucune sonde n'a répondu. Reste à savoir s'il y a une carte.
+
+        Sans carte détectable, il n'y a pas de contrainte VRAM à faire
+        respecter et l'admission passe — comportement inchangé, et correct
+        sur une machine sans GPU.
+
+        Avec une carte dont on ne sait pas lire l'occupation, on ne rend
+        **pas** de chiffres : `occupation_mesuree=False` fait refuser
+        l'admission. Prétendre 0 octet occupé sur une carte qu'on ne lit
+        pas est exactement l'erreur que A-15 corrige.
+        """
+        nom, total = self._adapter_vram_total()
+        if not total:
+            return GPUInfo(available=False)
+        return GPUInfo(
+            name=nom or "unknown",
+            vendor="AMD" if nom and "AMD" in nom.upper() else "unknown",
+            vram_total_bytes=total,
+            # Volontairement à zéro et non « total » : ces champs ne
+            # doivent pas être lus quand `occupation_mesuree` est faux.
+            vram_used_bytes=0,
+            vram_free_bytes=0,
+            available=True,
+            occupation_mesuree=False,
+        )
 
     def _try_rocm_smi(self) -> Optional[GPUInfo]:
         """Attempt to query AMD GPU via rocm-smi."""
@@ -123,57 +172,36 @@ class GPUMonitor:
             pass
         return None
 
-    def _try_ollama_ps(self) -> Optional[GPUInfo]:
-        """VRAM in use, as reported by Ollama, plus the adapter's real capacity.
+    def _try_compteurs_windows(self) -> Optional[GPUInfo]:
+        """L'occupation réelle de la carte, via les compteurs de Windows.
 
-        This used to shell out to ``ollama ps`` purely to decide whether a GPU
-        existed, then report ``vram_total_bytes = 16 GiB  # Assume 16 GB`` and
-        ``vram_used_bytes = 0`` — an invented capacity and a figure that was
-        never measured. Both numbers now come from something that measured them:
-        Ollama's own ``/api/ps`` reports ``size_vram`` per resident model, and
-        the adapter's true capacity comes from :meth:`_adapter_vram_total`.
+        Ce qui remplace le repli `/api/ps`. Même sémantique que `rocm-smi` :
+        la mémoire vidéo dédiée effectivement détenue sur la machine, tous
+        détenteurs confondus. La capacité vient du registre — `AdapterRAM`
+        de WMI est un champ 32 bits qui annonce 4 Gio pour cette carte de 16.
+
+        `None` quand la mesure n'aboutit pas : l'appelant doit alors dire
+        qu'il ne sait pas, pas inventer un chiffre.
         """
-        used = self._ollama_vram_used()
-        if used is None:
+        occupation = vram_physique.occupation_physique_octets()
+        if occupation is None:
             return None
 
-        name, total = self._adapter_vram_total()
+        nom, total = self._adapter_vram_total()
+        if not total:
+            # Une occupation sans capacité ne se compare à rien. Laisser
+            # `_non_mesure` trancher plutôt que rendre un pourcentage
+            # calculé sur zéro.
+            return None
+
         return GPUInfo(
-            name=name or "ollama",
-            vendor="AMD" if name and "AMD" in name.upper() else "unknown",
+            name=nom or "unknown",
+            vendor="AMD" if nom and "AMD" in nom.upper() else "unknown",
             vram_total_bytes=total,
-            vram_used_bytes=used,
-            # Only meaningful when the capacity is known; 0 total would make
-            # "free" a fabrication of the same kind this replaces.
-            vram_free_bytes=max(total - used, 0) if total else 0,
+            vram_used_bytes=occupation,
+            vram_free_bytes=max(total - occupation, 0),
             available=True,
         )
-
-    @staticmethod
-    def _ollama_vram_used() -> Optional[int]:
-        """Sum ``size_vram`` over Ollama's resident models. None if unreachable.
-
-        Returns 0 — not None — when Ollama answers with no model loaded: the
-        runtime is present and using no VRAM, which is a measurement, not an
-        absence of one.
-        """
-        import json
-        import urllib.error
-        import urllib.request
-
-        endpoint = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-        if not endpoint.startswith("http"):
-            endpoint = f"http://{endpoint}"
-        try:
-            with urllib.request.urlopen(f"{endpoint}/api/ps", timeout=5) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, OSError, ValueError, TimeoutError):
-            return None
-
-        models = payload.get("models")
-        if not isinstance(models, list):
-            return None
-        return sum(int(m.get("size_vram", 0) or 0) for m in models)
 
     @staticmethod
     def _adapter_vram_total() -> tuple[str, int]:

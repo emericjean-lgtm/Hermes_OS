@@ -18,7 +18,7 @@ import { Badge, Card } from "@/components/ui/card";
 import { ComparaisonRadar } from "./comparaison-radar";
 import type { BenchAxisDTO } from "@/services/client";
 import type { ResourceStatus } from "@/types/hermes";
-import { formatGio, formatGioPair } from "@/lib/format";
+import { formatGio, formatGioPair, vramLibre, vramOccupee, vramPourcent } from "@/lib/format";
 
 // Every figure in this Center used to come from two module-level constants.
 // MOCK_MODELS listed five models with invented scores and success rates;
@@ -338,19 +338,19 @@ export default function ModelIntelligenceCenter() {
               <div className="flex items-center justify-between text-[10px] font-mono">
                 <span className="text-hermes-muted">{gpu.name || "GPU"}</span>
                 <span className="text-hermes-text">
-                  {formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes)}
+                  {formatGioPair(vramOccupee(gpu), gpu.vram_total_bytes)}
                 </span>
               </div>
               <div className="h-1.5 rounded-full bg-hermes-elevated overflow-hidden">
                 <div
                   className="h-full bg-hermes-cyan"
                   style={{
-                    width: `${gpu.vram_total_bytes ? (gpu.vram_used_bytes / gpu.vram_total_bytes) * 100 : 0}%`,
+                    width: `${vramPourcent(gpu) ?? 0}%`,
                   }}
                 />
               </div>
               <div className="text-hermes-green text-[10px] font-mono">
-                {formatGio(gpu.vram_free_bytes)} Gio libres — c&apos;est ce que les
+                {formatGio(vramLibre(gpu))} Gio libres — c&apos;est ce que les
                 recommandations utilisent désormais, pas un plafond fixe.
               </div>
             </div>

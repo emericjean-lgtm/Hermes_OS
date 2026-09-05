@@ -9,7 +9,7 @@ import { useWebSocket, severityColor } from "@/hooks/use-websocket";
 import { useCockpitStore } from "@/hooks/use-store";
 import { Card, Badge, ProgressBar } from "@/components/ui/card";
 import { PanelLoading } from "@/components/center-scaffold";
-import { formatGioPair } from "@/lib/format";
+import { formatGioPair, vramOccupee, vramPourcent } from "@/lib/format";
 import {
   Target, Users, Zap, ShieldAlert, ArrowUpRight, Radio, Cpu, Database, Check,
 } from "lucide-react";
@@ -69,10 +69,10 @@ export function DashboardView() {
       ? { text: "text-hermes-dim", label: "INCONNU", dot: "bg-hermes-dim" }
       : { text: "text-hermes-alarm", label: "CRITIQUE", dot: "bg-hermes-alarm" };
 
-  const vramPct =
-    res?.gpu && res.gpu.vram_total_bytes > 0
-      ? (res.gpu.vram_used_bytes / res.gpu.vram_total_bytes) * 100
-      : null;
+  // A-15 : `null` couvre desormais deux cas — pas de carte, et
+  // carte dont aucune sonde n'a lu l'occupation. Les deux doivent
+  // s'afficher comme absents, jamais comme 0 %.
+  const vramPct = vramPourcent(res?.gpu);
 
   return (
     <div className="grid grid-cols-12 gap-4">
@@ -400,7 +400,7 @@ export function DashboardView() {
             value={vramPct !== null ? `${Math.round(vramPct)}%` : "––"}
             sub={
               res?.gpu && res.gpu.vram_total_bytes > 0
-                ? formatGioPair(res.gpu.vram_used_bytes, res.gpu.vram_total_bytes)
+                ? formatGioPair(vramOccupee(res.gpu), res.gpu.vram_total_bytes)
                 : "indisponible"
             }
             pct={vramPct}

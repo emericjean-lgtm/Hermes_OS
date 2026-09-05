@@ -97,6 +97,11 @@ class ResourceManager:
                 "temperature_celsius": gpu.temperature_celsius,
                 "utilization_pct": gpu.utilization_pct,
                 "available": gpu.available,
+                # A-15 : sans ce drapeau, un consommateur lit
+                # `vram_used_bytes: 0` et affiche « carte libre » pour une
+                # carte qu'aucune sonde n'a su lire. C'est la même
+                # confusion, un étage plus haut.
+                "occupation_mesuree": getattr(gpu, "occupation_mesuree", True),
             },
             "ram": {
                 "total_bytes": mem.total_bytes,
@@ -267,7 +272,12 @@ class ResourceManager:
 
         # GPU/VRAM
         gpu = self.get_gpu_info()
-        if gpu.available and gpu.vram_total_bytes > 0:
+        # A-15 : une carte dont l'occupation n'a pas été mesurée porte des
+        # zéros de prudence. Les passer au seuil rendrait « 0 % — sain »
+        # pour une carte que personne ne sait lire : une surveillance qui
+        # rassure sans avoir regardé est pire que pas de surveillance.
+        if (gpu.available and gpu.vram_total_bytes > 0
+                and getattr(gpu, "occupation_mesuree", True)):
             vram_pct = gpu.vram_used_bytes / gpu.vram_total_bytes
             vram_limit = self._limits.get(ResourceType.VRAM)
 

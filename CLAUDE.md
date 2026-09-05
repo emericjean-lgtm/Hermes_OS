@@ -106,9 +106,19 @@ regarde `size` moins `size_vram` dans `/api/ps`.
 de calcul. Mesuré sur Muse-Glimmer-30B à 64k : `/api/ps` annonçait
 9,55 Gio pendant que le processus `llama-server` en détenait 13,21. L'écart
 va toujours dans le mauvais sens — il fait croire qu'il reste de la place
-pour un second modèle. Pour l'occupation réelle, lire le compteur GPU du
-processus d'inférence : `backend/model_intelligence/model_bench.py`
-(`gpu_dedicated_bytes`).
+pour un second modèle. Pour l'occupation réelle, lire le compteur GPU :
+`backend/runtime/resources/vram_physique.py` pour la machine entière —
+c'est la source d'admission, et la seule définition de la requête —
+`backend/model_intelligence/model_bench.py` (`gpu_dedicated_bytes`) pour
+un processus nommé.
+
+**Et l'admission a déjà été trompée par ce piège** (A-15, HOS-258) : sans
+`rocm-smi`, ce qui est le cas ici, `ResourceManager` retombait sur
+`/api/ps`. Mesuré carte chargée, il annonçait 12,74 Gio occupés sur
+15,98 quand la carte en portait 15,12, et laissait admettre un modèle de
+1,5 Gio sur 0,87 Gio libres. Une source qui sous-estime l'occupation ne
+doit jamais servir de repli silencieux à une décision d'admission : sans
+mesure, on refuse.
 
 Et ne pas calculer un cache KV sans regarder le motif d'attention. Muse
 Glimmer est en « Local, Local, Local, Global » avec fenêtre glissante de

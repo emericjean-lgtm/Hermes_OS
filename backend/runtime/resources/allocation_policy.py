@@ -59,7 +59,10 @@ class DefaultAllocationPolicy(AllocationPolicy):
         """Check if allocation is possible."""
         if snapshot.resource_type == ResourceType.VRAM:
             if gpu_info.vram_total_bytes == 0:
-                # No GPU detected — skip VRAM check, allow allocation
+                # No GPU detected — skip VRAM check, allow allocation.
+                # A-15 : « pas de carte » est bien une absence de
+                # contrainte. Ce qui ne l'est pas, c'est « une carte qu'on
+                # ne sait pas lire » — traité juste en dessous.
                 allocation = ResourceAllocation(
                     runtime_id=runtime_id,
                     resource_type=snapshot.resource_type,
@@ -72,6 +75,35 @@ class DefaultAllocationPolicy(AllocationPolicy):
                     success=True,
                     allocation=allocation,
                     reason="no gpu detected — skip vram check",
+                )
+
+            # A-15 : la carte existe, son occupation n'a pas été mesurée.
+            #
+            # Le comportement d'avant était de retomber sur `/api/ps` — une
+            # mesure des seuls poids des modèles résidents, qui rendait un
+            # chiffre plausible et trop bas. Ce n'était pas une absence de
+            # mesure, c'était une mesure d'autre chose, et rien ne le
+            # disait. Le repli a été retiré ; ce refus est ce qui le
+            # remplace.
+            #
+            # Refuser plutôt que laisser passer : on ne sait pas s'il reste
+            # de la place, et un modèle chargé sans place déborde en
+            # mémoire système, répond dix fois plus lentement, et **sans
+            # erreur**. Le refus, lui, se voit.
+            #
+            # Aucune politique nouvelle : `_check_vram_admission` attend
+            # déjà `vram_wait_s` sur un refus, puis lève
+            # `RuntimeUnavailableError`. Une mesure qui revient pendant
+            # l'attente débloque la tâche d'elle-même.
+            if not getattr(gpu_info, "occupation_mesuree", True):
+                return ResourceAllocationResult(
+                    success=False,
+                    reason=(
+                        "occupation VRAM non mesurée sur "
+                        f"{gpu_info.name!r} — aucune sonde physique n'a "
+                        "répondu ; l'admission refuse plutôt que de "
+                        "supposer la carte libre"
+                    ),
                 )
 
             after = gpu_info.vram_used_bytes + bytes_requested

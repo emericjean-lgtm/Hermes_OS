@@ -12,7 +12,7 @@ import { useMonitoringResources, useSystemModelRoles } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
 import type { EtatOperateur } from "@/components/operateur";
 import type { ResourceStatus } from "@/types/hermes";
-import { formatGioPair } from "@/lib/format";
+import { formatGioPair, vramOccupee, vramPourcent } from "@/lib/format";
 import { MarkdownMessage } from "./markdown-message";
 import { ContextMeter, ModelPicker, type ModelSelection } from "./model-picker";
 import {
@@ -645,8 +645,8 @@ export default function ConversationCenter() {
                   <div className="space-y-2.5">
                     <Meter
                       label={gpu.name || "GPU"}
-                      detail={formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes)}
-                      pct={gpu.vram_total_bytes ? (gpu.vram_used_bytes / gpu.vram_total_bytes) * 100 : 0}
+                      detail={formatGioPair(vramOccupee(gpu), gpu.vram_total_bytes)}
+                      pct={vramPourcent(gpu) ?? 0}
                     />
                     {ram && (
                       <Meter

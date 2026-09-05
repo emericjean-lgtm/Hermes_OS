@@ -61,6 +61,12 @@ export interface ResourceStatus {
     temperature_celsius: number | null;
     utilization_pct: number | null;
     available: boolean;
+    /** A-15 : `false` veut dire « aucune sonde physique n'a répondu ».
+     *  `vram_used_bytes` et `vram_free_bytes` valent alors 0 par prudence,
+     *  et les afficher tels quels montrerait une carte vide là où on ne
+     *  sait simplement pas. Absent des réponses anciennes : traiter
+     *  `undefined` comme `true`. */
+    occupation_mesuree?: boolean;
   };
   ram: {
     total_bytes: number;

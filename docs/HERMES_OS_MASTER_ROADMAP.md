@@ -17,7 +17,7 @@
 | §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | ~~A-2~~ fermé · **fermer A-3** | Hermes OS |
 | §4 | Cloud / Providers / Quota | **🟡** | ~~A-1~~ fermé · **fermer A-10** | Hermes OS |
 | §5 | Runtime / RAL / Model Intelligence | 🟢 | aucune | Hermes OS |
-| §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 audité · §6.2 livré · **R-3/R-4/R-6 ouverts** | AIOS ; Hermes Agent |
+| §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 audité · §6.2 livré · A-15 fermé · **R-3/R-4/R-6 ouverts** | AIOS ; Hermes Agent |
 | §7 | Advanced Agent Orchestration | 🟠 | audit de décision | Hermes Agent ; OpenHands ; Autonomous OS |
 | §8 | Memory Learning / Experience | 🟡 | analyse d'écart | Hermes Agent |
 | §9 | Mission Control / Operator Observability | 🟡 | analyse d'écart | Paperclip ; Hermes Agentic OS |
@@ -333,13 +333,25 @@ quotas. La frontière retenue, sans autorité nouvelle :
 §6.2 (HOS-257) a fermé les trois MUST HAVE : l'admission couvre désormais
 le chemin agentique, la décision compte les réservations — deux
 réservations de 8 Gio ne passent plus sur une carte de 16 — et le
-compteur GPU du Cockpit lit par processus au lieu de par adaptateur, qui
-sous-déclarait d'un facteur trois.
+compteur GPU du Cockpit lit par processus au lieu de par adaptateur.
+
+*(§6.2 chiffrait la sous-déclaration de l'adaptateur à un facteur trois.
+Remesurée en A-15, elle est de 0,445 Gio — 2,9 %. Le chiffre est amendé
+au CHANGELOG ; la direction de l'erreur, elle, tient.)*
+
+A-15 (HOS-258) a canonisé la source. L'admission ne lit plus `/api/ps` :
+elle lit l'occupation physique de la machine, définie une seule fois dans
+`runtime/resources/vram_physique.py`, et **refuse** quand aucune sonde ne
+répond alors qu'une carte existe. Mesuré, carte de 15,984 Gio portant
+qwen3.6-35b avec son cache KV : `/api/ps` annonçait 12,737 Gio occupés
+là où la carte en portait 15,115, et laissait admettre un modèle de
+1,5 Gio sur 0,870 Gio libres.
 
 **Restent ouverts** : R-3 (parallélisme dérivé de la capacité plutôt que
 constante), R-4 (capacité globale entre missions concurrentes), R-6
-(comptabilité VRAM/CPU par mission), et A-15 (la source d'admission
-retombe sur `/api/ps` quand `rocm-smi` manque).
+(comptabilité VRAM/CPU par mission), et A-16 (aucune sonde d'occupation
+sur Linux sans `rocm-smi` — `/sys/class/drm` existe, rien ici ne permet
+de l'exercer).
 
 Ce qui suit reste le cadrage d'origine.
 
@@ -352,7 +364,21 @@ Aujourd'hui l'arbitrage tranche runtime et modèle, mais aucune notion de
 VRAM, RAM, CPU, fenêtre de contexte, coût, latence, disponibilité,
 spécialisation. **Existant réutilisable** : `model_bench.gpu_dedicated_bytes`
 mesure l'occupation réelle du processus d'inférence, `/api/ps` ne mesurant
-que les poids — écart mesuré à 3,7 Gio sur Muse-Glimmer-30B.
+que les poids — écart mesuré à 3,7 Gio sur Muse-Glimmer-30B, et à 2,4 Gio
+sur qwen3.6-35b pendant A-15.
+
+**La frontière des mesures, arrêtée en A-15 :**
+
+| Source | Ce qu'elle mesure | Admission | Observabilité |
+|---|---|:--:|:--:|
+| `rocm-smi` / `nvidia-smi` | occupation physique de la carte | ✅ prioritaire | ✅ |
+| `vram_physique` (compteurs Windows, par processus) | occupation physique de la machine | ✅ canonique ici | ✅ |
+| `/api/ps` | **poids** des modèles résidents d'Ollama | ❌ jamais | ✅ inventaire |
+| `_allocations` (réservations Hermes) | ce qui est promis, pas encore chargé | ✅ **en plus** de la télémétrie | ✅ |
+
+Les réservations ne se mélangent pas à la télémétrie : elles s'ajoutent à
+la décision, jamais à la mesure. Confondre les deux ferait disparaître
+l'une des deux grandeurs.
 
 ### §6.3 — Contrôle d'admission
 Vérifier les ressources **avant** d'engager. `_check_vram_admission` existe

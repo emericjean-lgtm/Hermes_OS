@@ -6,6 +6,7 @@ import { navLabel, navGroupOf } from "@/components/nav-model";
 import { TelemetryTrace } from "@/components/telemetry-trace";
 import { useOperateur } from "@/hooks/use-operateur";
 import { Search, Thermometer } from "lucide-react";
+import { vramPourcent } from "@/lib/format";
 
 /** The instrument bar.
  *
@@ -34,10 +35,10 @@ export function InstrumentBar({ onOpenPalette }: { onOpenPalette: () => void }) 
       ? { text: "text-hermes-dim", dot: "bg-hermes-dim", label: "INCONNU" }
       : { text: "text-hermes-alarm", dot: "bg-hermes-alarm", label: "CRITIQUE" };
 
-  const vramPct =
-    res?.gpu && res.gpu.vram_total_bytes > 0
-      ? (res.gpu.vram_used_bytes / res.gpu.vram_total_bytes) * 100
-      : null;
+  // A-15 : `null` couvre desormais deux cas — pas de carte, et
+  // carte dont aucune sonde n'a lu l'occupation. Les deux doivent
+  // s'afficher comme absents, jamais comme 0 %.
+  const vramPct = vramPourcent(res?.gpu);
   const ramPct = typeof res?.ram?.usage_pct === "number" ? res.ram.usage_pct : null;
   const temp = res?.gpu?.temperature_celsius ?? null;
 

@@ -11,43 +11,44 @@
 CURRENT_SECTION:      §6 — Cognitive Scheduler / Resource Intelligence
 CURRENT_SUBSECTION:   §6.3 — Parallélisme dérivé de la capacité (R-3)
 CURRENT_STATUS:       🟡 §6.1 audité · §6.2 livré (HOS-257)
+                      A-15 fermé (HOS-258)
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      528a0d37ac2fb323f338a68e325e69cdb192478e
+BASELINE:                      c5c1b98 (A-15 fermé) — 528a0d3 pour J24
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                inévitable par construction
                                A-2 fermé (HOS-256) — HOS-217/218 câblés
                                §6.2 livré (HOS-257) — admission + réservation
+                               A-15 fermé (HOS-258) — source GPU canonique
 ```
 
-`CURRENT_SECTION: §6` signifie **« §6 est le prochain chantier »**, pas
-« §6 est implémenté ». Aucune ligne de §6 n'existe aujourd'hui.
+`CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
+est audité, §6.2 livré (HOS-257) et A-15 fermé (HOS-258) ; §6.3 à §6.6
+n'ont pas commencé.
 
 ---
 
 ## NEXT_ACTION
 
-**Les deux défauts P1 de l'audit J25 sont fermés.** Ce qui reste avant
-d'ouvrir §6 est de niveau P2 ou moins. Ce sont des corrections, pas des fonctionnalités, et elles touchent
-des sections déclarées terminées :
+**Les deux défauts P1 de l'audit J25 sont fermés** (A-1, HOS-255 ;
+A-2, HOS-256), et A-15 avec eux (HOS-258). Ce qui reste est de niveau P2
+ou moins :
 
-1. ~~**A-1**~~ — **fermé le 2026-09-04 (HOS-255)**. La garde est dans
-   `OpenRouterClient`, donc inévitable ; une liste blanche structurelle
-   empêche un troisième chemin.
-2. ~~**A-2**~~ — **fermé le 2026-09-04 (HOS-256)**. Les deux contrôles
-   sont câblés sur des coutures existantes ; une garde structurelle sur
-   les lanceurs de sous-processus empêche qu'un troisième naisse sans
-   surveillance.
-3. **A-10** — trouvé en fermant A-1 : le pare-feu ignore `sk-or-v1-…`,
+1. **R-3** — le parallélisme de mission est une constante (2), pas une
+   dérivation de la capacité. La mesure existe désormais et est fiable :
+   c'est ce qui rend R-3 abordable, et c'est la suite naturelle de §6.
+2. **A-10** — trouvé en fermant A-1 : le pare-feu ignore `sk-or-v1-…`,
    le format de clé d'OpenRouter. Défaut de détection, pas de routage.
    Bloque §4.
-
-Puis : phase de décision §6.1 (capability routing), sans écrire de code
-avant que le contrat soit tranché.
+3. **A-16** — trouvé en fermant A-15 : sur Linux sans `rocm-smi`, aucune
+   sonde d'occupation ne répond et l'admission ne contraint rien.
+   `/sys/class/drm/card*/device/mem_info_vram_used` a la bonne
+   sémantique ; rien ici ne permet de l'exercer, et une sonde non
+   mesurée reproduirait la faute que A-15 vient de corriger.
 
 ---
 
@@ -57,7 +58,9 @@ avant que le contrat soit tranché.
 |---|---|---|
 | ~~Contournement du pare-feu cloud (A-1)~~ — **fermé HOS-255** | security | §4 |
 | Le pare-feu ignore `sk-or-v1-…` (A-10) | security | §4 |
-| Source d'admission = `/api/ps` sans `rocm-smi` (A-15) | architectural | §6 |
+| ~~Source d'admission = `/api/ps` (A-15)~~ — **fermé HOS-258** | architectural | §6 |
+| Aucune sonde d'occupation sur Linux sans `rocm-smi` (A-16) | architectural | §6 |
+| `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
 | Points de reprise pris et jamais restaurables (A-3) | functional | §3 |
 | Portée projet MCP validée mais non autorisée (A-4) | security | §8 / §10 |
@@ -84,6 +87,16 @@ avant que le contrat soit tranché.
   décision.
 - **43 modules sans appelant** (8,4 %), dont 13 sans test. Inventoriés,
   non élagués.
+- **La suite complète n'est pas verte de façon reproductible** (A-17).
+  `tests/integration/test_assembly.py::TestEventWiring::
+  test_no_real_subsystem_event_is_dropped` lance un objectif autonome
+  réel et attend qu'un nœud engagé se termine ; le délai de garde global
+  est de 60 s. Mesuré le 2026-09-05, GPU au repos, aucun modèle
+  résident : il dépasse le délai **au commit `03f4f96` comme après
+  A-15**, avec des piles identiques ligne pour ligne — le fil est bloqué
+  dans `_run_coro` sur une inférence, pas dans l'admission. Le rapport
+  §6.2 annonçait « 5979 passed » : c'était vrai ce jour-là, ça ne se
+  reproduit pas. Hors périmètre A-15.
 
 ---
 

@@ -17,7 +17,7 @@ import {
   StatGrid,
   Toolbar,
 } from "@/components/center-scaffold";
-import { formatGioPair } from "@/lib/format";
+import { formatGioPair, vramOccupee } from "@/lib/format";
 
 // Toutes les mesures viennent de /runtime/resources, /runtime/events,
 // /runtime/intelligence et /system/statistics. Le flux temps réel est le
@@ -68,7 +68,7 @@ export function MonitoringCenter({ imbrique = false }: { imbrique?: boolean }) {
           { label: "GPU", value: gpu?.available ? gpu.name : "non détecté", tone: gpu?.available ? "ok" : "warn" },
           {
             label: "VRAM utilisée",
-            value: gpu ? formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes) : "—",
+            value: gpu ? formatGioPair(vramOccupee(gpu), gpu.vram_total_bytes) : "—",
           },
           { label: "RAM", value: ram ? `${ram.usage_pct}%` : "—", tone: (ram?.usage_pct ?? 0) > 85 ? "bad" : "ok" },
           { label: "Allocations", value: resources.data?.allocations ?? 0 },

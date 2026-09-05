@@ -7,7 +7,7 @@ import { TelemetryTrace } from "@/components/telemetry-trace";
 import { CenterHeader, PanelLoading } from "@/components/center-scaffold";
 import type { RuntimeInfo, RuntimeStatus } from "@/types/hermes";
 import { Cpu, HardDrive, Thermometer, Layers, Gauge, Brain, Power } from "lucide-react";
-import { formatGio, formatGioPair } from "@/lib/format";
+import { formatGio, formatGioPair, vramMesuree, vramOccupee, vramPourcent } from "@/lib/format";
 
 /** Le badge acceptait uniquement AVAILABLE/DEGRADED/UNAVAILABLE alors que
  *  l'API renvoie le cycle de vie du runtime (`started`, `stopped`…). Un
@@ -35,10 +35,10 @@ export function RuntimeCenter({ imbrique = false }: { imbrique?: boolean }) {
   // le Center dès que la requête ressources échouait.
   const ram = resources?.ram;
   const gpu = resources?.gpu;
-  const vramPct =
-    gpu && gpu.vram_total_bytes > 0
-      ? (gpu.vram_used_bytes / gpu.vram_total_bytes) * 100
-      : null;
+  // A-15 : `null` couvre desormais deux cas — pas de carte, et
+  // carte dont aucune sonde n'a lu l'occupation. Les deux doivent
+  // s'afficher comme absents, jamais comme 0 %.
+  const vramPct = vramPourcent(gpu);
 
   const active = runtimes?.filter((r) => r.status === "started" || r.status === "AVAILABLE").length ?? 0;
 
@@ -71,7 +71,15 @@ export function RuntimeCenter({ imbrique = false }: { imbrique?: boolean }) {
           icon={<HardDrive size={14} />}
           value={vramPct}
           unit="%"
-          detail={gpu?.available ? formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes) : "Aucun GPU détecté"}
+          detail={
+            !gpu?.available
+              ? "Aucun GPU détecté"
+              : vramMesuree(gpu)
+                ? formatGioPair(vramOccupee(gpu), gpu.vram_total_bytes)
+                // A-15 : la carte existe, aucune sonde ne la lit. Le dire,
+                // plutôt que d'afficher 0 sur 16 — qui se lit « au repos ».
+                : `occupation non mesurée — ${formatGio(gpu.vram_total_bytes)} Gio de capacité`
+          }
         />
         <ResourceMeter
           label="Température GPU"

@@ -11,7 +11,7 @@ import { useCockpitStore } from "@/hooks/use-store";
 import { Card, Badge, ProgressBar } from "@/components/ui/card";
 import type { Agent, AgentStatus } from "@/types/hermes";
 import { CenterHeader } from "@/components/center-scaffold";
-import { formatGioPair } from "@/lib/format";
+import { formatGioPair, vramOccupee, vramPourcent } from "@/lib/format";
 
 // Real agent status/metrics/trust — before HOS-070, AgentRegistry.
 // update_status()/update_metrics() were only ever called from a dispatch
@@ -94,11 +94,11 @@ export function AgentCenter() {
               <div className="flex items-center justify-between text-[10px] font-mono">
                 <span className="text-hermes-muted">VRAM ({gpu.name || "GPU"})</span>
                 <span className="text-hermes-text">
-                  {formatGioPair(gpu.vram_used_bytes, gpu.vram_total_bytes)}
+                  {formatGioPair(vramOccupee(gpu), gpu.vram_total_bytes)}
                 </span>
               </div>
               <ProgressBar
-                value={gpu.vram_total_bytes ? (gpu.vram_used_bytes / gpu.vram_total_bytes) * 100 : 0}
+                value={vramPourcent(gpu) ?? 0}
                 size="sm"
               />
               {gpu.utilization_pct != null && (
