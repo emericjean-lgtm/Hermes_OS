@@ -144,6 +144,35 @@ class ModelProfile:
     AGENTIC_MIN_CONTEXT: ClassVar[int] = 65536
 
     @property
+    def agentic_disqualifie(self) -> bool:
+        """Un contrôle structurel écarte-t-il ce modèle (T-29) ?
+
+        Extrait d'`agentic_capable` sans en changer le résultat. La raison
+        est qu'un booléen unique confondait deux états qui appellent des
+        décisions opposées : **écarté par une preuve négative** et
+        **jamais mesuré**. Le premier justifie qu'on défasse une décision
+        de routage ; le second ne justifie rien — il n'y a pas de preuve
+        à opposer. Voir `_agentic_capable_for`, qui rend les trois états.
+
+        Ces contrôles viennent **avant** la mesure, et délibérément : un
+        verdict passé a été pris dans des conditions passées, et le
+        runtime peut l'invalider. devstral a mesuré 1/3 *parce qu'il*
+        débordait sur CPU ; un modèle qui se met à déborder après un
+        changement de contexte est dans cet état-là quoi qu'il ait obtenu.
+        """
+        if not self.chat_capable:
+            return True
+        if not self.declares_tools:
+            return True
+        if self.parameters_b < self.AGENTIC_MIN_PARAMETERS_B:
+            return True
+        if self.cpu_offload_bytes:
+            return True
+        if self.served_context is not None and self.served_context < self.AGENTIC_MIN_CONTEXT:
+            return True
+        return False
+
+    @property
     def agentic_capable(self) -> bool:
         """Can this model actually drive an agent loop?
 
@@ -164,20 +193,7 @@ class ModelProfile:
         The checks below are fast structural disqualifiers, not evidence of
         capability: they can only rule a model *out*.
         """
-        # Disqualifiers first, and deliberately ahead of the measurement:
-        # a past verdict was taken under past conditions, and the runtime
-        # can invalidate it. devstral measured 1/3 *because* it was spilling
-        # to CPU; a model that starts overflowing after a context change is
-        # in that same state whatever it once scored.
-        if not self.chat_capable:
-            return False
-        if not self.declares_tools:
-            return False
-        if self.parameters_b < self.AGENTIC_MIN_PARAMETERS_B:
-            return False
-        if self.cpu_offload_bytes:
-            return False
-        if self.served_context is not None and self.served_context < self.AGENTIC_MIN_CONTEXT:
+        if self.agentic_disqualifie:
             return False
         if self.measured_agentic_success is not None:
             return self.measured_agentic_success

@@ -901,7 +901,25 @@ def _agentic_capable_for(model_id: str) -> Optional[bool]:
         # itself — qwen3-embedding:0.6b reports "tools".
         chat_capable="embedding" not in capabilities,
     )
-    return profile.agentic_capable
+    # T-29 : trois états, plus deux (G-12).
+    #
+    # `ModelProfile.agentic_capable` rend un **booléen** et écrase donc la
+    # différence entre « mesuré incapable » et « jamais mesuré ». Les deux
+    # devenaient `False`, et l'appelant substituait dans les deux cas.
+    #
+    # Mesuré sur ce dépôt : **aucun** des six modèles du catalogue n'est
+    # disqualifié — tous passent chat, outils, paramètres, débordement et
+    # contexte servi. Ils sont simplement **non sondés**, le repli compris.
+    # « Substituer un repli connu-bon » remplaçait donc un inconnu par un
+    # autre inconnu, en perdant au passage le seul signal mesuré
+    # disponible : la note par type de tâche du routeur.
+    #
+    # `None` veut dire « on ne sait pas » et n'autorise plus, à lui seul, à
+    # défaire une décision. Ce qu'un disqualifieur écarte reste `False` :
+    # celui-là est une preuve négative, pas une absence de preuve.
+    if profile.agentic_disqualifie:
+        return False
+    return profile.measured_agentic_success
 
 
 def _runtime_footprint_for(model_id: str) -> tuple[Optional[int], Optional[int]]:

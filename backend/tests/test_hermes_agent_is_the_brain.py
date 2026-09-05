@@ -181,10 +181,28 @@ def test_agentic_model_floor():
     incapable and unknown substituted. The fallback itself comes from
     measured probe data (HOS-095) and already moved from devstral to
     qwen3.5:9b-128k the first time real numbers arrived — a test naming the
-    model would break on every honest re-measurement."""
+    model would break on every honest re-measurement.
+
+    ## Ce que T-29 a change, et pourquoi ce test le disait deja
+
+    Ce test posait sa premisse dans sa docstring — « the fallback itself
+    comes from measured probe data » — et ne l'etablissait pas dans son
+    montage : `capable.get` rendait `None` pour le repli, donc **non
+    prouve**. Le plancher s'appliquait quand meme.
+
+    Mesure le 2026-09-06 : le magasin de sondes vivait dans `%TEMP%` et
+    n'existe plus. Les six modeles du catalogue, **repli compris**, rendent
+    `None`. La premisse etait devenue fausse en production, et la regle
+    substituait alors un inconnu a un autre inconnu — 0 decision de routage
+    sur 5 survivait (G-12).
+
+    Le montage etablit desormais ce que la docstring affirmait : le repli
+    porte un verdict mesure. Le plancher est inchange sous cette premisse,
+    et un cas s'ajoute — celui ou plus rien n'est prouve.
+    """
     from backend.execution.task_executor import _HERMES_AGENT_FALLBACK_MODEL as FALLBACK
 
-    capable = {"a-capable-model:9b": True, "qwen3.5:2b": False}
+    capable = {"a-capable-model:9b": True, "qwen3.5:2b": False, FALLBACK: True}
     executor = RealTaskExecutor(agentic_capable_for=capable.get)
 
     assert executor._agentic_model("a-capable-model:9b") == "a-capable-model:9b"  # noqa: SLF001
@@ -193,6 +211,12 @@ def test_agentic_model_floor():
     # call tools yields a mission that reports success and does nothing.
     assert executor._agentic_model("something-new:8b") == FALLBACK  # noqa: SLF001
     assert executor._agentic_model("") == FALLBACK  # noqa: SLF001
+
+    # T-29 : et quand le repli n'est pas prouve non plus, il n'a rien a
+    # opposer. Substituer echangerait un inconnu contre un inconnu en
+    # jetant la note metier qui a fonde le choix du routeur.
+    sans_preuve = RealTaskExecutor(agentic_capable_for=lambda _m: None)
+    assert sans_preuve._agentic_model("something-new:8b") == "something-new:8b"  # noqa: SLF001
 
 
 def test_agentic_capability_is_measured_not_named():

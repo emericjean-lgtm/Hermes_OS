@@ -10,15 +10,16 @@
 ```
 CURRENT_SECTION:      §6 — Cognitive Scheduler / Resource Intelligence
 CURRENT_SUBSECTION:   §6.6 — Ordonnancement cognitif (non ouvert)
-                      §6.1 🟡 — routage juste, défait par le repli (G-12)
-CURRENT_STATUS:       🟡 §6.1 audité · §6.2 livré (HOS-257)
+                      §6.1 🟢 — la décision du routeur atteint l'exécution
+CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
-                      A-18 fermé (HOS-261) · §6.1 🟡 + A-19 fermé (HOS-262)
+                      A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      04624ae (§15 créée) — dernier commit avant §6.1
+BASELINE:                      0d2b9e1 (§6.1 🟡, HOS-262) — dernier commit
+                               de code avant T-29
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -34,20 +35,26 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                couvre le contexte réellement servi
                                §6.1 🟡 (HOS-262) — le type de tâche décide
                                enfin ; A-19 fermé en chemin
+                               G-12 fermé (HOS-263) — un repli ne défait
+                               une décision que s'il est mieux prouvé ;
+                               §6.1 🟢, G-14 ouvert en chemin
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
-est audité, §6.2 livré (HOS-257), A-15 fermé (HOS-258), §6.5 fermé par
-R-3/R-4 (HOS-259), la comptabilité physique par R-6 (HOS-260) et les
-empreintes déclarées par A-18 (HOS-261). Reste §6.6, qu'aucune passe n'a
-ouverte.
+est fermée (HOS-262 + HOS-263), §6.2 livré (HOS-257), A-15 fermé
+(HOS-258), §6.5 fermé par R-3/R-4 (HOS-259), la comptabilité physique par
+R-6 (HOS-260) et les empreintes déclarées par A-18 (HOS-261). Reste §6.6,
+qu'aucune passe n'a ouverte.
 
-**§6.1 est passée 🟡 le 2026-09-05 (HOS-262).** Le routeur classait juste
-et n'était jamais écouté : un filtre placé après lui multipliait
-l'empreinte mesurée par le **nombre de mots du titre** de la tâche, et
-éliminait les cinq modèles compétents. Corrigé et démontré. Elle n'est pas
-🟢 parce que **G-12** la vide de son effet sur le chemin agentique : le
-repli substitue 100 % des décisions.
+**§6.1 est passée 🟢 le 2026-09-06 (HOS-263).** HOS-262 avait rendu le
+routage juste — le routeur classait bien et n'était jamais écouté, un
+filtre placé après lui multipliant l'empreinte mesurée par le **nombre de
+mots du titre** de la tâche. Restait G-12 : `_agentic_model` défaisait
+ensuite **toutes** ses décisions, 0 sur 5 mesurées. La règle disait de
+substituer un repli « connu-bon » ; mesuré, le repli n'est pas mieux prouvé
+que ce qu'il remplace — aucun des six modèles du catalogue n'a jamais été
+sondé. Un repli ne défait désormais une décision que s'il porte une preuve
+qu'elle n'a pas : **5 sur 5** conservées.
 
 **§15 — Hermes Assistant — a été créée le 2026-09-05 et n'est pas la
 section active.** Elle est une couche produit qui consomme §1→§13 ; la
@@ -88,8 +95,12 @@ pas parce qu'elle est prête. Ce qui la précède :
 1. **A-10** ferme §4 ;
 2. ~~**T-22 / §6.1**~~ — **tranché le 2026-09-05 (ADAPT)** : l'architecture
    existante suffisait, aucun ordonnanceur n'était requis ;
-3. **T-29** décide si un modèle non sondé peut piloter la boucle — sans
-   quoi le routage reste juste et sans effet (G-12) ;
+3. ~~**T-29**~~ — **tranché le 2026-09-06 (ADAPT)** : la question « un
+   modèle non sondé peut-il piloter la boucle ? » était mal posée. Le
+   repli n'étant pas mieux prouvé que ce qu'il remplace, la substitution
+   n'arbitrait rien. G-12 fermé, G-14 ouvert à sa place — **sonder
+   réellement le catalogue** reste à faire (`agentic_probe.py`, trois
+   essais minimum, un modèle à la fois) ;
 4. **T-28** tranche le contrat Chat/Cowork — sans lui, §15 ne peut pas
    commencer.
 
@@ -120,7 +131,8 @@ mentirait sur ce qu'il fait.
 | La promotion d'un souvenir n'a aucune route HTTP (G-10) | architectural | §8 |
 | `assigned_tools` planifié et jamais invoqué (G-11) | technical debt | §7 |
 | ~~`_RegistreMissions` hydrate sur un ordre non garanti (A-19)~~ — **fermé HOS-262** | test | §3 |
-| Le repli agentique défait toutes les décisions du routeur (G-12) | architectural | §6/§7 |
+| ~~Le repli agentique défait toutes les décisions du routeur (G-12)~~ — **fermé HOS-263** | architectural | §6/§7 |
+| La capacité agentique n'est mesurée pour aucun modèle du catalogue (G-14) | architectural | §7 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
@@ -156,7 +168,12 @@ mentirait sur ce qu'il fait.
   est de 60 s. Mesuré le 2026-09-05, GPU au repos, aucun modèle
   résident : il dépasse le délai **au commit `03f4f96` comme après
   A-15**, avec des piles identiques ligne pour ligne — le fil est bloqué
-  dans `_run_coro` sur une inférence, pas dans l'admission. Le rapport
+  dans `_run_coro` sur une inférence, pas dans l'admission. Re-mesuré le
+  2026-09-06, T-29 faisant engager un modèle de 20,9 Md là où le repli en
+  imposait un de 2,7 : **65 s à la baseline `0d2b9e1`, 66 s après**, même
+  pile, même ligne. Le plafond global de 60 s ne laisse passer aucune
+  inférence réelle, quel que soit le modèle — la taille du modèle n'entre
+  pas dans ce défaut. Le rapport
   §6.2 annonçait « 5979 passed » : c'était vrai ce jour-là, ça ne se
   reproduit pas. Hors périmètre A-15.
 

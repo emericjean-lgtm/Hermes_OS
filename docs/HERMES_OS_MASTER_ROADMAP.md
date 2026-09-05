@@ -17,7 +17,7 @@
 | §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | ~~A-2~~ fermé · **fermer A-3** | Hermes OS |
 | §4 | Cloud / Providers / Quota | **🟡** | ~~A-1~~ fermé · **fermer A-10** | Hermes OS |
 | §5 | Runtime / RAL / Model Intelligence | 🟢 | aucune | Hermes OS |
-| §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 audité · §6.2 · A-15 · R-3/R-4 · R-6 fermés · **§6.1 routing et §6.6 ouverts** | AIOS ; Hermes Agent |
+| §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 🟢 · §6.2 · A-15 · R-3/R-4 · R-6 · A-18 fermés · **§6.6 non ouverte** | AIOS ; Hermes Agent |
 | §7 | Advanced Agent Orchestration | 🟠 | audit de décision | Hermes Agent ; OpenHands ; Autonomous OS |
 | §8 | Memory Learning / Experience | 🟡 | analyse d'écart | Hermes Agent |
 | §9 | Mission Control / Operator Observability | 🟡 | analyse d'écart | Paperclip ; Hermes Agentic OS |
@@ -320,7 +320,7 @@ journalisée et le modèle servi atterrit dans le Ledger.
 
 ## §6 — Cognitive Scheduler / Resource Intelligence — 🟠 PLANNED
 
-**§6.1 audité, §6.2 livré, la section reste ouverte.**
+**§6.1 fermée, §6.2 livré, la section reste ouverte** — §6.6 n'a jamais été ouverte.
 
 L'audit §6.1 a trouvé que §6 n'était pas absent mais **fragmenté en
 quatre décisions locales qui ne se parlent pas** : le plafond de
@@ -378,7 +378,7 @@ empreinte déclarée).
 
 Ce qui suit reste le cadrage d'origine.
 
-### §6.1 — Capability routing — 🟡 PARTIAL (HOS-262)
+### §6.1 — Capability routing — 🟢 COMPLETED (HOS-262 + HOS-263)
 
 `tâche → capacités requises → runtimes/modèles/agents disponibles →
 route`. La capacité requise **est** extraite : le type de tâche porté par
@@ -408,19 +408,49 @@ la fusion) confirmée par cette passe : chacune est seule sur son chemin.
 `ResourceManager` ne choisit aucun modèle ; il fournit le plafond et
 décide l'admission. Le RAL reste l'autorité du routage fournisseur.
 
-**Ce qui reste ouvert, et pourquoi §6.1 n'est pas 🟢.**
-- **G-12** — `_agentic_model` substitue tout modèle non prouvé par
-  `_HERMES_AGENT_FALLBACK_MODEL`. Le magasin de sondes étant vide,
-  **0 décision sur 5** survit au chemin agentique. Délibéré (HOS-096), et
-  désormais **tracé** — mais le repli est le modèle le plus faible du
-  catalogue, lui-même non prouvé.
+**G-12 fermé le 2026-09-06 (HOS-263) — la décision atteint l'exécution.**
+
+`_agentic_model` défaisait ensuite **la totalité** de ces décisions :
+mesuré, 0 sur 5 survivait au chemin agentique, qui est le chemin normal
+d'une mission liée à un workspace. La règle disait « substituer un repli
+**connu-bon** à tout modèle non prouvé » ; sa prémisse était fausse ici.
+Mesuré sur les six modèles du catalogue, **aucun n'est disqualifié** — tous
+passent chat, outils, paramètres, débordement et contexte servi — et aucun
+n'est sondé, le repli compris. La substitution échangeait un inconnu contre
+un autre, en jetant le seul signal mesuré du système.
+
+La règle devient : **on ne défait une décision que si le repli porte une
+preuve que le modèle choisi n'a pas.** Le prédicat du bootstrap rend
+désormais trois états au lieu de deux — `False` quand un contrôle
+structurel écarte (preuve négative), sinon le verdict mesuré (`True`,
+`False` ou `None`, « on ne sait pas »). Mesuré après correction, sur le
+`_agentic_model` construit par le vrai bootstrap : **5 décisions sur 5
+conservées**, trois modèles distincts pour cinq types de tâche.
+
+Aucune autorité nouvelle : `AdaptiveRouter` reste seul à choisir sur le
+chemin Mission, `ResourceManager` seul à admettre. `_agentic_model` ne rend
+toujours que deux choses — ce qu'on lui a donné, ou le repli configuré — et
+un test lui interdit d'en choisir une troisième. La **conservation** est
+journalisée au même titre que la substitution : « on a conservé la
+décision » est un fait d'exécution autant que « on l'a défaite », et
+c'était celui qui manquait.
+
+**Ce que 🟢 couvre, et ce qu'il ne couvre pas.** Il couvre le contrat de
+§6.1 : le type de tâche atteint le routeur, le routeur classe sur des notes
+**mesurées** par type (HOS-144), et sa décision est celle qui s'exécute.
+Deux écarts subsistent et ne le rouvrent pas — ni l'un ni l'autre ne rétablit
+un écrasement silencieux de la décision :
 - **G-13** — `_get_records_for_task` rend `[]` en dur et
   `_compute_speed_score` rend 0,000 : deux dimensions sur cinq de
-  `compute_model_score` sont inertes.
-
-Tant que G-12 tient, le routage est correct **et sans effet** sur le
-chemin agentique. §6.1 décrit donc une décision juste qu'un repli
-systématique défait.
+  `compute_model_score` sont inertes. La note est juste sur trois
+  dimensions, pas sur cinq.
+- **G-14** — la capacité agentique elle-même n'est mesurée pour **aucun**
+  modèle du catalogue. Cause trouvée en HOS-263 : `_probe_store_path`
+  lisait un attribut `Settings.data_dir` qui n'a jamais existé, si bien que
+  le magasin atterrissait dans `%TEMP%`, que Windows vide. Tous les verdicts
+  jamais mesurés par ce projet ont disparu. Le magasin vit désormais sous la
+  racine d'état ; cela empêche la prochaine perte, cela ne restaure pas
+  celle-ci. Sonder réellement le catalogue reste à faire.
 
 ### §6.2 — Ordonnancement conscient des ressources
 VRAM, RAM, CPU, fenêtre de contexte, coût, latence, disponibilité,
@@ -947,7 +977,8 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | G-9 | **technical debt** | 8 runs orphelins ; aucune suppression exposée par `Registre` | §2 | dette acceptée, voir STATE |
 | G-10 | **architectural** | La promotion d'un souvenir n'a **aucune route HTTP** | §8 | `promouvoir` à 4 niveaux, testé ; `memory/routes.py` n'expose que search/graph/experiences/index/statistics |
 | G-11 | **technical debt** | `assigned_tools` d'une tâche est planifié et **jamais invoqué** | §7 | `task_executor.py:31` le documente ; l'agent a ses propres outils, la sélection du planificateur est décorative |
-| **G-12** | **architectural** | Le repli agentique défait **toutes** les décisions du routeur | §6/§7 | mesuré : 0 décision sur 5 survit ; le repli est le modèle le plus faible du catalogue et lui-même non prouvé |
+| ~~**G-12**~~ | ~~architectural~~ | ~~Le repli agentique défait **toutes** les décisions du routeur~~ — **fermé HOS-263** | §6/§7 | mesuré : 0 sur 5 avant, **5 sur 5** après ; un repli ne défait plus une décision sans porter une preuve qu'elle n'a pas |
+| **G-14** | **architectural** | La capacité agentique n'est mesurée pour **aucun** modèle du catalogue | §7 | `_probe_store_path` lisait `Settings.data_dir`, attribut inexistant : le magasin vivait dans `%TEMP%` et a été effacé. Déplacé sous la racine d'état en HOS-263 — la prochaine perte est empêchée, celle-ci n'est pas restaurée |
 | G-13 | **technical debt** | Deux dimensions sur cinq du score modèle sont inertes | §6 | `_get_records_for_task` rend `[]` en dur ; `_compute_speed_score` rend 0,000 pour les six profils |
 
 ---
@@ -1031,7 +1062,7 @@ des passes ne sont pas reconstituées.
 | **T-26** | — | A-4 — habilitation de portée projet | **ouvert** | l'isolation repose sur la bonne foi du modèle | modèle d'habilitation à définir | §8 | 🟠 à décider |
 | **T-28** | — | §15.1 — Chat et Cowork : deux surfaces ou deux modes ? | **ouvert** | les deux partagent déjà le Run Ledger et le bus ; les séparer ferait deux histoires pour une exécution | trancher **avant** toute ligne de §15 | §15 | 🟠 à décider |
 | T-22 | 2026-09-05 | §6.1 — autorité d'ordonnancement | **ADAPT** | l'architecture existante suffisait : deux routeurs sur deux chemins disjoints, `ResourceManager` fournissant le plafond. Aucun ordonnanceur n'était requis | retirer la troisième estimation de capacité, laisser les autorités en place | HOS-262 | 🟢 appliqué |
-| **T-29** | — | G-12 — un modèle non sondé peut-il piloter la boucle ? | **ouvert** | le repli défait 100 % des décisions et n'est pas plus prouvé que ce qu'il remplace | sonder, ou changer la règle de repli | §6/§7 | 🟠 à décider |
+| T-29 | 2026-09-06 | G-12 — un modèle non sondé peut-il piloter la boucle ? | **ADAPT** | la question était mal posée : le repli n'est pas mieux prouvé que ce qu'il remplace, donc la substitution n'arbitrait rien. Sonder reste souhaitable (G-14) mais n'était pas requis pour rendre la décision contraignante | un repli ne défait une décision que s'il porte une preuve qu'elle n'a pas ; prédicat tri-état | HOS-263 | 🟢 appliqué |
 
 ### Décisions de rejet conservées
 
@@ -1056,3 +1087,4 @@ des passes ne sont pas reconstituées.
 | 2026-09-04 | `528a0d3` | Création. §3 et §4 rétrogradées 🟡 sur les mesures de l'audit J25, contre le statut 🟢 attendu par le cahier. Registre ouvert à T-22. |
 | 2026-09-05 | `04624ae` | §6.1 passée 🟡 sur mesure : le routeur classait juste et n'était jamais écouté. T-22 tranché (ADAPT) — l'architecture suffisait. A-19 fermé en chemin, cette passe le faisant sortir. G-12 et G-13 ouverts. |
 | 2026-09-05 | `6dfa78a` | §15 créée — couche produit consommant §1→§13, aucune autorité nouvelle. Deux écarts relevés en la construisant (G-10, G-11), une décision ouverte (T-28), trois idées rejetées avec leur raison. §15 **ne devient pas la section active** : §6.1 et A-10 la précèdent. |
+| 2026-09-06 | `0d2b9e1` | §6.1 passée 🟢 : G-12 fermé sur le chemin agentique réel — 0 décision sur 5 survivait, 5 sur 5 survivent. T-29 tranché (ADAPT) : le repli n'était pas mieux prouvé que ce qu'il remplaçait, donc la substitution n'arbitrait rien. G-14 ouvert en chemin — la cause de G-12 était un magasin de sondes écrit dans `%TEMP%` depuis toujours, et effacé. |

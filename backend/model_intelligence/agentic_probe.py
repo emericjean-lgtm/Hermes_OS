@@ -74,11 +74,43 @@ class AgenticProbeResult:
 
 
 def _probe_store_path() -> Path:
-    from backend.core.config import get_settings
+    """Ou vivent les verdicts mesures — **pas** dans `%TEMP%` (T-29).
 
-    settings = get_settings()
-    base = getattr(settings, "data_dir", None) or tempfile.gettempdir()
-    return Path(base) / "agentic_probe_results.json"
+    ## Ce que cette fonction faisait
+
+        base = getattr(settings, "data_dir", None) or tempfile.gettempdir()
+
+    `Settings` n'a **jamais** eu d'attribut `data_dir` : la branche etait
+    morte, et le magasin atterrissait toujours dans le repertoire temporaire
+    du systeme — que Windows et le moindre outil de nettoyage vident.
+
+    ## Ce que cela a coute
+
+    Tous les verdicts que ce projet a mesures ont disparu. HOS-095/096
+    avaient sonde le catalogue — `lfm2.5-2.6b` a 3/3, `gemma4:12b` a 0/3,
+    `devstral` a 1/3 — et c'est sur ces chiffres que le repli agentique a
+    ete choisi. Mesure le 2026-09-06 : le fichier n'existe plus, et
+    `measured_success_for` rend `None` pour les six modeles du catalogue,
+    **le repli compris**.
+
+    D'ou G-12 : la regle « substituer un repli connu-bon » s'appliquait avec
+    une premisse devenue fausse, et annulait 100 % des decisions du routeur
+    au profit du modele le plus faible du catalogue.
+
+    Une mesure qui coute des minutes par modele, prise sous verrou exclusif,
+    ne se range pas dans un repertoire que le systeme efface. Elle va la ou
+    va le reste de l'etat durable — la meme racine que la base, les
+    instantanes et la memoire, et qui honore `HERMES_DATA_DIR`.
+    """
+    from backend.core import etat
+
+    # Sous `db/`, et non a la racine : `preserve_set()` enumere des
+    # **dossiers**, et un fichier pose a la racine n'y serait pas — une
+    # mise a jour l'effacerait, ce qui refabriquerait exactement la perte
+    # que ce deplacement corrige. `test_tout_ce_qui_vit_sous_la_racine_est
+    # _preserve` l'a dit des le premier essai, en lisant le code plutot que
+    # la liste.
+    return etat.racine() / "db" / "agentic_probe_results.json"
 
 
 def load_results() -> dict[str, dict]:

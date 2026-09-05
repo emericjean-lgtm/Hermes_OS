@@ -1,3 +1,163 @@
+## HOS-263 — Un repli ne defait une decision que s'il est mieux prouve (2026-09-06)
+
+T-29 / G-12. §6.1 (HOS-262) avait rendu le routage juste ; `_agentic_model`
+annulait ensuite **la totalite** de ses decisions — mesure, **0 sur 5**
+survivait au chemin agentique, qui est le chemin normal d'une mission liee
+a un workspace.
+
+### La premisse fausse
+
+La regle disait : « substituer un repli **connu-bon** a tout modele non
+prouve ». Mesure sur les six modeles du catalogue, en interrogeant le
+prédicat reel du bootstrap :
+
+    modele                chat  tools  params  offload  ctx servi  mesure
+    gpt-oss-20b-64k       True  True    20.9    None     None      None
+    qwen3.6-35b-128k      True  True    34.7    None     None      None
+    ornith-9b-256k        True  True     9.0    None     None      None
+    muse-glimmer-64k      True  True    27.9    None     None      None
+    gemma4-12b-256k       True  True    11.9    None     None      None
+    lfm2.5-2.6b-125k      True  True     2.7    None     None      None
+
+**Aucun n'est disqualifie** : tous passent chat, outils, parametres,
+debordement et contexte servi. Ils sont simplement **non sondes** — et le
+repli `lfm2.5-2.6b-125k` l'est autant que les autres.
+
+La substitution echangeait donc un inconnu contre un autre inconnu, en
+jetant le seul signal mesure du systeme : la note par type de tache du
+routeur. Le repli est de surcroit le plus faible du catalogue sur ces
+memes notes — 0,28 en code contre 1,00 pour `gpt-oss`.
+
+### Ou la decision devenait non contraignante
+
+    task → TaskType → AdaptiveRouter → modele choisi
+                                          ↓
+                                    _agentic_model()   ← ici
+                                          ↓
+                          admission ResourceManager → RAL → execution
+
+`_agentic_model` est le seul point du chemin ou la decision pouvait etre
+defaite, et il le faisait sur une absence de preuve.
+
+### La correction
+
+`ModelProfile.agentic_capable` rend un booleen et ecrasait la difference
+entre « mesure incapable » et « jamais mesure ». Les disqualifieurs
+structurels sont extraits dans `agentic_disqualifie` — sans changer le
+resultat d'`agentic_capable` — et le predicat du bootstrap rend desormais
+les **trois** etats : `False` quand un controle ecarte, sinon le verdict
+mesure (`True`, `False` ou `None`).
+
+La regle devient :
+
+    modele choisi     repli            decision
+    prouve capable    n'importe quoi   conserve
+    prouve incapable  prouve capable   substitue   (le cas legitime)
+    prouve incapable  non prouve       substitue   (le choix est exclu)
+    non prouve        prouve capable   substitue   (la preuve l'emporte)
+    non prouve        non prouve       **conserve** — c'etait G-12
+
+La derniere ligne est toute la correction : echanger un inconnu contre un
+autre inconnu ne reduit aucun risque.
+
+**Rien n'affaiblit HOS-096.** Un modele non sonde reste *non prouve* et le
+demeure ; `ModelProfile.agentic_capable` rend toujours `False` pour lui, et
+un test le garde. Ce qui change est ce qu'on en fait quand l'autre option
+ne vaut pas mieux.
+
+Aucune autorite nouvelle : `AdaptiveRouter` reste seul a choisir sur le
+chemin Mission, `ResourceManager` seul a admettre, le RAL seul a router le
+fournisseur. `_agentic_model` ne rend toujours que deux choses — ce qu'on
+lui a donne, ou le repli configure — et un test l'interdit d'en choisir une
+troisieme.
+
+### Preuve sur le chemin reel
+
+    tache                            routeur              engage
+    ecrire les tests unitaires       gpt-oss-20b-64k      gpt-oss-20b-64k
+    analyser la faille de securite   qwen3.6-35b-128k     qwen3.6-35b-128k
+    resumer ce document              ornith-9b-256k       ornith-9b-256k
+    concevoir l'architecture         qwen3.6-35b-128k     qwen3.6-35b-128k
+    classer ces tickets              ornith-9b-256k       ornith-9b-256k
+
+**5 sur 5**, contre 0 sur 5 avant. Trois modeles distincts pour cinq types
+de tache : la decision de §6.1 atteint enfin l'execution.
+
+La conservation est journalisee au meme titre que la substitution — « on a
+conserve la decision » est un fait d'execution autant que « on l'a
+defaite », et c'etait celui qui manquait.
+
+### Trois mutations qui restaient vertes, et pourquoi
+
+Sur dix, trois ne faisaient rougir aucun test — les trois portant sur le
+**predicat**, et mes gardes y etaient syntaxiques :
+
+- « le predicat rend a nouveau un booleen » — le test cherchait `return
+  None` parmi les retours de la fonction. Le `return None` du gestionnaire
+  d'exception satisfaisait l'assertion a lui seul ;
+- « un disqualifieur devient non prouve » — le test verifiait
+  `ModelProfile`, une couche **en dessous** de ce qui decide ;
+- « un modele non prouve devient capable » — rien ne le testait.
+
+Les trois sont reecrits sur le comportement du vrai predicat, Ollama et la
+sonde remplaces. Et il a fallu, en plus, donner un identifiant neuf a
+chaque cas : `_agentic_capable_for` est `lru_cache`e, et trois tests
+passaient au vert sur une valeur memoisee par le premier.
+
+C'est le sixieme garde-fou de cette serie de passes dont une mutation
+revele qu'il ne gardait pas ce qu'on croyait, et toujours pour la meme
+raison : une assertion ecrite sur une **forme** plutot que sur une
+propriete.
+
+### La cause racine, trouvee en poursuivant un test qui refusait de passer
+
+Le garde-fou `test_agentic_model_floor` est devenu rouge, et sa docstring
+disait pourquoi : « the fallback itself comes from **measured probe
+data** (HOS-095) ». Ma correction supposait le contraire.
+
+Mesure : le magasin de sondes vit dans
+`%TEMP%/agentic_probe_results.json`, **et le fichier n'existe plus**.
+`_probe_store_path` lisait `getattr(settings, "data_dir", None) or
+tempfile.gettempdir()` — or `Settings` n'a **jamais** eu d'attribut
+`data_dir`. La branche etait morte ; le magasin atterrissait toujours dans
+le repertoire temporaire du systeme, que Windows vide.
+
+Tous les verdicts que ce projet a mesures ont donc disparu : `lfm2.5-2.6b`
+a 3/3, `gemma4:12b` a 0/3, `devstral` a 1/3 — les chiffres memes sur
+lesquels le repli agentique avait ete choisi. C'est **la** cause de G-12 :
+la regle etait juste quand elle a ete ecrite, et sa premisse s'est effacee
+sans que rien ne le dise.
+
+Le magasin va desormais la ou va le reste de l'etat durable — la racine de
+`backend/core/etat.py`, celle de la base, des instantanes et de la
+memoire, qui honore `HERMES_DATA_DIR`. Une mesure qui coute des minutes
+par modele, prise sous verrou exclusif, ne se range pas dans un repertoire
+que le systeme efface.
+
+Sous `db/`, et non a la racine de cet etat : un garde-fou de HOS-232 l'a
+dit des le premier essai, en lisant le code plutot qu'une liste.
+`preserve_set()` enumere des **dossiers**, et un fichier pose directement
+a la racine n'y serait pas — une mise a jour l'aurait efface, ce qui
+aurait refabrique exactement la perte que ce deplacement corrige. Le
+defaut se serait reproduit un cran plus loin, avec un an de moins pour
+s'en apercevoir.
+
+Le garde-fou, lui, posait sa premisse dans sa docstring sans l'etablir
+dans son montage : `capable.get` rendait `None` pour le repli. Le montage
+l'etablit desormais, le plancher est inchange sous cette premisse, et un
+cas s'ajoute — celui ou plus rien n'est prouve.
+
+### Ce qui reste vrai, et ce qui ne l'est pas
+
+Que les modeles du catalogue sachent piloter la boucle d'outils n'est
+**pas** demontre — cette passe ne le pretend pas. Sonder reellement le
+catalogue (`agentic_probe.py`, trois essais minimum, un modele a la fois)
+reste le seul moyen de trancher, et c'est hors perimetre. Consigne
+**G-14** : tant que la sonde n'a rien mesure, le systeme applique une
+decision fondee sur la note metier et non sur une capacite agentique
+verifiee. Deplacer le magasin empeche la prochaine perte ; il ne restaure
+pas celle-ci.
+
 ## HOS-262 — Le type de tache decide enfin du modele (2026-09-05)
 
 §6.1. Le routeur classait juste et n'etait jamais ecoute : un filtre place

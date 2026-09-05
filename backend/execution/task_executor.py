@@ -1188,6 +1188,38 @@ class RealTaskExecutor:
         sur le choix du routeur, mais **pas** sur la verification qui suit :
         un modele impose qui ne sait pas piloter la boucle d'outils est
         substitue comme un autre. Voir `modele_impose` pour la raison.
+
+        ## T-29 : un repli ne defait une decision que s'il est mieux prouve
+
+        La regle d'origine disait « substituer un repli **connu-bon** a tout
+        modele non prouve ». Sa premisse etait fausse ici : mesure, le repli
+        `lfm2.5-2.6b-125k` n'est pas mieux prouve que ce qu'il remplace —
+        `measured_agentic_success` vaut `None` pour lui comme pour les cinq
+        autres, et aucun n'est disqualifie. Aucun n'a jamais ete sonde.
+
+        Consequence mesuree avant correction : sur cinq taches de types
+        differents, le routeur choisissait trois modeles distincts sur leur
+        note metier, et **0 decision sur 5** survivait. Le repli est de
+        surcroit le plus faible du catalogue sur ces memes notes — 0,28 en
+        code contre 1,00 pour `gpt-oss`.
+
+        La regle devient donc : **on ne defait une decision que si le repli
+        porte une preuve que le modele choisi n'a pas.**
+
+            modele choisi   repli           decision
+            prouve capable  n'importe quoi  conserve  (rien a corriger)
+            prouve incapable prouve capable substitue (le cas legitime)
+            prouve incapable non prouve     substitue (le choix est exclu)
+            non prouve      prouve capable  substitue (la preuve l'emporte)
+            non prouve      non prouve      **conserve** — c'etait G-12
+
+        La derniere ligne est toute la correction. Echanger un inconnu
+        contre un autre inconnu ne reduit aucun risque et jette le seul
+        signal mesure du systeme.
+
+        Rien ici n'affaiblit HOS-096 : un modele non sonde reste **non
+        prouve**, et le demeure. Ce qui change est ce qu'on en fait quand
+        l'autre option ne vaut pas mieux.
         """
         impose = modele_impose(task_type)
         if impose:
@@ -1202,13 +1234,39 @@ class RealTaskExecutor:
                 logger.debug("agentic capability lookup failed for %r", name, exc_info=True)
         if capable:
             return name
+
+        repli = self._fallback_model
+        if name == repli:
+            return name
+
+        # T-29 : le repli doit porter une preuve que le choix n'a pas.
+        preuve_du_repli: Optional[bool] = None
+        if self._agentic_capable_for is not None:
+            try:
+                preuve_du_repli = self._agentic_capable_for(repli)
+            except Exception:  # pragma: no cover - jamais faire echouer une tache
+                logger.debug("verdict agentique indisponible pour le repli %r",
+                             repli, exc_info=True)
+
+        if capable is None and preuve_du_repli is not True:
+            # Ni l'un ni l'autre n'est prouve : la substitution n'echangerait
+            # qu'un inconnu contre un autre, en perdant la note metier qui a
+            # fonde le choix. On conserve la decision, et on le dit.
+            logger.info(
+                "hermes-agent: %r conserve — ni lui ni le repli %r ne sont "
+                "prouves (T-29) ; la decision du routeur reste appliquee",
+                name, repli,
+            )
+            return name
+
         logger.info(
             "hermes-agent: substituting %r for %r — %s",
-            self._fallback_model, name or "<unset>",
-            "no capability profile available" if capable is None
-            else "the routed model cannot drive an agent loop",
+            repli, name or "<unset>",
+            "the routed model is measured unable to drive an agent loop"
+            if capable is False
+            else "the fallback is the only one with a measured verdict",
         )
-        return self._fallback_model
+        return repli
 
     def _scratch_workspace(self, task: Any) -> str:
         """Where Hermes Agent runs a task that is bound to no Project.
