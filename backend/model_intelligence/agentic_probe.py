@@ -45,10 +45,50 @@ logger = logging.getLogger("hermes_os.model_intelligence.agentic_probe")
 #: satisfy by talking about it.
 _PROBE_FILENAME = "AGENTIC_PROBE.md"
 _PROBE_CONTENT = "probe ok"
-_PROBE_QUERY = (
-    f"Create a file named {_PROBE_FILENAME} in your working directory "
-    f"containing exactly one line: '{_PROBE_CONTENT}'."
-)
+
+
+def _probe_query(workspace: Path) -> str:
+    """La consigne, formulee **comme une mission la formule** (G-14).
+
+    ## Ce que cette requete disait, et ce que cela mesurait
+
+        "Create a file named AGENTIC_PROBE.md in your working directory ..."
+
+    Le repertoire n'etait nomme nulle part. Le sous-processus recoit bien
+    le workspace en `cwd`, mais rien ne le **dit** au modele, qui doit donc
+    deviner. Mesure le 2026-09-06 sur `lfm2.5-2.6b-125k`, reponse brute
+    conservee : six appels d'outils, le bon contenu, et le fichier ecrit
+    dans `/c/Users/emeri/` apres un premier essai dans `/home/user/` —
+    deux conventions devinees, aucune n'etant le workspace. Verdict
+    enregistre : echec.
+
+    La sonde mesurait donc « ce modele devine-t-il la convention de chemin
+    de cette machine », pas « ce modele sait-il piloter une boucle
+    d'outils ». Meme modele, meme verification disque, chemin nomme :
+    succes en 43 s. C'est un faux echec, de la classe que `CLAUDE.md`
+    nomme — cinq des huit defauts de mesure du catalogue en etaient.
+
+    ## Pourquoi cette formulation-ci
+
+    Elle reprend **mot pour mot** la phrase que `_messages_for` donne a
+    Hermes Agent quand une mission est liee a un workspace :
+
+        Your working directory is '<racine>' and you have real filesystem
+        access to it. Inspect before you write: do not guess paths.
+
+    C'est le point entier de cette sonde : mesurer le chemin reel. Une
+    sonde plus severe que la production mesure la sonde.
+
+    Rien n'est affaibli : le verdict se lit toujours **sur le disque**, a
+    l'endroit nomme. Un modele qui raconte au lieu d'agir ne produit
+    toujours aucun fichier, et echoue toujours.
+    """
+    return (
+        f"Your working directory is {str(workspace)!r} and you have real "
+        f"filesystem access to it. Inspect before you write: do not guess "
+        f"paths. Create a file named {_PROBE_FILENAME} in that directory "
+        f"containing exactly one line: '{_PROBE_CONTENT}'."
+    )
 
 #: Generous: a cold model load plus a couple of tool rounds on local
 #: hardware. A probe that times out is recorded as a failure, which is the
@@ -280,7 +320,7 @@ def _probe_once(model: str, config, timeout_s: float = _PROBE_TIMEOUT_S) -> Agen
 
     command = [
         cfg.python_exe, cfg.cli_py,
-        "--query", _PROBE_QUERY,
+        "--query", _probe_query(workspace),
         "--model", model,
         "--provider", cfg.provider,
         "--base_url", cfg.base_url,

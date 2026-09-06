@@ -13,19 +13,45 @@ agentique via le CLI Hermes Agent installé et lit le verdict **sur le
 disque**, jamais dans la réponse du modèle. C'est le seul juge.
 
 ```bash
-python -c "
-import sys; sys.path.insert(0,'.')
-from backend.model_intelligence.agentic_probe import probe, save_result
-for _ in range(3):
-    r = probe('mon-modele:tag'); save_result(r); print(r)
-"
+.venv/Scripts/python.exe scripts/sonder_modeles.py mon-modele:tag --essais 3
+.venv/Scripts/python.exe scripts/sonder_modeles.py --catalogue
 ```
+
+Passer par le script (HOS-142) plutôt que par `probe()` à la main : c'est
+lui qui appelle `save_result()`. Un verdict qu'on ne persiste pas meurt avec
+le processus, et le magasin se vide sans que rien ne le dise — c'est
+exactement ce qui a produit G-14.
+
+Les verdicts vivent dans `<racine d'état>/db/agentic_probe_results.json`,
+sous un dossier que `preserve_set()` protège d'une mise à jour.
 
 Trois essais minimum : un seul échantillon s'est révélé faux à répétition.
 Les sondes prennent un verrou exclusif — deux modèles en VRAM simultanément
 mesurent la contention, pas le modèle.
 
 ## Résultats mesurés sur ce déploiement (RX 6800, 16 Go)
+
+Campagne du 2026-09-06 (HOS-264), catalogue courant, 18 essais réels, un
+modèle à la fois :
+
+| Modèle | Taille | Succès | Durée/essai |
+|---|---|---|---|
+| `gpt-oss-20b-64k` | 20,9 Md | **3/3** | 45-64 s |
+| `qwen3.6-35b-128k` | 34,7 Md (MoE, 3 Md actifs) | **3/3** | 61-83 s |
+| `ornith-9b-256k` | 9,0 Md | **3/3** | 44-54 s |
+| `muse-glimmer-64k` | 27,9 Md | **3/3** | 159-257 s |
+| `gemma4-12b-256k` | 11,9 Md | **3/3** | 84-85 s |
+| `lfm2.5-2.6b-125k` | 2,7 Md | 2/3 | 31-38 s |
+| `qwen3-embedding:0.6b` | 0,6 Md | non sondé | écarté structurellement |
+
+Le seul échec des dix-huit appartient au plus petit modèle — celui qui
+servait de repli « connu-bon ». Les durées de `muse-glimmer` sont la
+signature du débordement décrit plus bas.
+
+### ⚠️ La campagne précédente est amendée, pas remplacée
+
+Le tableau ci-dessous est celui d'avant HOS-264. **Il a été mesuré avec une
+sonde défectueuse** et n'est pas comparable :
 
 | Modèle | Taille | ctx servi | VRAM | Succès | Durée |
 |---|---|---|---|---|---|
@@ -35,14 +61,29 @@ mesurent la contention, pas le modèle.
 | `gemma4:12b-64k` | 11,9 Md | 65536 | 8,49 Go | 0/3 | ~430 s |
 | `gemma4:12b-128k` | 11,9 Md | 131072 | 8,19 Go | 0/2 | ~945 s |
 
+La consigne de la sonde ne nommait pas le répertoire de travail — le
+sous-processus le recevait en `cwd`, mais rien ne le disait au modèle, qui
+devait le deviner. Mesuré : `lfm2.5-2.6b-125k` appelle six outils, écrit le
+bon contenu, et le pose dans `/c/Users/emeri/` après avoir essayé
+`/home/user/`. Verdict enregistré : échec. Chemin nommé, même modèle, même
+vérification disque : succès.
+
+Ces tags n'existent plus, et les verdicts d'origine ont été effacés avec
+`%TEMP%` (T-29) : **on ne peut pas savoir combien de ces zéros étaient des
+faux échecs**. Le rapprochement le plus honnête est que `gemma4-12b-256k`,
+noté 0/3 puis 0/2 alors, mesure **3/3** aujourd'hui.
+
 ## Ce que cette sonde mesure vraiment — et ce qu'elle ne mesure pas
 
 Elle demande de **créer un fichier avec un chemin et un contenu**. Elle
 mesure donc « mener à bien une écriture », ce qui confond deux capacités
 distinctes : choisir le bon outil, et construire correctement ses arguments.
 
-Le cas `gemma4:12b` le montre. Des tests antérieurs menés séparément contre
-les outils MCP de Hermes OS ont donné :
+Le cas `gemma4:12b` l'a longtemps illustré — **avec la réserve ci-dessus** :
+son `0/3` d'alors n'était probablement pas un refus d'écrire mais un fichier
+écrit ailleurs. Ce qui suit reste vrai sur le fond, sans plus s'appuyer sur
+ce chiffre. Des tests antérieurs menés séparément contre les outils MCP de
+Hermes OS ont donné :
 
 - `files_list` ✅ — appel réel, vraies données du workspace
 - `files_read` ✅ — README.md et ARCHITECTURE.md réellement lus
@@ -58,6 +99,13 @@ Cette nuance ne change pas la décision : une mission produit toujours un
 artefact, donc un modèle qui échoue à écrire n'est pas utilisable comme
 cerveau de mission. Elle change en revanche l'usage ailleurs — gemma4 reste
 un candidat correct pour de l'analyse en lecture seule.
+
+**Et depuis HOS-264, la sonde formule sa consigne comme la production.**
+`_build_messages` dit à Hermes Agent « Your working directory is
+'<racine>' [...] do not guess paths » ; la sonde reprend cette phrase mot
+pour mot. Une sonde plus sévère que le chemin qu'elle prétend mesurer mesure
+la sonde. La vérification, elle, n'a pas bougé : le verdict se lit sur le
+disque, à l'endroit nommé, jamais dans la réponse du modèle.
 
 **Limite connue de l'instrument** : la sonde n'enregistre pas les arguments
 générés. Elle ne peut donc pas distinguer « le modèle a omis `path` » de

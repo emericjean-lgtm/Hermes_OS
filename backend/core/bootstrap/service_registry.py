@@ -833,8 +833,37 @@ def _livrables_pour(task: Any) -> Optional[str]:
 _LIVRABLES_MAX_AUTRES = 20
 
 
-@lru_cache(maxsize=64)
+def _empreinte_du_magasin() -> tuple:
+    """De quoi invalider le cache quand une sonde vient d'ecrire (G-14).
+
+    Le cache disait « the answer only changes when the model itself is
+    replaced ». C'est faux depuis qu'une sonde peut ecrire un verdict : le
+    magasin change sans que le modele change, et un backend deja lance
+    servait `None` jusqu'a son redemarrage. La preuve etait persistante et
+    n'atteignait pas le predicat — exactement le maillon que G-14 devait
+    fermer.
+
+    L'empreinte est celle du fichier, pas son contenu : un `stat` par
+    question posee une fois par tache, contre une relecture JSON.
+    Un magasin absent rend `()`, qui est une valeur de cle comme une autre —
+    « pas de mesure » se memoise aussi.
+    """
+    try:
+        from backend.model_intelligence.agentic_probe import _probe_store_path
+
+        etat = _probe_store_path().stat()
+        return (etat.st_mtime_ns, etat.st_size)
+    except Exception:
+        return ()
+
+
 def _agentic_capable_for(model_id: str) -> Optional[bool]:
+    """Cf. `_agentic_capable_cached` — l'empreinte du magasin fait la cle."""
+    return _agentic_capable_cached(model_id, _empreinte_du_magasin())
+
+
+@lru_cache(maxsize=64)
+def _agentic_capable_cached(model_id: str, _empreinte: tuple) -> Optional[bool]:
     """Can this model actually drive Hermes Agent's loop (HOS-088)?
 
     Asks Ollama's own ``/api/show`` for the model's declared capabilities and
@@ -844,8 +873,10 @@ def _agentic_capable_for(model_id: str) -> Optional[bool]:
     brain that cannot call tools produces a mission that reports success and
     accomplishes nothing, the exact failure HOS-085 chased down.
 
-    Cached: this is asked once per task and the answer only changes when the
-    model itself is replaced.
+    Cached, mais **pas** sur le seul nom du modele : `_empreinte` porte
+    l'etat du magasin de sondes, si bien qu'un verdict fraichement mesure
+    invalide l'entree sans qu'on redemarre le processus. Ne pas appeler
+    directement : passer par `_agentic_capable_for`.
     """
     try:
         import httpx

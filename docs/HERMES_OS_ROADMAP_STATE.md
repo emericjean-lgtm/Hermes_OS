@@ -14,12 +14,13 @@ CURRENT_SUBSECTION:   §6.6 — Ordonnancement cognitif (non ouvert)
 CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
+                      G-14 fermé (HOS-264) — le catalogue est sondé
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      0d2b9e1 (§6.1 🟡, HOS-262) — dernier commit
-                               de code avant T-29
+BASELINE:                      a102d54 (§6.1 🟢, HOS-263) — dernier commit
+                               de code avant G-14
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -38,6 +39,9 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                G-12 fermé (HOS-263) — un repli ne défait
                                une décision que s'il est mieux prouvé ;
                                §6.1 🟢, G-14 ouvert en chemin
+                               G-14 fermé (HOS-264) — 18 essais réels,
+                               6 modèles, 6/6 prouvés capables ;
+                               G-15 ouvert en chemin
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -55,6 +59,16 @@ substituer un repli « connu-bon » ; mesuré, le repli n'est pas mieux prouvé
 que ce qu'il remplace — aucun des six modèles du catalogue n'a jamais été
 sondé. Un repli ne défait désormais une décision que s'il porte une preuve
 qu'elle n'a pas : **5 sur 5** conservées.
+
+**G-14 est fermé le 2026-09-06 (HOS-264).** §6.1 était 🟢 sur une décision
+juste appliquée à des modèles dont *aucun* n'avait de capacité agentique
+mesurée. Le protocole existait pourtant en entier (`scripts/sonder_modeles.py`,
+HOS-142) : c'est le magasin qui était vide. En le remplissant, la sonde
+s'est révélée mesurer **la convention de chemin plutôt que le modèle** —
+elle ne nommait pas le répertoire de travail, là où la production le nomme.
+Corrigée, puis 18 essais réels sur les 6 modèles du catalogue : **6 sur 6
+prouvés capables**, et les 5 décisions du routeur survivent toujours. §6.1
+reste 🟢 — mais désormais sur une base mesurée, pas supposée.
 
 **§15 — Hermes Assistant — a été créée le 2026-09-05 et n'est pas la
 section active.** Elle est une couche produit qui consomme §1→§13 ; la
@@ -95,12 +109,11 @@ pas parce qu'elle est prête. Ce qui la précède :
 1. **A-10** ferme §4 ;
 2. ~~**T-22 / §6.1**~~ — **tranché le 2026-09-05 (ADAPT)** : l'architecture
    existante suffisait, aucun ordonnanceur n'était requis ;
-3. ~~**T-29**~~ — **tranché le 2026-09-06 (ADAPT)** : la question « un
-   modèle non sondé peut-il piloter la boucle ? » était mal posée. Le
-   repli n'étant pas mieux prouvé que ce qu'il remplace, la substitution
-   n'arbitrait rien. G-12 fermé, G-14 ouvert à sa place — **sonder
-   réellement le catalogue** reste à faire (`agentic_probe.py`, trois
-   essais minimum, un modèle à la fois) ;
+3. ~~**T-29**~~ — **tranché le 2026-09-06 (ADAPT)**, et ~~**G-14**~~
+   **fermé le même jour (HOS-264)** : le catalogue est sondé, 6 modèles
+   sur 6 prouvés capables. Reste **G-15**, sa suite naturelle — un verdict
+   est une mesure datée que rien ne réévalue quand les poids ou le
+   `num_ctx` changent sous le même tag ;
 4. **T-28** tranche le contrat Chat/Cowork — sans lui, §15 ne peut pas
    commencer.
 
@@ -132,7 +145,8 @@ mentirait sur ce qu'il fait.
 | `assigned_tools` planifié et jamais invoqué (G-11) | technical debt | §7 |
 | ~~`_RegistreMissions` hydrate sur un ordre non garanti (A-19)~~ — **fermé HOS-262** | test | §3 |
 | ~~Le repli agentique défait toutes les décisions du routeur (G-12)~~ — **fermé HOS-263** | architectural | §6/§7 |
-| La capacité agentique n'est mesurée pour aucun modèle du catalogue (G-14) | architectural | §7 |
+| ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue (G-14)~~ — **fermé HOS-264** | architectural | §7 |
+| Un verdict agentique est une mesure datée que rien ne réévalue (G-15) | observability | §6/§7 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |

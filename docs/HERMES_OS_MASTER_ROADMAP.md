@@ -444,13 +444,15 @@ un écrasement silencieux de la décision :
   `_compute_speed_score` rend 0,000 : deux dimensions sur cinq de
   `compute_model_score` sont inertes. La note est juste sur trois
   dimensions, pas sur cinq.
-- **G-14** — la capacité agentique elle-même n'est mesurée pour **aucun**
-  modèle du catalogue. Cause trouvée en HOS-263 : `_probe_store_path`
-  lisait un attribut `Settings.data_dir` qui n'a jamais existé, si bien que
-  le magasin atterrissait dans `%TEMP%`, que Windows vide. Tous les verdicts
-  jamais mesurés par ce projet ont disparu. Le magasin vit désormais sous la
-  racine d'état ; cela empêche la prochaine perte, cela ne restaure pas
-  celle-ci. Sonder réellement le catalogue reste à faire.
+- ~~**G-14**~~ — **fermé le 2026-09-06 (HOS-264)**. Le catalogue est sondé :
+  dix-huit essais réels, six modèles, **6 sur 6 prouvés capables**, verdicts
+  persistés sous `db/` et relus par le prédicat après redémarrage. La sonde
+  elle-même mesurait autre chose que ce qu'elle annonçait — sa consigne ne
+  nommait pas le répertoire de travail alors que la production le nomme, si
+  bien qu'un modèle qui écrivait le bon fichier au mauvais endroit était
+  noté en échec. Sixième défaut de mesure du catalogue, sixième faux échec.
+  Reste **G-15** : un verdict est une mesure datée, que rien ne réévalue
+  quand les poids, le `num_ctx` d'un Modelfile ou l'agent changent.
 
 ### §6.2 — Ordonnancement conscient des ressources
 VRAM, RAM, CPU, fenêtre de contexte, coût, latence, disponibilité,
@@ -978,7 +980,8 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | G-10 | **architectural** | La promotion d'un souvenir n'a **aucune route HTTP** | §8 | `promouvoir` à 4 niveaux, testé ; `memory/routes.py` n'expose que search/graph/experiences/index/statistics |
 | G-11 | **technical debt** | `assigned_tools` d'une tâche est planifié et **jamais invoqué** | §7 | `task_executor.py:31` le documente ; l'agent a ses propres outils, la sélection du planificateur est décorative |
 | ~~**G-12**~~ | ~~architectural~~ | ~~Le repli agentique défait **toutes** les décisions du routeur~~ — **fermé HOS-263** | §6/§7 | mesuré : 0 sur 5 avant, **5 sur 5** après ; un repli ne défait plus une décision sans porter une preuve qu'elle n'a pas |
-| **G-14** | **architectural** | La capacité agentique n'est mesurée pour **aucun** modèle du catalogue | §7 | `_probe_store_path` lisait `Settings.data_dir`, attribut inexistant : le magasin vivait dans `%TEMP%` et a été effacé. Déplacé sous la racine d'état en HOS-263 — la prochaine perte est empêchée, celle-ci n'est pas restaurée |
+| ~~**G-14**~~ | ~~architectural~~ | ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue~~ — **fermé HOS-264** | §7 | 18 essais réels, 6 modèles, 6/6 prouvés ; chaîne magasin → prédicat → modèle engagé mesurée sur le vrai bootstrap. La sonde mesurait la convention de chemin et non le modèle : corrigée sur la formulation même de la production |
+| **G-15** | **observability** | Un verdict agentique est une mesure datée que rien ne réévalue | §6/§7 | le magasin ne porte ni date de mesure exploitée, ni empreinte des poids ou du `num_ctx` servi : remplacer un modèle sous le même tag laisse son verdict en place sans que rien ne le signale |
 | G-13 | **technical debt** | Deux dimensions sur cinq du score modèle sont inertes | §6 | `_get_records_for_task` rend `[]` en dur ; `_compute_speed_score` rend 0,000 pour les six profils |
 
 ---
@@ -1088,3 +1091,4 @@ des passes ne sont pas reconstituées.
 | 2026-09-05 | `04624ae` | §6.1 passée 🟡 sur mesure : le routeur classait juste et n'était jamais écouté. T-22 tranché (ADAPT) — l'architecture suffisait. A-19 fermé en chemin, cette passe le faisant sortir. G-12 et G-13 ouverts. |
 | 2026-09-05 | `6dfa78a` | §15 créée — couche produit consommant §1→§13, aucune autorité nouvelle. Deux écarts relevés en la construisant (G-10, G-11), une décision ouverte (T-28), trois idées rejetées avec leur raison. §15 **ne devient pas la section active** : §6.1 et A-10 la précèdent. |
 | 2026-09-06 | `0d2b9e1` | §6.1 passée 🟢 : G-12 fermé sur le chemin agentique réel — 0 décision sur 5 survivait, 5 sur 5 survivent. T-29 tranché (ADAPT) : le repli n'était pas mieux prouvé que ce qu'il remplaçait, donc la substitution n'arbitrait rien. G-14 ouvert en chemin — la cause de G-12 était un magasin de sondes écrit dans `%TEMP%` depuis toujours, et effacé. |
+| 2026-09-06 | `a102d54` | G-14 fermé : le catalogue est sondé pour de vrai — 18 essais, 6 modèles, 6/6 prouvés capables, chaîne complète mesurée du magasin jusqu'au modèle engagé. La sonde mesurait « ce modèle devine-t-il la convention de chemin » et non sa capacité agentique ; corrigée sur la formulation de la production. G-15 ouvert en chemin. §6.1 reste 🟢, sur une base désormais mesurée plutôt que supposée. |

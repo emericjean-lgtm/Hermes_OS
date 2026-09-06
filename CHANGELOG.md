@@ -1,3 +1,160 @@
+## HOS-264 — La sonde mesurait la convention de chemin, pas le modele (2026-09-06)
+
+G-14. HOS-263 avait deplace le magasin de sondes hors de `%TEMP%` et
+conclu : « deplacer le magasin empeche la prochaine perte ; il ne restaure
+pas celle-ci. Sonder reellement le catalogue reste a faire. » Cette passe
+sonde — et decouvre en le faisant que la sonde ne mesurait pas ce qu'elle
+annoncait.
+
+### Le contrat, trace de bout en bout
+
+    sonder_modeles.py -> probe() -> agent reel, tache reelle
+                                          |
+                                  verdict lu sur le disque
+                                          |
+                                    save_result() -> db/agentic_probe_results.json
+                                          |
+                                 measured_success_for()  >= 2 essais, >= 60 %
+                                          |
+                                  _agentic_capable_for()  (bootstrap)
+                                          |
+                                   _agentic_model() -> modele engage
+
+Le protocole existait deja, entier : `scripts/sonder_modeles.py` (HOS-142),
+un modele a la fois sous verrou exclusif, trois essais par defaut,
+persistance a chaque essai. G-14 n'etait pas un outil manquant mais un
+magasin vide.
+
+**Ce que `False` veut dire, precisement.** Trois producteurs, et ils ne
+disent pas la meme chose : l'exception d'acces a Ollama rend `None`
+(« on ne sait pas ») ; `agentic_disqualifie` rend `False` (preuve negative
+structurelle — pas de chat, pas d'outils, sous le plancher de parametres,
+debordement CPU, contexte servi trop court) ; sinon le verdict mesure passe
+tel quel, `True`, `False` ou `None`. Le predicat fusionne les deux premiers
+sens de `False` — disqualifie et mesure-incapable — ce qui est sans effet
+sur la politique, les deux etant des preuves negatives, et un test garde que
+le disqualifieur prime sur une mesure positive.
+
+### Le faux echec
+
+Premier essai reel, reponse brute conservee — `lfm2.5-2.6b-125k` :
+
+    write  /home/user/AGENTIC_PROBE.md      [Failed to write file: mkdir...]
+    write  /c/Users/emeri/AGENTIC_PROBE.md  0.9s
+    read   AGENTIC_PROBE.md
+    "The file has been created successfully."    8 messages, 6 tool calls
+
+Six appels d'outils, le bon contenu, un fichier reellement ecrit. Verdict
+enregistre : **echec** — parce que la sonde regardait dans son workspace
+temporaire, et que le modele avait ecrit dans le repertoire personnel.
+
+La consigne disait « Create a file named AGENTIC_PROBE.md **in your working
+directory** ». Le sous-processus recoit bien le workspace en `cwd`, mais
+rien ne le **dit** au modele, qui devine — d'abord une convention Linux,
+puis le repertoire personnel. La sonde mesurait donc « ce modele devine-t-il
+la convention de chemin de cette machine », pas « ce modele sait-il piloter
+une boucle d'outils ».
+
+Ce n'est pas une severite qu'on assume : la **production** nomme le
+repertoire. `_build_messages` donne a Hermes Agent, mot pour mot :
+
+    Your working directory is '<racine>' and you have real filesystem
+    access to it. Inspect before you write: do not guess paths.
+
+La sonde etait donc plus severe que le chemin qu'elle pretend mesurer. Une
+sonde plus severe que la production mesure la sonde. La consigne reprend
+desormais cette phrase, verbatim, et un test lie les deux formulations : si
+l'une derive, il rougit.
+
+**Rien n'est affaibli.** Le verdict se lit toujours sur le disque, a
+l'endroit nomme. Mesure de controle : consigne bavarde qui raconte un succes
+sans rien ecrire — echec, comme avant. Un narrateur ne produit toujours
+aucun fichier.
+
+Meme modele, meme verification disque, chemin nomme : succes en 43 s contre
+un echec en 52 s. C'est le sixieme defaut de mesure du catalogue, et le
+sixieme a produire un **faux echec**.
+
+### La campagne
+
+Dix-huit essais reels, six modeles, un a la fois sous verrou exclusif :
+
+    modele                essais   verdict   duree/essai
+    gpt-oss-20b-64k        3/3      True       45-64 s
+    qwen3.6-35b-128k       3/3      True       61-83 s
+    ornith-9b-256k         3/3      True       44-54 s
+    muse-glimmer-64k       3/3      True      159-257 s
+    gemma4-12b-256k        3/3      True       84-85 s
+    lfm2.5-2.6b-125k       2/3      True       31-38 s
+
+Le seul echec des dix-huit appartient au **repli** — celui que la regle
+d'avant T-29 tenait pour « connu-bon ». Les durees de muse-glimmer, quatre a
+cinq fois celles des autres, sont la signature du debordement que
+`CLAUDE.md` decrit pour un dense de 27,9 Md sur 16 Go.
+
+Ces chiffres ne contredisent pas HOS-096, qui notait `gemma4:12b` a 0/3 : ce
+tag n'existe plus, et surtout la mesure d'alors a ete prise avec la consigne
+qui faisait deviner le chemin. Les verdicts d'origine ayant ete effaces avec
+`%TEMP%`, la comparaison est impossible — on ne peut pas savoir combien de
+ces 0/3 etaient des faux echecs. C'est peut-etre ainsi que le repli est
+devenu le seul « connu-bon » : il etait le plus petit, donc le plus enclin a
+repondre vite, pas necessairement le plus capable.
+
+### Une preuve asymetrique fabrique la pathologie qu'elle devait fermer
+
+Mesure intermediaire, quatre modeles sondes sur six :
+
+    muse-glimmer-64k  ->  lfm2.5-2.6b-125k   SUBSTITUE
+    gemma4-12b-256k   ->  lfm2.5-2.6b-125k   SUBSTITUE
+
+La politique T-29 est intacte et se comporte comme ecrit — « non prouve +
+repli prouve capable -> substitue » — mais rendre le repli prouve **avant**
+les autres remet un 2,7 Md a la place d'un 27,9 Md. La regle n'est pas en
+cause : c'est l'ensemble de preuves qui etait asymetrique. La correction
+n'est donc pas de changer la politique, c'est de finir de sonder. Apres les
+six : les deux substitutions disparaissent, et les cinq decisions du routeur
+survivent toujours.
+
+C'est la raison mesuree pour laquelle le catalogue a ete sonde en entier
+plutot qu'en partie.
+
+### Le maillon qui restait ouvert entre le disque et le predicat
+
+`_agentic_capable_for` est `lru_cache`e sur le seul nom du modele — « the
+answer only changes when the model itself is replaced ». C'etait vrai tant
+que rien n'ecrivait de verdict. Ca ne l'est plus : un backend deja lance
+servait `None` jusqu'a son redemarrage, et la preuve persistante n'atteignait
+jamais le predicat. La cle porte desormais l'empreinte du magasin —
+`st_mtime_ns` et taille, un `stat` par question posee une fois par tache.
+Aucune autorite nouvelle, aucun crochet sans appelant.
+
+### Preuves
+
+Chaine complete, mesuree sur le vrai bootstrap, processus neuf : magasin ->
+`measured_success_for` -> predicat -> `_agentic_model`, **6 modeles sur 6
+prouves capables et conserves**, 5 decisions de routeur sur 5 maintenues.
+Survie au redemarrage prouvee par deux interpreteurs distincts, l'un
+ecrivant, l'autre lisant.
+
+Dix mutations, dix rouges. La premiere version de l'une d'elles est restee
+verte et ne prouvait rien : elle rendait une cle absente du magasin, donc
+n'introduisait aucun heritage. Reecrite pour reproduire le defaut historique
+— un frere de famille qui herite d'un verdict — elle est rouge, attrapee par
+un garde-fou qui existait deja. Une mutation qui ne cree pas le defaut ne
+mesure pas le garde-fou : c'est la premiere fois de cette serie que le
+mutant, et non le garde-fou, etait en cause.
+
+### Ce qui reste
+
+`qwen3-embedding:0.6b`, seul modele du catalogue non sonde : il est ecarte
+par un disqualifieur structurel — un modele d'embedding n'est pas un modele
+de chat, quoi qu'il annonce a Ollama — et le sonder mesurerait un refus
+connu d'avance.
+
+Un verdict est une mesure **datee**, pas une propriete du modele : changer
+le `num_ctx` d'un Modelfile, remplacer des poids sous le meme tag ou mettre
+l'agent a jour peut l'invalider sans que rien ne le dise. Consigne **G-15**.
+
 ## HOS-263 — Un repli ne defait une decision que s'il est mieux prouve (2026-09-06)
 
 T-29 / G-12. §6.1 (HOS-262) avait rendu le routage juste ; `_agentic_model`
