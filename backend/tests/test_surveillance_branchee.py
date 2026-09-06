@@ -182,6 +182,17 @@ def test_tout_lancement_d_agent_passe_par_l_adaptateur_surveille():
         # agent, gardé ouvert entre les tâches.
         "backend/ral/adapters/hermes_agent_cli.py",
         "backend/ral/adapters/hermes_agent_acp.py",
+        # Troisième lanceur d'agent, et il porte la surveillance lui aussi :
+        # le pont lance le gateway `tui_gateway` pour négocier les capacités
+        # (HOS-265). Ce test l'a attrapé au premier essai, avant que le pont
+        # ne soit commité — il passait `os.environ.copy()` à un vrai agent
+        # sans témoin et sans examiner sa sortie. Le canari est désormais
+        # posé, la sortie passe par `SurveillanceFlux`, et une fuite fait
+        # échouer la négociation au lieu de la rendre.
+        # `test_le_pont_pose_un_temoin_et_examine_la_sortie` garde ce fait
+        # sur le comportement, pour que cette ligne ne devienne pas un
+        # tampon.
+        "backend/bridge/hermes_agent_bridge.py",
         # Ne lance rien : exécuté **par l'interpréteur de l'agent**, il
         # enveloppe `Popen.__init__` pour interdire aux sous-processus de
         # l'agent d'hériter du canal ACP (HOS-138).

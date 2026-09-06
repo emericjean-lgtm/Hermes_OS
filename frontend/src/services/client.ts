@@ -667,6 +667,35 @@ export const runtimeClient = {
     }),
 };
 
+// ── Hermes Agent Bridge (HOS-265) ────────────────────
+// Ce que le runtime agentique installe sait reellement faire, **mesure**
+// contre son gateway JSON-RPC et non deduit d'un numero de version.
+export interface BridgeCapabilityDTO {
+  nom: string;
+  methodes_presentes: string[];
+  methodes_absentes: string[];
+  disponible: boolean;
+  complete: boolean;
+}
+
+export interface BridgeNegotiationDTO {
+  empreinte: string;
+  version: string;
+  commit: string;
+  mesure_le: number;
+  negociee: boolean;
+  erreur: string | null;
+  capacites: BridgeCapabilityDTO[];
+}
+
+export const bridgeClient = {
+  capabilities: () => fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities"),
+  refresh: () =>
+    fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities/refresh", {
+      method: "POST",
+    }),
+};
+
 export interface LoadedModelDTO {
   name: string;
   size_bytes: number;

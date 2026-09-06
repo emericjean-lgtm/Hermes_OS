@@ -526,6 +526,52 @@ trancher qui décide de quoi avant qu'une ligne soit écrite.
 
 ---
 
+## §16 — Hermes Agent Bridge — 🟡 PARTIAL (HOS-265)
+
+**Infrastructure transverse**, consommée par §7, §8, §10, §11, §13 et §15.
+Ce n'est pas une section produit : c'est la couture par laquelle ces
+sections atteindront le moteur agentique, et elle n'ajoute **aucune
+autorité**. Hermes OS garde Mission, Run Ledger, lignage, vérification,
+Aegis, workspace, provenance, `ResourceManager`, l'admission VRAM,
+`AdaptiveRouter` et le RAL ; le pont rapporte et relaie. Une garde sur
+l'arbre syntaxique le lui interdit.
+
+**Runtime.** Hermes Agent v0.20.0 → **v0.21.0** (`693641aa8b`). Le tag
+`v0.21.0` n'existe pas — l'amont étiquette en CalVer ; c'est `origin/main`
+qui déclare cette version. 31 918 commits, avance rapide propre, état
+persistant identique avant/après (63 sessions, 559 fichiers de skills,
+4 mémoires, 5 crons). Suite Hermes OS inchangée : 5877 passed.
+
+**Transport.** `tui_gateway`, JSON-RPC sur stdio. L'adaptateur existant
+lance l'agent en un coup par tâche et meurt ; le gateway vit, émet
+`gateway.ready` et accepte des ordres pendant qu'il travaille.
+
+**Négociation, et non déclaration.** `-32601` prouve une absence ; toute
+autre réponse — résultat ou erreur applicative — prouve une présence.
+Mesuré : **54 méthodes présentes, 8 absentes**, regroupées en 18 surfaces
+à trois états (complète / partielle / absente), dont **15 complètes**.
+
+### La matrice, honnêtement
+
+| surface | gateway | pont | backend | frontend | statut |
+|---|---|---|---|---|---|
+| capabilities | ✅ | ✅ | ✅ 2 routes | ✅ Runtime Center | 🟢 **DEMONSTRATED** |
+| chat/streaming · sessions · steering · approvals · tools · skills · learning · MCP · cron · profiles · browser · projects · config · insights | ✅ | ✅ négociée | ✗ | ✗ | 🟠 PLANNED |
+| delegation | ⚠️ partielle | ✅ négociée | ✗ | ✗ | 🟠 PLANNED |
+| fork · memory | ✗ absentes | ✅ négociée | — | — | 🔴 pas de méthode amont |
+
+Une surface **négociée et visible** n'est pas une surface **intégrée** :
+seule la première ligne a la chaîne complète, et la règle anti-orphelin
+ci-dessous existe pour que cette distinction ne puisse plus se perdre.
+
+### La règle anti-orphelin
+
+`test_pas_de_backend_orphelin.py` : toute route `/api/v1` doit avoir un
+appelant dans `frontend/src`, ou figurer dans une dette gelée. **Mesure :
+120 routes sur 306 — 39 % — n'ont aucun appelant frontend.** Le chiffre a
+été faux deux fois avant d'être juste, et une **mutation** a trouvé le
+second défaut là où la relecture avait échoué.
+
 ## §7 — Advanced Agent Orchestration — 🟠 PLANNED
 
 §7.1 agents séquentiels · §7.2 agents parallèles · §7.3 **Context Relay
@@ -981,7 +1027,9 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | G-11 | **technical debt** | `assigned_tools` d'une tâche est planifié et **jamais invoqué** | §7 | `task_executor.py:31` le documente ; l'agent a ses propres outils, la sélection du planificateur est décorative |
 | ~~**G-12**~~ | ~~architectural~~ | ~~Le repli agentique défait **toutes** les décisions du routeur~~ — **fermé HOS-263** | §6/§7 | mesuré : 0 sur 5 avant, **5 sur 5** après ; un repli ne défait plus une décision sans porter une preuve qu'elle n'a pas |
 | ~~**G-14**~~ | ~~architectural~~ | ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue~~ — **fermé HOS-264** | §7 | 18 essais réels, 6 modèles, 6/6 prouvés ; chaîne magasin → prédicat → modèle engagé mesurée sur le vrai bootstrap. La sonde mesurait la convention de chemin et non le modèle : corrigée sur la formulation même de la production |
-| **G-15** | **observability** | Un verdict agentique est une mesure datée que rien ne réévalue | §6/§7 | le magasin ne porte ni date de mesure exploitée, ni empreinte des poids ou du `num_ctx` servi : remplacer un modèle sous le même tag laisse son verdict en place sans que rien ne le signale |
+| **G-15** | **observability** | Un verdict agentique est une mesure datée que rien ne réévalue | §6/§7 | le magasin ne porte ni date de mesure exploitée, ni empreinte des poids ou du `num_ctx` servi : remplacer un modèle sous le même tag laisse son verdict en place sans que rien ne le signale. **Le pont (§16) applique la solution** : son cache est indexé sur l'empreinte du runtime |
+| **G-16** | **technical debt** | 120 routes `/api/v1` sur 306 n'ont aucun appelant frontend | §15/§16 | mesuré le 2026-09-07, instrument corrigé deux fois ; gelé comme dette dans `test_pas_de_backend_orphelin.py`, qui interdit désormais d'en ajouter |
+| **G-17** | **architectural** | Le pont négocie 17 surfaces qu'aucun service n'expose | §16 | chat, sessions, steering, approvals, tools, skills, learning, MCP, cron, profiles, browser répondent au gateway et n'ont ni route, ni client, ni UI — visibles, pas intégrées |
 | G-13 | **technical debt** | Deux dimensions sur cinq du score modèle sont inertes | §6 | `_get_records_for_task` rend `[]` en dur ; `_compute_speed_score` rend 0,000 pour les six profils |
 
 ---
@@ -1092,3 +1140,4 @@ des passes ne sont pas reconstituées.
 | 2026-09-05 | `6dfa78a` | §15 créée — couche produit consommant §1→§13, aucune autorité nouvelle. Deux écarts relevés en la construisant (G-10, G-11), une décision ouverte (T-28), trois idées rejetées avec leur raison. §15 **ne devient pas la section active** : §6.1 et A-10 la précèdent. |
 | 2026-09-06 | `0d2b9e1` | §6.1 passée 🟢 : G-12 fermé sur le chemin agentique réel — 0 décision sur 5 survivait, 5 sur 5 survivent. T-29 tranché (ADAPT) : le repli n'était pas mieux prouvé que ce qu'il remplaçait, donc la substitution n'arbitrait rien. G-14 ouvert en chemin — la cause de G-12 était un magasin de sondes écrit dans `%TEMP%` depuis toujours, et effacé. |
 | 2026-09-06 | `a102d54` | G-14 fermé : le catalogue est sondé pour de vrai — 18 essais, 6 modèles, 6/6 prouvés capables, chaîne complète mesurée du magasin jusqu'au modèle engagé. La sonde mesurait « ce modèle devine-t-il la convention de chemin » et non sa capacité agentique ; corrigée sur la formulation de la production. G-15 ouvert en chemin. §6.1 reste 🟢, sur une base désormais mesurée plutôt que supposée. |
+| 2026-09-07 | `116f603` | §16 créée — le pont Hermes Agent, infrastructure transverse sans autorité nouvelle. Agent migré 0.20.0 → 0.21.0 (31 918 commits, état persistant intact, suite inchangée). Capacités **négociées** contre le gateway et non déclarées : 54 méthodes présentes, 8 absentes, 15 surfaces complètes sur 18. Une seule chaîne complète jusqu'au frontend ; les autres restent PLANNED. Règle anti-orphelin posée : 120 routes sur 306 sans appelant frontend, gelées comme dette. G-16 et G-17 ouverts en chemin. |

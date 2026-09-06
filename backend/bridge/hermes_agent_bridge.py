@@ -1,0 +1,421 @@
+"""Pont unique Hermes OS <-> Hermes Agent : négociation des capacités réelles.
+
+## Pourquoi un pont, et pourquoi il ne décide rien
+
+`backend/ral/adapters/hermes_agent_cli.py` lance l'agent en **un coup** par
+tâche : un sous-processus, une requête, une réponse, puis il meurt. Cela
+suffit pour exécuter un nœud de mission et ne suffit pour rien d'autre —
+pas de session qui dure, pas d'événement pendant le tour, pas de steer, pas
+d'approbation. Le pont ouvre l'autre porte : le gateway JSON-RPC de
+l'agent, qui vit, parle et accepte des ordres pendant qu'il travaille.
+
+**Le pont n'est pas une autorité.** Hermes OS garde Mission, Run Ledger,
+lignage, vérification, Aegis, workspace, provenance, `ResourceManager`,
+l'admission VRAM, `AdaptiveRouter` et le RAL. Le pont rapporte ce que le
+runtime sait faire et relaie ; il ne choisit aucun modèle, n'admet aucune
+tâche et n'ordonnance rien. C'est la seule raison pour laquelle l'ajouter
+ne viole pas la règle qui prime sur tout : *Hermes Agent est le cerveau,
+Hermes OS est son système d'exploitation.*
+
+## Négocier plutôt que supposer
+
+Ce dépôt a déjà payé cher le fait de coder un jeu de capacités au lieu de
+le mesurer : la capacité `tools` annoncée par Ollama l'est jusque par un
+modèle d'embedding (HOS-095), et deux listes blanches hors dépôt décidaient
+en silence de ce que l'agent voyait.
+
+Le gateway offre un discriminant net, mesuré le 2026-09-06 :
+
+    methode.qui.nexiste.pas  ->  error -32601 "unknown method: ..."
+    session.status           ->  error  4001  "session not found"
+
+`-32601` dit **absente**. Tout le reste — résultat *ou* erreur applicative —
+dit **présente**. Une erreur métier prouve que la méthode existe et a
+examiné ses arguments ; c'est une présence, pas un échec.
+
+Mesuré ainsi sur v0.21.0 : 54 méthodes présentes, 8 absentes. Et les
+absences comptent autant que les présences — `session.fork`, `memory.*` et
+`subagent.start` **n'existent pas** sous ces noms, alors qu'une lecture de
+la documentation les aurait tous supposés là.
+
+## Une négociation est une mesure datée
+
+Même leçon que G-15, et pour la même raison : le résultat dépend de la
+version installée, pas du nom du produit. La négociation est donc mise en
+cache **sous l'empreinte du runtime** (version + commit). Mettre l'agent à
+jour change l'empreinte et invalide le cache tout seul, sans que personne
+n'ait à y penser — c'est précisément ce qui manquait au magasin de sondes.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import subprocess
+import threading
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
+logger = logging.getLogger("hermes_os.bridge.hermes_agent")
+
+#: JSON-RPC : « méthode inconnue ». Le seul code qui prouve une absence.
+CODE_METHODE_INCONNUE = -32601
+
+#: Ce que le pont cherche à savoir faire, groupé par surface produit. Les
+#: noms sont ceux du gateway ; c'est la négociation qui dit lesquels
+#: répondent réellement, jamais cette liste.
+METHODES_PAR_CAPACITE: dict[str, tuple[str, ...]] = {
+    "chat": ("prompt.submit",),
+    "sessions": ("session.status", "session.resume", "session.list",
+                 "session.save", "session.title"),
+    "fork": ("session.fork",),
+    "steering": ("session.steer", "session.interrupt"),
+    "approvals": ("approval.respond", "clarify.respond", "secret.respond"),
+    "tools": ("tools.list", "toolsets.list", "tools.configure"),
+    "skills": ("skills.manage", "skills.reload"),
+    "learning": ("learning.frames", "learning.detail"),
+    "memory": ("memory.list", "memory.manage"),
+    # `subagent.start` est listé bien qu'absent : c'est ce qui fait
+    # apparaître `delegation` comme PARTIELLE plutôt que COMPLETE. On
+    # peut piloter un subagent, pas en lancer un — l'omettre rendrait
+    # la négociation flatteuse, ce qui est le contraire de son objet.
+    "delegation": ("delegation.status", "subagent.start",
+                   "subagent.steer", "subagent.interrupt"),
+    "mcp": ("reload.mcp",),
+    "cron": ("cron.manage",),
+    "profiles": ("profiles.list", "profiles.create", "profiles.configure"),
+    "projects": ("projects.list", "projects.get"),
+    "browser": ("browser.manage",),
+    "commands": ("commands.catalog",),
+    "config": ("config.show",),
+    "insights": ("insights.get", "verification.status"),
+}
+
+
+@dataclass(frozen=True)
+class CapaciteRuntime:
+    """Une surface produit, et ce que le runtime en sert réellement.
+
+    `complete` distingue « tout est là » de « une partie manque ». La
+    différence n'est pas cosmétique : `delegation` sans `subagent.start`
+    permet de piloter un subagent mais pas d'en lancer un, et présenter
+    cela comme « délégation disponible » serait un mensonge d'interface.
+    """
+
+    nom: str
+    methodes_presentes: tuple[str, ...]
+    methodes_absentes: tuple[str, ...]
+
+    @property
+    def disponible(self) -> bool:
+        return bool(self.methodes_presentes)
+
+    @property
+    def complete(self) -> bool:
+        return self.disponible and not self.methodes_absentes
+
+    def as_dict(self) -> dict:
+        return {**asdict(self), "disponible": self.disponible,
+                "complete": self.complete}
+
+
+@dataclass(frozen=True)
+class NegociationRuntime:
+    """Ce que ce runtime-ci sait faire, à cette version-là.
+
+    `empreinte` est la clé de fraîcheur : version + commit du checkout.
+    Elle rend la négociation invalidable par une mise à jour, au lieu de
+    la laisser survivre à ce qu'elle décrivait.
+    """
+
+    empreinte: str
+    version: str
+    commit: str
+    mesure_le: float
+    capacites: tuple[CapaciteRuntime, ...] = field(default_factory=tuple)
+    erreur: Optional[str] = None
+
+    @property
+    def negociee(self) -> bool:
+        """Une négociation qui a échoué n'est pas une négociation vide.
+
+        Sans cette distinction, un gateway injoignable se lirait « aucune
+        capacité » — c'est-à-dire exactement comme un runtime nu, alors
+        que l'un est une panne et l'autre un fait.
+        """
+        return self.erreur is None
+
+    def capacite(self, nom: str) -> Optional[CapaciteRuntime]:
+        return next((c for c in self.capacites if c.nom == nom), None)
+
+    def as_dict(self) -> dict:
+        return {
+            "empreinte": self.empreinte, "version": self.version,
+            "commit": self.commit, "mesure_le": self.mesure_le,
+            "negociee": self.negociee, "erreur": self.erreur,
+            "capacites": [c.as_dict() for c in self.capacites],
+        }
+
+
+def _magasin() -> Path:
+    """Où vit la dernière négociation.
+
+    Sous `db/`, comme le magasin de sondes et pour la même raison :
+    `preserve_set()` énumère des **dossiers**, et un fichier posé à la
+    racine d'état serait effacé par la prochaine mise à jour (HOS-264).
+    """
+    from backend.core import etat
+
+    return etat.racine() / "db" / "bridge_negociation.json"
+
+
+class HermesAgentBridge:
+    """Le pont. Un seul par processus, et il ne décide rien.
+
+    `config` est injectable pour que les tests n'aient pas à lancer de
+    gateway ; `_lancer` l'est pour la même raison. Rien d'autre n'est
+    paramétrable : un pont qu'on peut faire mentir sur ce que le runtime
+    répond ne prouve plus rien.
+    """
+
+    #: Le gateway charge MCP, les skills et les métadonnées de modèle avant
+    #: de répondre. Mesuré ~6 s à froid ; on laisse de la marge sans laisser
+    #: une panne bloquer un appel d'interface.
+    DELAI_DEMARRAGE_S = 25.0
+    DELAI_REPONSE_S = 45.0
+
+    def __init__(self, config: Any = None, lanceur=None) -> None:
+        self._config = config
+        self._lancer = lanceur or self._lancer_gateway
+        self._verrou = threading.Lock()
+
+    # ── Empreinte du runtime ──────────────────────────────────────────
+
+    def _cfg(self):
+        if self._config is None:
+            from backend.ral.adapters.hermes_agent_cli import HermesAgentCliConfig
+
+            self._config = HermesAgentCliConfig()
+        return self._config
+
+    def empreinte_runtime(self) -> tuple[str, str, str]:
+        """(empreinte, version, commit) de l'agent **installé**.
+
+        Lue sur le disque plutôt que demandée au gateway : il faut pouvoir
+        décider s'il vaut la peine de le lancer avant de l'avoir lancé.
+        """
+        racine = Path(self._cfg().hermes_home) / "hermes-agent"
+        version = "inconnue"
+        try:
+            for ligne in (racine / "pyproject.toml").read_text(
+                    encoding="utf-8", errors="replace").splitlines():
+                if ligne.startswith("version"):
+                    version = ligne.split("=", 1)[1].strip().strip('"')
+                    break
+        except OSError:
+            pass
+        commit = "inconnu"
+        try:
+            sortie = subprocess.run(
+                ["git", "-C", str(racine), "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=15)
+            if sortie.returncode == 0:
+                commit = sortie.stdout.strip()[:12]
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return f"{version}+{commit}", version, commit
+
+    # ── Négociation ───────────────────────────────────────────────────
+
+    def negocier(self, *, forcer: bool = False) -> NegociationRuntime:
+        """Ce que ce runtime sait faire, mesuré ou relu du cache.
+
+        Le cache n'est servi que si son empreinte est **celle du runtime
+        installé maintenant**. Une mise à jour de l'agent le périme donc
+        d'elle-même, ce qui est tout l'intérêt.
+        """
+        empreinte, version, commit = self.empreinte_runtime()
+        if not forcer:
+            connue = self._relire(empreinte)
+            if connue is not None:
+                return connue
+        with self._verrou:
+            if not forcer:
+                connue = self._relire(empreinte)
+                if connue is not None:
+                    return connue
+            resultat = self._mesurer(empreinte, version, commit)
+            if resultat.negociee:
+                self._ecrire(resultat)
+            return resultat
+
+    def _mesurer(self, empreinte: str, version: str,
+                 commit: str) -> NegociationRuntime:
+        attendues = [m for methodes in METHODES_PAR_CAPACITE.values()
+                     for m in methodes]
+        try:
+            reponses = self._lancer(attendues)
+        except Exception as exc:  # noqa: BLE001 - une panne est un résultat
+            logger.warning("negociation impossible : %s", exc)
+            return NegociationRuntime(
+                empreinte=empreinte, version=version, commit=commit,
+                mesure_le=time.time(), erreur=f"{type(exc).__name__}: {exc}")
+
+        capacites = []
+        for nom, methodes in METHODES_PAR_CAPACITE.items():
+            presentes = tuple(m for m in methodes if reponses.get(m) is True)
+            absentes = tuple(m for m in methodes if reponses.get(m) is not True)
+            capacites.append(CapaciteRuntime(nom, presentes, absentes))
+        return NegociationRuntime(
+            empreinte=empreinte, version=version, commit=commit,
+            mesure_le=time.time(), capacites=tuple(capacites))
+
+    # ── Transport ─────────────────────────────────────────────────────
+
+    def _lancer_gateway(self, methodes: list[str]) -> dict[str, bool]:
+        """Interroge le vrai gateway. Rend {methode: presente}.
+
+        Une méthode restée sans réponse n'est **pas** comptée présente :
+        on ne sait pas, et « on ne sait pas » ne s'arrondit pas vers le
+        haut. C'est la même règle tri-état que le verdict agentique.
+
+        ## Le témoin, parce que ceci lance un agent
+
+        `test_tout_lancement_d_agent_passe_par_l_adaptateur_surveille` a
+        fait rougir la suite dès le premier essai, et il avait raison : ce
+        `Popen` lance le **vrai** gateway de Hermes Agent avec
+        `os.environ.copy()`, c'est-à-dire tous les secrets de la machine,
+        et rien n'examinait sa sortie. C'est exactement A-2/HOS-218, un
+        cran plus loin — un second lanceur né sans surveillance, comme les
+        replis cloud étaient nés sans pare-feu (A-1).
+
+        Le témoin est donc posé ici comme il l'est dans l'adaptateur, et la
+        sortie du gateway passe par la même `SurveillanceFlux`. Une fuite
+        n'est pas une négociation : elle lève, et la négociation échoue.
+        """
+        from backend.security import surveillance_flux
+
+        cfg = self._cfg()
+        racine = Path(cfg.hermes_home) / "hermes-agent"
+        env = os.environ.copy()
+        env.update({"HERMES_HOME": cfg.hermes_home, "PYTHONUTF8": "1",
+                    "PYTHONUNBUFFERED": "1"})
+        canary = surveillance_flux.fabriquer_canary()
+        env = surveillance_flux.environnement_avec_canary(env, canary)
+        garde = surveillance_flux.SurveillanceFlux(
+            canary=canary,
+            secrets_connus=[getattr(cfg, "api_key", "") or ""],
+        )
+
+        processus = subprocess.Popen(
+            [cfg.python_exe, "-m", "tui_gateway.entry"], cwd=str(racine),
+            env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
+            errors="replace", bufsize=1)
+
+        reponses: dict[int, dict] = {}
+        pret = threading.Event()
+        fuite: list = []
+
+        def lire() -> None:
+            for ligne in processus.stdout:  # type: ignore[union-attr]
+                alerte = garde.bloc(ligne)
+                if alerte is not None:
+                    fuite.append(alerte)
+                    pret.set()
+                    return
+                try:
+                    message = json.loads(ligne)
+                except ValueError:
+                    continue
+                if message.get("params", {}).get("type") == "gateway.ready":
+                    pret.set()
+                if "id" in message:
+                    reponses[message["id"]] = message
+
+        threading.Thread(target=lire, daemon=True).start()
+        try:
+            pret.wait(timeout=self.DELAI_DEMARRAGE_S)
+            for identifiant, methode in enumerate(methodes, start=1):
+                processus.stdin.write(json.dumps({  # type: ignore[union-attr]
+                    "jsonrpc": "2.0", "id": identifiant,
+                    "method": methode, "params": {}}) + "\n")
+                processus.stdin.flush()  # type: ignore[union-attr]
+                time.sleep(0.1)
+            limite = time.monotonic() + self.DELAI_REPONSE_S
+            while (time.monotonic() < limite
+                   and len(reponses) < len(methodes)
+                   and not fuite):
+                # `not fuite` : une fuite doit couper tout de suite. Sans
+                # cette condition, un gateway qui recrache le temoin faisait
+                # quand meme attendre les 45 s du delai — on aurait laisse
+                # tourner, quarante-cinq secondes durant, un processus dont
+                # on savait deja qu'il exfiltrait.
+                time.sleep(0.25)
+        finally:
+            processus.terminate()
+            try:
+                processus.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                processus.kill()
+
+        if fuite:
+            # Ne pas « négocier quand même » : une sortie qui porte le témoin
+            # a vu ce qu'elle n'aurait pas dû voir, et un résultat tiré de
+            # là ne vaut rien. L'appelant transforme cette levée en
+            # `negociee = False`, qui dit « panne » et non « pas de
+            # capacité ».
+            raise RuntimeError(
+                f"fuite detectee sur la sortie du gateway : "
+                f"{fuite[0].motif.value} — {fuite[0].detail}")
+        return {m: self._presente(reponses.get(i))
+                for i, m in enumerate(methodes, start=1)}
+
+    @staticmethod
+    def _presente(message: Optional[dict]) -> bool:
+        """Une erreur applicative prouve la présence ; `-32601` l'infirme.
+
+        Sans réponse du tout, on ne conclut pas — la méthode est comptée
+        absente parce qu'on ne peut pas s'en servir, pas parce qu'on sait
+        qu'elle n'existe pas.
+        """
+        if message is None:
+            return False
+        erreur = message.get("error")
+        if erreur is None:
+            return True
+        return erreur.get("code") != CODE_METHODE_INCONNUE
+
+    # ── Persistance ───────────────────────────────────────────────────
+
+    def _relire(self, empreinte: str) -> Optional[NegociationRuntime]:
+        try:
+            brut = json.loads(_magasin().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if brut.get("empreinte") != empreinte:
+            return None
+        try:
+            return NegociationRuntime(
+                empreinte=brut["empreinte"], version=brut["version"],
+                commit=brut["commit"], mesure_le=float(brut["mesure_le"]),
+                capacites=tuple(
+                    CapaciteRuntime(c["nom"], tuple(c["methodes_presentes"]),
+                                    tuple(c["methodes_absentes"]))
+                    for c in brut.get("capacites") or ()),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _ecrire(self, resultat: NegociationRuntime) -> None:
+        try:
+            chemin = _magasin()
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            chemin.write_text(json.dumps(resultat.as_dict(), indent=2),
+                              encoding="utf-8")
+        except OSError:
+            logger.debug("persistance de la negociation impossible",
+                         exc_info=True)

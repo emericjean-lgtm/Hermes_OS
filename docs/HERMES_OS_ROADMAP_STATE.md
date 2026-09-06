@@ -15,12 +15,13 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
+                      §16 🟡 (HOS-265) — le pont Hermes Agent
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      a102d54 (§6.1 🟢, HOS-263) — dernier commit
-                               de code avant G-14
+BASELINE:                      116f603 (G-14 fermé, HOS-264) — dernier
+                               commit de code avant le pont
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -42,6 +43,9 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                G-14 fermé (HOS-264) — 18 essais réels,
                                6 modèles, 6/6 prouvés capables ;
                                G-15 ouvert en chemin
+                               §16 🟡 (HOS-265) — Hermes Agent 0.21.0,
+                               pont unique, capacités négociées ;
+                               G-16 et G-17 ouverts en chemin
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -69,6 +73,19 @@ elle ne nommait pas le répertoire de travail, là où la production le nomme.
 Corrigée, puis 18 essais réels sur les 6 modèles du catalogue : **6 sur 6
 prouvés capables**, et les 5 décisions du routeur survivent toujours. §6.1
 reste 🟢 — mais désormais sur une base mesurée, pas supposée.
+
+**§16 — le pont Hermes Agent — est 🟡 depuis le 2026-09-07 (HOS-265).**
+Infrastructure transverse, consommée par §7, §8, §10, §11, §13 et §15, et
+sans autorité nouvelle. L'agent est passé en v0.21.0 sans perdre un octet
+d'état, et le pont **négocie** ce que le runtime sert au lieu de le
+supposer : 54 méthodes présentes, 8 absentes, 15 surfaces complètes sur 18.
+Une seule — les capacités elles-mêmes — a la chaîne entière jusqu'au
+cockpit ; les autres sont visibles et **non intégrées**, et le disent.
+
+La règle posée dans la même passe est ce qui empêchera l'écart de se
+reformer : `test_pas_de_backend_orphelin.py` fait rougir toute route neuve
+sans appelant frontend. Elle a commencé par mesurer que **120 routes sur
+306 — 39 %** n'en ont aucun.
 
 **§15 — Hermes Assistant — a été créée le 2026-09-05 et n'est pas la
 section active.** Elle est une couche produit qui consomme §1→§13 ; la
@@ -147,6 +164,8 @@ mentirait sur ce qu'il fait.
 | ~~Le repli agentique défait toutes les décisions du routeur (G-12)~~ — **fermé HOS-263** | architectural | §6/§7 |
 | ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue (G-14)~~ — **fermé HOS-264** | architectural | §7 |
 | Un verdict agentique est une mesure datée que rien ne réévalue (G-15) | observability | §6/§7 |
+| 120 routes `/api/v1` sur 306 sans appelant frontend (G-16) | technical debt | §15/§16 |
+| Le pont négocie 17 surfaces qu'aucun service n'expose (G-17) | architectural | §16 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |

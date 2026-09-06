@@ -1,3 +1,189 @@
+## HOS-265 — Un pont qui negocie, et une regle qui interdit l'orphelin (2026-09-07)
+
+Migration de Hermes Agent v0.20.0 vers v0.21.0, etablissement du pont
+unique Hermes OS <-> Hermes Agent, et la regle qui empeche cette passe —
+comme toutes les suivantes — de livrer du backend que personne n'appelle.
+
+### La migration
+
+Installe : v0.20.0, checkout `fa83af3f9a`, 2026-08-13. Cible demandee :
+« v0.21.0 ». **Ce tag n'existe pas** : l'amont etiquette en CalVer
+(`v2026.8.31`) et ne publie aucun tag semver. C'est `origin/main` qui
+declare `version = "0.21.0"`, et le commit de release `29112bef09
+chore: release v0.21.0 (2026.8.31)` y est bien contenu.
+
+Avance rapide propre — 0 commit local, 31 918 commits de retard — vers
+`693641aa8b`. L'etat persistant vit **hors** du checkout, dans
+`%LOCALAPPDATA%\hermes` : 63 sessions, 559 fichiers de skills, 4 memoires,
+5 taches cron, 11 plugins, 18 instantanes, 30 fichiers de telemetrie.
+Compte avant / apres : identique, ligne pour ligne. `config.yaml` sauvegarde
+en `.avant-HOS-265` selon la convention du depot.
+
+Dependances resynchronisees avec l'interpreteur **de l'agent**, jamais
+`.venv` — c'est la frontiere de HOS-103, et `hermes update` est precisement
+ce qu'il ne faut pas lancer ici. Trois paquets ajoutes
+(`firecrawl-anydoc`, `snowballstemmer`, `nemo-relay` 0.7.2 -> 0.8.4).
+
+Regression mesuree plutot que supposee : suite complete de Hermes OS
+**5877 passed, 3 skipped** avant comme apres — identique. Et une vraie
+tache agentique par le chemin reel apres migration : `lfm2.5-2.6b-125k`,
+succes en 47 s, artefact verifie sur le disque.
+
+### Le transport, choisi sur mesure
+
+L'adaptateur existant lance l'agent en **un coup** par tache : un
+sous-processus, une requete, une reponse, puis il meurt. Cela suffit a
+executer un nœud de mission et a rien d'autre — ni session qui dure, ni
+evenement pendant le tour, ni steer, ni approbation.
+
+Le gateway `tui_gateway` parle JSON-RPC sur stdio, emet `gateway.ready` au
+demarrage, et vit. C'est le transport retenu. L'API HTTP/SSE reste
+disponible mais n'apporte rien ici : la surface web de Hermes OS a deja la
+sienne, et en ajouter une seconde ferait deux chemins pour une execution.
+
+### Negocier, parce que supposer a deja coute
+
+Le gateway offre un discriminant net :
+
+    methode.qui.nexiste.pas  ->  error -32601 "unknown method: ..."
+    session.status           ->  error  4001  "session not found"
+
+`-32601` prouve une absence. Tout le reste — resultat **ou** erreur
+applicative — prouve une presence : une erreur metier signifie que la
+methode existe et a examine ses arguments. Confondre les deux rendrait la
+moitie du gateway invisible, la plupart des methodes repondant par une
+erreur quand on les appelle a vide.
+
+Mesure sur v0.21.0 : **54 methodes presentes, 8 absentes**. Et les absences
+comptent autant que les presences. Une lecture de la documentation aurait
+suppose les trois suivantes ; elles n'existent pas sous ces noms :
+
+    session.fork      ABSENTE  -> le fork n'a pas de RPC
+    memory.*          ABSENTE  -> aucune API memoire cote agent
+    subagent.start    ABSENTE  -> un subagent se lance lui-meme
+
+Le pont regroupe ces methodes en 18 surfaces produit et rend **trois**
+etats par surface : complete, partielle, absente. `delegation` est
+partielle — on peut piloter un subagent, pas en lancer un. La premiere
+version de la table omettait `subagent.start`, ce qui affichait
+`delegation` complete ; le docstring citait pourtant ce cas exact comme la
+raison d'etre du troisieme etat. La table a ete corrigee pour dire ce que
+la mesure dit.
+
+Resultat servi au cockpit : **15 surfaces completes sur 18**.
+
+### Le pont n'est pas une autorite
+
+Hermes OS garde Mission, Run Ledger, lignage, verification, Aegis,
+workspace, provenance, `ResourceManager`, l'admission VRAM,
+`AdaptiveRouter` et le RAL. Le pont rapporte et relaie. Une garde sur
+l'**arbre syntaxique** l'interdit de toucher a ces noms.
+
+Sa premiere version cherchait ces noms dans la source entiere et rougissait
+sur le docstring du pont — qui les cite precisement pour dire qu'il n'y
+touche pas. Septieme garde-fou de cette serie ecrit sur une **forme**
+plutot que sur une propriete, et le premier ou la prose declenchait
+elle-meme le faux positif.
+
+### Une negociation est une mesure datee
+
+Meme lecon que G-15. Le cache est indexe sur l'**empreinte du runtime**
+(version + commit) : mettre l'agent a jour l'invalide tout seul. Le magasin
+vit sous `db/`, comme celui des sondes et pour la meme raison — un fichier
+pose a la racine d'etat serait efface par la prochaine mise a jour.
+
+Une panne de gateway n'est pas un runtime sans capacite : `negociee` porte
+la difference, et une panne n'ecrase jamais une mesure persistee.
+
+### Le troisieme lanceur d'agent, attrape par un garde existant
+
+La suite complete a rougi au premier essai, sur
+`test_tout_lancement_d_agent_passe_par_l_adaptateur_surveille` — un garde
+pose en HOS-218/A-2 : « la protection ne vaut que tant qu'il n'existe qu'un
+endroit ou un agent est lance ».
+
+Il avait raison. Le pont lance le **vrai** gateway avec
+`os.environ.copy()`, c'est-a-dire tous les secrets de la machine, et rien
+n'examinait sa sortie. C'etait un second lanceur ne sans surveillance,
+exactement comme les replis cloud etaient nes sans pare-feu (A-1) — et
+cette fois le depot s'en est apercu tout seul.
+
+Le temoin est desormais pose comme dans l'adaptateur, la sortie du gateway
+passe par la meme `SurveillanceFlux`, et une fuite **coupe la negociation
+immediatement** au lieu de la rendre. Sans cette derniere condition, un
+gateway qui recrachait le temoin faisait quand meme attendre les 45 s du
+delai — quarante-cinq secondes a laisser tourner un processus dont on
+savait deja qu'il exfiltrait.
+
+L'inscription du pont dans la liste des lanceurs autorises est doublee
+d'un test de **comportement** : le temoin doit etre reellement pose dans
+l'environnement du gateway, et une sortie qui le recrache doit lever. Une
+ligne de liste blanche sans cela n'est qu'un tampon.
+
+### La regle anti-orphelin
+
+HOS-235 avait livre huit routes correctes, testees, sur une surface que
+rien ne montait : `GET /api/v1/operations` rendait `404`, et leurs tests
+passaient parce qu'ils montaient le routeur eux-memes. Le meme motif a
+produit les trois defauts les plus couteux du depot.
+
+`test_pas_de_backend_orphelin.py` ferme la porte : toute route `/api/v1`
+doit avoir un appelant dans `frontend/src`, ou figurer dans une dette
+constatee et gelee. Une route neuve sans appelant fait rougir la suite.
+
+**Mesure du jour : 120 routes sur 306 — 39 pour cent — n'ont aucun
+appelant frontend.** Ce n'est pas une norme, c'est une dette qui doit
+retrecir.
+
+Le chiffre a ete faux deux fois avant d'etre juste, et les deux fois c'est
+l'instrument qui mentait :
+
+- 144, parce que le motif remplacait `{id}` par du vide et fabriquait
+  `/agents//pause` — 32 faux orphelins ;
+- 112, parce que la fin du motif n'etait pas ancree : `/bridge/capabilities`
+  se trouvait a l'interieur de `/bridge/capabilities/refresh`, si bien que
+  toute route prefixe d'une autre heritait d'un appelant qu'elle n'avait
+  pas. Huit orphelins reels etaient caches ainsi.
+
+Le second n'a pas ete trouve en relisant du code : une **mutation** —
+« le frontend cesse d'appeler la route du pont » — est restee verte. Le
+harnais a fait ce que la relecture n'avait pas fait.
+
+### La chaine, prouvee de bout en bout
+
+Interaction reelle dans le cockpit, Runtime Center, panneau « Capacites du
+cerveau agentique » :
+
+    Hermes Agent -> pont -> GET /api/v1/bridge/capabilities -> bridgeClient
+      -> useBridgeCapabilities -> panneau -> clic « Re-negocier »
+      -> POST .../refresh -> gateway relance -> mesure persistee
+
+Le panneau affiche `Hermes Agent 0.21.0 · 693641aa8b43`, `15/18 completes`,
+et nomme les absences : `fork` absente (manque `session.fork`), `memory`
+absente, `delegation` partielle (manque `subagent.start`). Le clic a bien
+declenche une negociation reelle — horodatage du magasin a 15 s au moment
+du controle, contre plusieurs minutes avant.
+
+Dix mutations, dix rouges apres correction de l'ancrage.
+
+### Ce qui reste PLANNED, et pourquoi
+
+Le brief demandait la parite produit sur seize surfaces. Une seule est
+demontree de bout en bout. Les autres sont **negociees et visibles**, ce qui
+n'est pas la meme chose qu'integrees, et elles restent PLANNED :
+
+- `fork` et `memory` n'ont pas de methode cote agent — rien a raccorder ;
+- `delegation` ne sait pas lancer un subagent depuis le pont ;
+- chat/streaming, sessions, steering, approvals, tools, skills, learning,
+  MCP, cron, profiles, browser sont **presentes** au gateway et n'ont ni
+  service, ni client, ni surface produit. Les declarer integrees serait
+  exactement ce que la regle anti-orphelin vient interdire.
+
+Le flux d'auto-apprentissage des skills (`run -> proposition -> diff ->
+approbation -> Skill persistante`) n'est pas commence. `learning.frames` et
+`skills.manage` repondent, ce qui rend le chantier possible ; il n'est pas
+fait.
+
 ## HOS-264 — La sonde mesurait la convention de chemin, pas le modele (2026-09-06)
 
 G-14. HOS-263 avait deplace le magasin de sondes hors de `%TEMP%` et

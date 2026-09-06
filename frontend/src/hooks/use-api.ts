@@ -8,6 +8,7 @@ import {
   agentsClient,
   collaborationClient,
   runtimeClient,
+  bridgeClient,
   memoryClient,
   skillsClient,
   toolsClient,
@@ -209,6 +210,29 @@ export function useUnloadModel() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["runtime", "loaded-models"] });
       qc.invalidateQueries({ queryKey: ["runtime", "resources"] });
+    },
+  });
+}
+
+// ── Hermes Agent Bridge (HOS-265) ────────────────────
+// La negociation coute ~4 s contre le gateway quand l'empreinte du runtime
+// a change, et se relit du cache autrement : pas de `refetchInterval`, ce
+// serait relancer un sous-processus toutes les N secondes pour une reponse
+// qui ne bouge qu'a la mise a jour de l'agent.
+export function useBridgeCapabilities() {
+  return useQuery({
+    queryKey: ["bridge", "capabilities"],
+    queryFn: bridgeClient.capabilities,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useRefreshBridgeCapabilities() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: bridgeClient.refresh,
+    onSuccess: (data) => {
+      qc.setQueryData(["bridge", "capabilities"], data);
     },
   });
 }

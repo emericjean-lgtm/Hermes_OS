@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { useRuntimes, useResourceStatus, useLoadedModels, useUnloadModel } from "@/hooks/use-api";
 import { Card, Badge, ProgressBar, Beacon, Button } from "@/components/ui/card";
 import { TelemetryTrace } from "@/components/telemetry-trace";
+import { BridgeCapabilities } from "./bridge-capabilities";
 import { CenterHeader, PanelLoading } from "@/components/center-scaffold";
 import type { RuntimeInfo, RuntimeStatus } from "@/types/hermes";
 import { Cpu, HardDrive, Thermometer, Layers, Gauge, Brain, Power } from "lucide-react";
@@ -161,6 +162,9 @@ export function RuntimeCenter({ imbrique = false }: { imbrique?: boolean }) {
           </div>
         )}
       </Card>
+
+      {/* ── Capacites du cerveau agentique (HOS-265) ───────────────── */}
+      <BridgeCapabilities />
 
       {/* ── Runtimes ───────────────────────────────────────────────── */}
       {isLoading ? (

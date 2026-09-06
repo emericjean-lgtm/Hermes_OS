@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api.routes import (
+    bridge,
     chat,
     classify,
     documents,
@@ -86,6 +87,10 @@ _LEGACY_ROUTERS = (
     # le plus couteux : ses tests passaient parce qu'ils le montaient
     # eux-memes.
     operations,
+    # HOS-265 : le pont. Monte ici et nulle part ailleurs — un routeur pose
+    # sur une surface non servie est l'orphelin le plus couteux, et c'est
+    # exactement ce que la ligne au-dessus raconte.
+    bridge,
 )
 
 
