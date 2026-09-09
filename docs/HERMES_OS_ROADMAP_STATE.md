@@ -15,14 +15,14 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
-                      §16 🟡 (HOS-265→272) — le pont, la matrice,
-                      le chat joignable, la convergence rejetée
+                      §16 🟡 (HOS-265→273) — le pont, la matrice,
+                      le chat joignable et enfin interruptible
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      d28ccf0 (G-22, HOS-271) — dernier commit
-                               de code avant G-23
+BASELINE:                      459b8ea (G-23, HOS-272) — dernier commit
+                               de code avant G-24
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -70,6 +70,9 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                G-23 tranché (HOS-272) — REJECT : la
                                convergence ACP↔Gateway fabrique de faux
                                succès ; garde posée, rien livré d'autre
+                               G-24 fermé (HOS-273) — interruption ACP
+                               réelle (217 s → 17 s) ; deux faux contrôles
+                               déjà livrés corrigés ; G-25 ouvert
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -176,7 +179,21 @@ qui se termine normalement et écrit son fichier. Une ligne stockée, deux
 sessions vivantes, deux processus. Rejeté plutôt que différé : la
 convergence produirait exactement le faux succès que ce dépôt poursuit
 depuis l'origine. Le chemin réel est le contrôle **natif d'ACP**
-(`acp_adapter/server.py: cancel`), que notre client n'émet pas encore. Deux réserves mesurées et affichées — le premier
+(`acp_adapter/server.py: cancel`).
+
+**HOS-273 l'a emprunté et fermé G-24 — interruption ADOPT.** `session/cancel`
+atteint le tour vivant : 50 s et 9898 caractères sans annulation, **12 s et
+0 caractère** avec, et **195 s avec un mauvais identifiant** — le contrôle
+est donc réel *et* corrélé. De bout en bout par HTTP : 217 s → 17 s.
+
+Deux faux contrôles **déjà livrés** ont été corrigés au passage :
+`POST /conversation/{id}/cancel` marquait la conversation `CANCELLED` sans
+toucher le tour, et le bouton « stop » de l'Assistant n'abandonnait que le
+`fetch` — le navigateur cessait de lire pendant que l'agent continuait
+d'écrire. Tous deux affirmaient avoir arrêté quelque chose.
+
+Le **steering reste DEFER** (G-25) : rien n'injecte dans un tour actif ; ACP
+n'offre qu'« annuler puis redemander », un geste produit distinct. Deux réserves mesurées et affichées — le premier
 basculement fige les défauts du jour dans le fichier, et un toolset de
 plugin peut être refusé tant que la découverte n'a pas abouti.
 
@@ -265,7 +282,8 @@ mentirait sur ce qu'il fait.
 | La mémoire de l'agent échappe à la provenance Hermes OS (G-21) | architectural | §8/§16 |
 | ~~Approbations, steering et interruption attendent le chat (G-22)~~ — **partiellement fermé HOS-271** | architectural | §16 |
 | Deux transports agentiques coexistent sans passerelle (G-23) — **convergence REJECT, HOS-272** | architectural | §16 |
-| Le contrôle natif d'ACP (`cancel`) n'est pas émis par notre client (G-24) | functional | §16 |
+| ~~Le contrôle natif d'ACP (`cancel`) n'est pas émis par notre client (G-24)~~ — **fermé HOS-273** | functional | §16 |
+| Le steering n'a aucun mécanisme d'injection dans un tour actif (G-25) | functional | §16 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |

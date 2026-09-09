@@ -197,6 +197,23 @@ class SessionsDeMission:
         """
         return self._tours_perdus.get(cle, 0)
 
+    async def interrompre(self, cle: str) -> bool:
+        """Demande au tour vivant de cette cle de s'arreter (G-24).
+
+        Rend `True` quand une session vivante existait et que l'ordre lui a
+        ete emis — **pas** que le tour s'est arrete. La distinction compte :
+        `session/cancel` est une notification sans reponse, et l'agent rend
+        silencieusement pour une session qu'il ne connait plus.
+
+        Sans session vivante, rend `False` plutot que de laisser croire a
+        une interruption : c'est le faux controle que G-23 a mesure sur le
+        Gateway, et il n'a pas a renaitre ici.
+        """
+        entree = self._entrees.get(cle)
+        if entree is None:
+            return False
+        return await entree.client.annuler()
+
     def noter(self, cle: str, abouti: bool) -> int:
         """Enregistrer l'issue d'un tour, et rendre le compte des echecs.
 

@@ -7,6 +7,7 @@ response generation, explainability, approval flow, and voice interfaces.
 from __future__ import annotations
 
 import threading
+import pytest
 
 
 from backend.conversation.conversation_manager import ConversationManager
@@ -436,11 +437,21 @@ class TestConversationRoutes:
         assert result["success"] is True
         assert result["status"] == "approved"
 
-    def test_cancel(self):
+    @pytest.mark.asyncio
+    async def test_cancel(self):
+        """`handle_cancel` est devenu une coroutine en HOS-273.
+
+        Il ne se contentait plus de marquer la conversation `CANCELLED` :
+        il demande au tour Hermes Agent en cours de s'arreter, ce qui
+        exige d'atteindre la session ACP vivante. Sans conversation liee a
+        un projet, aucun tour n'est vise et `tour_interrompu` reste faux —
+        c'est le cas de ce test.
+        """
         session = handle_start_session("test")
-        result = handle_cancel(session["session_id"])
+        result = await handle_cancel(session["session_id"])
         assert result["success"] is True
         assert result["status"] == "cancelled"
+        assert result["tour_interrompu"] is False
 
     def test_get_context(self):
         session = handle_start_session("test")

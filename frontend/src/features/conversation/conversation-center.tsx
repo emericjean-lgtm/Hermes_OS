@@ -375,7 +375,25 @@ export default function ConversationCenter() {
     }
   }, [sessionId, streaming, selection, attachments, signalerOperateur, tairelOperateur]);
 
-  const stop = useCallback(() => abortRef.current?.abort(), []);
+  /** Arrete le tour, pas seulement sa lecture.
+   *
+   *  `abort()` seul ne coupait que le `fetch` : le navigateur cessait de
+   *  lire, et l'agent continuait d'ecrire — sur le GPU, dans le workspace,
+   *  et dans l'historique. Un bouton « stop » qui n'arrete rien.
+   *
+   *  `conversationClient.cancel` atteint desormais le tour ACP vivant par
+   *  le mecanisme natif de l'agent (G-24). Mesure : meme demande, 217 s
+   *  sans annulation, 17 s avec. On coupe la lecture *aussi*, pour que
+   *  l'interface reponde tout de suite ; c'est l'ordre qui compte, pas
+   *  l'inverse. */
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+    if (sessionId) {
+      void conversationClient.cancel(sessionId).catch(() => {
+        // Le tour continue peut-etre cote agent : ne rien affirmer.
+      });
+    }
+  }, [sessionId]);
 
   const regenerate = useCallback(() => {
     // Re-ask the last question; the previous (kept) answer stays in the

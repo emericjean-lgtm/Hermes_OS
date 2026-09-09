@@ -1,3 +1,81 @@
+## HOS-273 — Interrompre le tour que l'utilisateur regarde (2026-09-09)
+
+G-24. Quatre capacites, quatre verdicts, et un seul chemin qui atteint
+vraiment un tour ACP en cours.
+
+    interruption      ADOPT    demontree de bout en bout
+    permissions ACP   ADOPT    deja livree en HOS-271, correlee et journalisee
+    steering          DEFER    aucun mecanisme n'injecte dans un tour actif
+    approvals Gateway REJECT   process-locales, sans producteur (G-23)
+
+### L'interruption : ADOPT
+
+`session/cancel` est le mecanisme natif d'ACP. Le contrat, lu dans
+`acp_adapter/server.py` : notification sans reponse, `get_session` sur
+l'etat **vivant** du processus, `cancel_event.set()` et
+`request_hard_interrupt`. Et surtout — **retour silencieux quand la session
+est inconnue**. L'absence d'erreur ne prouve donc rien.
+
+Trois mesures, meme demande et meme modele :
+
+    sans annulation               50 s    9898 caracteres
+    cancel a t+12s                12 s       0 caractere
+    cancel a t+12s, MAUVAIS id   195 s   14120 caracteres
+
+Le controle est reel *et* correle : un identifiant errone laisse le tour
+aller au bout. C'est exactement ce que le Gateway ne faisait pas — il
+rendait `interrupted` en agissant sur une session qu'il venait de
+materialiser lui-meme (G-23).
+
+De bout en bout, par la route HTTP :
+
+    reference                    217 s   564 caracteres
+    POST /cancel a t+15s          17 s     0 caractere
+
+### Deux faux controles corriges, tous deux deja livres
+
+**`POST /conversation/{id}/cancel`** marquait la conversation `CANCELLED`
+cote Hermes OS, appendait un message et rendait `"success": true,
+"status": "cancelled"` — **sans jamais toucher le tour**, qui continuait a
+ecrire.
+
+**Le bouton « stop » de l'Assistant** n'appelait que `abort()` sur le
+`fetch`. Le navigateur cessait de lire ; l'agent continuait — sur le GPU,
+dans le workspace, dans l'historique. Echap donnait l'illusion d'arreter.
+
+Les deux affirmaient avoir arrete quelque chose. Aucun ne le faisait. Ils
+etaient la avant cette passe, et c'est la mesure de G-23 qui a appris a les
+reconnaitre.
+
+### Ce que `tour_interrompu` dit, et ne dit pas
+
+Il dit que l'ordre est **parti** vers une session vivante. Pas que le tour
+s'est arrete : `session/cancel` ne repond pas, et l'agent rend
+silencieusement pour une session qu'il ne connait plus. Un booleen
+d'emission, jamais une interruption constatee — et l'interface ne le
+presente pas autrement.
+
+### Le steering : DEFER
+
+Aucun mecanisme n'injecte une instruction dans un tour **actif**. Ce
+qu'ACP offre est `cancel` puis un nouveau prompt : le serveur conserve
+`interrupted_prompt_text` et rattache la demande annulee au tour suivant.
+C'est un enchainement « arreter puis redemander », pas une injection — un
+geste produit different, qui merite d'etre concu comme tel plutot que
+maquille en steering.
+
+Rien n'est donc livre pour le steering. Le brief le demandait
+explicitement : aucune facade tant que le mecanisme n'est pas demontre.
+
+### Preuves
+
+Huit mutations, huit rouges — mauvais identifiant, session terminee,
+processus mort, cle inconnue, autre session interrompue, route qui affirme
+sans demander, bouton qui ne coupe que la lecture, et annulation qui
+emprunterait le Gateway.
+
+Suite complete verte, `tsc` et `vitest` verts, `data/db/hermes.db` intacte.
+
 ## HOS-272 — ACP et Gateway : REJECT, mesure a l'appui (2026-09-09)
 
 G-23. Le chat passe par ACP, les controles natifs (`approval.*`,

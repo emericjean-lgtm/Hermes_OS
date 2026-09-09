@@ -248,19 +248,52 @@ def handle_approve(session_id: str) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-def handle_cancel(session_id: str) -> dict[str, Any]:
-    """POST /conversation/{id}/cancel"""
+async def handle_cancel(session_id: str) -> dict[str, Any]:
+    """POST /conversation/{id}/cancel
+
+    ## Ce que cette route faisait, et ce qu'elle omettait
+
+    Elle marquait la conversation `CANCELLED` cote Hermes OS et rendait
+    `"success": true, "status": "cancelled"` — **sans jamais toucher le
+    tour Hermes Agent en cours**, qui continuait a ecrire. Un controle qui
+    affirme avoir agi sans agir : exactement ce que G-23 a mesure sur le
+    Gateway, et qui vivait deja ici.
+
+    Le tour est desormais interrompu par le mecanisme **natif d'ACP**,
+    seul chemin qui atteigne la session vivante (G-24). Mesure : meme
+    demande, 50 s et 9898 caracteres sans annulation, 12 s et 0 caractere
+    avec ; et 195 s avec un identifiant errone, donc le controle est
+    correle.
+
+    `tour_interrompu` dit si un ordre a ete emis vers une session vivante.
+    Il ne dit pas que le tour s'est arrete — `session/cancel` est une
+    notification sans reponse — et l'interface ne doit pas le presenter
+    autrement.
+    """
     mgr = _get_manager()
     try:
         response = mgr.cancel_action(session_id)
-        return {
-            "success": True,
-            "session_id": session_id,
-            "message": response.message.content,
-            "status": "cancelled",
-        }
     except ValueError as e:
         return {"success": False, "error": str(e)}
+
+    # L'etat de conversation est marque ; reste le tour de l'agent.
+    tour_interrompu = False
+    session = mgr.get_session(session_id)
+    project_id = session.context.active_project_id if session else ""
+    if project_id:
+        from backend.ral.adapters.sessions_de_mission import registre
+
+        try:
+            tour_interrompu = await registre().interrompre(f"projet:{project_id}")
+        except Exception:  # noqa: BLE001 - ne jamais faire echouer l'annulation
+            logger.warning("interruption du tour agent en echec", exc_info=True)
+    return {
+        "success": True,
+        "session_id": session_id,
+        "message": response.message.content,
+        "status": "cancelled",
+        "tour_interrompu": tour_interrompu,
+    }
 
 
 def handle_get_context(session_id: str) -> dict[str, Any]:
@@ -674,7 +707,7 @@ async def approve(session_id: str) -> dict[str, Any]:
 
 @router.post("/{session_id}/cancel")
 async def cancel(session_id: str) -> dict[str, Any]:
-    return handle_cancel(session_id)
+    return await handle_cancel(session_id)
 
 
 @router.delete("/{session_id}")

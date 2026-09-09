@@ -469,6 +469,50 @@ class HermesAgentACP:
         return await self._prompt(self._session, texte, delai,
                                   au_fil_de_l_eau=au_fil_de_l_eau)
 
+    async def annuler(self) -> bool:
+        """Interrompt le tour en cours par le mecanisme natif d'ACP (G-24).
+
+        `session/cancel` est une **notification** : pas d'identifiant, pas
+        de reponse. On l'ecrit donc pendant que le tour lit encore stdout,
+        sans brouiller l'appariement des reponses.
+
+        ## Pourquoi c'est le seul chemin
+
+        Le Gateway sait « reprendre » un identifiant ACP et rend un succes
+        pour `session.steer`/`session.interrupt` — mesure en G-23, il agit
+        sur une **seconde** session vivante de son propre processus, et le
+        tour affiche a l'utilisateur continue. Seul le transport qui porte
+        le tour peut l'atteindre.
+
+        ## Ce que rendre `True` signifie, et ce que ca ne signifie pas
+
+        `True` dit que l'ordre est **parti** vers une session vivante, pas
+        que le tour s'est arrete. `cancel(session_id)` cote agent rend
+        silencieusement quand la session est inconnue : l'absence d'erreur
+        ne prouve rien, et c'est pourquoi l'appelant ne doit jamais
+        presenter ce booleen comme une interruption constatee.
+
+        Mesure du 2026-09-09, meme demande : 50 s et 9898 caracteres sans
+        annulation, **12 s et 0 caractere** avec. Et avec un identifiant
+        errone : 195 s et 14120 caracteres — le tour va au bout. Le
+        controle est donc reel *et* correle.
+        """
+        session = self._session
+        if session is None or not session.session_id or session.proc is None:
+            return False
+        if session.proc.returncode is not None:
+            return False
+        message = {"jsonrpc": "2.0", "method": "session/cancel",
+                   "params": {"sessionId": session.session_id}}
+        try:
+            session.proc.stdin.write((json.dumps(message) + chr(10)).encode())
+            await session.proc.stdin.drain()
+        except (OSError, AttributeError, RuntimeError):
+            logger.debug("annulation ACP impossible", exc_info=True)
+            return False
+        logger.info("session ACP %s : annulation emise", session.session_id)
+        return True
+
     async def choisir_modele(self, modele: str) -> bool:
         """Change le modèle **sans perdre le contexte** de la session.
 
