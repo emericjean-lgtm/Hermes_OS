@@ -761,6 +761,17 @@ export interface AgentListeDTO<T> {
 // G-18 : Hermes OS **demande** a l'agent d'ecrire, il n'ecrit pas lui-meme.
 // Un refus du runtime revient en 200 avec `applique: false` — c'est un
 // resultat, pas une panne de transport.
+// Basculer un toolset ecrit `config.yaml` cote agent, que tous ses
+// processus relisent — missions comprises. Le refus porte la meme forme
+// que les autres mutations : `applique: false` et sa raison.
+export interface AgentToolsetMutationDTO {
+  applique: boolean;
+  erreur: string | null;
+  toolset?: string;
+  actif?: boolean;
+  toolsets_actifs?: string[];
+}
+
 export interface AgentMutationDTO {
   applique: boolean;
   erreur: string | null;
@@ -790,6 +801,11 @@ export interface AgentVueDTO {
 export const bridgeClient = {
   capabilities: () => fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities"),
   agent: () => fetchJSON<AgentVueDTO>("/bridge/agent"),
+  basculerToolset: (nom: string, actif: boolean) =>
+    fetchJSON<AgentToolsetMutationDTO>(
+      `/bridge/agent/toolsets/${encodeURIComponent(nom)}`,
+      { method: "POST", body: JSON.stringify({ actif }) },
+    ),
   historiqueSession: (cle: string) =>
     fetchJSON<AgentListeDTO<AgentMessageDTO>>(
       `/bridge/agent/sessions/${encodeURIComponent(cle)}/historique`,

@@ -22,6 +22,7 @@ import {
   useBrancherSession,
   useHistoriqueSession,
   useRenommerSession,
+  useBasculerToolset,
 } from "@/hooks/use-api";
 import type {
   AgentListeDTO,
@@ -379,6 +380,7 @@ function Sessions({ liste }: { liste: AgentListeDTO<AgentSessionDTO> }) {
 
 function Outils({ liste }: { liste: AgentListeDTO<AgentToolsetDTO> }) {
   const actifs = liste.elements.filter((t) => t.enabled).length;
+  const basculer = useBasculerToolset();
   return (
     <Card title="Outils dont le cerveau dispose">
       <div className="flex items-center justify-between pb-2">
@@ -387,6 +389,15 @@ function Outils({ liste }: { liste: AgentListeDTO<AgentToolsetDTO> }) {
         </span>
         <Compte liste={liste} />
       </div>
+      <div className="pb-2 text-[10px] font-mono text-hermes-dim">
+        Activer ou désactiver écrit la configuration de l'agent : l'effet
+        porte sur les missions, pas seulement sur cet écran.
+      </div>
+      {basculer.data && !basculer.data.applique && (
+        <div className="mb-2 px-2.5 py-2 border border-hermes-gold/45 text-[10px] font-mono text-hermes-gold">
+          Refusé : {basculer.data.erreur}
+        </div>
+      )}
       {!liste.disponible ? (
         <Indisponible erreur={liste.erreur} />
       ) : !liste.elements.length ? (
@@ -410,9 +421,19 @@ function Outils({ liste }: { liste: AgentListeDTO<AgentToolsetDTO> }) {
                 <span className="text-[10px] font-mono text-hermes-muted tabular-nums">
                   {t.tool_count}
                 </span>
-                <Badge variant={t.enabled ? "success" : "default"}>
-                  {t.enabled ? "actif" : "inactif"}
-                </Badge>
+                <button
+                  onClick={() =>
+                    basculer.mutate({ nom: t.name, actif: !t.enabled })
+                  }
+                  disabled={basculer.isPending}
+                  aria-label={`${t.enabled ? "Désactiver" : "Activer"} le toolset ${t.name}`}
+                  title={t.enabled ? "Désactiver" : "Activer"}
+                  className="disabled:opacity-50"
+                >
+                  <Badge variant={t.enabled ? "success" : "default"}>
+                    {t.enabled ? "actif" : "inactif"}
+                  </Badge>
+                </button>
               </div>
             </div>
           ))}

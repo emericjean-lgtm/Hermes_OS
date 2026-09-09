@@ -153,6 +153,15 @@ MUTATIONS_CONNUES: dict[str, str] = {
     # ou rien n'est perdu — l'ancien titre etait de toute facon genere par
     # l'agent, et la conversation n'est pas touchee.
     "session.title": "hermes-agent:state.db",
+    # Activer/desactiver un toolset ecrit `config.yaml`, que **tous** les
+    # processus agent relisent — missions comprises. Contrairement a
+    # `delegation.pause`, mesure comme locale au gateway, celle-ci porte.
+    #
+    # Additive au sens qui compte : rien n'est perdu. Le round-trip YAML
+    # ajoute des cles (il materialise des defauts implicites) et n'en
+    # retire aucune — verifie par diff le 2026-09-09, liste blanche MCP
+    # intacte. Desactiver reste reversible par la meme methode.
+    "tools.configure": "hermes-agent:config.yaml",
 }
 
 

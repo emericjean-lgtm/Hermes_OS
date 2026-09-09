@@ -15,14 +15,14 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
-                      §16 🟡 (HOS-265→269) — le pont, la matrice
-                      exacte, lire et renommer une session
+                      §16 🟡 (HOS-265→270) — le pont, la matrice
+                      exacte, sessions et toolsets pilotables
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      4afc77c (G-19 fermé, HOS-268) — dernier
-                               commit de code avant G-20
+BASELINE:                      6f9a363 (G-20 avancé, HOS-269) — dernier
+                               commit de code avant les approbations
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -61,6 +61,9 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                G-20 avancé (HOS-269) — lire et renommer
                                une session intégrés ; deux candidates
                                écartées par la mesure ; G-21 ouvert
+                               HOS-270 — approbations écartées faute de
+                               producteur ; bascule de toolset intégrée ;
+                               G-22 ouvert
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -136,6 +139,19 @@ mission ne tourne), et rien ne lance un subagent par RPC — c'est un outil
 que l'agent s'appelle. La mémoire reste sans couture : aucune méthode dans
 les 206, la capacité vivant côté agent, d'où **G-21** — Hermes OS ne peut
 lui appliquer ni provenance, ni quarantaine, ni promotion.
+
+**HOS-270 a écarté les approbations et intégré les toolsets.** Les trois
+méthodes d'approbation répondent, mais la file est **en mémoire** et bloque
+un fil de l'agent : les missions prennent le mode déterministe — le CLI pose
+lui-même `HERMES_SINGLE_QUERY_SESSION` — et le pont ne lance aucun tour. Un
+panneau serait vide par construction. C'est **G-22** : approbations,
+steering et interruption attendent toutes le **chat**, leur seul producteur.
+
+`tools.configure` en revanche écrit `config.yaml`, que tous les processus
+agent relisent, missions comprises : la bascule d'un toolset est intégrée
+de bout en bout. Deux réserves mesurées et affichées — le premier
+basculement fige les défauts du jour dans le fichier, et un toolset de
+plugin peut être refusé tant que la découverte n'a pas abouti.
 
 **§15 — Hermes Assistant — a été créée le 2026-09-05 et n'est pas la
 section active.** Elle est une couche produit qui consomme §1→§13 ; la
@@ -220,6 +236,7 @@ mentirait sur ce qu'il fait.
 | ~~Le fork était déclaré absent sur la foi d'un nom (G-19)~~ — **fermé HOS-268** | technical debt | §16 |
 | 12 surfaces exactes et sans consommateur frontend (G-20) | architectural | §16 |
 | La mémoire de l'agent échappe à la provenance Hermes OS (G-21) | architectural | §8/§16 |
+| Approbations, steering et interruption attendent le chat (G-22) | architectural | §16 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |

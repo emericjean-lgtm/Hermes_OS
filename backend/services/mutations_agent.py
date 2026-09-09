@@ -177,6 +177,60 @@ def renommer_session(cle_stockee: str, titre: str) -> dict[str, Any]:
     return applique
 
 
+#: Ce que le runtime accepte comme action ; toute autre est refusee avant
+#: envoi. Mesure : `tools.configure` rend `4017 unknown tools action` pour
+#: le reste, mais un refus apres coup laisse croire qu'on a essaye.
+ACTIONS_TOOLSET = {"enable", "disable"}
+
+
+def basculer_toolset(nom: str, actif: bool) -> dict[str, Any]:
+    """Demande a l'agent d'activer ou de desactiver un toolset.
+
+    Troisieme mutation du contrat, et la premiere qui ne touche pas
+    `state.db` : elle ecrit `config.yaml`, que **tous** les processus agent
+    relisent — donc les missions aussi. C'est ce qui la distingue de
+    `delegation.pause`, mesuree comme locale au gateway et pour cette
+    raison jamais offerte au produit.
+
+    Consequence a connaitre : le premier appel **fige les defauts du jour**
+    dans le fichier. Le round-trip YAML materialise les toolsets implicites
+    en listes explicites — il n'enleve rien (verifie par diff) mais un
+    defaut amont qui changerait plus tard ne s'appliquerait plus.
+    """
+    action = "enable" if actif else "disable"
+    nom = nom.strip()
+    demande = {"methode": "tools.configure", "toolset": nom, "action": action}
+    _tracer("bridge.mutation.demandee", demande)
+    if not nom:
+        return _refus(demande, "aucun toolset nomme")
+
+    try:
+        reponse = _pont().demander_mutation(
+            "tools.configure", {"action": action, "names": [nom]}, timeout=90)
+    except Exception as exc:  # noqa: BLE001
+        return _refus(demande, f"{type(exc).__name__}: {exc}")
+    if "error" in reponse:
+        erreur = reponse["error"]
+        return _refus(demande, f"refus du runtime ({erreur.get('code')}): "
+                               f"{erreur.get('message')}")
+
+    r = reponse.get("result") or {}
+    # `changed` vide avec un `unknown` non vide : le runtime a repondu 200
+    # sans rien faire. Le lire comme un succes afficherait un basculement
+    # qui n'a pas eu lieu.
+    if nom in (r.get("unknown") or []):
+        return _refus(demande, f"toolset inconnu du runtime : {nom}")
+    if nom not in (r.get("changed") or []):
+        return _refus(demande, "le runtime n'a rien change")
+
+    applique = {"applique": True, "erreur": None, "toolset": nom,
+                "actif": actif,
+                "toolsets_actifs": r.get("enabled_toolsets") or []}
+    _tracer("bridge.mutation.appliquee",
+            {**demande, "resultat": {"toolset": nom, "actif": actif}})
+    return applique
+
+
 def _refus(demande: dict, raison: str) -> dict[str, Any]:
     """Un refus est un résultat, pas une panne — et il se trace aussi."""
     logger.info("mutation refusee : %s", raison)

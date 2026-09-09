@@ -1,3 +1,106 @@
+## HOS-270 — Les approbations n'ont pas de producteur ; les toolsets, si (2026-09-09)
+
+Le chantier demandait les approbations en priorite. Elles ne sont pas
+integrables aujourd'hui, et ce n'est pas l'API qui manque.
+
+### Pourquoi les approbations sont bloquees
+
+Le runtime les expose : `approval.pending`, `approval.received`,
+`approval.respond` repondent toutes les trois. Trois mesures expliquent
+pourquoi cela ne suffit pas.
+
+**Le mecanisme est en memoire, dans le processus.** `_gateway_queues` est
+un dict de module de `tools/approval.py`, et chaque entree porte un
+`threading.Event` qui **bloque un fil de l'agent**. Une approbation
+n'existe que pendant qu'un tour tourne dans ce processus-la. Rien n'est
+persistant, rien ne traverse.
+
+**Le chemin mission ne peut pas en produire.** `cli.py` pose
+`HERMES_SINGLE_QUERY_SESSION=1` pour tout `--query` — exactement ce que
+Hermes OS lance — et la porte prend alors le chemin deterministe
+d'`approvals.single_query_mode`. Sa docstring dit le pourquoi : « without
+this marker the gate would wait the full timeout, fail closed and push the
+agent toward workarounds ». L'agent se protege lui-meme d'une porte que
+personne n'ecouterait ; ce n'est pas un defaut, c'est la bonne decision.
+
+**Le gateway du pont pourrait en produire, mais n'en produit pas.**
+`tui_gateway/server.py` pose `HERMES_GATEWAY_SESSION=1` et enregistre
+`register_gateway_notify` : un tour lance **la** produirait des
+approbations repondables. Le pont ne lance aucun tour — il n'emet que des
+RPC de lecture.
+
+Mesure sur session vivante : `approval.pending` rend `{"approvals": []}`,
+`approval.respond` rend `{"resolved": 0}`.
+
+Un panneau branche aujourd'hui serait donc **vide par construction**, et
+son bouton ne resoudrait jamais rien. La condition prealable est le
+**chat** — faire passer des tours par le gateway du pont ; les approbations
+viendront avec, et pas avant. Un test interdit nommement de les declarer
+mutation entre-temps.
+
+C'est le troisieme piege de cette forme, apres `delegation.pause` et le
+lancement de subagent : une methode qui repond parfaitement et sur laquelle
+il n'y a rien a brancher.
+
+### Les toolsets, eux, portent
+
+`tools.configure` appelle `save_config` : il ecrit `config.yaml`, que
+**tous** les processus agent relisent — missions comprises. C'est
+exactement ce qui manquait a la pause de delegation.
+
+    clic « inactif » sur a2a
+    config.yaml   76a3fbd37f6d4498 -> 0529eab3053f65c6
+    processus neuf : a2a = True
+
+Troisieme mutation du contrat G-18, et la premiere qui ne touche pas
+`state.db` — le contrat vaut pour tout etat natif de l'agent, pas seulement
+sa base.
+
+### Deux verifications qui ont failli passer pour des conclusions
+
+**Une fausse alerte de perte.** Un `diff` de lignes entre la sauvegarde et
+le fichier reecrit montrait deux entrees de modele disparues. Comparaison
+**des structures** : zero cle perdue — les deux lignes avaient simplement
+change de place dans un YAML re-serialise. Un diff de lignes est le mauvais
+instrument pour un fichier qu'un programme reecrit, et il m'a fait annoncer
+une perte qui n'existait pas.
+
+Ce que le round-trip fait reellement : il **materialise des defauts
+implicites** — `known_builtin_toolsets`, `known_plugin_toolsets`, et la
+liste des toolsets actifs passee de `['coding']` a la liste complete. Rien
+n'est retire ; mais le premier basculement **fige les defauts du jour**, et
+un defaut amont qui changerait plus tard ne s'appliquerait plus. C'est une
+consequence a connaitre avant de cliquer.
+
+**Une course reelle.** Desactiver `a2a` a echoue au premier essai —
+« toolset inconnu du runtime » — et reussi au second. `a2a` est un toolset
+de **plugin**, et `valid_toolsets` depend de
+`_get_plugin_toolset_keys()`, donc de la decouverte des plugins dans le
+processus gateway interroge. La course existe.
+
+Elle n'est pas maquillee : le runtime rend `200` avec le nom dans `unknown`
+et `changed` vide, et le service en fait un **refus** avec sa raison, que
+l'interface affiche. Le lire comme un succes aurait montre un basculement
+qui n'a pas eu lieu — le pire des deux comportements.
+
+### Preuves
+
+Clic reel dans Cerveau · Outils : `config.yaml` change d'empreinte, et un
+processus neuf voit le toolset actif. Le refus s'affiche quand le runtime
+refuse. Etat d'origine restaure a la fin (`a2a` desactive, verifie).
+
+Huit mutations, huit rouges — dont « une approbation entre au contrat »,
+qui garde le blocage lui-meme.
+
+### Ce qui reste
+
+Le steering et l'interruption butent sur la meme condition que les
+approbations : ils exigent un tour **vivant**. Le chat est donc la
+prochaine capacite a traiter, et il en debloque trois d'un coup —
+approbations, steering, interruption. Les autres surfaces sans
+consommateur : `mcp` (11 methodes), `groups` (18, endpoint non configure),
+`projects` (15), `learning`, `skills`.
+
 ## HOS-269 — Deux tranches choisies par la mesure, deux ecartees par elle (2026-09-09)
 
 G-20. Le registre expose 206 methodes. La question n'etait pas « lesquelles

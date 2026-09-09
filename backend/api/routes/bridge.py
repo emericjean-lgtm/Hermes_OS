@@ -78,6 +78,20 @@ async def renommer(cle: str, corps: dict | None = None) -> JSONResponse:
         mutations_agent.renommer_session(cle, str((corps or {}).get("titre") or "")))
 
 
+@router.post("/bridge/agent/toolsets/{nom}",
+             summary="Activer ou désactiver un toolset du cerveau")
+async def basculer_toolset(nom: str, corps: dict | None = None) -> JSONResponse:
+    """Écrit `config.yaml` côté agent — donc porte sur les missions.
+
+    Le premier appel fige les défauts du jour dans le fichier : le
+    round-trip YAML matérialise les toolsets implicites. Rien n'est perdu.
+    """
+    from backend.services import mutations_agent
+
+    actif = bool((corps or {}).get("actif"))
+    return JSONResponse(mutations_agent.basculer_toolset(nom, actif))
+
+
 @router.post("/bridge/agent/sessions/{cle}/brancher",
              summary="Demander à l'agent de brancher une session")
 async def brancher(cle: str, corps: dict | None = None) -> JSONResponse:

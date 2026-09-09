@@ -272,6 +272,17 @@ export function useRenommerSession() {
   });
 }
 
+export function useBasculerToolset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nom, actif }: { nom: string; actif: boolean }) =>
+      bridgeClient.basculerToolset(nom, actif),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bridge", "agent"] });
+    },
+  });
+}
+
 export function useRefreshBridgeCapabilities() {
   const qc = useQueryClient();
   return useMutation({
