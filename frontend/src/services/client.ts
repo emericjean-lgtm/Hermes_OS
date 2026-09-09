@@ -678,6 +678,14 @@ export interface BridgeCapabilityDTO {
   complete: boolean;
 }
 
+// Une surface dont la capacite existe dans l'agent mais qu'aucune methode
+// du gateway n'expose — verifie contre le registre entier, pas contre un
+// nom devine. Corriger la matrice ne doit pas faire disparaitre l'absence.
+export interface BridgeSansRpcDTO {
+  nom: string;
+  raison: string;
+}
+
 export interface BridgeNegotiationDTO {
   empreinte: string;
   version: string;
@@ -686,6 +694,7 @@ export interface BridgeNegotiationDTO {
   negociee: boolean;
   erreur: string | null;
   capacites: BridgeCapabilityDTO[];
+  sans_rpc: BridgeSansRpcDTO[];
 }
 
 // Ce que le cerveau porte : sessions, outils, profils, delegation,

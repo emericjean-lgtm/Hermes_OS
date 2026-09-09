@@ -1,3 +1,108 @@
+## HOS-268 — La matrice mesurait notre vocabulaire, pas le runtime (2026-09-09)
+
+G-19. HOS-267 avait consigne qu'il restait a verifier les noms sondes,
+apres la decouverte que le fork existait sous `session.branch`. Cette passe
+les confronte tous au registre reel.
+
+### Le releve
+
+`tui_gateway.server` tient un dictionnaire `_methods`. On le vide, avec
+**l'interpreteur de l'agent** — le notre n'a aucune de ses dependances.
+
+    206 methodes enregistrees sur v0.21.0
+    le pont en sondait 62
+
+Deux pieges rencontres en construisant le releveur, tous deux du genre qui
+donne un inventaire partiel avec l'assurance d'etre complet :
+
+- une premiere version lisait les decorateurs sur l'arbre syntaxique et
+  n'en voyait que **110 sur 206**, faute de connaitre `_room_method`,
+  `_rpc` et leurs pareils. Un inventaire partiel est pire qu'aucun ;
+- `print` ne ressort pas : `hermes_bootstrap` detourne `stdout`, qui est le
+  canal JSON-RPC. Mesure : `stdout` vide, la liste entiere sur `stderr`. Le
+  releve passe donc par un fichier — dependre d'un flux qu'un autre
+  programme possede, c'est dependre de son implementation.
+
+### Ce que la confrontation a montre
+
+Sur les trois surfaces declarees absentes, **les trois noms avaient ete
+inventes** :
+
+    session.fork     n'existe pas -> mais le fork existe : session.branch
+    memory.list      n'existe pas -> et aucune methode memory.* n'existe
+    memory.manage    n'existe pas
+    subagent.start   n'existe pas -> et rien ne lance de subagent
+
+Les deux dernieres absences se confirment, mais elles ne prouvaient rien
+avant : mesurer l'absence d'un nom qu'on vient d'inventer ne dit rien du
+runtime. Elles sont desormais etablies contre les 206.
+
+Et la sous-couverture etait massive :
+
+    mcp        11 methodes,  1 declaree
+    browser     5 methodes,  1 declaree
+    session    30 methodes,  5 declarees
+    groups     18 methodes,  0 declaree   (le Bot-a-Bot existe)
+    projects   15 methodes,  2 declarees
+
+La matrice annoncait « 15 completes sur 18 ». Reconstruite depuis le
+registre : **19 sur 19**. Elle ne mesurait pas le runtime, elle mesurait
+notre vocabulaire.
+
+### Absent ne disait pas une chose, mais deux
+
+« Absente » melangeait « le runtime ne sait pas le faire » et « le runtime
+le fait sans nous laisser le demander ». `SANS_RPC` porte la seconde, avec
+ce qui a ete cherche :
+
+- **memory** — aucune methode `memory.*`. La capacite existe comme **outil
+  interne** (`tools/memory_tool.py`), et figure dans les toolsets actifs que
+  `groups.capabilities` publie. L'agent s'en sert ; Hermes OS ne peut ni la
+  lire ni l'ecrire par le pont ;
+- **spawn de subagent** — rien ne lance de subagent. `spawn_tree.*` lit
+  l'arbre, `subagent.steer`/`interrupt` pilotent un enfant existant,
+  `handoff.*` transfere. Un subagent nait de l'agent lui-meme — ce qui est
+  coherent avec la regle qui prime sur tout : le cerveau decide, l'OS
+  n'ordonne pas.
+
+**Corriger la matrice ne devait pas faire disparaitre l'absence.** `memory`
+s'affichait « absente » tant qu'un faux nom la representait ; retirer ce nom
+l'aurait effacee de l'ecran, remplacant une absence mal nommee par un
+silence — pire, puisqu'un operateur en conclurait qu'elle est disponible.
+La negociation porte donc `sans_rpc`, et le panneau l'affiche. Une mutation
+a trouve ce trou : supprimer le champ ne faisait rougir personne.
+
+### Ce qui rend le defaut impossible a refaire
+
+Le releve est verse au depot (`config/gateway_registre.json`), date et
+empreint. Trois gardes :
+
+- tout nom declare doit exister dans le registre — c'est celle qui aurait
+  attrape `session.fork` le premier jour ;
+- une surface `SANS_RPC` ne doit avoir **aucune** methode dans le registre
+  entier, et doit dire ce qui a ete cherche ;
+- le releve doit correspondre a l'agent installe, sans quoi les noms sont
+  valides contre un inventaire perime — meme lecon que G-15.
+
+Six mutations, six rouges. Deux ont dû etre reecrites : l'une ne vidait que
+la premiere phrase d'une justification qui restait longue, l'autre visait le
+nom d'une methode cliente la ou la garde cherche une URL. Un mutant qui ne
+cree pas le defaut ne mesure pas le garde-fou.
+
+Deux tests de HOS-265 ont rougi : ils verifiaient « une capacite partielle
+n'est pas complete » **sur `delegation` et `memory`**, c'est-a-dire sur des
+donnees de la matrice plutot que sur la regle. Decouples d'une surface
+d'essai : la propriete ne doit pas dependre de la surface qui se trouve
+etre partielle aujourd'hui.
+
+### Ce que cela ne change pas
+
+Aucune des surfaces nouvellement exactes n'est **integree** pour autant :
+`groups`, `mcp` et les vingt-cinq methodes de session que le pont ignorait
+restent PLANNED, faute de consommateur frontend. La matrice dit desormais la
+verite sur ce que le runtime expose ; elle ne dit pas que Hermes OS s'en
+sert.
+
 ## HOS-267 — Qui est autorite sur l'etat de Hermes Agent (2026-09-09)
 
 G-18. HOS-266 avait laisse les mutations PLANNED faute d'avoir tranche

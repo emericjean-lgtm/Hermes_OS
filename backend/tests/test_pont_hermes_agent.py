@@ -80,29 +80,44 @@ def test_une_absence_de_reponse_ne_s_arrondit_pas_vers_le_haut():
 
 # ── Ce que la negociation en fait ─────────────────────────────────────
 
-def test_une_capacite_partielle_ne_se_declare_pas_complete(monkeypatch, magasin):
-    """`delegation` sait piloter un subagent sans savoir en lancer un.
+#: Une surface de test, posee exprès plutot que prise dans la vraie
+#: matrice : ces deux tests portent sur la **propriete** « partielle n'est
+#: pas complete », pas sur la surface qui se trouve etre partielle
+#: aujourd'hui. Les coupler a la matrice reelle les a fait rougir en G-19
+#: quand elle a ete corrigee — ils mesuraient une donnee, pas une regle.
+_SURFACE_ESSAI = ("a.une", "a.deux", "a.trois")
+
+
+@pytest.fixture
+def matrice_d_essai(monkeypatch):
+    monkeypatch.setitem(pont.METHODES_PAR_CAPACITE, "essai", _SURFACE_ESSAI)
+    return _SURFACE_ESSAI
+
+
+def test_une_capacite_partielle_ne_se_declare_pas_complete(
+        monkeypatch, magasin, matrice_d_essai):
+    """Piloter sans pouvoir lancer, c'est une capacite partielle.
 
     L'annoncer « disponible » sans plus serait un mensonge d'interface : le
     cockpit proposerait une action que le runtime ne sert pas.
     """
     reponses = {m: True for groupe in pont.METHODES_PAR_CAPACITE.values()
                 for m in groupe}
-    reponses["subagent.start"] = False
-    capacite = _pont(monkeypatch, reponses).negocier().capacite("delegation")
+    reponses["a.trois"] = False
+    capacite = _pont(monkeypatch, reponses).negocier().capacite("essai")
     assert capacite is not None
     assert capacite.disponible is True
     assert capacite.complete is False
-    assert "subagent.start" in capacite.methodes_absentes
+    assert "a.trois" in capacite.methodes_absentes
 
 
-def test_une_capacite_entierement_absente_n_est_pas_disponible(monkeypatch,
-                                                               magasin):
+def test_une_capacite_entierement_absente_n_est_pas_disponible(
+        monkeypatch, magasin, matrice_d_essai):
     reponses = {m: True for groupe in pont.METHODES_PAR_CAPACITE.values()
                 for m in groupe}
-    for m in pont.METHODES_PAR_CAPACITE["memory"]:
+    for m in _SURFACE_ESSAI:
         reponses[m] = False
-    capacite = _pont(monkeypatch, reponses).negocier().capacite("memory")
+    capacite = _pont(monkeypatch, reponses).negocier().capacite("essai")
     assert capacite is not None and capacite.disponible is False
 
 

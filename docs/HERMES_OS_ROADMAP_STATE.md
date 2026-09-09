@@ -15,14 +15,14 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
-                      §16 🟡 (HOS-265/266/267) — le pont, cinq
-                      surfaces servies, et l'autorité tranchée
+                      §16 🟡 (HOS-265→268) — le pont, cinq surfaces
+                      servies, l'autorité tranchée, la matrice exacte
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      e5928f3 (§16, HOS-266) — dernier commit
-                               de code avant G-18
+BASELINE:                      91c1424 (G-18 fermé, HOS-267) — dernier
+                               commit de code avant G-19
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -55,6 +55,9 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                autorité sur `state.db`, Hermes OS demande
                                et trace ; une mutation intégrée de bout
                                en bout ; G-19 ouvert
+                               G-19 fermé (HOS-268) — 206 méthodes
+                               relevées, matrice reconstruite 19/19 ;
+                               G-20 ouvert
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -110,6 +113,16 @@ qu'on a demandé** à Hermes OS. Hermes OS demande donc au propriétaire et
 trace sa demande dans son propre bus — il n'ouvre jamais `state.db`, et deux
 gardes structurelles l'en empêchent. Une mutation additive
 (`session.branch`, le fork) est intégrée de bout en bout, clic réel vérifié.
+
+**HOS-268 a corrigé la matrice elle-même (G-19).** Relevé du registre réel
+du runtime : **206 méthodes**, là où le pont en sondait 62 — et les trois
+surfaces déclarées absentes l'étaient sur des noms **inventés**. La matrice
+mesurait notre vocabulaire, pas le runtime ; reconstruite depuis le
+registre, elle compte **19 surfaces, 19 complètes**. Les deux absences qui
+subsistent — la mémoire, et le lancement d'un subagent — sont vérifiées
+contre les 206 et portent leur preuve, au lieu de disparaître de l'écran.
+Le relevé est versé au dépôt, daté et empreint ; trois gardes interdisent
+qu'un nom inventé y rentre.
 
 **§15 — Hermes Assistant — a été créée le 2026-09-05 et n'est pas la
 section active.** Elle est une couche produit qui consomme §1→§13 ; la
@@ -191,7 +204,8 @@ mentirait sur ce qu'il fait.
 | 120 routes `/api/v1` sur 306 sans appelant frontend (G-16) | technical debt | §15/§16 |
 | Le pont négocie 12 surfaces qu'aucun service n'expose (G-17) | architectural | §16 |
 | ~~L'autorité sur l'état de l'agent n'est pas tranchée (G-18)~~ — **fermé HOS-267** | architectural | §16 |
-| Le fork était déclaré absent sur la foi d'un nom (G-19) | technical debt | §16 |
+| ~~Le fork était déclaré absent sur la foi d'un nom (G-19)~~ — **fermé HOS-268** | technical debt | §16 |
+| 14 surfaces exactes et sans consommateur frontend (G-20) | architectural | §16 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |

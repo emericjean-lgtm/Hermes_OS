@@ -548,8 +548,20 @@ lance l'agent en un coup par tâche et meurt ; le gateway vit, émet
 
 **Négociation, et non déclaration.** `-32601` prouve une absence ; toute
 autre réponse — résultat ou erreur applicative — prouve une présence.
-Mesuré : **54 méthodes présentes, 8 absentes**, regroupées en 18 surfaces
-à trois états (complète / partielle / absente), dont **15 complètes**.
+
+**Mais la négociation ne vaut que ce que valent les noms sondés** (G-19,
+HOS-268). Relevé du registre réel : **206 méthodes** sur v0.21.0, là où le
+pont en sondait 62, et les trois surfaces déclarées absentes l'étaient sur
+des noms **inventés**. Reconstruite depuis le registre — versé au dépôt,
+daté et empreint dans `config/gateway_registre.json` — la matrice compte
+**19 surfaces, 19 complètes**. Elle mesurait notre vocabulaire.
+
+Deux surfaces sont `SANS_RPC` : la capacité existe dans l'agent, aucune
+méthode ne l'expose. `memory` est un **outil interne** (`tools/memory_tool.py`,
+présent dans les toolsets actifs) ; **rien ne lance un subagent** —
+`spawn_tree.*` lit l'arbre, `subagent.steer`/`interrupt` pilotent un enfant
+existant. Un subagent naît de l'agent, ce qui est cohérent avec la règle qui
+prime sur tout.
 
 ### La matrice, honnêtement
 
@@ -1058,7 +1070,8 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | **G-16** | **technical debt** | 120 routes `/api/v1` sur 306 n'ont aucun appelant frontend | §15/§16 | mesuré le 2026-09-07, instrument corrigé deux fois ; gelé comme dette dans `test_pas_de_backend_orphelin.py`, qui interdit désormais d'en ajouter |
 | **G-17** | **architectural** | Le pont négocie 12 surfaces qu'aucun service n'expose | §16 | **réduit de 17 à 12 par HOS-266** : sessions, tools, profiles, delegation et cron ont désormais route, client et UI. Restent chat/streaming, steering, approvals, skills, learning, MCP, browser, projects, config, insights |
 | ~~**G-18**~~ | ~~architectural~~ | ~~L'autorité sur l'état de l'agent n'est pas tranchée~~ — **fermé HOS-267** | §16 | contrat établi par la mesure : l'agent est seul autorité sur `state.db`, Hermes OS demande et trace sa demande dans son propre bus. Une mutation additive intégrée de bout en bout, deux gardes structurelles, 10 mutations rouges |
-| **G-19** | **technical debt** | Le fork était déclaré absent sur la foi d'un nom | §16 | `session.fork` n'existe pas, `session.branch` si — la négociation mesurait juste, la liste des noms à sonder était écrite de mémoire. Corrigé ; reste à vérifier que les 17 autres noms sondés sont bien ceux du runtime |
+| ~~**G-19**~~ | ~~technical debt~~ | ~~Le fork était déclaré absent sur la foi d'un nom~~ — **fermé HOS-268** | §16 | 206 méthodes relevées, matrice reconstruite (19/19), trois gardes interdisent qu'un nom inventé y rentre. Les deux absences restantes sont vérifiées contre le registre entier et portent leur preuve |
+| **G-20** | **architectural** | Le pont expose 19 surfaces exactes dont 14 sans consommateur | §16 | `groups` (18 méthodes, le Bot-à-Bot), `mcp` (11), et 25 des 30 méthodes de session sont désormais correctement nommées et n'ont ni route, ni client, ni UI. La matrice dit la vérité sur le runtime, pas sur ce que Hermes OS en fait |
 | G-13 | **technical debt** | Deux dimensions sur cinq du score modèle sont inertes | §6 | `_get_records_for_task` rend `[]` en dur ; `_compute_speed_score` rend 0,000 pour les six profils |
 
 ---
@@ -1172,3 +1185,4 @@ des passes ne sont pas reconstituées.
 | 2026-09-07 | `116f603` | §16 créée — le pont Hermes Agent, infrastructure transverse sans autorité nouvelle. Agent migré 0.20.0 → 0.21.0 (31 918 commits, état persistant intact, suite inchangée). Capacités **négociées** contre le gateway et non déclarées : 54 méthodes présentes, 8 absentes, 15 surfaces complètes sur 18. Une seule chaîne complète jusqu'au frontend ; les autres restent PLANNED. Règle anti-orphelin posée : 120 routes sur 306 sans appelant frontend, gelées comme dette. G-16 et G-17 ouverts en chemin. |
 | 2026-09-09 | `e2d66f9` | §16 avance : le pont sait **demander** et non plus seulement négocier — une connexion vivante, des réponses corrélées, des événements collectés. Cinq surfaces passent de « négociée » à **démontrée** en lecture : sessions (200), toolsets (62, dont 8 actifs), profils, délégation, routines, servies par une route unique et un Center « Cerveau ». Tout ce qui écrit dans l'état de l'agent reste PLANNED : G-18 ouvert, G-17 réduit de 17 à 12. |
 | 2026-09-09 | `e5928f3` | **G-18 fermé.** Contrat d'autorité établi par la mesure : `session.resume` n'écrit rien (activation, handle éphémère), `session.branch` écrit additivement. Hermes OS demande au propriétaire et trace sa demande dans son propre bus — jamais dans `state.db`. Une mutation intégrée de bout en bout, clic réel vérifié. Le fork existait sous le nom `session.branch` : 16 surfaces sur 18. G-19 ouvert. |
+| 2026-09-09 | `91c1424` | **G-19 fermé.** Relevé du registre réel : 206 méthodes contre 62 sondées, et les trois surfaces « absentes » l'étaient sur des noms inventés. Matrice reconstruite depuis le runtime — 19 surfaces, 19 complètes — et `SANS_RPC` distingue « le runtime ne sait pas » de « le runtime ne nous laisse pas demander ». Relevé versé au dépôt, daté et empreint ; trois gardes empêchent qu'un nom inventé y rentre. G-20 ouvert : 14 surfaces exactes et sans consommateur. |

@@ -69,36 +69,63 @@ CODE_METHODE_INCONNUE = -32601
 #: noms sont ceux du gateway ; c'est la négociation qui dit lesquels
 #: répondent réellement, jamais cette liste.
 METHODES_PAR_CAPACITE: dict[str, tuple[str, ...]] = {
-    "chat": ("prompt.submit",),
-    "sessions": ("session.status", "session.resume", "session.list",
-                 "session.save", "session.title"),
-    # `session.fork` n'existe pas — mais le fork, si : il s'appelle
-    # `session.branch`. HOS-265 avait conclu « pas de RPC » sur la foi du
-    # nom sondé, et se trompait : la négociation disait vrai sur ce qu'elle
-    # mesurait, c'est la liste des noms qui était fausse. Mesuré le
-    # 2026-09-09 : `session.branch` écrit une vraie ligne dans `state.db`,
-    # retrouvée par un processus neuf.
+    "chat": ("prompt.submit", "prompt.background"),
+    "sessions": ("session.list", "session.status", "session.resume",
+                 "session.history", "session.save", "session.title",
+                 "session.most_recent"),
     "fork": ("session.branch",),
-    "steering": ("session.steer", "session.interrupt"),
-    "approvals": ("approval.respond", "clarify.respond", "secret.respond"),
-    "tools": ("tools.list", "toolsets.list", "tools.configure"),
+    "steering": ("session.steer", "session.interrupt", "session.redirect"),
+    "approvals": ("approval.pending", "approval.received", "approval.respond",
+                  "clarify.respond", "secret.respond", "sudo.respond"),
+    "tools": ("tools.list", "tools.show", "tools.configure", "toolsets.list"),
     "skills": ("skills.manage", "skills.reload"),
-    "learning": ("learning.frames", "learning.detail"),
-    "memory": ("memory.list", "memory.manage"),
-    # `subagent.start` est listé bien qu'absent : c'est ce qui fait
-    # apparaître `delegation` comme PARTIELLE plutôt que COMPLETE. On
-    # peut piloter un subagent, pas en lancer un — l'omettre rendrait
-    # la négociation flatteuse, ce qui est le contraire de son objet.
-    "delegation": ("delegation.status", "subagent.start",
-                   "subagent.steer", "subagent.interrupt"),
-    "mcp": ("reload.mcp",),
+    "learning": ("learning.frames", "learning.detail", "learning.edit",
+                 "learning.delete"),
+    "delegation": ("delegation.status", "delegation.pause",
+                   "subagent.steer", "subagent.interrupt",
+                   "spawn_tree.list"),
+    "mcp": ("mcp.catalog", "mcp.servers.list", "mcp.servers.add",
+            "mcp.servers.remove", "mcp.servers.status", "mcp.servers.test",
+            "reload.mcp"),
     "cron": ("cron.manage",),
-    "profiles": ("profiles.list", "profiles.create", "profiles.configure"),
-    "projects": ("projects.list", "projects.get"),
-    "browser": ("browser.manage",),
-    "commands": ("commands.catalog",),
-    "config": ("config.show",),
-    "insights": ("insights.get", "verification.status"),
+    "profiles": ("profiles.list", "profiles.describe", "profiles.create",
+                 "profiles.configure"),
+    "groupes": ("groups.capabilities", "groups.list", "groups.create",
+                "groups.state", "groups.send", "groups.disband"),
+    "projects": ("projects.list", "projects.get", "projects.create",
+                 "projects.tree"),
+    "browser": ("browser.manage", "browser.controller.register",
+                "browser.controller.result"),
+    "commands": ("commands.catalog", "command.dispatch", "slash.exec"),
+    "config": ("config.show", "config.get", "config.set"),
+    "insights": ("insights.get", "verification.status", "usage.bars"),
+    "multimodal": ("image.attach", "image.generate", "pdf.attach",
+                   "voice.record", "voice.tts"),
+}
+
+#: Surfaces dont la **capacite existe dans l'agent** mais qu'aucune methode
+#: du gateway n'expose. Verifie contre le registre complet — 206 methodes
+#: relevees sur v0.21.0 — et non contre un nom devine.
+#:
+#: La distinction compte : « absente » disait jusqu'ici deux choses tres
+#: differentes, « le runtime ne sait pas le faire » et « le runtime le fait
+#: sans nous laisser le demander ». La seconde n'interdit pas la capacite au
+#: produit ; elle interdit seulement a Hermes OS de la piloter.
+SANS_RPC: dict[str, str] = {
+    "memory": (
+        "aucune methode `memory.*` dans le registre. La memoire existe "
+        "comme **outil interne** de l'agent (`tools/memory_tool.py`, "
+        "`memory_tool_store.py`) et figure dans les toolsets actifs que "
+        "`groups.capabilities` publie. L'agent s'en sert ; Hermes OS ne "
+        "peut ni la lire ni l'ecrire par le pont."
+    ),
+    "spawn_de_subagent": (
+        "aucune methode ne lance un subagent. `spawn_tree.*` lit l'arbre, "
+        "`subagent.steer`/`interrupt` pilotent un enfant existant, "
+        "`handoff.*` transfere. Un subagent nait de l'agent lui-meme, sur "
+        "sa propre decision — ce qui est coherent avec la regle qui prime "
+        "sur tout : le cerveau decide, l'OS n'ordonne pas."
+    ),
 }
 
 
@@ -191,6 +218,12 @@ class NegociationRuntime:
             "commit": self.commit, "mesure_le": self.mesure_le,
             "negociee": self.negociee, "erreur": self.erreur,
             "capacites": [c.as_dict() for c in self.capacites],
+            # Corriger la matrice ne doit pas faire **disparaitre** une
+            # absence honnete : `memory` s'affichait « absente » et
+            # aurait cesse d'exister a l'ecran une fois son faux nom
+            # retire. Elle est donc portee ici, avec ce qui a ete cherche.
+            "sans_rpc": [{"nom": n, "raison": r}
+                         for n, r in sorted(SANS_RPC.items())],
         }
 
 

@@ -106,6 +106,27 @@ export function BridgeCapabilities() {
         </div>
       </div>
 
+      {(data?.sans_rpc?.length ?? 0) > 0 && (
+        <div className="mb-2 space-y-1">
+          {data!.sans_rpc.map((s) => (
+            <div
+              key={s.nom}
+              className="flex items-start gap-2 border border-hermes-border/60 px-2.5 py-2"
+            >
+              <div className="min-w-0">
+                <div className="text-[11px] font-mono text-hermes-text">
+                  {s.nom}
+                </div>
+                <div className="text-[10px] font-mono text-hermes-dim">
+                  {s.raison}
+                </div>
+              </div>
+              <Badge variant="default">sans RPC</Badge>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2">
         {capacites.map((c, i) => {
           const etat = etatDe(c);
