@@ -15,14 +15,14 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
-                      §16 🟡 (HOS-265→268) — le pont, cinq surfaces
-                      servies, l'autorité tranchée, la matrice exacte
+                      §16 🟡 (HOS-265→269) — le pont, la matrice
+                      exacte, lire et renommer une session
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      91c1424 (G-18 fermé, HOS-267) — dernier
-                               commit de code avant G-19
+BASELINE:                      4afc77c (G-19 fermé, HOS-268) — dernier
+                               commit de code avant G-20
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -58,6 +58,9 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                G-19 fermé (HOS-268) — 206 méthodes
                                relevées, matrice reconstruite 19/19 ;
                                G-20 ouvert
+                               G-20 avancé (HOS-269) — lire et renommer
+                               une session intégrés ; deux candidates
+                               écartées par la mesure ; G-21 ouvert
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -123,6 +126,16 @@ subsistent — la mémoire, et le lancement d'un subagent — sont vérifiées
 contre les 206 et portent leur preuve, au lieu de disparaître de l'écran.
 Le relevé est versé au dépôt, daté et empreint ; trois gardes interdisent
 qu'un nom inventé y rentre.
+
+**HOS-269 a transformé le relevé en produit (G-20).** Deux tranches
+verticales intégrées — **lire** une session et la **renommer** — et surtout
+**deux écartées par la mesure avant d'écrire une ligne** : `delegation.pause`
+est un global du processus gateway (pause posée dans une connexion, `False`
+lue dans une autre, donc un bouton qui briderait un processus où aucune
+mission ne tourne), et rien ne lance un subagent par RPC — c'est un outil
+que l'agent s'appelle. La mémoire reste sans couture : aucune méthode dans
+les 206, la capacité vivant côté agent, d'où **G-21** — Hermes OS ne peut
+lui appliquer ni provenance, ni quarantaine, ni promotion.
 
 **§15 — Hermes Assistant — a été créée le 2026-09-05 et n'est pas la
 section active.** Elle est une couche produit qui consomme §1→§13 ; la
@@ -205,7 +218,8 @@ mentirait sur ce qu'il fait.
 | Le pont négocie 12 surfaces qu'aucun service n'expose (G-17) | architectural | §16 |
 | ~~L'autorité sur l'état de l'agent n'est pas tranchée (G-18)~~ — **fermé HOS-267** | architectural | §16 |
 | ~~Le fork était déclaré absent sur la foi d'un nom (G-19)~~ — **fermé HOS-268** | technical debt | §16 |
-| 14 surfaces exactes et sans consommateur frontend (G-20) | architectural | §16 |
+| 12 surfaces exactes et sans consommateur frontend (G-20) | architectural | §16 |
+| La mémoire de l'agent échappe à la provenance Hermes OS (G-21) | architectural | §8/§16 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |

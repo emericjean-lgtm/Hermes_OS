@@ -1,3 +1,111 @@
+## HOS-269 — Deux tranches choisies par la mesure, deux ecartees par elle (2026-09-09)
+
+G-20. Le registre expose 206 methodes. La question n'etait pas « lesquelles
+sont faciles a brancher » mais « lesquelles valent quelque chose une fois
+branchees ». Deux candidates evidentes ont ete **ecartees par la mesure
+avant d'ecrire une ligne**.
+
+### Ce qui a ete ecarte, et pourquoi
+
+**`delegation.pause`** semblait la tranche ideale : une methode, une valeur
+d'operateur claire, dans les priorites du chantier. `_spawn_paused` est un
+**global de module dans le processus gateway**. Mesure :
+
+    connexion A : delegation.pause(True)  -> paused = True
+    connexion B : delegation.status        -> paused = False
+
+Un bouton du cockpit aurait donc bride le gateway du pont — un processus ou
+**aucune mission ne tourne**, les missions passant par `hermes_agent_cli`.
+C'est exactement « une UI qui simule une mutation ». Non integree, et le
+contrat de mutation ne la porte pas ; un test l'interdit nommement.
+
+**Le lancement d'un subagent** n'existe pas comme RPC. Verifie dans le
+source : c'est `delegate_tool.py`, un **outil que l'agent appelle
+lui-meme**, avec `MAX_DEPTH = 1`. Hermes OS peut observer
+(`delegation.status`, `spawn_tree.list`) et piloter un enfant existant
+(`subagent.steer`, `interrupt`) — jamais en creer. Ce qui est coherent avec
+la regle qui prime sur tout : le cerveau decide, l'OS n'ordonne pas.
+
+**`groups` / Bot-a-Bot** existe — 18 methodes, protocole v2 — mais
+`groups.capabilities` rend `endpoint: {available: false, reason:
+not_configured}` et `groups.list` rend zero salon. Le raccorder afficherait
+une surface vide sur une transport non configure. PLANNED.
+
+**Memory** reste sans couture : aucune methode `memory.*` dans les 206. La
+capacite vit dans `tools/memory_tool.py` et son magasin, cote agent, et
+figure dans les toolsets actifs. Hermes OS ne peut ni la lire ni l'ecrire
+par le pont — donc ni lui appliquer sa provenance, ni sa quarantaine, ni sa
+promotion. Le blocage est franc et documente ; fabriquer une API `memory.*`
+serait exactement ce que G-19 interdit.
+
+### Les deux tranches retenues
+
+Les sessions, ou la valeur etait immediate : le cockpit affichait un
+inventaire de conversations **qu'on ne pouvait pas ouvrir**.
+
+**Lire une session.** `session.history` est `live=True` : lire exige
+d'activer d'abord. Les deux gestes appartiennent a l'agent ; Hermes OS les
+demande dans l'ordre, avec le handle runtime pour le second. L'activation
+n'ecrit rien (G-18), ce qui laisse la lecture dans une **vue**.
+
+**Renommer une session.** Deuxieme mutation du contrat G-18, et elle en
+verifie l'extensibilite : meme enchainement, meme regle — un refus du
+runtime est un resultat. Un titre vide est refuse **avant tout envoi** :
+`session.title` sans titre *lit* le titre au lieu de l'ecrire, donc envoyer
+une chaine vide n'aurait rien fait tout en laissant croire le contraire.
+
+### Ce que la persistance prouve, et ce qu'elle ne prouve pas
+
+G-18 avait pris le md5 de `state.db` comme preuve de mutation. Mesure sur
+le renommage : **le fichier principal ne bouge pas** — `9d72b1aff221f33c`
+avant et apres — et un processus neuf lit pourtant le nouveau titre.
+L'ecriture vit dans le WAL, qui fait partie de la base.
+
+Le md5 du fichier principal est donc un signal **suffisant et non
+necessaire**. La conclusion de G-18 tient — `session.branch` avait bien
+change le fichier — mais l'argument « `session.resume` n'ecrit rien parce
+que l'empreinte est identique » etait plus faible que presente : un WAL
+aurait pu absorber une ecriture de service. Ce qui reste etabli pour
+`resume` est ce qui compte : son handle est ephemere et la session stockee
+est intacte. La preuve fiable d'une mutation est la **relecture par un
+processus neuf**, et c'est elle qui est utilisee ici.
+
+### Un defaut trouve par la console, pas par l'oeil
+
+Le lecteur d'historique affichait correctement, et React signalait
+« Each child in a list should have a unique key ». Mesure sur une session
+reelle : un message `tool` n'a **ni `row_id`, ni `text`, ni `timestamp`** —
+il porte `name`, `args`, `context`. Deux d'entre eux collisionnaient donc
+sur une cle `undefined`, et leur contenu ne s'affichait pas du tout.
+
+Corrige : cle composite, et les appels d'outil sont rendus pour ce qu'ils
+sont — leur nom et leurs arguments. Un panneau qui montre la conversation
+sans montrer les outils appeles raconte la moitie de ce qui s'est passe.
+
+### Preuve
+
+Cockpit, Cerveau · Sessions, clics reels :
+
+- **Lire** sur « Refusal to create file » — une session de sondage de
+  HOS-264 — affiche le fil : la consigne, l'appel d'outil, la reponse, et
+  le raisonnement replie sous « voir le raisonnement » ;
+- **Renommer** — le titre change dans la liste sans rechargement, et un
+  processus neuf le relit : `20260906_080847_290a7c` porte desormais
+  « G-20 renomme depuis le cockpit ».
+
+Sept mutations, sept rouges apres correction d'un mutant qui visait le nom
+de la methode cliente la ou la regle anti-orphelin cherche une URL — la
+meme erreur qu'en HOS-267, et le meme correctif.
+
+### Ce qui reste
+
+Douze surfaces exactes restent sans consommateur. Le classement par valeur
+plutot que par nombre de methodes donne, pour la suite : le steering et
+l'interruption (mais ils exigent une session **vivante**, donc le chat), les
+approbations (`approval.pending` est lisible tout de suite), puis les
+toolsets — dont il faudra d'abord mesurer si `tools.configure` est durable
+ou process-local, comme la pause l'etait.
+
 ## HOS-268 — La matrice mesurait notre vocabulaire, pas le runtime (2026-09-09)
 
 G-19. HOS-267 avait consigne qu'il restait a verifier les noms sondes,

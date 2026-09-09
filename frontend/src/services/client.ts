@@ -727,6 +727,22 @@ export interface AgentProfileDTO {
   skill_count: number;
 }
 
+// Un message d'une session stockee. `reasoning` n'est present que sur les
+// reponses de l'assistant, et reste replie : c'est le raisonnement, pas la
+// reponse — l'afficher au meme rang tromperait sur ce qui a ete dit.
+export interface AgentMessageDTO {
+  role: string;
+  // Un message `tool` n'a ni `text`, ni `timestamp`, ni `row_id` : il porte
+  // `name`, `args` et `context`. Mesure du 2026-09-09 sur une session
+  // reelle — d'ou les champs optionnels, et le rendu distinct.
+  text?: string;
+  timestamp?: number;
+  row_id?: number;
+  reasoning?: string;
+  name?: string;
+  args?: unknown;
+}
+
 export interface AgentRoutineDTO {
   [cle: string]: unknown;
 }
@@ -774,6 +790,15 @@ export interface AgentVueDTO {
 export const bridgeClient = {
   capabilities: () => fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities"),
   agent: () => fetchJSON<AgentVueDTO>("/bridge/agent"),
+  historiqueSession: (cle: string) =>
+    fetchJSON<AgentListeDTO<AgentMessageDTO>>(
+      `/bridge/agent/sessions/${encodeURIComponent(cle)}/historique`,
+    ),
+  renommerSession: (cle: string, titre: string) =>
+    fetchJSON<AgentMutationDTO>(
+      `/bridge/agent/sessions/${encodeURIComponent(cle)}/titre`,
+      { method: "POST", body: JSON.stringify({ titre }) },
+    ),
   brancherSession: (cle: string, titre: string) =>
     fetchJSON<AgentMutationDTO>(
       `/bridge/agent/sessions/${encodeURIComponent(cle)}/brancher`,

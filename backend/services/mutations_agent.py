@@ -128,6 +128,55 @@ def brancher_session(cle_stockee: str, titre: str = "") -> dict[str, Any]:
     return applique
 
 
+def renommer_session(cle_stockee: str, titre: str) -> dict[str, Any]:
+    """Demande a l'agent de renommer une session stockee.
+
+    Deuxieme mutation du contrat G-18, et elle en verifie l'extensibilite :
+    meme enchainement — activation par le proprietaire, puis mutation — et
+    meme regle, un refus du runtime est un resultat.
+    """
+    titre = titre.strip()
+    demande = {"methode": "session.title", "cle_stockee": cle_stockee,
+               "titre": titre}
+    _tracer("bridge.mutation.demandee", demande)
+    if not titre:
+        return _refus(demande, "un titre vide effacerait le nom sans le "
+                               "remplacer")
+
+    pont = _pont()
+    try:
+        activation = pont.appeler("session.resume",
+                                  {"session_id": cle_stockee}, timeout=120)
+    except Exception as exc:  # noqa: BLE001
+        return _refus(demande, f"activation impossible : {exc}")
+    if "error" in activation:
+        erreur = activation["error"]
+        return _refus(demande, f"activation refusee ({erreur.get('code')}): "
+                               f"{erreur.get('message')}")
+    handle = (activation.get("result") or {}).get("session_id") or ""
+    if not handle:
+        return _refus(demande, "activation sans handle runtime")
+
+    try:
+        reponse = pont.demander_mutation(
+            "session.title", {"session_id": handle, "title": titre},
+            timeout=60)
+    except Exception as exc:  # noqa: BLE001
+        return _refus(demande, f"{type(exc).__name__}: {exc}")
+    if "error" in reponse:
+        erreur = reponse["error"]
+        return _refus(demande, f"refus du runtime ({erreur.get('code')}): "
+                               f"{erreur.get('message')}")
+
+    applique = {"applique": True, "erreur": None,
+                "cle_stockee": cle_stockee, "parent": None,
+                "titre": (reponse.get("result") or {}).get("title") or titre,
+                "messages": None}
+    _tracer("bridge.mutation.appliquee",
+            {**demande, "resultat": {"cle_stockee": cle_stockee}})
+    return applique
+
+
 def _refus(demande: dict, raison: str) -> dict[str, Any]:
     """Un refus est un résultat, pas une panne — et il se trace aussi."""
     logger.info("mutation refusee : %s", raison)

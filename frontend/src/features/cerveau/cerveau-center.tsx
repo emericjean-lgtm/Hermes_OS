@@ -17,14 +17,22 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Card, Badge } from "@/components/ui/card";
 import { CenterHeader, PanelLoading } from "@/components/center-scaffold";
-import { useAgentVue, useBrancherSession } from "@/hooks/use-api";
+import {
+  useAgentVue,
+  useBrancherSession,
+  useHistoriqueSession,
+  useRenommerSession,
+} from "@/hooks/use-api";
 import type {
   AgentListeDTO,
   AgentSessionDTO,
   AgentToolsetDTO,
   AgentProfileDTO,
 } from "@/services/client";
-import { History, Wrench, Bot, GitBranch, Clock, Split } from "lucide-react";
+import { PanelLoading as Chargement } from "@/components/center-scaffold";
+import {
+  History, Wrench, Bot, GitBranch, Clock, Split, BookOpen, Pencil, X,
+} from "lucide-react";
 
 type Vue = "sessions" | "outils" | "bots" | "delegation" | "routines";
 
@@ -77,7 +85,7 @@ function Compte({ liste }: { liste: AgentListeDTO<unknown> }) {
   );
 }
 
-function horodatage(secondes: number): string {
+function horodatage(secondes?: number): string {
   if (!secondes) return "—";
   return new Date(secondes * 1000).toLocaleString("fr-FR", {
     dateStyle: "short",
@@ -142,8 +150,97 @@ export function CerveauCenter() {
   );
 }
 
+/** Le fil d'une session stockee, lu a la demande. */
+function Historique({ cle, titre, onFermer }: {
+  cle: string; titre: string; onFermer: () => void;
+}) {
+  const { data, isLoading, isError, error } = useHistoriqueSession(cle);
+  const [deplie, setDeplie] = useState<number | null>(null);
+
+  return (
+    <div className="mb-3 border border-hermes-sodium/40 bg-hermes-sodium/[0.04]">
+      <div className="flex items-center justify-between gap-3 px-2.5 py-2 border-b border-hermes-border/60">
+        <span className="text-[11px] font-mono text-hermes-text truncate">
+          {titre || cle}
+        </span>
+        <button
+          onClick={onFermer}
+          aria-label="Fermer la session"
+          className="shrink-0 text-hermes-muted hover:text-hermes-text"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      {isLoading ? (
+        <Chargement />
+      ) : isError ? (
+        <div className="px-2.5 py-3 text-[11px] font-mono text-hermes-alarm break-all">
+          {error instanceof Error ? error.message : "Endpoint injoignable"}
+        </div>
+      ) : !data?.disponible ? (
+        <Indisponible erreur={data?.erreur ?? null} />
+      ) : !data.elements.length ? (
+        <Vide quoi="message" />
+      ) : (
+        <div className="max-h-[420px] overflow-y-auto divide-y divide-hermes-border/40">
+          {/* `row_id` seul ne suffit pas comme cle : un message `tool` n'en
+              a pas, et deux d'entre eux collisionnaient sur `undefined` —
+              React l'a signale en console, pas l'oeil. */}
+          {data.elements.map((m, i) => (
+            <div key={`${m.row_id ?? "tool"}-${i}`} className="px-2.5 py-2">
+              <div className="flex items-baseline gap-2">
+                <Badge variant={m.role === "user" ? "info" : "default"}>
+                  {m.role}
+                </Badge>
+                {m.name && (
+                  <span className="text-[10px] font-mono text-hermes-sodium">
+                    {m.name}
+                  </span>
+                )}
+                {m.timestamp ? (
+                  <span className="text-[10px] font-mono text-hermes-dim tabular-nums">
+                    {horodatage(m.timestamp)}
+                  </span>
+                ) : null}
+              </div>
+              {m.text ? (
+                <div className="pt-1 text-[11px] font-mono text-hermes-text whitespace-pre-wrap break-words">
+                  {m.text}
+                </div>
+              ) : m.args ? (
+                <div className="pt-1 text-[10px] font-mono text-hermes-muted whitespace-pre-wrap break-all">
+                  {JSON.stringify(m.args).slice(0, 400)}
+                </div>
+              ) : null}
+              {m.reasoning && (
+                <button
+                  onClick={() =>
+                    setDeplie(deplie === m.row_id ? null : m.row_id ?? null)
+                  }
+                  className="mt-1 text-[10px] font-mono text-hermes-dim hover:text-hermes-muted"
+                >
+                  {deplie === m.row_id ? "masquer" : "voir"} le raisonnement
+                </button>
+              )}
+              {deplie === m.row_id && m.reasoning && (
+                <div className="mt-1 px-2 py-1.5 border-l-2 border-hermes-border text-[10px] font-mono text-hermes-muted whitespace-pre-wrap break-words">
+                  {m.reasoning}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Sessions({ liste }: { liste: AgentListeDTO<AgentSessionDTO> }) {
   const brancher = useBrancherSession();
+  const renommer = useRenommerSession();
+  const [ouverte, setOuverte] = useState<{ cle: string; titre: string } | null>(
+    null,
+  );
   // Le resultat de la derniere demande, refus compris : un refus du runtime
   // revient en 200 et doit se lire, pas disparaitre.
   const resultat = brancher.data;
@@ -177,6 +274,18 @@ function Sessions({ liste }: { liste: AgentListeDTO<AgentSessionDTO> }) {
             ? brancher.error.message
             : "transport injoignable"}
         </div>
+      )}
+      {renommer.data && !renommer.data.applique && (
+        <div className="mb-2 px-2.5 py-2 border border-hermes-gold/45 text-[10px] font-mono text-hermes-gold">
+          Renommage refusé : {renommer.data.erreur}
+        </div>
+      )}
+      {ouverte && (
+        <Historique
+          cle={ouverte.cle}
+          titre={ouverte.titre}
+          onFermer={() => setOuverte(null)}
+        />
       )}
       {!liste.disponible ? (
         <Indisponible erreur={liste.erreur} />
@@ -213,6 +322,37 @@ function Sessions({ liste }: { liste: AgentListeDTO<AgentSessionDTO> }) {
                 </span>
                 <button
                   onClick={() =>
+                    setOuverte({ cle: s.id, titre: s.title })
+                  }
+                  aria-label={`Lire la session ${s.title || s.id}`}
+                  className="ml-auto flex items-center gap-1 px-1.5 py-0.5 shrink-0
+                    text-[10px] font-mono border border-hermes-border
+                    text-hermes-muted hover:text-hermes-sodium
+                    hover:border-hermes-sodium/45"
+                >
+                  <BookOpen className="w-2.5 h-2.5" />
+                  Lire
+                </button>
+                <button
+                  onClick={() => {
+                    const titre = window.prompt(
+                      "Nouveau titre de la session", s.title || "");
+                    if (titre && titre.trim()) {
+                      renommer.mutate({ cle: s.id, titre: titre.trim() });
+                    }
+                  }}
+                  disabled={renommer.isPending}
+                  aria-label={`Renommer la session ${s.title || s.id}`}
+                  className="flex items-center gap-1 px-1.5 py-0.5 shrink-0
+                    text-[10px] font-mono border border-hermes-border
+                    text-hermes-muted hover:text-hermes-sodium
+                    hover:border-hermes-sodium/45 disabled:opacity-50"
+                >
+                  <Pencil className="w-2.5 h-2.5" />
+                  {renommer.isPending ? "…" : "Renommer"}
+                </button>
+                <button
+                  onClick={() =>
                     brancher.mutate({
                       cle: s.id,
                       titre: `Branche de ${s.title || s.id}`,
@@ -220,7 +360,7 @@ function Sessions({ liste }: { liste: AgentListeDTO<AgentSessionDTO> }) {
                   }
                   disabled={brancher.isPending}
                   aria-label={`Brancher la session ${s.title || s.id}`}
-                  className="ml-auto flex items-center gap-1 px-1.5 py-0.5 shrink-0
+                  className="flex items-center gap-1 px-1.5 py-0.5 shrink-0
                     text-[10px] font-mono border border-hermes-border
                     text-hermes-muted hover:text-hermes-sodium
                     hover:border-hermes-sodium/45 disabled:opacity-50"

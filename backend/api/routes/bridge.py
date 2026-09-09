@@ -60,6 +60,24 @@ async def vue_agent_complete() -> JSONResponse:
     return JSONResponse(vue_agent.vue_d_ensemble())
 
 
+@router.get("/bridge/agent/sessions/{cle}/historique",
+            summary="Les messages d'une session stockée")
+async def historique(cle: str) -> JSONResponse:
+    """Lecture. L'activation prealable n'ecrit rien (mesure G-18)."""
+    from backend.services import vue_agent
+
+    return JSONResponse(vue_agent.historique(cle))
+
+
+@router.post("/bridge/agent/sessions/{cle}/titre",
+             summary="Demander à l'agent de renommer une session")
+async def renommer(cle: str, corps: dict | None = None) -> JSONResponse:
+    from backend.services import mutations_agent
+
+    return JSONResponse(
+        mutations_agent.renommer_session(cle, str((corps or {}).get("titre") or "")))
+
+
 @router.post("/bridge/agent/sessions/{cle}/brancher",
              summary="Demander à l'agent de brancher une session")
 async def brancher(cle: str, corps: dict | None = None) -> JSONResponse:

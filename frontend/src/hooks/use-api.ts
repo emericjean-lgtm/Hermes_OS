@@ -250,6 +250,28 @@ export function useBrancherSession() {
   });
 }
 
+// L'historique n'est demande que lorsqu'une session est ouverte : chaque
+// lecture active la session cote agent, ce qui coute un aller-retour.
+export function useHistoriqueSession(cle: string | null) {
+  return useQuery({
+    queryKey: ["bridge", "agent", "historique", cle],
+    queryFn: () => bridgeClient.historiqueSession(cle as string),
+    enabled: Boolean(cle),
+    staleTime: 60_000,
+  });
+}
+
+export function useRenommerSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cle, titre }: { cle: string; titre: string }) =>
+      bridgeClient.renommerSession(cle, titre),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bridge", "agent"] });
+    },
+  });
+}
+
 export function useRefreshBridgeCapabilities() {
   const qc = useQueryClient();
   return useMutation({

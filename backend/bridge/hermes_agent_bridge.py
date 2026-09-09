@@ -149,6 +149,10 @@ SANS_RPC: dict[str, str] = {
 #: que ce dépôt appelle un orphelin.
 MUTATIONS_CONNUES: dict[str, str] = {
     "session.branch": "hermes-agent:state.db",
+    # Renommer : `db.set_session_title`, donc `state.db`. Additive au sens
+    # ou rien n'est perdu — l'ancien titre etait de toute facon genere par
+    # l'agent, et la conversation n'est pas touchee.
+    "session.title": "hermes-agent:state.db",
 }
 
 

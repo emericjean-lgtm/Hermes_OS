@@ -147,6 +147,30 @@ def routines() -> dict:
             "total": len(jobs), "tronque": False, "elements": jobs}
 
 
+def historique(cle_stockee: str, limite: int = 200) -> dict:
+    """Les messages d'une session stockee.
+
+    Lire exige d'**activer** la session : `session.history` est
+    `live=True`, comme `session.branch`. On demande donc au proprietaire
+    d'ouvrir la session, puis de la lire — les deux gestes sont a lui.
+
+    L'activation n'ecrit rien (mesure de G-18 : empreinte de `state.db`
+    identique), ce qui laisse cette fonction dans une **vue** malgre
+    l'appel a `session.resume`.
+    """
+    activation = _appeler("session.resume", {"session_id": cle_stockee})
+    if not activation["disponible"]:
+        return {"disponible": False, "erreur": activation["erreur"],
+                "total": 0, "tronque": False, "elements": []}
+    handle = activation["resultat"].get("session_id") or ""
+    if not handle:
+        return {"disponible": False,
+                "erreur": "activation sans handle runtime",
+                "total": 0, "tronque": False, "elements": []}
+    return _liste("session.history", "messages", limite,
+                  {"session_id": handle})
+
+
 def vue_d_ensemble(limite: int = LIMITE_PAR_DEFAUT) -> dict[str, Any]:
     """Tout ce que le Center affiche, en une seule ouverture de gateway.
 
