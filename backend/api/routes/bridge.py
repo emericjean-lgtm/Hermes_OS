@@ -133,3 +133,38 @@ async def rafraichir() -> JSONResponse:
     seule ne l'aurait pas vu.
     """
     return JSONResponse(_pont.negocier(forcer=True).as_dict())
+
+
+@router.get("/bridge/agent/skills/catalogue",
+            summary="Une page du hub de Skills")
+async def skills_catalogue(page: int = 1) -> JSONResponse:
+    """Le hub distant — 5493 entrées mesurées — et non l'installation.
+
+    Population distincte de `/skills` : les deux ne se recouvrent qu'à la
+    marge, et les afficher ensemble laisserait croire qu'une entrée du
+    catalogue est installée.
+    """
+    from backend.services import vue_skills
+
+    return JSONResponse(vue_skills.catalogue(page))
+
+
+@router.get("/bridge/agent/skills/recherche",
+            summary="Chercher une Skill dans le hub")
+async def skills_recherche(q: str = "") -> JSONResponse:
+    from backend.services import vue_skills
+
+    return JSONResponse(vue_skills.rechercher(q))
+
+
+@router.get("/bridge/agent/skills/detail",
+            summary="Le détail d'une entrée du catalogue")
+async def skills_detail(nom: str = "") -> JSONResponse:
+    """`connu: false` n'est pas une panne : le hub ignore ce nom.
+
+    Une Skill installée hors hub tombe là, et l'interface doit le dire
+    plutôt que d'ouvrir un panneau vide.
+    """
+    from backend.services import vue_skills
+
+    return JSONResponse(vue_skills.detail(nom))

@@ -613,6 +613,19 @@ négocier. Tout ce qui *écrit* dans l'état de l'agent reste PLANNED, faute
 d'avoir tranché qui en est autorité — un bouton qui l'ignorerait serait un
 bouton sans backend.
 
+### Les Skills (HOS-274)
+
+Septième surface, et la première dont la moitié mutation est **refusée sur
+mesure** plutôt que reportée faute d'avoir regardé. Détail en §10.
+
+Deux choses que le pont en retient. `MUTATIONS_CONNUES` ne porte aucune
+méthode `skills.*`, et un test l'interdit — parce que la seule qui réponde,
+`install`, rend `true` sans avoir rien vérifié. Et le pont **n'a pas** servi
+la population installée, bien qu'il le puisse : Hermes OS la lisait déjà
+sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
+concurrente que cette passe est allée fermer. Une surface négociable qu'on
+choisit de ne pas offrir est aussi un résultat.
+
 ### La règle anti-orphelin
 
 `test_pas_de_backend_orphelin.py` : toute route `/api/v1` doit avoir un
@@ -708,7 +721,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟠 PLANNED
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -726,6 +739,139 @@ crée pour lui-même ne doit pas naître fiable.
 
 **Sources.** Hermes Agent (skills chargés à la demande, divulgation
 progressive, compatibilité agentskills.io) ; OpenHands en comparaison.
+
+### Ce que G-26 a mesuré, et ce qui en découle (HOS-274)
+
+Le cycle a été mesuré bout en bout sur le runtime v0.21.0 installé, pas
+supposé.
+
+#### La découverte principale : Hermes OS avait déjà tort
+
+`backend/skills/registre.py` lit les compétences de l'agent depuis
+HOS-153, et le Skills Center les affiche. Il lisait
+`hermes/hermes-agent/skills` — les compétences livrées avec le **dépôt**
+de l'agent — au lieu du dossier **actif** `hermes/skills` que le runtime
+résout, et il ignorait le champ `platforms:` que chaque `SKILL.md`
+déclare :
+
+    registre.py (avant)   60 noms
+    skills.manage list    65 noms
+    en commun             40
+
+L'écran montrait donc `imessage`, `findmy` et `apple-notes` à un agent
+**Windows** qui ne les chargera jamais, et taisait vingt-cinq compétences
+qu'il porte vraiment. Corrigé — le foyer suit `HERMES_HOME` comme le fait
+`hermes_constants.get_hermes_home()`, et la lecture honore `platforms:` —
+les deux concordent **exactement** : 65 contre 65, aucun écart dans un
+sens ni dans l'autre.
+
+Lire `platforms:` n'est pas réimplémenter la résolution du runtime : c'est
+lire un champ que le fichier déclare. Le reste de cette résolution
+(`skill_matches_environment`, la liste des désactivées, les dossiers
+externes) reste au runtime, et c'est pourquoi la RPC demeure l'autorité.
+
+#### `skills.manage` : cinq actions, sept absentes
+
+    list search install browse inspect                répondent
+    create edit delete pending diff approve reject    4017
+
+`4017` n'est pas `-32601`, et la nuance décide : la méthode existe, elle a
+été construite **sans** ces gestes. Côté agent la machinerie complète
+existe pourtant — `skill_manager_tool.py` crée, édite, patche et supprime
+— mais comme **outil que l'agent s'appelle à lui-même**, jamais comme
+méthode que Hermes OS peut demander. Même forme que les approvals (G-23).
+
+#### Le faux succès d'`install`
+
+`_skills_install` appelle `do_install` et **jette sa valeur de retour**.
+`do_install` rend `None` sur six chemins — sources absentes, identifiant
+irrésoluble, bundle non récupéré, nom non résolu, déjà installée sans
+`--force`, et **installation bloquée par le scanner de sécurité**. Le
+gateway répond `{"installed": true}` dans tous les cas.
+
+Mesure : `skill-qui-nexiste-absolument-pas-hos274` rend `installed: true`,
+sans quarantaine ni ligne d'audit — rien n'a été récupéré, rien examiné,
+rien posé. Le même runtime, interrogé par `inspect`, rend honnêtement `{}` :
+il *sait* que ce nom n'existe pas ; c'est le chemin d'installation qui ne
+le dit pas. **REJECT**, et la garde porte sur la route, pas sur le nom
+d'un bouton.
+
+#### La persistance est réelle, la fraîcheur ne l'est pas
+
+Mesure sur un `HERMES_HOME` de substitution, sans écrire un octet dans le
+vrai :
+
+    processus qui écrit la skill   scan True  / liste False
+    nouveau processus              scan True  / liste True
+
+`skills.manage list` passe par `banner.get_available_skills()`, mémoïsé
+**pour la vie du processus** sans TTL ni signature — alors que
+`_find_all_skills`, qu'il enveloppe, se re-déclenche dès que les dossiers
+changent. Et `skills.reload` ne rattrape pas : il annonce
+`added=['hos274-reload']` pendant que `list` continue de l'ignorer dans le
+même processus. Deux RPC de la même surface se contredisent.
+
+C'est une raison de plus de garder le **disque** comme source de la
+population installée : il n'a pas ce cache.
+
+#### Le pending existe, et il est hors de portée
+
+Contrairement aux approvals du Gateway (G-23, process-locales en mémoire),
+`write_approval` est **adossé à des fichiers** :
+`<hermes_home>/pending/skills/*.json`, avec `stage_write`, `list_pending`,
+`get_pending`, `discard_pending` et `skill_pending_diff`. De l'état
+inter-processus, donc — exactement ce qui manquait à G-23.
+
+Mais aucune RPC ne l'expose ; `%LOCALAPPDATA%\hermes\pending` **n'existe
+pas**, ce qui dit que rien n'a jamais été mis en attente ; la porte est
+fermée par défaut (`skills.write_approval` absent de `config.yaml`) ; et
+`config.get` refuse cette clé — `4002 unknown config key`. L'approbation
+elle-même, `apply_skill_pending`, s'appelle en **intra-processus** depuis
+le `/skills approve` de la CLI.
+
+L'activer depuis Hermes OS mettrait chaque écriture de Skill de l'agent
+dans une file que rien, côté cockpit, ne pourrait vider. **DEFER**, et la
+raison est nommée : le producteur existe, l'approbateur est injoignable.
+
+### Verdicts
+
+    population installée     ADOPT    le disque, corrigé — 65, avec les
+                                      descriptions, sans gateway
+    catalogue du hub         ADOPT    browse + search, pagination du runtime
+    détail d'une entrée      ADAPT    du hub seulement ; `connu` porte le
+                                      « ce nom n'y est pas » sans le
+                                      confondre avec une panne
+    installation             REJECT   `installed: true` sans vérification,
+                                      y compris après un blocage sécurité
+    création / édition /
+    suppression              DEFER    outil que l'agent s'appelle, pas
+                                      méthode que Hermes OS peut demander
+    pending / diff /
+    approve / reject         DEFER    file réelle sur disque, sans RPC et
+                                      sans approbateur atteignable
+    rafraîchissement à chaud DEFER    `reload` ne rafraîchit pas `list`
+
+**Livré.** La correction de `registre.py` ; `backend/services/vue_skills.py`
+(le **catalogue seul**, lecture gardée sur l'arbre syntaxique) ; trois
+routes `GET` ; et un troisième onglet au Skills Center. Aucune façade de
+mutation, et **aucune seconde liste des compétences installées** : offrir
+la population locale par RPC aurait rouvert la vérité concurrente que
+cette passe vient de fermer.
+
+**Et « lecture seule » y décrit l'autorité, pas l'absence d'effet.**
+`browse`, `search` et `inspect` font rafraîchir à l'agent son propre cache
+d'index de hub (`skills/.hub/index-cache/*.json` — 705 Ko réécrits pendant
+la mesure). C'est l'agent qui écrit, par son propre chemin ; Hermes OS ne
+touche pas son disque. La nuance est notée parce que confondre les deux est
+exactement ce que ce dépôt paie cher.
+
+**Ce que §10 attend encore.** Provenance par skill — `skill_provenance` est
+un `ContextVar` de processus (`foreground` / `background_review`), pas une
+donnée portée par la skill, et la charge utile de `list` ne transporte que
+des noms : la distinction utilisateur / système / générée **n'existe pas**
+sur la surface de lecture. Le ledger (`.curator_ledger.jsonl`) enregistre
+un acteur par mutation mais aucune RPC ne l'expose. Appariement skill ↔
+tâche, versioning et rollback restent PLANNED.
 
 ---
 
@@ -819,6 +965,22 @@ des capacités **livrées, testées, et sans consommateur produit** :
 
 §15 n'invente donc pas un produit : elle **branche celui qui est déjà
 construit**, et nomme ce qui manque réellement.
+
+**Précision apportée par HOS-274, et une correction.** La ligne « cycle de
+vie des skills » ci-dessus parle des 9 routes de `backend/skills/` — le
+magasin de Hermes OS, toujours vide. Les compétences du **cerveau**, elles,
+vivent sous `%LOCALAPPDATA%\hermes\skills`.
+
+Le Skills Center les affichait déjà — **et se trompait de dossier** : 60
+noms au lieu de 65, dont vingt que l'agent ne sert pas sur cette
+plateforme. C'était un consommateur produit réel branché sur une source
+fausse, ce qui est pire qu'une route sans appelant : §15 mesure l'absence
+de consommateur, pas la justesse de ce qu'il consomme, et les deux
+manquent. §10 porte la mesure et la correction.
+
+Le catalogue du hub y rejoint les deux registres existants, en lecture
+seule (trois routes `GET`, trois appelants). Trois registres, un écran, et
+aucun qui raconte l'autre.
 
 ### Ce que l'Assistant est aujourd'hui, mesuré
 

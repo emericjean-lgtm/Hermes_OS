@@ -820,6 +820,44 @@ export interface AgentPermissionsDTO {
   elements: AgentPermissionDTO[];
 }
 
+// Le catalogue de Skills du hub — 5493 entrees mesurees, distantes. La
+// population INSTALLEE a sa propre source (`skillsClient.agentSkills`, lue
+// sur le disque avec les descriptions) : deux populations, deux clients, et
+// aucun des deux ne raconte l'autre.
+export interface SkillCatalogueDTO {
+  name?: string;
+  description?: string;
+  identifier?: string;
+  source?: string;
+  trust?: string;
+}
+
+export interface SkillsCataloguePageDTO {
+  disponible: boolean;
+  erreur: string | null;
+  page: number;
+  pages: number;
+  total: number;
+  elements: SkillCatalogueDTO[];
+}
+
+export interface SkillsRechercheDTO {
+  disponible: boolean;
+  erreur: string | null;
+  tronque: boolean;
+  total: number;
+  elements: SkillCatalogueDTO[];
+}
+
+export interface SkillDetailDTO {
+  disponible: boolean;
+  erreur: string | null;
+  // false = le hub ignore ce nom. Ce n'est pas une panne : une Skill
+  // installee hors hub tombe legitimement la.
+  connu: boolean;
+  info: Record<string, unknown>;
+}
+
 export const bridgeClient = {
   permissions: () => fetchJSON<AgentPermissionsDTO>("/bridge/agent/permissions"),
   capabilities: () => fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities"),
@@ -842,6 +880,18 @@ export const bridgeClient = {
     fetchJSON<AgentMutationDTO>(
       `/bridge/agent/sessions/${encodeURIComponent(cle)}/brancher`,
       { method: "POST", body: JSON.stringify({ titre }) },
+    ),
+  skillsCatalogue: (page: number) =>
+    fetchJSON<SkillsCataloguePageDTO>(
+      `/bridge/agent/skills/catalogue?page=${encodeURIComponent(String(page))}`,
+    ),
+  skillsRecherche: (q: string) =>
+    fetchJSON<SkillsRechercheDTO>(
+      `/bridge/agent/skills/recherche?q=${encodeURIComponent(q)}`,
+    ),
+  skillDetail: (nom: string) =>
+    fetchJSON<SkillDetailDTO>(
+      `/bridge/agent/skills/detail?nom=${encodeURIComponent(nom)}`,
     ),
   refresh: () =>
     fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities/refresh", {

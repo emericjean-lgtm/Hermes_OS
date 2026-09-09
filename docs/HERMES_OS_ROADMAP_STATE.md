@@ -15,14 +15,16 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
-                      §16 🟡 (HOS-265→273) — le pont, la matrice,
+                      §16 🟡 (HOS-265→274) — le pont, la matrice,
                       le chat joignable et enfin interruptible
+                      §10 🟡 (HOS-274) — les Skills se lisent, et le
+                      chiffre affiché depuis HOS-153 était faux
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      459b8ea (G-23, HOS-272) — dernier commit
-                               de code avant G-24
+BASELINE:                      e20951f (G-24, HOS-273) — dernier commit
+                               de code avant G-26 (Skills)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud

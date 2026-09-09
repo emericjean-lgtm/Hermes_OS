@@ -129,7 +129,9 @@ export function CerveauCenter() {
         ))}
       </div>
 
-      {isLoading ? (
+      {vue === "permissions" ? (
+        <Permissions />
+      ) : isLoading ? (
         <Card title="Cerveau">
           <PanelLoading />
         </Card>
@@ -149,7 +151,6 @@ export function CerveauCenter() {
           {vue === "bots" && <Bots liste={data.profils} />}
           {vue === "delegation" && <Delegation etat={data.delegation} />}
           {vue === "routines" && <Routines liste={data.routines} />}
-          {vue === "permissions" && <Permissions />}
         </>
       )}
     </div>

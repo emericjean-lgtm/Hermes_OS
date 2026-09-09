@@ -189,3 +189,23 @@ def test_la_sonde_du_harnais_ne_bloque_pas_la_boucle():
         "`harnais.disponible` est appele nu dans une coroutine : il sonde "
         "le backend en synchrone et bloque la boucle qui doit lui repondre. "
         "Passez par `asyncio.to_thread`.")
+
+
+def test_l_onglet_permissions_ne_depend_pas_de_la_vue_d_ensemble():
+    """Le journal des permissions est local a Hermes OS : il reste lisible
+    quand le gateway est mort. Or l'onglet etait imbrique sous le garde de
+    `useAgentVue`, si bien qu'une panne du cerveau le rendait invisible —
+    exactement au moment ou savoir ce qu'on a refuse compte le plus.
+
+    Garde structurelle, et assumee comme telle : il n'y a pas de
+    comportement a affirmer ici, seulement une imbrication a interdire.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[2] / "frontend" / "src"
+              / "features" / "cerveau"
+              / "cerveau-center.tsx").read_text(encoding="utf-8")
+    garde = source.index("!data ? null")
+    assert source.index('vue === "permissions"') < garde, (
+        "l'onglet Permissions est rendu sous le garde de la vue d'ensemble : "
+        "une panne du gateway le fait disparaitre")

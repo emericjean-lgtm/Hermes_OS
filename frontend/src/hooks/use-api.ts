@@ -293,6 +293,45 @@ export function useAgentPermissions() {
   });
 }
 
+// Le catalogue de Skills du hub. Les trois coupent le
+// `refetchInterval: 10_000` global, et
+// `staleTime` seul n'y aurait pas suffi — mesure au navigateur : les deux
+// routes repartaient toutes les dix secondes malgre `staleTime: Infinity`,
+// parce que `staleTime` ne desarme pas un intervalle.
+//
+// Ce n'etait pas un detail : `catalogue`, `recherche` et `detail` passent
+// par le hub DISTANT, et chaque appel fait reecrire a l'agent son index de
+// 705 Ko. Repoller une liste qui ne peut pas changer avant le redemarrage
+// du gateway aurait coute cela toutes les dix secondes, pour la meme
+// reponse — en laissant croire qu'elle est vivante.
+const SANS_POLLING = { refetchInterval: false as const, staleTime: Infinity };
+
+export function useSkillsCatalogue(page: number) {
+  return useQuery({
+    queryKey: ["bridge", "agent", "skills", "catalogue", page],
+    queryFn: () => bridgeClient.skillsCatalogue(page),
+    ...SANS_POLLING,
+  });
+}
+
+export function useSkillsRecherche(q: string) {
+  return useQuery({
+    queryKey: ["bridge", "agent", "skills", "recherche", q],
+    queryFn: () => bridgeClient.skillsRecherche(q),
+    enabled: q.trim().length > 0,
+    ...SANS_POLLING,
+  });
+}
+
+export function useSkillDetail(nom: string) {
+  return useQuery({
+    queryKey: ["bridge", "agent", "skills", "detail", nom],
+    queryFn: () => bridgeClient.skillDetail(nom),
+    enabled: nom.trim().length > 0,
+    ...SANS_POLLING,
+  });
+}
+
 export function useRefreshBridgeCapabilities() {
   const qc = useQueryClient();
   return useMutation({

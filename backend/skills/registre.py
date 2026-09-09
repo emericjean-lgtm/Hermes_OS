@@ -27,17 +27,42 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
 logger = logging.getLogger("hermes_os.skills")
 
-#: La racine de l'agent. Le meme absolu que `hermes_agent_cli.py` : les deux
-#: environnements Python sont separes a dessein (HOS-103) et `sys.executable`
-#: ne mene pas la ou vit l'agent.
-_RACINE_DEFAUT = Path(
-    os.environ.get("LOCALAPPDATA", "")) / "hermes" / "hermes-agent"
+#: Le nom que les `SKILL.md` emploient dans `platforms:` — `linux`, `macos`,
+#: `windows`. `sys.platform` rend `win32`/`darwin` : la table traduit plutot
+#: que de laisser une comparaison silencieusement fausse.
+_PLATEFORME = {"win32": "windows", "darwin": "macos"}.get(
+    sys.platform, "linux")
+
+def _foyer_par_defaut() -> Path:
+    """Le foyer de l'agent, resolu comme `hermes_constants.get_hermes_home()`
+    le fait : `HERMES_HOME` d'abord, sinon le defaut de plateforme.
+
+    Le lire ici plutot que de coder un chemin en dur evite que Hermes OS
+    regarde un profil pendant que l'agent en sert un autre.
+    """
+    foyer = os.environ.get("HERMES_HOME", "").strip()
+    if foyer:
+        return Path(foyer)
+    return Path(os.environ.get("LOCALAPPDATA", "")) / "hermes"
+
+
+#: La racine des competences.
+#:
+#: **Elle pointait un segment trop loin** : `hermes/hermes-agent/skills`, les
+#: competences livrees avec le *depot* de l'agent, alors que le runtime
+#: resout `hermes/skills`, le dossier **actif**. Mesure du 2026-09-09 :
+#: soixante noms d'un cote, soixante-cinq de l'autre, et **quarante seulement
+#: en commun**. Hermes OS montrait donc vingt competences que le cerveau ne
+#: sert pas — `imessage`, `findmy`, `apple-notes` a un agent Windows — et en
+#: taisait vingt-cinq qu'il sert.
+_RACINE_DEFAUT = _foyer_par_defaut()
 
 
 @dataclass(frozen=True)
@@ -77,9 +102,29 @@ def _entete(source: str) -> dict:
         if not sep:
             continue
         cle = cle.strip()
-        if cle in ("name", "description"):
+        if cle in ("name", "description", "platforms"):
             champs[cle] = valeur.strip().strip('"').strip("'")
     return champs
+
+
+def _servie_ici(champs: dict) -> bool:
+    """`platforms: [macos]` sur Windows veut dire : l'agent ne la sert pas.
+
+    Ce n'est pas reimplementer la resolution du runtime — c'est **lire un
+    champ que le fichier declare**. Sans lui, la liste annoncait `imessage`,
+    `findmy` et `apple-notes` a un agent Windows qui ne les chargera jamais.
+
+    Une competence sans `platforms:` est servie partout ; l'absence de
+    declaration n'est pas une exclusion.
+    """
+    brut = champs.get("platforms", "").strip()
+    fin = brut.rfind("]")
+    if not brut.startswith("[") or fin < 0:
+        return True  # absente, ou sur plusieurs lignes : on n'exclut pas
+    plateformes = {p.strip().strip('"').strip("'").lower()
+                   for p in brut[1:fin].split(",")}
+    plateformes.discard("")
+    return _PLATEFORME in plateformes if plateformes else True
 
 
 def lire(racine_agent: Optional[str] = None) -> list[Competence]:
@@ -105,6 +150,8 @@ def lire(racine_agent: Optional[str] = None) -> list[Competence]:
             logger.debug("competence illisible : %s", fichier, exc_info=True)
             continue
         champs = _entete(source)
+        if not _servie_ici(champs):
+            continue
         relatif = fichier.relative_to(base).parts
         trouvees.append(Competence(
             nom=champs.get("name") or fichier.parent.name,

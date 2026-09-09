@@ -1,3 +1,169 @@
+## HOS-274 — Les Skills : une verite de trop, et un faux succes (2026-09-09)
+
+G-26. La passe devait etablir le cycle des Skills du cerveau. Elle a
+d'abord trouve que Hermes OS en affichait deja une liste, et que cette
+liste etait fausse.
+
+    population installee      ADOPT    le disque, CORRIGE — 65 noms
+    catalogue du hub          ADOPT    5493 entrees, pagination du runtime
+    detail d'une entree       ADAPT    du hub seulement
+    installation              REJECT   `installed: true` sans verification
+    creation / edition /
+    suppression               DEFER    outil de l'agent, pas methode RPC
+    pending / diff / approve  DEFER    file reelle, approbateur injoignable
+    rafraichissement a chaud  DEFER    `reload` ne rafraichit pas `list`
+
+### Hermes OS annoncait vingt competences que l'agent ne sert pas
+
+`backend/skills/registre.py` lit les competences de l'agent depuis
+HOS-153, et le Skills Center les affiche. Il lisait
+`hermes/hermes-agent/skills` — celles livrees avec le **depot** de
+l'agent — au lieu du dossier **actif** `hermes/skills` que le runtime
+resout, et il ignorait le champ `platforms:` que chaque `SKILL.md`
+declare :
+
+    registre.py (avant)   60 noms
+    skills.manage list    65 noms
+    en commun             40
+
+Quarante sur soixante-cinq. L'ecran montrait `imessage`, `findmy` et
+`apple-notes` a un agent **Windows** qui ne les chargera jamais, et taisait
+vingt-cinq competences qu'il porte vraiment.
+
+Corrige : le foyer suit `HERMES_HOME` comme `hermes_constants.get_hermes_home()`,
+et la lecture honore `platforms:`. Les deux concordent desormais
+**exactement** — 65 contre 65, aucun ecart dans un sens ni dans l'autre.
+Lire `platforms:` n'est pas reimplementer la resolution du runtime : c'est
+lire un champ que le fichier declare. Le reste de cette resolution reste au
+runtime, et c'est pourquoi la RPC demeure l'autorite.
+
+### La surface qui n'a pas ete livree
+
+`vue_skills` sait lire la population installee par RPC. Elle ne le fait
+pas, et la route a ete retiree apres avoir ete ecrite : Hermes OS la lisait
+deja sur le disque, avec les descriptions et sans payer six secondes de
+gateway. En offrir une seconde aurait fabrique la verite concurrente que
+cette passe venait de fermer. Une surface negociable qu'on choisit de ne
+pas offrir est aussi un resultat.
+
+Le premier jet ouvrait un onglet Skills au Center Cerveau, en ignorant que
+le Skills Center existait. Le catalogue y a ete deplace ; l'onglet du
+Cerveau a disparu.
+
+### Cinq actions, sept absentes
+
+    list search install browse inspect                repondent
+    create edit delete pending diff approve reject    4017
+
+`4017` n'est pas `-32601`, et la nuance decide : la methode existe, elle a
+ete construite **sans** ces gestes. Cote agent la machinerie complete
+existe pourtant — `skill_manager_tool.py` cree, edite, patche et supprime —
+mais comme **outil que l'agent s'appelle a lui-meme**, jamais comme methode
+que Hermes OS peut demander. Meme forme que les approvals de G-23.
+
+### Le faux succes d'`install`
+
+`_skills_install` appelle `do_install` et **jette sa valeur de retour**.
+`do_install` rend `None` sur six chemins — sources absentes, identifiant
+irresoluble, bundle non recupere, nom non resolu, deja installee sans
+`--force`, et **installation bloquee par le scanner de securite**. Le
+gateway repond `{"installed": true}` dans tous les cas.
+
+Mesure : `skill-qui-nexiste-absolument-pas-hos274` rend `installed: true`.
+Ni quarantaine, ni ligne d'audit : `.hub/quarantine` et `.hub/audit.log`
+sont restes vides. Rien n'a ete recupere, rien examine, rien pose. Le meme
+runtime, interroge par `inspect`, rend honnetement `{}` — il *sait* que ce
+nom n'existe pas ; c'est le chemin d'installation qui ne le dit pas.
+
+### La persistance est reelle, la fraicheur ne l'est pas
+
+Mesure sur un `HERMES_HOME` de substitution, sans ecrire un octet dans le
+vrai :
+
+    processus qui ecrit la skill   scan True  / liste False
+    nouveau processus              scan True  / liste True
+
+`skills.manage list` passe par `banner.get_available_skills()`, memoise
+**pour la vie du processus** sans TTL ni signature, alors que le scanner
+qu'il enveloppe se re-declenche des que les dossiers changent. Et
+`skills.reload` ne rattrape pas : il annonce `added=['hos274-reload']`
+pendant que `list` continue de l'ignorer dans le meme processus. Deux RPC
+de la meme surface se contredisent — raison de plus de garder le disque
+comme source de la population installee.
+
+### Le pending existe, et il est hors de portee
+
+Contrairement aux approvals du Gateway (G-23, process-locales en memoire),
+`write_approval` est **adosse a des fichiers** :
+`<hermes_home>/pending/skills/*.json`, avec `stage_write`, `list_pending`,
+`get_pending`, `discard_pending` et `skill_pending_diff`. De l'etat
+inter-processus, donc — exactement ce qui manquait a G-23.
+
+Mais aucune RPC ne l'expose ; `%LOCALAPPDATA%\hermes\pending` **n'existe
+pas** ; la porte est fermee par defaut, `skills.write_approval` etant
+absent de `config.yaml` ; et `config.get` refuse cette cle — `4002 unknown
+config key`. L'approbation elle-meme, `apply_skill_pending`, s'appelle en
+intra-processus depuis le `/skills approve` de la CLI. L'activer depuis
+Hermes OS mettrait chaque ecriture de Skill dans une file que rien, cote
+cockpit, ne pourrait vider.
+
+### Ce qui n'existe pas sur la surface de lecture
+
+La distinction utilisateur / systeme / generee. `skill_provenance` est un
+`ContextVar` de processus (`foreground` / `background_review`), pas une
+donnee portee par la skill ; le ledger `.curator_ledger.jsonl` enregistre
+un acteur par mutation mais aucune RPC ne l'expose. La question du brief a
+une reponse mesuree, et c'est « non ».
+
+### Deux gaspillages que seule la verification au navigateur a montres
+
+Les requetes du catalogue repartaient toutes les dix secondes malgre
+`staleTime: Infinity` : le client porte un `refetchInterval` global, et
+`staleTime` ne desarme pas un intervalle. Ce n'etait pas cosmetique — le
+catalogue passe par le hub **distant**, et chaque appel fait reecrire a
+l'agent un index de 705 Ko. Les trois requetes coupent desormais
+l'intervalle explicitement. Mesure apres correction, temoin compris :
+`/health`, `/missions` et `/runtime/resources` repollent deux fois en
+22 s, les trois routes Skills zero.
+
+La recherche, elle, partait **a chaque frappe** : cablee sur `onSearch`,
+« obsidian » declenchait huit appels au hub, un par prefixe, chacun une cle
+React Query distincte donc aucun deduplique. Debouncee a 400 ms — mesure :
+huit frappes, **une requete**, portant le terme complet.
+
+### Une correction incidente, hors brief mais trouvee en chemin
+
+L'onglet Permissions du Center Cerveau etait imbrique sous le garde de
+`useAgentVue` : une panne du gateway le faisait disparaitre. Or son journal
+est **local a Hermes OS** et reste parfaitement lisible — et c'est
+precisement quand le cerveau ne repond plus qu'on veut savoir ce qu'on lui
+a refuse. Sorti du garde, avec une garde structurelle qui l'y maintient.
+
+Au passage, et note plutot que lisse : `browse`, `search` et `inspect` sont
+des lectures **qui font ecrire l'agent**. C'est lui qui ecrit son cache,
+par son propre chemin ; Hermes OS ne touche pas son disque. « Lecture
+seule » decrit ici l'autorite, pas l'absence d'effet.
+
+### Trois tests ecrits puis jetes, et un quatrieme corrige par mutation
+
+Deux affirmaient leurs propres constantes : l'un relisait un litteral JSON
+que je venais d'ecrire pour « consigner » la mesure d'`install`, l'autre
+verifiait qu'une action n'appartenait pas a une liste que le test portait
+lui-meme. Aucun ne pouvait rougir. Un troisieme gardait le *nom d'un
+bouton* dans le composant — une garde ecrite sur une forme se contourne en
+renommant ; elle porte maintenant sur la route.
+
+Le quatrieme etait pire parce qu'il passait : `HERMES_HOME` est pose sur
+cette machine, donc la lecture n'atteignait jamais le repli, et la mutation
+qui reintroduisait `hermes-agent` restait **verte**. La relecture n'a rien
+vu ; la mutation, si. Troisieme fois dans ce depot.
+
+### Preuves
+
+Douze mutations, douze rouges. Suite complete 5998 passed, 3 skipped,
+274 deselected ; `tsc` et `vitest` verts ; `data/db/hermes.db` intacte ;
+74 `SKILL.md` de l'agent inchanges.
+
 ## HOS-273 — Interrompre le tour que l'utilisateur regarde (2026-09-09)
 
 G-24. Quatre capacites, quatre verdicts, et un seul chemin qui atteint
