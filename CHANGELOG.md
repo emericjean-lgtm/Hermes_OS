@@ -1,3 +1,83 @@
+## HOS-272 — ACP et Gateway : REJECT, mesure a l'appui (2026-09-09)
+
+G-23. Le chat passe par ACP, les controles natifs (`approval.*`,
+`session.steer`, `session.interrupt`) vivent dans le Gateway. Question :
+peut-on faire converger les deux ?
+
+### Ce qui rend la convergence tentante
+
+Les deux transports **partagent le magasin**. Mesure :
+
+    sessionId ACP                       a877725d-b76b-4cce-adb0-953983069969
+    present dans session.list Gateway   oui, tel quel
+    session.resume(id ACP)              OK
+
+Un identifiant ACP est donc un identifiant de session **stockee** que le
+Gateway sait reprendre. On tient la, apparemment, la passerelle.
+
+### Ce que la mesure a reellement montre
+
+Pendant qu'un tour ACP tournait vraiment — 3242 fragments streames,
+`POEME.md` de 344 octets ecrit sur le disque — le Gateway a ete interroge
+sur le meme identifiant :
+
+    session.resume(id ACP)   -> OK, handle d50a9c14
+    running vu par Gateway   -> False
+    approval.pending         -> {"approvals": []}
+    session.steer            -> {"status": "queued", "text": "arrete"}
+    session.interrupt        -> {"status": "interrupted"}
+
+Le tour ACP s'est **termine normalement** et a ecrit son fichier.
+
+`resume` n'avait pas attache le tour en cours : il avait materialise une
+**seconde session vivante** dans le processus Gateway, a partir de la meme
+ligne stockee. Le steer a ete mis en file pour elle, l'interruption l'a
+interrompue, elle. Le tour reel n'a jamais rien su.
+
+**Une ligne stockee, deux sessions vivantes, deux processus.** Les
+controles agissent sur la vivante de *leur* processus, et rendent un succes
+franc.
+
+### Decision : REJECT
+
+Pas DEFER. « Convergence non demontree » serait trop doux pour ce qui a ete
+mesure : la convergence par identifiant partage **produit des succes HTTP
+confiants qui ne touchent rien**. C'est le defaut fondateur de ce depot —
+`success: True, 5/5` au-dessus d'un workspace vide — sous une forme neuve,
+et il serait entre par la porte qu'on croyait ouvrir.
+
+Pas ADAPT non plus : un adaptateur devrait atteindre l'etat en memoire du
+processus ACP depuis le processus Gateway, et il n'existe aucun canal entre
+eux. Le seul moyen d'atteindre un tour en cours est le transport qui le
+porte.
+
+### Le chemin qui existe vraiment
+
+ACP a son controle natif : `acp_adapter/server.py` expose
+`async def cancel(session_id)` avec un `cancel_event`, et gere le texte de
+steering apres une annulation. L'interruption du chat passe donc par
+**ACP**, adressee a l'identifiant ACP.
+
+Notre client ne l'emet pas encore. C'est un chantier — pas une convergence,
+et pas une autorite nouvelle : on utiliserait la commande que Hermes Agent
+fournit pour le transport qu'on emprunte.
+
+### Ce qui a ete livre
+
+Aucune fonctionnalite. Une **garde**, parce que la mesure a montre que le
+faux succes est a portee de main : rien n'empechait de cabler un bouton
+« Interrompre » sur `session.interrupt`, qui aurait repondu `interrupted`
+sans jamais toucher le tour affiche a l'ecran.
+
+Quatre tests fixent la ligne de partage : aucun controle de **tour vivant**
+n'est offert comme mutation, aucune route du pont ne le cable, le service
+ne le relaie pas, et le contrat de mutation ne porte que sur de l'etat
+**stocke** — `state.db` ou `config.yaml`. C'est d'ailleurs pourquoi les
+trois mutations existantes fonctionnent : brancher, renommer et basculer un
+toolset n'ont jamais vise le vivant.
+
+Cinq mutations, cinq rouges.
+
 ## HOS-271 — Le chat interactif existait, et il etait injoignable (2026-09-09)
 
 G-22. Le chantier demandait de construire un chemin Chat pour produire

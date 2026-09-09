@@ -15,14 +15,14 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
-                      §16 🟡 (HOS-265→271) — le pont, la matrice,
-                      et le chat interactif enfin joignable
+                      §16 🟡 (HOS-265→272) — le pont, la matrice,
+                      le chat joignable, la convergence rejetée
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      4b4c022 (HOS-270) — dernier commit de
-                               code avant G-22
+BASELINE:                      d28ccf0 (G-22, HOS-271) — dernier commit
+                               de code avant G-23
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -67,6 +67,9 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                G-22 partiellement fermé (HOS-271) — le
                                chat ACP existait et était injoignable ;
                                permissions d'édition tracées ; G-23 ouvert
+                               G-23 tranché (HOS-272) — REJECT : la
+                               convergence ACP↔Gateway fabrique de faux
+                               succès ; garde posée, rien livré d'autre
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -162,7 +165,18 @@ qui agit vraiment et que personne ne voyait. Ce chemin était **injoignable
 depuis l'Assistant** : sa sonde de disponibilité interrogeait le backend en
 synchrone depuis le handler, bloquant la boucle qui devait répondre. Corrigé,
 les décisions sont tracées et affichées. **G-23** : le chat passe par ACP et
-le pont par le gateway — deux transports, deux files, sans passerelle. Deux réserves mesurées et affichées — le premier
+le pont par le gateway — deux transports, deux files, sans passerelle.
+
+**HOS-272 a tranché G-23 : REJECT.** Les deux transports partagent pourtant
+`state.db`, et le Gateway *reprend* un identifiant ACP sans erreur — d'où la
+tentation. Mais la reprise matérialise une **seconde session vivante** dans
+son propre processus : mesuré pendant un tour ACP réel, `session.steer` rend
+`queued` et `session.interrupt` rend `interrupted` **sans toucher le tour**,
+qui se termine normalement et écrit son fichier. Une ligne stockée, deux
+sessions vivantes, deux processus. Rejeté plutôt que différé : la
+convergence produirait exactement le faux succès que ce dépôt poursuit
+depuis l'origine. Le chemin réel est le contrôle **natif d'ACP**
+(`acp_adapter/server.py: cancel`), que notre client n'émet pas encore. Deux réserves mesurées et affichées — le premier
 basculement fige les défauts du jour dans le fichier, et un toolset de
 plugin peut être refusé tant que la découverte n'a pas abouti.
 
@@ -250,7 +264,8 @@ mentirait sur ce qu'il fait.
 | 12 surfaces exactes et sans consommateur frontend (G-20) | architectural | §16 |
 | La mémoire de l'agent échappe à la provenance Hermes OS (G-21) | architectural | §8/§16 |
 | ~~Approbations, steering et interruption attendent le chat (G-22)~~ — **partiellement fermé HOS-271** | architectural | §16 |
-| Deux transports agentiques coexistent sans passerelle (G-23) | architectural | §16 |
+| Deux transports agentiques coexistent sans passerelle (G-23) — **convergence REJECT, HOS-272** | architectural | §16 |
+| Le contrôle natif d'ACP (`cancel`) n'est pas émis par notre client (G-24) | functional | §16 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
