@@ -556,13 +556,22 @@ Mesuré : **54 méthodes présentes, 8 absentes**, regroupées en 18 surfaces
 | surface | gateway | pont | backend | frontend | statut |
 |---|---|---|---|---|---|
 | capabilities | ✅ | ✅ | ✅ 2 routes | ✅ Runtime Center | 🟢 **DEMONSTRATED** |
-| chat/streaming · sessions · steering · approvals · tools · skills · learning · MCP · cron · profiles · browser · projects · config · insights | ✅ | ✅ négociée | ✗ | ✗ | 🟠 PLANNED |
-| delegation | ⚠️ partielle | ✅ négociée | ✗ | ✗ | 🟠 PLANNED |
+| sessions (lecture) | ✅ | ✅ | ✅ `/bridge/agent` | ✅ Cerveau · Sessions | 🟢 **DEMONSTRATED** |
+| tools/toolsets (lecture) | ✅ | ✅ | ✅ | ✅ Cerveau · Outils | 🟢 **DEMONSTRATED** |
+| profiles/Bots (lecture) | ✅ | ✅ | ✅ | ✅ Cerveau · Bots | 🟢 **DEMONSTRATED** |
+| delegation (lecture) | ⚠️ partielle | ✅ | ✅ | ✅ Cerveau · Délégation | 🟡 lecture seule |
+| cron/routines (lecture) | ✅ | ✅ | ✅ | ✅ Cerveau · Routines | 🟢 **DEMONSTRATED** |
+| chat/streaming · steering · approvals · skills · learning · MCP · browser · projects · config · insights | ✅ | ✅ négociée | ✗ | ✗ | 🟠 PLANNED |
+| reprise de session · activation d'un toolset · création de Bot | ✅ | ✅ | ✗ | ✗ | 🟠 PLANNED — écrit dans l'état de l'agent, autorité non tranchée |
 | fork · memory | ✗ absentes | ✅ négociée | — | — | 🔴 pas de méthode amont |
 
-Une surface **négociée et visible** n'est pas une surface **intégrée** :
-seule la première ligne a la chaîne complète, et la règle anti-orphelin
-ci-dessous existe pour que cette distinction ne puisse plus se perdre.
+Une surface **négociée et visible** n'est pas une surface **intégrée**, et
+la règle anti-orphelin existe pour que cette distinction ne puisse plus se
+perdre. HOS-266 a fait passer cinq surfaces de la seconde catégorie à la
+première, en **lecture** : le pont sait désormais demander, pas seulement
+négocier. Tout ce qui *écrit* dans l'état de l'agent reste PLANNED, faute
+d'avoir tranché qui en est autorité — un bouton qui l'ignorerait serait un
+bouton sans backend.
 
 ### La règle anti-orphelin
 
@@ -1029,7 +1038,8 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | ~~**G-14**~~ | ~~architectural~~ | ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue~~ — **fermé HOS-264** | §7 | 18 essais réels, 6 modèles, 6/6 prouvés ; chaîne magasin → prédicat → modèle engagé mesurée sur le vrai bootstrap. La sonde mesurait la convention de chemin et non le modèle : corrigée sur la formulation même de la production |
 | **G-15** | **observability** | Un verdict agentique est une mesure datée que rien ne réévalue | §6/§7 | le magasin ne porte ni date de mesure exploitée, ni empreinte des poids ou du `num_ctx` servi : remplacer un modèle sous le même tag laisse son verdict en place sans que rien ne le signale. **Le pont (§16) applique la solution** : son cache est indexé sur l'empreinte du runtime |
 | **G-16** | **technical debt** | 120 routes `/api/v1` sur 306 n'ont aucun appelant frontend | §15/§16 | mesuré le 2026-09-07, instrument corrigé deux fois ; gelé comme dette dans `test_pas_de_backend_orphelin.py`, qui interdit désormais d'en ajouter |
-| **G-17** | **architectural** | Le pont négocie 17 surfaces qu'aucun service n'expose | §16 | chat, sessions, steering, approvals, tools, skills, learning, MCP, cron, profiles, browser répondent au gateway et n'ont ni route, ni client, ni UI — visibles, pas intégrées |
+| **G-17** | **architectural** | Le pont négocie 12 surfaces qu'aucun service n'expose | §16 | **réduit de 17 à 12 par HOS-266** : sessions, tools, profiles, delegation et cron ont désormais route, client et UI. Restent chat/streaming, steering, approvals, skills, learning, MCP, browser, projects, config, insights |
+| **G-18** | **architectural** | L'autorité sur l'état de l'agent n'est pas tranchée | §16 | reprendre une session, activer un toolset ou créer un Bot écrit dans `%LOCALAPPDATA%\hermes` ; qui de Hermes OS ou de l'agent en décide n'est écrit nulle part, et la vue reste en lecture tant que ce n'est pas le cas |
 | G-13 | **technical debt** | Deux dimensions sur cinq du score modèle sont inertes | §6 | `_get_records_for_task` rend `[]` en dur ; `_compute_speed_score` rend 0,000 pour les six profils |
 
 ---
@@ -1141,3 +1151,4 @@ des passes ne sont pas reconstituées.
 | 2026-09-06 | `0d2b9e1` | §6.1 passée 🟢 : G-12 fermé sur le chemin agentique réel — 0 décision sur 5 survivait, 5 sur 5 survivent. T-29 tranché (ADAPT) : le repli n'était pas mieux prouvé que ce qu'il remplaçait, donc la substitution n'arbitrait rien. G-14 ouvert en chemin — la cause de G-12 était un magasin de sondes écrit dans `%TEMP%` depuis toujours, et effacé. |
 | 2026-09-06 | `a102d54` | G-14 fermé : le catalogue est sondé pour de vrai — 18 essais, 6 modèles, 6/6 prouvés capables, chaîne complète mesurée du magasin jusqu'au modèle engagé. La sonde mesurait « ce modèle devine-t-il la convention de chemin » et non sa capacité agentique ; corrigée sur la formulation de la production. G-15 ouvert en chemin. §6.1 reste 🟢, sur une base désormais mesurée plutôt que supposée. |
 | 2026-09-07 | `116f603` | §16 créée — le pont Hermes Agent, infrastructure transverse sans autorité nouvelle. Agent migré 0.20.0 → 0.21.0 (31 918 commits, état persistant intact, suite inchangée). Capacités **négociées** contre le gateway et non déclarées : 54 méthodes présentes, 8 absentes, 15 surfaces complètes sur 18. Une seule chaîne complète jusqu'au frontend ; les autres restent PLANNED. Règle anti-orphelin posée : 120 routes sur 306 sans appelant frontend, gelées comme dette. G-16 et G-17 ouverts en chemin. |
+| 2026-09-09 | `e2d66f9` | §16 avance : le pont sait **demander** et non plus seulement négocier — une connexion vivante, des réponses corrélées, des événements collectés. Cinq surfaces passent de « négociée » à **démontrée** en lecture : sessions (200), toolsets (62, dont 8 actifs), profils, délégation, routines, servies par une route unique et un Center « Cerveau ». Tout ce qui écrit dans l'état de l'agent reste PLANNED : G-18 ouvert, G-17 réduit de 17 à 12. |

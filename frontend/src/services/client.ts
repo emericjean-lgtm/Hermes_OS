@@ -688,8 +688,67 @@ export interface BridgeNegotiationDTO {
   capacites: BridgeCapabilityDTO[];
 }
 
+// Ce que le cerveau porte : sessions, outils, profils, delegation,
+// routines. Une seule route parce que le gateway coute ~6 s a froid et que
+// le pont n'en garde qu'un — cinq appels separes le rouvriraient cinq fois.
+export interface AgentSessionDTO {
+  id: string;
+  title: string;
+  preview: string;
+  started_at: number;
+  message_count: number;
+  source: string;
+}
+
+export interface AgentToolsetDTO {
+  name: string;
+  description: string;
+  tool_count: number;
+  enabled: boolean;
+  tools?: string[];
+}
+
+export interface AgentProfileDTO {
+  name: string;
+  model: string;
+  provider: string;
+  description: string;
+  display_name: string;
+  is_default: boolean;
+  skill_count: number;
+}
+
+export interface AgentRoutineDTO {
+  [cle: string]: unknown;
+}
+
+export interface AgentListeDTO<T> {
+  disponible: boolean;
+  erreur: string | null;
+  total: number;
+  elements: T[];
+}
+
+export interface AgentDelegationDTO {
+  disponible: boolean;
+  erreur: string | null;
+  actifs: unknown[];
+  en_pause: boolean | null;
+  profondeur_max: number | null;
+  enfants_max: number | null;
+}
+
+export interface AgentVueDTO {
+  sessions: AgentListeDTO<AgentSessionDTO>;
+  toolsets: AgentListeDTO<AgentToolsetDTO>;
+  profils: AgentListeDTO<AgentProfileDTO>;
+  delegation: AgentDelegationDTO;
+  routines: AgentListeDTO<AgentRoutineDTO>;
+}
+
 export const bridgeClient = {
   capabilities: () => fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities"),
+  agent: () => fetchJSON<AgentVueDTO>("/bridge/agent"),
   refresh: () =>
     fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities/refresh", {
       method: "POST",

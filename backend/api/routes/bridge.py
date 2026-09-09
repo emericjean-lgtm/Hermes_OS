@@ -21,8 +21,20 @@ from backend.bridge import HermesAgentBridge
 router = APIRouter(tags=["bridge"])
 
 #: Un pont par processus. Il ne porte aucun état de décision — seulement un
-#: verrou et un cache de négociation — donc le partager est sans risque.
+#: verrou, un cache de négociation et la connexion au gateway — donc le
+#: partager est sans risque, et en ouvrir deux coûterait deux fois les
+#: skills chargées et deux découvertes MCP pour un runtime qui n'a qu'un
+#: seul état sur le disque.
 _pont = HermesAgentBridge()
+
+
+def pont() -> HermesAgentBridge:
+    """Le pont partagé. Exposé pour que `vue_agent` parle au même.
+
+    Une fonction plutôt que l'attribut : un second `HermesAgentBridge()`
+    créé ailleurs ouvrirait un second gateway sans que rien ne le dise.
+    """
+    return _pont
 
 
 @router.get("/bridge/capabilities",
@@ -34,6 +46,18 @@ async def capacites() -> JSONResponse:
     mettre l'agent à jour la change et force une nouvelle mesure.
     """
     return JSONResponse(_pont.negocier().as_dict())
+
+
+@router.get("/bridge/agent", summary="Ce que le cerveau agentique porte")
+async def vue_agent_complete() -> JSONResponse:
+    """Sessions, outils, profils, délégation et routines en une lecture.
+
+    Une seule route parce que le gateway coûte six secondes à froid : cinq
+    appels frontend séparés rouvriraient la même connexion cinq fois.
+    """
+    from backend.services import vue_agent
+
+    return JSONResponse(vue_agent.vue_d_ensemble())
 
 
 @router.post("/bridge/capabilities/refresh",

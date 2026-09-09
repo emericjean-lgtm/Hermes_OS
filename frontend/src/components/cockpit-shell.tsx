@@ -14,6 +14,7 @@ import { DashboardView } from "@/features/dashboard/dashboard-view";
 import { MissionCenter } from "@/features/missions/mission-center";
 import { AgentCenter } from "@/features/agents/agent-center";
 import { RuntimeCenterMerged } from "@/features/runtime/runtime-center-merged";
+import { CerveauCenter } from "@/features/cerveau/cerveau-center";
 import { MemoryCenter } from "@/features/memory/memory-center";
 // KnowledgeGraphCenter et AlexandrieCenter ne sont plus des vues de premier
 // niveau : leur contenu est devenu un onglet du Memory Center, qui affichait
@@ -49,6 +50,7 @@ const views = {
   models: ModelIntelligenceCenter,
   missions: MissionCenter,
   agents: AgentCenter,
+  cerveau: CerveauCenter,
   runtime: RuntimeCenterMerged,
   code_intelligence: CodeIntelligenceCenter,
   memory: MemoryCenter,

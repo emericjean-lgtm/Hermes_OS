@@ -227,6 +227,16 @@ export function useBridgeCapabilities() {
   });
 }
 
+// Le gateway est deja ouvert quand la negociation a eu lieu : cet appel-la
+// est rapide. On rafraichit a l'ouverture de l'ecran, pas en boucle.
+export function useAgentVue() {
+  return useQuery({
+    queryKey: ["bridge", "agent"],
+    queryFn: bridgeClient.agent,
+    staleTime: 30_000,
+  });
+}
+
 export function useRefreshBridgeCapabilities() {
   const qc = useQueryClient();
   return useMutation({

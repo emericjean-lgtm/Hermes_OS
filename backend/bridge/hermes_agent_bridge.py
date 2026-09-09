@@ -55,6 +55,7 @@ import os
 import subprocess
 import threading
 import time
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -172,6 +173,164 @@ def _magasin() -> Path:
     return etat.racine() / "db" / "bridge_negociation.json"
 
 
+class ConnexionFermee(RuntimeError):
+    """Le gateway n'est pas joignable — panne, pas absence de capacité."""
+
+
+class _Connexion:
+    """Un gateway vivant, et une seule façon de lui parler.
+
+    Le pont ne pouvait que **négocier** : il ouvrait un gateway, posait ses
+    questions, le tuait. Six secondes par question, et aucune session ne
+    survivait — donc ni steer, ni approbation, ni événement pendant le
+    tour. C'est la moitié du produit que ce projet appelle « agentique ».
+
+    Cette connexion garde le processus ouvert, corrèle les réponses par
+    identifiant, et met les événements de côté dans une file bornée. Elle
+    porte le témoin de flux comme l'adaptateur le porte : ce processus-ci
+    est un **agent**, et A-2 dit qu'un lanceur d'agent sans surveillance
+    est un lanceur de trop.
+    """
+
+    #: Assez pour tenir un tour d'outils bavard sans laisser la mémoire
+    #: croître si personne ne lit — les événements sont un flux, pas un
+    #: journal, et le Run Ledger reste la seule mémoire durable.
+    EVENEMENTS_MAX = 500
+
+    def __init__(self, cfg, delai_demarrage: float, delai_reponse: float) -> None:
+        self._cfg = cfg
+        self._delai_demarrage = delai_demarrage
+        self._delai_reponse = delai_reponse
+        self._processus: Optional[subprocess.Popen] = None
+        self._garde = None
+        self._fuite: list = []
+        self._reponses: dict[int, dict] = {}
+        self._attentes: dict[int, threading.Event] = {}
+        self._evenements: deque = deque(maxlen=self.EVENEMENTS_MAX)
+        self._compteur = 0
+        self._pret = threading.Event()
+        self._verrou_ecriture = threading.Lock()
+
+    # ── Cycle de vie ──────────────────────────────────────────────────
+
+    def ouvrir(self) -> None:
+        from backend.security import surveillance_flux
+
+        racine = Path(self._cfg.hermes_home) / "hermes-agent"
+        env = os.environ.copy()
+        env.update({"HERMES_HOME": self._cfg.hermes_home, "PYTHONUTF8": "1",
+                    "PYTHONUNBUFFERED": "1"})
+        canary = surveillance_flux.fabriquer_canary()
+        env = surveillance_flux.environnement_avec_canary(env, canary)
+        self._garde = surveillance_flux.SurveillanceFlux(
+            canary=canary,
+            secrets_connus=[getattr(self._cfg, "api_key", "") or ""],
+        )
+        self._processus = subprocess.Popen(
+            [self._cfg.python_exe, "-m", "tui_gateway.entry"],
+            cwd=str(racine), env=env, stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            encoding="utf-8", errors="replace", bufsize=1)
+        threading.Thread(target=self._lire, daemon=True).start()
+        self._pret.wait(timeout=self._delai_demarrage)
+        self._verifier_fuite()
+
+    def _lire(self) -> None:
+        flux = self._processus.stdout  # type: ignore[union-attr]
+        for ligne in flux:
+            alerte = self._garde.bloc(ligne) if self._garde else None
+            if alerte is not None:
+                self._fuite.append(alerte)
+                self._pret.set()
+                for attente in list(self._attentes.values()):
+                    attente.set()
+                return
+            try:
+                message = json.loads(ligne)
+            except ValueError:
+                continue
+            if message.get("params", {}).get("type") == "gateway.ready":
+                self._pret.set()
+            identifiant = message.get("id")
+            if identifiant is not None:
+                self._reponses[identifiant] = message
+                attente = self._attentes.get(identifiant)
+                if attente is not None:
+                    attente.set()
+            elif message.get("method") == "event":
+                self._evenements.append(message.get("params") or {})
+
+    def vivante(self) -> bool:
+        return (self._processus is not None
+                and self._processus.poll() is None
+                and not self._fuite)
+
+    def fermer(self) -> None:
+        processus, self._processus = self._processus, None
+        if processus is None:
+            return
+        try:
+            processus.terminate()
+            try:
+                processus.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                processus.kill()
+        except OSError:
+            pass
+
+    # ── Parler ────────────────────────────────────────────────────────
+
+    def _verifier_fuite(self) -> None:
+        if self._fuite:
+            alerte = self._fuite[0]
+            raise RuntimeError(
+                f"fuite detectee sur la sortie du gateway : "
+                f"{alerte.motif.value} — {alerte.detail}")
+
+    def appeler(self, methode: str, params: Optional[dict] = None,
+                timeout: Optional[float] = None) -> dict:
+        """Une requête JSON-RPC, et la réponse qui lui correspond.
+
+        Rend le message entier — `result` **ou** `error`. Ne lève pas sur
+        une erreur applicative : `4001 session not found` est une réponse,
+        et c'est à l'appelant d'en faire ce qu'il veut. Ne lève que quand
+        il n'y a pas de réponse du tout.
+        """
+        if self._processus is None or self._processus.poll() is not None:
+            raise ConnexionFermee("le gateway n'est pas ouvert")
+        self._verifier_fuite()
+        with self._verrou_ecriture:
+            self._compteur += 1
+            identifiant = self._compteur
+            attente = threading.Event()
+            self._attentes[identifiant] = attente
+            try:
+                self._processus.stdin.write(json.dumps({  # type: ignore[union-attr]
+                    "jsonrpc": "2.0", "id": identifiant,
+                    "method": methode, "params": params or {}}) + chr(10))
+                self._processus.stdin.flush()  # type: ignore[union-attr]
+            except (OSError, ValueError) as exc:
+                self._attentes.pop(identifiant, None)
+                raise ConnexionFermee(f"ecriture impossible : {exc}") from exc
+        try:
+            attente.wait(timeout=timeout or self._delai_reponse)
+        finally:
+            self._attentes.pop(identifiant, None)
+        self._verifier_fuite()
+        message = self._reponses.pop(identifiant, None)
+        if message is None:
+            raise ConnexionFermee(
+                f"aucune reponse a {methode!r} en "
+                f"{timeout or self._delai_reponse:.0f}s")
+        return message
+
+    def evenements(self) -> list:
+        """Vide la file. Un événement lu ne l'est qu'une fois."""
+        vus = list(self._evenements)
+        self._evenements.clear()
+        return vus
+
+
 class HermesAgentBridge:
     """Le pont. Un seul par processus, et il ne décide rien.
 
@@ -191,6 +350,50 @@ class HermesAgentBridge:
         self._config = config
         self._lancer = lanceur or self._lancer_gateway
         self._verrou = threading.Lock()
+        self._connexion: Optional[_Connexion] = None
+        self._verrou_connexion = threading.Lock()
+
+    # ── Parler au runtime ─────────────────────────────────────────────
+
+    def connexion(self) -> _Connexion:
+        """La connexion partagée, ouverte à la demande et rouverte si morte.
+
+        Une seule par processus : deux gateways, c'est deux fois les skills
+        chargées, deux découvertes MCP et deux fois la mémoire — pour un
+        runtime qui n'a de toute façon qu'un seul état sur le disque.
+        """
+        with self._verrou_connexion:
+            if self._connexion is not None and self._connexion.vivante():
+                return self._connexion
+            if self._connexion is not None:
+                self._connexion.fermer()
+            connexion = _Connexion(self._cfg(), self.DELAI_DEMARRAGE_S,
+                                   self.DELAI_REPONSE_S)
+            connexion.ouvrir()
+            self._connexion = connexion
+            return connexion
+
+    def appeler(self, methode: str, params: Optional[dict] = None,
+                timeout: Optional[float] = None) -> dict:
+        """Relaie un appel au runtime. **Ne décide rien.**
+
+        Le pont ne filtre pas les méthodes : la liste de ce qui est
+        appelable vient de la négociation, et c'est l'appelant — un service
+        Hermes OS, avec ses propres autorités — qui choisit quoi appeler.
+        Un pont qui arbitrerait ici serait la seconde autorité que la règle
+        interdit.
+        """
+        return self.connexion().appeler(methode, params, timeout)
+
+    def evenements(self) -> list:
+        connexion = self._connexion
+        return connexion.evenements() if connexion is not None else []
+
+    def fermer(self) -> None:
+        with self._verrou_connexion:
+            if self._connexion is not None:
+                self._connexion.fermer()
+                self._connexion = None
 
     # ── Empreinte du runtime ──────────────────────────────────────────
 

@@ -1,3 +1,94 @@
+## HOS-266 — Le pont demande, et cinq surfaces atteignent le cockpit (2026-09-09)
+
+HOS-265 avait pose le pont et sa regle anti-orphelin, puis conclu : dix-sept
+surfaces « negociees et visibles, ce qui n'est pas integre ». Cette passe en
+integre cinq, de bout en bout.
+
+### Ce qui manquait au pont
+
+Il savait **negocier** — dire ce que le runtime peut faire — et rien
+d'autre. Il ouvrait un gateway, posait ses questions, le tuait. Six
+secondes par question, et aucune session ne survivait : ni steer, ni
+approbation, ni evenement pendant le tour.
+
+Les capacites etaient donc visibles et **inertes**. Le cockpit affichait
+« sessions : complete » sans pouvoir montrer une seule session — exactement
+la demi-promesse que la regle anti-orphelin sanctionne, un cran avant
+l'orphelin franc.
+
+`_Connexion` garde le processus ouvert, correle les reponses par
+identifiant, et met les evenements de cote dans une file bornee a 500 —
+un flux, pas un journal ; le Run Ledger reste la seule memoire durable. Le
+temoin de flux y est pose comme dans l'adaptateur, puisque ce processus-ci
+est un agent.
+
+### Cinq surfaces, mesurees avant d'etre dessinees
+
+Les charges utiles ont ete relevees sur le vrai gateway **avant** d'ecrire
+une ligne d'interface :
+
+    session.list        200 sessions   id, titre, apercu, date, messages, source
+    tools.list           62 toolsets   nom, description, tool_count, enabled
+    profiles.list         1 profil     modele, fournisseur, skills, defaut
+    delegation.status     —            actifs, en pause, profondeur, enfants
+    cron.manage           0 routine    —
+
+`backend/services/vue_agent.py` en fait des surfaces produit. C'est une
+**vue** : une garde sur l'arbre syntaxique lui interdit d'ecrire, comme
+`vue_operations` en porte une depuis HOS-235.
+
+Une seule route, `/bridge/agent`, sert les cinq. Le gateway coute six
+secondes a froid et le pont n'en garde qu'un : cinq routes frontend
+l'auraient rouvert cinq fois.
+
+### Deux facons de mentir, ecartees
+
+**Une panne n'est pas un vide.** `disponible` porte la difference, comme
+`negociee` la porte pour la negociation. Sans elle, un gateway injoignable
+se lirait « aucune session » — faux et rassurant, la pire combinaison.
+
+**Un chiffre exact peut mentir.** Le runtime sert 200 sessions, le cockpit
+en montre 100 : il affiche « 100 servis sur 200 », jamais « 100 ». Et une
+borne de delegation absente reste `None`, pas `0` — `0` dirait « aucune
+delegation permise », ce qui est une affirmation.
+
+### Lecture seule, et c'est une decision
+
+Reprendre une session, activer un toolset, creer un Bot : ces gestes
+ecrivent dans l'etat de l'agent. Les poser demanderait de trancher d'abord
+qui, de Hermes OS ou de l'agent, en est autorite — la question meme que la
+regle qui prime sur tout rend delicate. Tant qu'elle n'est pas ecrite, un
+bouton qui pretendrait le faire serait un bouton sans backend.
+
+`skills.manage` et `cron.manage` savent aussi ecrire selon l'action passee.
+La vue ne leur transmet **aucun** parametre, et un test le garde : un futur
+`action` devra etre un geste delibere, pas un oubli.
+
+### Preuve
+
+Center « Cerveau », cinq onglets, verifie au navigateur :
+
+- **Sessions** — « 100 servis sur 200 », et les sessions reelles y sont,
+  dont les sondages de HOS-264 (`Create AGENTIC_PROBE.md with probe ok #27`) ;
+- **Outils** — « 8 actifs sur 63 » : `coding` actif avec 31 outils,
+  `delegation` et `file` actifs, le reste inactif. C'est la distinction qui
+  compte, un toolset present et desactive n'etant pas un outil disponible ;
+- **Delegation** — 0 actif, profondeur max 1, enfants max 10, et la note
+  que `subagent.start` n'existe pas dans ce runtime ;
+- **Bots** et **Routines** servent leurs donnees reelles.
+
+Six mutations, six rouges — dont « le frontend cesse d'appeler la vue »,
+qui fait rougir la regle anti-orphelin, et « la vue d'ensemble demande deux
+fois la meme surface ».
+
+### Ce qui reste PLANNED
+
+Chat et streaming, fork, memory, approvals, MCP, browser, l'auto-
+apprentissage des skills. Le chat exige de tenir une session vivante et de
+relayer les evenements jusqu'au navigateur : `_Connexion` en pose la
+moitie — les evenements sont deja collectes — et rien ne les transporte
+encore. `fork` et `memory` n'ont toujours aucune methode amont.
+
 ## HOS-265 — Un pont qui negocie, et une regle qui interdit l'orphelin (2026-09-07)
 
 Migration de Hermes Agent v0.20.0 vers v0.21.0, etablissement du pont

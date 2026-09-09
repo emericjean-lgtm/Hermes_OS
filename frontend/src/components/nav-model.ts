@@ -3,7 +3,7 @@ import {
   Database, Sparkles, Wrench, Scale, Radio, FlaskConical, Dna,
   ShieldCheck, LayoutGrid, Rocket, Play, FolderTree,
   CheckCircle2, LineChart, HeartPulse, AudioLines, Clapperboard,
-  Activity,
+  Activity, BrainCircuit,
 } from "lucide-react";
 
 /** The one navigation model, shared by the rail and the command palette.
@@ -45,6 +45,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "models", label: "Models", icon: Brain, keywords: "modèle ollama routage benchmark" },
       { id: "agents", label: "Agents", icon: Users, keywords: "atlas aegis echo kronos veritas" },
+      { id: "cerveau", label: "Cerveau", icon: BrainCircuit, keywords: "hermes agent sessions outils toolsets bots profils delegation routines cron pont bridge" },
       { id: "runtime", label: "Runtime", icon: Zap, keywords: "monitoring evenements deployment ram flux vram gpu ollama ressources" },
       { id: "code_intelligence", label: "Code Intel", icon: Code2, keywords: "analyse code klaatcode" },
       { id: "skills", label: "Skills", icon: Sparkles, keywords: "compétences capacités" },
