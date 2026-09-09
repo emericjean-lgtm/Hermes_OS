@@ -66,26 +66,42 @@ def _appeler(methode: str, params: Optional[dict] = None) -> dict:
             "resultat": message.get("result") or {}}
 
 
-def _liste(methode: str, cle: str, limite: int) -> dict:
-    enveloppe = _appeler(methode)
+def _liste(methode: str, cle: str, limite: int,
+           params: Optional[dict] = None) -> dict:
+    """Une page, et la vérité sur ce qu'elle ne montre pas.
+
+    `total` disait `len(elements)` — or `session.list` **plafonne à 200
+    côté serveur**. HOS-266 affichait donc « 100 servis sur 200 » alors que
+    200 était le plafond du gateway, pas le nombre de sessions. Un chiffre
+    exact qui trompe, exactement ce que cette vue prétend éviter.
+
+    On demande donc une page de plus que nécessaire : si le runtime la
+    rend, c'est qu'il y en a davantage, et `tronque` le dit.
+    """
+    enveloppe = _appeler(methode, params)
     if not enveloppe["disponible"]:
         return {"disponible": False, "erreur": enveloppe["erreur"],
-                "total": 0, "elements": []}
+                "total": 0, "tronque": False, "elements": []}
     elements = enveloppe["resultat"].get(cle) or []
     if not isinstance(elements, list):
         elements = []
+    tronque = len(elements) > limite
     return {"disponible": True, "erreur": None,
-            "total": len(elements), "elements": elements[:limite]}
+            "total": len(elements[:limite]), "tronque": tronque,
+            "elements": elements[:limite]}
 
 
 def sessions(limite: int = LIMITE_PAR_DEFAUT) -> dict:
     """Les sessions que l'agent a réellement tenues.
 
-    `total` porte le compte entier et `elements` la page servie : afficher
-    « 100 sessions » quand il y en a 200 serait une deuxième façon de
-    mentir avec des chiffres exacts.
+    `tronque` dit qu'il en reste au-delà de la page. Il remplace un `total`
+    qui valait en réalité le **plafond du gateway** (200) et se lisait comme
+    un décompte — un chiffre exact et faux, ce que cette vue existe pour
+    éviter.
     """
-    return _liste("session.list", "sessions", limite)
+    # `limite + 1` : ce que le runtime rend en trop prouve qu'il en reste.
+    return _liste("session.list", "sessions", limite,
+                  {"limit": limite + 1})
 
 
 def toolsets(limite: int = LIMITE_PAR_DEFAUT) -> dict:
@@ -125,10 +141,10 @@ def routines() -> dict:
     enveloppe = _appeler("cron.manage")
     if not enveloppe["disponible"]:
         return {"disponible": False, "erreur": enveloppe["erreur"],
-                "total": 0, "elements": []}
+                "total": 0, "tronque": False, "elements": []}
     jobs = enveloppe["resultat"].get("jobs") or []
     return {"disponible": True, "erreur": None,
-            "total": len(jobs), "elements": jobs}
+            "total": len(jobs), "tronque": False, "elements": jobs}
 
 
 def vue_d_ensemble(limite: int = LIMITE_PAR_DEFAUT) -> dict[str, Any]:

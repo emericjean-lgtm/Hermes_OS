@@ -35,9 +35,11 @@ class _FauxPont:
         self.reponses = reponses or {}
         self.leve = leve
         self.appels: list = []
+        self.appels_params: list = []
 
     def appeler(self, methode, params=None, timeout=None):
         self.appels.append(methode)
+        self.appels_params.append(params)
         if self.leve is not None:
             raise self.leve
         return self.reponses.get(
@@ -82,14 +84,33 @@ def test_une_liste_reelle_est_servie(pont):
 
 # ── Un chiffre exact peut mentir ──────────────────────────────────────
 
-def test_le_total_porte_le_compte_entier_pas_la_page(pont):
-    """Le runtime reel sert 200 sessions ; la vue en montre 100. Afficher
-    « 100 » sans dire « sur 200 » serait exact et trompeur."""
+def test_une_page_pleine_annonce_qu_il_en_reste(pont):
+    """HOS-266 affichait « 100 servis sur 200 » — or 200 est le **plafond**
+    de `session.list`, pas un decompte. Un chiffre exact qui trompe, ce que
+    cette vue existe pour eviter.
+
+    On demande donc une page de plus : ce que le runtime rend en trop
+    prouve qu'il en reste, et c'est tout ce qu'on peut honnetement dire.
+    """
     pont.reponses["session.list"] = {
-        "result": {"sessions": [{"id": str(i)} for i in range(200)]}}
+        "result": {"sessions": [{"id": str(i)} for i in range(101)]}}
     vue = vue_agent.sessions(limite=100)
-    assert vue["total"] == 200
+    assert vue["total"] == 100
+    assert vue["tronque"] is True
     assert len(vue["elements"]) == 100
+
+
+def test_une_page_incomplete_ne_pretend_pas_qu_il_en_reste(pont):
+    pont.reponses["session.list"] = {
+        "result": {"sessions": [{"id": str(i)} for i in range(7)]}}
+    vue = vue_agent.sessions(limite=100)
+    assert vue["total"] == 7 and vue["tronque"] is False
+
+
+def test_la_page_demandee_depasse_d_un_ce_qu_on_affiche(pont):
+    """C'est le `+1` qui rend `tronque` mesurable plutot que devine."""
+    vue_agent.sessions(limite=50)
+    assert pont.appels_params[-1] == {"limit": 51}
 
 
 def test_une_charge_utile_inattendue_ne_fait_pas_tomber_la_vue(pont):
@@ -162,18 +183,32 @@ def test_la_vue_agent_n_ecrit_rien():
         f"la vue du cerveau ecrit : {touches}. Elle doit rester une lecture.")
 
 
-def test_la_vue_ne_relaie_que_des_methodes_de_lecture():
-    """`skills.manage` et `cron.manage` savent aussi ecrire, selon l'action
-    passee. La vue ne leur passe **aucun** parametre : c'est ce qui les
-    rend inoffensives ici, et un futur `action` devrait etre un geste
-    delibere, pas un oubli.
+#: Les seules cles de parametre qu'une **vue** peut passer : elles bornent
+#: une lecture et ne declenchent rien. `skills.manage` et `cron.manage`
+#: savent aussi ecrire selon l'`action` recue — c'est cette cle-la, et ses
+#: pareilles, qui n'ont rien a faire dans une vue.
+CLES_DE_LECTURE = {"limit", "include_hidden", "title"}
+
+
+def test_la_vue_ne_passe_que_des_parametres_de_lecture():
+    """La premiere version interdisait **tout** parametre, ce qui a cesse
+    d'etre tenable des que la pagination honnete a exige un `limit`.
+
+    Interdire la forme (« aucun parametre ») plutot que la propriete
+    (« aucun parametre qui ecrive ») aurait force a supprimer la garde au
+    premier besoin legitime. On nomme donc ce qui est permis.
     """
     source = (RACINE / "backend" / "services"
               / "vue_agent.py").read_text(encoding="utf-8")
     arbre = ast.parse(source)
     for n in ast.walk(arbre):
-        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-                and n.func.id == "_appeler" and len(n.args) > 1):
-            pytest.fail(
-                "un appel de la vue passe des parametres : verifier qu'il "
-                "ne declenche pas une action d'ecriture cote agent")
+        if not (isinstance(n, ast.Dict) and n.keys):
+            continue
+        cles = {k.value for k in n.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+        # Un dict de parametres se reconnait a ce qu'il ne contient que des
+        # cles courtes ; on ne vise que ceux qui portent une cle d'action.
+        interdites = cles & {"action", "op", "command", "delete", "set"}
+        assert not interdites, (
+            f"la vue construit un parametre d'action : {sorted(interdites)}. "
+            "Une action appartient a `mutations_agent`, pas a une vue.")

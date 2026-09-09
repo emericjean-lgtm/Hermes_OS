@@ -726,7 +726,23 @@ export interface AgentListeDTO<T> {
   disponible: boolean;
   erreur: string | null;
   total: number;
+  // `total` est ce que la page contient, pas un decompte global :
+  // `session.list` plafonne a 200 cote gateway. `tronque` dit qu'il en
+  // reste au-dela — un chiffre exact sans lui se lirait comme un total.
+  tronque: boolean;
   elements: T[];
+}
+
+// G-18 : Hermes OS **demande** a l'agent d'ecrire, il n'ecrit pas lui-meme.
+// Un refus du runtime revient en 200 avec `applique: false` — c'est un
+// resultat, pas une panne de transport.
+export interface AgentMutationDTO {
+  applique: boolean;
+  erreur: string | null;
+  cle_stockee: string | null;
+  parent: string | null;
+  titre: string | null;
+  messages: number | null;
 }
 
 export interface AgentDelegationDTO {
@@ -749,6 +765,11 @@ export interface AgentVueDTO {
 export const bridgeClient = {
   capabilities: () => fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities"),
   agent: () => fetchJSON<AgentVueDTO>("/bridge/agent"),
+  brancherSession: (cle: string, titre: string) =>
+    fetchJSON<AgentMutationDTO>(
+      `/bridge/agent/sessions/${encodeURIComponent(cle)}/brancher`,
+      { method: "POST", body: JSON.stringify({ titre }) },
+    ),
   refresh: () =>
     fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities/refresh", {
       method: "POST",

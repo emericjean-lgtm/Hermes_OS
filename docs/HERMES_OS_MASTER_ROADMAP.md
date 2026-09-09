@@ -561,9 +561,27 @@ Mesuré : **54 méthodes présentes, 8 absentes**, regroupées en 18 surfaces
 | profiles/Bots (lecture) | ✅ | ✅ | ✅ | ✅ Cerveau · Bots | 🟢 **DEMONSTRATED** |
 | delegation (lecture) | ⚠️ partielle | ✅ | ✅ | ✅ Cerveau · Délégation | 🟡 lecture seule |
 | cron/routines (lecture) | ✅ | ✅ | ✅ | ✅ Cerveau · Routines | 🟢 **DEMONSTRATED** |
+| **fork/branch (mutation)** | ✅ `session.branch` | ✅ contrat G-18 | ✅ POST `/bridge/agent/.../brancher` | ✅ Cerveau · Sessions | 🟢 **DEMONSTRATED** |
 | chat/streaming · steering · approvals · skills · learning · MCP · browser · projects · config · insights | ✅ | ✅ négociée | ✗ | ✗ | 🟠 PLANNED |
-| reprise de session · activation d'un toolset · création de Bot | ✅ | ✅ | ✗ | ✗ | 🟠 PLANNED — écrit dans l'état de l'agent, autorité non tranchée |
-| fork · memory | ✗ absentes | ✅ négociée | — | — | 🔴 pas de méthode amont |
+| activation d'un toolset · création de Bot | ✅ | ✅ contrat posé | ✗ | ✗ | 🟠 PLANNED — le contrat les couvre, aucune UI ne les demande |
+| suppression / réinitialisation | ✅ | ✗ hors contrat | — | — | 🔴 destructif : reprise non tranchée |
+| memory | ✗ absente | ✅ négociée | — | — | 🔴 pas de méthode amont |
+
+### G-18 — le contrat d'autorité, établi par la mesure
+
+    la conversation stockee          Hermes Agent      state.db, durable
+    la session vivante               le gateway        ephemere
+    le recit de ce qu'on a demande   Hermes OS         son bus d'evenements
+
+**Hermes OS demande, il n'écrit pas.** `state.db` fait 114 Mio avec son
+schéma, son WAL et ses transactions ; deux programmes qui l'écrivent, c'est
+la base de l'utilisateur qui arbitre. Deux gardes structurelles le tiennent :
+aucun module n'ouvre `state.db`, et `hermes_home` ne sert qu'à poser un `cwd`.
+
+Mesuré : `session.resume` **ne mute rien** (empreinte identique, handle mort
+au redémarrage) — c'est une activation, pas une mutation. `session.branch`
+mute vraiment, et **additivement**. `MUTATIONS_CONNUES` ne porte aucune
+mutation destructive, et un test l'interdit.
 
 Une surface **négociée et visible** n'est pas une surface **intégrée**, et
 la règle anti-orphelin existe pour que cette distinction ne puisse plus se
@@ -1039,7 +1057,8 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | **G-15** | **observability** | Un verdict agentique est une mesure datée que rien ne réévalue | §6/§7 | le magasin ne porte ni date de mesure exploitée, ni empreinte des poids ou du `num_ctx` servi : remplacer un modèle sous le même tag laisse son verdict en place sans que rien ne le signale. **Le pont (§16) applique la solution** : son cache est indexé sur l'empreinte du runtime |
 | **G-16** | **technical debt** | 120 routes `/api/v1` sur 306 n'ont aucun appelant frontend | §15/§16 | mesuré le 2026-09-07, instrument corrigé deux fois ; gelé comme dette dans `test_pas_de_backend_orphelin.py`, qui interdit désormais d'en ajouter |
 | **G-17** | **architectural** | Le pont négocie 12 surfaces qu'aucun service n'expose | §16 | **réduit de 17 à 12 par HOS-266** : sessions, tools, profiles, delegation et cron ont désormais route, client et UI. Restent chat/streaming, steering, approvals, skills, learning, MCP, browser, projects, config, insights |
-| **G-18** | **architectural** | L'autorité sur l'état de l'agent n'est pas tranchée | §16 | reprendre une session, activer un toolset ou créer un Bot écrit dans `%LOCALAPPDATA%\hermes` ; qui de Hermes OS ou de l'agent en décide n'est écrit nulle part, et la vue reste en lecture tant que ce n'est pas le cas |
+| ~~**G-18**~~ | ~~architectural~~ | ~~L'autorité sur l'état de l'agent n'est pas tranchée~~ — **fermé HOS-267** | §16 | contrat établi par la mesure : l'agent est seul autorité sur `state.db`, Hermes OS demande et trace sa demande dans son propre bus. Une mutation additive intégrée de bout en bout, deux gardes structurelles, 10 mutations rouges |
+| **G-19** | **technical debt** | Le fork était déclaré absent sur la foi d'un nom | §16 | `session.fork` n'existe pas, `session.branch` si — la négociation mesurait juste, la liste des noms à sonder était écrite de mémoire. Corrigé ; reste à vérifier que les 17 autres noms sondés sont bien ceux du runtime |
 | G-13 | **technical debt** | Deux dimensions sur cinq du score modèle sont inertes | §6 | `_get_records_for_task` rend `[]` en dur ; `_compute_speed_score` rend 0,000 pour les six profils |
 
 ---
@@ -1152,3 +1171,4 @@ des passes ne sont pas reconstituées.
 | 2026-09-06 | `a102d54` | G-14 fermé : le catalogue est sondé pour de vrai — 18 essais, 6 modèles, 6/6 prouvés capables, chaîne complète mesurée du magasin jusqu'au modèle engagé. La sonde mesurait « ce modèle devine-t-il la convention de chemin » et non sa capacité agentique ; corrigée sur la formulation de la production. G-15 ouvert en chemin. §6.1 reste 🟢, sur une base désormais mesurée plutôt que supposée. |
 | 2026-09-07 | `116f603` | §16 créée — le pont Hermes Agent, infrastructure transverse sans autorité nouvelle. Agent migré 0.20.0 → 0.21.0 (31 918 commits, état persistant intact, suite inchangée). Capacités **négociées** contre le gateway et non déclarées : 54 méthodes présentes, 8 absentes, 15 surfaces complètes sur 18. Une seule chaîne complète jusqu'au frontend ; les autres restent PLANNED. Règle anti-orphelin posée : 120 routes sur 306 sans appelant frontend, gelées comme dette. G-16 et G-17 ouverts en chemin. |
 | 2026-09-09 | `e2d66f9` | §16 avance : le pont sait **demander** et non plus seulement négocier — une connexion vivante, des réponses corrélées, des événements collectés. Cinq surfaces passent de « négociée » à **démontrée** en lecture : sessions (200), toolsets (62, dont 8 actifs), profils, délégation, routines, servies par une route unique et un Center « Cerveau ». Tout ce qui écrit dans l'état de l'agent reste PLANNED : G-18 ouvert, G-17 réduit de 17 à 12. |
+| 2026-09-09 | `e5928f3` | **G-18 fermé.** Contrat d'autorité établi par la mesure : `session.resume` n'écrit rien (activation, handle éphémère), `session.branch` écrit additivement. Hermes OS demande au propriétaire et trace sa demande dans son propre bus — jamais dans `state.db`. Une mutation intégrée de bout en bout, clic réel vérifié. Le fork existait sous le nom `session.branch` : 16 surfaces sur 18. G-19 ouvert. |

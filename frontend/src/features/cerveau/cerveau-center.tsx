@@ -17,14 +17,14 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Card, Badge } from "@/components/ui/card";
 import { CenterHeader, PanelLoading } from "@/components/center-scaffold";
-import { useAgentVue } from "@/hooks/use-api";
+import { useAgentVue, useBrancherSession } from "@/hooks/use-api";
 import type {
   AgentListeDTO,
   AgentSessionDTO,
   AgentToolsetDTO,
   AgentProfileDTO,
 } from "@/services/client";
-import { History, Wrench, Bot, GitBranch, Clock } from "lucide-react";
+import { History, Wrench, Bot, GitBranch, Clock, Split } from "lucide-react";
 
 type Vue = "sessions" | "outils" | "bots" | "delegation" | "routines";
 
@@ -66,10 +66,13 @@ function Vide({ quoi }: { quoi: string }) {
 
 /** « 100 servis sur 200 » plutôt que « 100 » : un chiffre exact peut mentir. */
 function Compte({ liste }: { liste: AgentListeDTO<unknown> }) {
-  const servis = liste.elements.length;
+  // `total` est la taille de la page, pas un decompte : le gateway plafonne
+  // `session.list` a 200. Dire « sur 200 » presentait ce plafond comme un
+  // total — exact et faux. `tronque` dit ce qu'on sait vraiment.
   return (
     <span className="text-[11px] font-mono text-hermes-muted tabular-nums">
-      {servis < liste.total ? `${servis} servis sur ${liste.total}` : `${liste.total}`}
+      {liste.total}
+      {liste.tronque ? " affichées, et il en reste" : ""}
     </span>
   );
 }
@@ -140,11 +143,41 @@ export function CerveauCenter() {
 }
 
 function Sessions({ liste }: { liste: AgentListeDTO<AgentSessionDTO> }) {
+  const brancher = useBrancherSession();
+  // Le resultat de la derniere demande, refus compris : un refus du runtime
+  // revient en 200 et doit se lire, pas disparaitre.
+  const resultat = brancher.data;
+
   return (
     <Card title="Sessions tenues par le cerveau">
-      <div className="flex justify-end pb-2">
+      <div className="flex items-center justify-between pb-2">
+        <span className="text-[10px] font-mono text-hermes-dim">
+          Brancher demande à l'agent d'écrire dans son propre état — Hermes OS
+          n'y touche pas.
+        </span>
         <Compte liste={liste} />
       </div>
+      {resultat && (
+        <div
+          className={`mb-2 px-2.5 py-2 border text-[10px] font-mono ${
+            resultat.applique
+              ? "border-hermes-arc/45 text-hermes-arc bg-hermes-arc/[0.07]"
+              : "border-hermes-gold/45 text-hermes-gold bg-hermes-gold/[0.07]"
+          }`}
+        >
+          {resultat.applique
+            ? `Branche créée : ${resultat.titre} (${resultat.cle_stockee}) — ${resultat.messages} message(s) repris du parent ${resultat.parent}.`
+            : `Refus du runtime : ${resultat.erreur}`}
+        </div>
+      )}
+      {brancher.isError && (
+        <div className="mb-2 px-2.5 py-2 border border-hermes-alarm/45 text-[10px] font-mono text-hermes-alarm">
+          La demande n'a pas abouti :{" "}
+          {brancher.error instanceof Error
+            ? brancher.error.message
+            : "transport injoignable"}
+        </div>
+      )}
       {!liste.disponible ? (
         <Indisponible erreur={liste.erreur} />
       ) : !liste.elements.length ? (
@@ -178,6 +211,23 @@ function Sessions({ liste }: { liste: AgentListeDTO<AgentSessionDTO> }) {
                 <span className="text-[10px] font-mono text-hermes-dim truncate">
                   {s.id}
                 </span>
+                <button
+                  onClick={() =>
+                    brancher.mutate({
+                      cle: s.id,
+                      titre: `Branche de ${s.title || s.id}`,
+                    })
+                  }
+                  disabled={brancher.isPending}
+                  aria-label={`Brancher la session ${s.title || s.id}`}
+                  className="ml-auto flex items-center gap-1 px-1.5 py-0.5 shrink-0
+                    text-[10px] font-mono border border-hermes-border
+                    text-hermes-muted hover:text-hermes-sodium
+                    hover:border-hermes-sodium/45 disabled:opacity-50"
+                >
+                  <Split className="w-2.5 h-2.5" />
+                  {brancher.isPending ? "…" : "Brancher"}
+                </button>
               </div>
             </motion.div>
           ))}

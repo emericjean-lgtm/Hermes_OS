@@ -237,6 +237,19 @@ export function useAgentVue() {
   });
 }
 
+// La branche ecrit dans `state.db` cote agent : on reinvalide la vue pour
+// que la nouvelle session apparaisse sans rechargement manuel.
+export function useBrancherSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cle, titre }: { cle: string; titre: string }) =>
+      bridgeClient.brancherSession(cle, titre),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bridge", "agent"] });
+    },
+  });
+}
+
 export function useRefreshBridgeCapabilities() {
   const qc = useQueryClient();
   return useMutation({

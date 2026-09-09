@@ -1,3 +1,130 @@
+## HOS-267 — Qui est autorite sur l'etat de Hermes Agent (2026-09-09)
+
+G-18. HOS-266 avait laisse les mutations PLANNED faute d'avoir tranche
+cette question. Cette passe la tranche par la mesure, et integre une
+mutation reelle de bout en bout.
+
+### La question etait mal posee, et la mesure l'a montre
+
+Le brief supposait que « reprise de session » etait une mutation de l'etat
+persistant. Mesure sur le vrai runtime :
+
+    session.resume
+      state.db      119574528 octets, md5 de802a3a4846ea8f  ->  IDENTIQUE
+      state.db-wal                                          ->  change
+      state.db-shm                                          ->  change
+
+`state.db` **ne bouge pas**. Seuls `-wal` et `-shm` changent, ce qui est la
+comptabilite de lecture de SQLite. `session.resume` n'ecrit rien : il lit
+une ligne et materialise une session **vivante en memoire**, dans le
+processus gateway. Et ce handle-la meurt avec lui :
+
+    resume            -> handle 2c356026, session.status OK
+    gateway tue       ->
+    session.status    -> 4001 session not found
+    session stockee   -> toujours la
+
+Ce n'est donc pas une mutation mais une **activation runtime**. La
+presenter comme durable serait un mensonge d'interface.
+
+### Trois choses, trois proprietaires
+
+    la conversation stockee          Hermes Agent      state.db, durable
+    la session vivante               le gateway        ephemere
+    le recit de ce qu'on a demande   Hermes OS         son bus d'evenements
+
+C'est la confusion entre les deux premieres qui rendait G-18 difficile. Une
+fois separees, le contrat s'ecrit tout seul : **Hermes OS demande, il
+n'ecrit pas.** `state.db` fait 114 Mio, avec son schema, son WAL et ses
+transactions ; deux programmes qui l'ecrivent, c'est la base de
+l'utilisateur qui arbitre.
+
+Hermes OS ne revendique que la troisieme ligne. Tracer sa propre demande
+dans son propre journal n'est pas posseder l'etat de l'agent — c'est
+repondre de ses actes, ce qu'aucune autre couche ne peut faire a sa place.
+Ne rien tracer laisserait une ecriture reelle sans trace cote OS, seule
+ecriture du depot que le journal ignorerait.
+
+Deux gardes structurelles le tiennent : aucun module Hermes OS n'ouvre
+`state.db`, et `hermes_home` ne sert qu'a poser un `cwd` et un
+environnement, jamais a ecrire.
+
+### Une mutation reelle, et pourquoi celle-la
+
+`session.branch` ecrit vraiment :
+
+    state.db avant   c4c41511df13983c
+    session.branch   -> cle 20260909_071909_89f792, parent 20260906_075837_a9239a
+    state.db apres   0537fc9dd00a2370          CHANGE
+    processus neuf   -> la session est retrouvee
+
+Elle est **additive** : le parent reste intact. C'est ce qui la rend
+integrable maintenant, alors qu'une mutation destructive demanderait une
+autre conversation — reprise, confirmation, tracabilite du contenu perdu.
+`MUTATIONS_CONNUES` n'en porte donc aucune, et un test l'interdit.
+
+Brancher exige une session vivante (`session.branch` est `live=True`), d'ou
+l'enchainement : on demande d'abord l'activation, puis la branche. Les deux
+gestes appartiennent a l'agent ; Hermes OS ne fait que les demander dans
+l'ordre — et la branche porte le **handle runtime**, jamais la cle stockee.
+
+### Le fork existait, sous un autre nom
+
+HOS-265 avait conclu « `session.fork` absent, donc pas de fork ». C'etait
+vrai du nom et faux de la capacite : le fork s'appelle `session.branch`. La
+negociation disait vrai sur ce qu'elle mesurait ; c'est la **liste des noms
+a sonder** qui etait fausse, et une liste ecrite de memoire ne vaut pas
+mieux qu'une specification lue de memoire. Corrige : `fork` passe
+d'ABSENTE a COMPLETE, 16 surfaces sur 18.
+
+### Un chiffre exact qui mentait, corrige
+
+HOS-266 affichait « 100 servis sur 200 ». Or `session.list` **plafonne a
+200 cote gateway** : 200 etait le plafond, pas un decompte, et se lisait
+comme un total. On demande desormais une page de plus que ce qu'on affiche —
+ce que le runtime rend en trop prouve qu'il en reste — et l'interface dit
+« 100 affichees, et il en reste ». C'est tout ce qu'on peut honnetement
+dire.
+
+Cette correction a rendu deux tests de HOS-266 rouges : ils affirmaient le
+contrat qu'elle remplace. Reecrits sur la nouvelle propriete, plus stricte —
+l'un d'eux interdisait **tout** parametre, ce qui a cesse d'etre tenable
+des qu'une pagination honnete a exige un `limit` ; il nomme desormais ce
+qui est permis plutot que d'interdire une forme.
+
+### Preuve de bout en bout
+
+Clic reel dans le cockpit, Cerveau · Sessions, bouton « Brancher » :
+
+    state.db avant   12993fe87e7e73af
+    clic             -> « Branche creee : ... (20260909_072434_48f2b3)
+                        — 2 message(s) repris du parent 20260906_082256_56a2a0 »
+    state.db apres   912543614484295e          CHANGE
+    processus neuf   -> session retrouvee, titre et compteur exacts
+
+La branche apparait dans la liste sans rechargement. Un refus du runtime
+revient en `200` avec `applique: false` et sa raison — un refus est un
+resultat, pas une panne, et l'interface les distingue.
+
+Dix mutations, dix rouges. Deux ont dû etre reecrites parce qu'elles ne
+creaient pas le defaut qu'elles pretendaient creer : l'une remplacait la
+gestion d'erreur de la branche alors qu'aucun test n'atteignait ce chemin —
+tous etaient refuses des l'activation, et le trou de couverture etait reel ;
+l'autre renommait la methode cliente sans retirer l'URL, que la regle
+anti-orphelin cherche. Un mutant qui ne cree pas le defaut ne mesure pas le
+garde-fou.
+
+### Ce qui reste PLANNED, et pourquoi
+
+Activer un toolset et creer un Bot ecrivent aussi dans l'etat de l'agent, et
+le contrat les couvre desormais — il suffirait de les declarer. Elles ne le
+sont pas parce qu'aucune interface ne les demande encore, et qu'une entree
+dans `MUTATIONS_CONNUES` sans appelant serait l'orphelin que HOS-265
+interdit. Le contrat est pose ; l'extension est un geste, pas un chantier.
+
+Les mutations destructives — supprimer une session, reinitialiser un profil —
+restent hors contrat tant que la question de la reprise n'est pas tranchee.
+
 ## HOS-266 — Le pont demande, et cinq surfaces atteignent le cockpit (2026-09-09)
 
 HOS-265 avait pose le pont et sa regle anti-orphelin, puis conclu : dix-sept

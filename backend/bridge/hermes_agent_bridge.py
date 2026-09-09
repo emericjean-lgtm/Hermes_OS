@@ -72,7 +72,13 @@ METHODES_PAR_CAPACITE: dict[str, tuple[str, ...]] = {
     "chat": ("prompt.submit",),
     "sessions": ("session.status", "session.resume", "session.list",
                  "session.save", "session.title"),
-    "fork": ("session.fork",),
+    # `session.fork` n'existe pas — mais le fork, si : il s'appelle
+    # `session.branch`. HOS-265 avait conclu « pas de RPC » sur la foi du
+    # nom sondé, et se trompait : la négociation disait vrai sur ce qu'elle
+    # mesurait, c'est la liste des noms qui était fausse. Mesuré le
+    # 2026-09-09 : `session.branch` écrit une vraie ligne dans `state.db`,
+    # retrouvée par un processus neuf.
+    "fork": ("session.branch",),
     "steering": ("session.steer", "session.interrupt"),
     "approvals": ("approval.respond", "clarify.respond", "secret.respond"),
     "tools": ("tools.list", "toolsets.list", "tools.configure"),
@@ -94,6 +100,33 @@ METHODES_PAR_CAPACITE: dict[str, tuple[str, ...]] = {
     "config": ("config.show",),
     "insights": ("insights.get", "verification.status"),
 }
+
+
+#: Les mutations que Hermes OS sait demander, et **à qui appartient l'état
+#: qu'elles écrivent**. C'est la table de G-18, et elle est courte exprès.
+#:
+#: Mesuré le 2026-09-09 : `state.db` (114 Mio, sous le home de l'agent) est
+#: écrit par les seuls gestionnaires de l'agent. `session.resume` ne le
+#: touche pas — empreinte identique avant/après, seuls `-wal` et `-shm`
+#: bougent, ce qui est la comptabilité de lecture de SQLite. Ce n'est donc
+#: pas une mutation : c'est une **activation runtime**, et son handle meurt
+#: avec le processus (`4001 session not found` après redémarrage, mesuré).
+#:
+#: `session.branch`, lui, écrit : contenu de `state.db` changé, nouvelle
+#: clé retrouvée par un processus neuf. C'est une vraie mutation, et elle
+#: est **additive** — elle n'écrase jamais la session parente.
+#:
+#: Une méthode absente d'ici n'est pas demandable. Pas parce que le pont
+#: arbitre — il n'arbitre rien — mais parce qu'inventer un appel que le
+#: runtime ne sert pas fabriquerait une API fictive, et c'est exactement ce
+#: que ce dépôt appelle un orphelin.
+MUTATIONS_CONNUES: dict[str, str] = {
+    "session.branch": "hermes-agent:state.db",
+}
+
+
+class MutationInconnue(ValueError):
+    """Demandée mais absente de `MUTATIONS_CONNUES` — donc jamais relayée."""
 
 
 @dataclass(frozen=True)
@@ -384,6 +417,27 @@ class HermesAgentBridge:
         interdit.
         """
         return self.connexion().appeler(methode, params, timeout)
+
+    def demander_mutation(self, methode: str,
+                          params: Optional[dict] = None,
+                          timeout: Optional[float] = None) -> dict:
+        """Demande au **propriétaire** de l'état d'écrire. Ne l'écrit pas.
+
+        C'est toute la réponse de G-18 en une méthode : Hermes OS n'ouvre
+        jamais `state.db`, il demande à l'agent de le faire, par l'API que
+        l'agent expose pour ça. Le pont est la couture — il vérifie que la
+        demande correspond à une mutation connue, et relaie.
+
+        Il ne décide pas *si* la mutation est souhaitable : cette
+        question-là appartient à l'appelant, avec ses propres autorités.
+        Un pont qui trancherait ici serait la troisième autorité que le
+        contrat interdit.
+        """
+        if methode not in MUTATIONS_CONNUES:
+            raise MutationInconnue(
+                f"{methode!r} n'est pas une mutation connue ; les mutations "
+                f"demandables sont {sorted(MUTATIONS_CONNUES)}")
+        return self.appeler(methode, params, timeout)
 
     def evenements(self) -> list:
         connexion = self._connexion

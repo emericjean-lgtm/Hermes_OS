@@ -60,6 +60,22 @@ async def vue_agent_complete() -> JSONResponse:
     return JSONResponse(vue_agent.vue_d_ensemble())
 
 
+@router.post("/bridge/agent/sessions/{cle}/brancher",
+             summary="Demander à l'agent de brancher une session")
+async def brancher(cle: str, corps: dict | None = None) -> JSONResponse:
+    """La seule mutation intégrée, et elle appartient à l'agent (G-18).
+
+    Hermes OS n'ouvre pas `state.db` : il demande. Un refus du runtime
+    revient en `200` avec `applique: false` et sa raison — c'est un
+    résultat, pas une panne, et l'interface doit pouvoir le distinguer
+    d'une erreur de transport.
+    """
+    from backend.services import mutations_agent
+
+    titre = str((corps or {}).get("titre") or "")
+    return JSONResponse(mutations_agent.brancher_session(cle, titre))
+
+
 @router.post("/bridge/capabilities/refresh",
              summary="Re-négocier maintenant")
 async def rafraichir() -> JSONResponse:

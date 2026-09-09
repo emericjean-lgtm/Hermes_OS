@@ -106,6 +106,13 @@ SECURITY_TOPICS: frozenset[str] = frozenset({
 SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # agent
     "agent.created",
+    # pont Hermes Agent (G-18) : la trace que Hermes OS garde de ce qu'il a
+    # **demande** a l'agent d'ecrire. Elle vit ici, dans le journal de
+    # Hermes OS, et non dans `state.db` — l'agent est seul autorite sur son
+    # etat, Hermes OS est seul autorite sur le recit de ses propres actes.
+    "bridge.mutation.demandee",
+    "bridge.mutation.appliquee",
+    "bridge.mutation.refusee",
     # alexandrie
     "alexandrie.circuit.opened",
     "alexandrie.document.created",
