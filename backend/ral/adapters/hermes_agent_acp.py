@@ -622,6 +622,28 @@ class HermesAgentACP:
 
 
     @staticmethod
+    def _chemin_demande(params: dict) -> str:
+        """Le(s) chemin(s) vise(s) par la demande, pour la trace seule.
+
+        Meme extraction que `_hors_workspace` — un bloc `toolCall.content`,
+        puis `path`/`locations`. Rendre une chaine vide plutot que lever :
+        une trace ne doit jamais faire echouer la decision qu'elle observe.
+        """
+        vises: list[str] = []
+        appel = params.get("toolCall") or {}
+        for bloc in (appel.get("content") or []):
+            if isinstance(bloc, dict) and bloc.get("path"):
+                vises.append(str(bloc["path"]))
+        for cle in ("path", "locations"):
+            valeur = params.get(cle)
+            if isinstance(valeur, str) and valeur:
+                vises.append(valeur)
+            elif isinstance(valeur, list):
+                vises.extend(str((v or {}).get("path", "")) for v in valeur
+                             if isinstance(v, dict) and v.get("path"))
+        return " ; ".join(dict.fromkeys(v for v in vises if v)) or "(non nommé)"
+
+    @staticmethod
     def _hors_workspace(session: SessionAgent, params: dict) -> str:
         """Le chemin visé sort-il du workspace ? Et lequel.
 
@@ -809,9 +831,24 @@ class HermesAgentACP:
             params = requete.get("params") or {}
             dehors = self._hors_workspace(session, params)
             protege = "" if dehors else self._touche_un_protege(params)
+            # G-22 : la decision est consignee, pas seulement journalisee.
+            # Elle agit vraiment — deux refus sur un seul tour mesure — et
+            # n'avait aucun temoin : un accord ne laissait meme pas de
+            # ligne de log. Consigner n'ajoute aucune politique ; la
+            # decision reste ici, ou elle a toujours ete.
+            from backend.security import journal_permissions as _journal
+
+            chemin_demande = self._chemin_demande(params)
             if dehors or protege:
                 logger.warning("permission refusée : %s",
                                dehors or f"{protege} definit le travail")
+                _journal.consigner(
+                    issue=(_journal.REFUSEE_HORS_WORKSPACE if dehors
+                           else _journal.REFUSEE_PROTEGE),
+                    chemin=chemin_demande,
+                    detail=dehors or f"{protege} definit le travail",
+                    session=session.session_id,
+                    workspace=getattr(session, "cwd", "") or "")
                 resultat = {"outcome": {"outcome": "cancelled"}}
             else:
                 choix = ""
@@ -822,6 +859,12 @@ class HermesAgentACP:
                         break
                     if identifiant_option == "allow_once" and not choix:
                         choix = identifiant_option
+                _journal.consigner(
+                    issue=_journal.ACCORDEE if choix else _journal.SANS_OPTION,
+                    chemin=chemin_demande,
+                    detail=choix or "aucune option acceptable proposee",
+                    session=session.session_id,
+                    workspace=getattr(session, "cwd", "") or "")
                 resultat = ({"outcome": {"outcome": "selected",
                                          "optionId": choix}} if choix
                             else {"outcome": {"outcome": "cancelled"}})

@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, Body, Query
+import asyncio
 from fastapi.responses import StreamingResponse
 
 from .conversation_manager import ConversationManager
@@ -540,7 +541,16 @@ async def stream_message(payload: dict = Body(...)) -> StreamingResponse:
     # l'ecart.
     from backend.conversation import harnais as _harnais
 
-    _par_harnais, _pourquoi = _harnais.disponible(project_root or "")
+    # `disponible` sonde le backend par un `requests.get` **synchrone** sur
+    # son propre `/health`. Appele tel quel depuis ce handler, il bloque la
+    # boucle d'un uvicorn mono-worker : le serveur ne peut pas repondre a la
+    # sonde qu'il emet, et le harnais etait donc **toujours** ecarte sur
+    # `ReadTimeout`. Mesure du 2026-09-09 : chemin ACP jamais choisi depuis
+    # l'Assistant, alors qu'il fonctionne parfaitement depuis un autre
+    # processus. Le backend se demandait s'il etait vivant pendant qu'il
+    # servait la requete qui posait la question.
+    _par_harnais, _pourquoi = await asyncio.to_thread(
+        _harnais.disponible, project_root or "")
     if _par_harnais:
         return await _repondre_par_le_harnais(
             mgr, session_id, message, intent, model_messages,

@@ -283,6 +283,16 @@ export function useBasculerToolset() {
   });
 }
 
+// Les decisions arrivent pendant un tour de conversation : on rafraichit
+// regulierement, mais sans agressivite — c'est une lecture en memoire.
+export function useAgentPermissions() {
+  return useQuery({
+    queryKey: ["bridge", "agent", "permissions"],
+    queryFn: bridgeClient.permissions,
+    refetchInterval: 15_000,
+  });
+}
+
 export function useRefreshBridgeCapabilities() {
   const qc = useQueryClient();
   return useMutation({

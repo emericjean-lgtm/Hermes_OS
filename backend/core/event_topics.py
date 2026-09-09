@@ -110,6 +110,11 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     # **demande** a l'agent d'ecrire. Elle vit ici, dans le journal de
     # Hermes OS, et non dans `state.db` — l'agent est seul autorite sur son
     # etat, Hermes OS est seul autorite sur le recit de ses propres actes.
+    # G-22 : ce que Hermes OS a repondu quand l'agent a demande a ecrire.
+    # Le controle existait et n'avait aucun temoin — mesure, il refuse
+    # vraiment (deux fois sur un seul tour reel), et rien ne le montrait.
+    "agent.permission.accordee",
+    "agent.permission.refusee",
     "bridge.mutation.demandee",
     "bridge.mutation.appliquee",
     "bridge.mutation.refusee",

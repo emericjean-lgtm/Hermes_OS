@@ -1,3 +1,100 @@
+## HOS-271 — Le chat interactif existait, et il etait injoignable (2026-09-09)
+
+G-22. Le chantier demandait de construire un chemin Chat pour produire
+approbations, steering et interruption. La premiere mesure a change la
+question : **ce chemin existe deja**.
+
+### Ce qui existait
+
+Une conversation liee a un projet ouvre une session Hermes Agent **vivante
+par ACP** — pas par le gateway. `backend/conversation/harnais.py` la tient,
+`hermes_agent_acp.py` la parle, et le flux NDJSON arrive au frontend.
+
+Mieux : l'agent y demande des permissions. Avant chaque **edition de
+fichier**, il adresse un `session/request_permission` au client et
+**attend** ; `HermesAgentACP._repondre` tranche sur la politique de Hermes
+OS — hors du dossier confie, ou fichier gouvernant, refus.
+
+Mesure sur un tour reel : **quatre decisions, trois refus**. L'agent a
+tente `/home/user/NOTE.md`, `/home/emeri/NOTE.md`, puis un troisieme chemin
+hors workspace — trois refus — avant d'ecrire au bon endroit. Le controle
+agit vraiment, et c'est le meme tatonnement que l'incident du 2026-08-21.
+
+Et il etait **invisible** : un `logger.warning` pour les refus, rien du
+tout pour les accords.
+
+### Le defaut qui rendait ce chemin injoignable
+
+`harnais.disponible()` sonde le backend par un `requests.get` **synchrone**
+sur son propre `/health`. Appelee depuis le handler de conversation d'un
+uvicorn mono-worker, la sonde bloque la boucle qui doit y repondre :
+`ReadTimeout` a tous les coups, et le harnais **toujours** ecarte.
+
+Le backend se demandait s'il etait vivant pendant qu'il servait la requete
+qui posait la question.
+
+Le journal du serveur le disait mot pour mot — « chat servi en direct (sans
+harnais) : le backend de Hermes OS ne repond pas » — et personne ne l'avait
+lu. C'est pourquoi le chemin ACP fonctionnait parfaitement depuis un
+processus separe et jamais depuis l'Assistant.
+
+Deporte par `asyncio.to_thread`, le chemin est emprunte. La preuve tient a
+la signature du flux :
+
+    avant   {'tool_calls': 1, 'tool_result': 1, 'content': 14, 'done': 1}
+    apres   {'thinking': 46, 'content': 10, 'done': 1}
+
+`tool_calls`/`tool_result` est la boucle d'outils de Hermes OS ;
+`thinking`/`content` est le harnais. Et une decision de permission apparait
+au journal, corrigee a la session ACP qui l'a produite.
+
+### Ce qui est livre
+
+Le journal des decisions d'ecriture, et l'ecran qui les montre. Quatre
+issues distinguees, parce qu'elles ne disent pas la meme chose :
+
+    accordee                  l'agent a ecrit, avec l'option retenue
+    refusee_hors_workspace    il sortait du dossier confie
+    refusee_protege           il touchait un fichier qui definit le travail
+    sans_option               aucune option acceptable n'etait proposee
+
+Le journal **observe** : la decision reste dans l'adaptateur ACP, ou elle a
+toujours ete, et une garde sur l'arbre syntaxique lui interdit d'y toucher.
+La trace durable va au bus d'evenements, journal de Hermes OS.
+
+### Ce que ce journal ne prouve pas
+
+`session/request_permission` ne porte que sur les **editions de fichiers**.
+Le terminal de l'agent ne demande aucune permission : il execute. Un refus
+visible ne prouve donc pas qu'une ecriture a ete empechee — l'agent peut
+reessayer par la, et l'a deja fait. L'ecran le dit.
+
+### Approvals, steering, interruption
+
+Le producteur est desormais reel **pour les permissions d'edition**. Les
+trois capacites du gateway (`approval.*`, `session.steer`,
+`session.interrupt`) restent hors d'atteinte : elles vivent dans le
+processus **gateway**, et le chat passe par **ACP**. Deux transports, deux
+files. Les brancher demanderait de faire passer le chat par le gateway —
+un autre chantier, et cette passe ne le simule pas.
+
+### Preuves
+
+Chaine mesuree de bout en bout : requete HTTP -> backend -> session ACP
+vivante -> tour reel -> streaming -> demande de permission -> decision
+Hermes OS -> journal -> API, avec `NOTE.md` verifie sur le disque et
+l'identifiant de session ACP porte par la decision.
+
+Huit mutations, huit rouges apres correction d'une assertion qui construisait
+son attendu a partir des constantes qu'elle devait epingler : rendre les deux
+refus identiques ne la faisait pas rougir, puisque l'attendu se collapsait
+avec eux. Epinglee sur les litteraux — ce que l'API et l'interface
+consomment.
+
+Un test ecrit dans la meme passe s'est aussi trompe de cible : il remplacait
+`_publier`, c'est-a-dire la fonction **qui porte** la protection, et testait
+donc son propre bouchon. Corrige en faisant tomber le bus.
+
 ## HOS-270 — Les approbations n'ont pas de producteur ; les toolsets, si (2026-09-09)
 
 Le chantier demandait les approbations en priorite. Elles ne sont pas

@@ -15,14 +15,14 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
-                      §16 🟡 (HOS-265→270) — le pont, la matrice
-                      exacte, sessions et toolsets pilotables
+                      §16 🟡 (HOS-265→271) — le pont, la matrice,
+                      et le chat interactif enfin joignable
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      6f9a363 (G-20 avancé, HOS-269) — dernier
-                               commit de code avant les approbations
+BASELINE:                      4b4c022 (HOS-270) — dernier commit de
+                               code avant G-22
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -64,6 +64,9 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                HOS-270 — approbations écartées faute de
                                producteur ; bascule de toolset intégrée ;
                                G-22 ouvert
+                               G-22 partiellement fermé (HOS-271) — le
+                               chat ACP existait et était injoignable ;
+                               permissions d'édition tracées ; G-23 ouvert
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -149,7 +152,17 @@ steering et interruption attendent toutes le **chat**, leur seul producteur.
 
 `tools.configure` en revanche écrit `config.yaml`, que tous les processus
 agent relisent, missions comprises : la bascule d'un toolset est intégrée
-de bout en bout. Deux réserves mesurées et affichées — le premier
+de bout en bout.
+
+**HOS-271 a trouvé que le chat interactif existait déjà (G-22).** Une
+conversation liée à un projet ouvre une session Hermes Agent **vivante par
+ACP**, et l'agent y demande une permission avant chaque édition de fichier —
+mesuré, **quatre décisions dont trois refus** sur un seul tour, un contrôle
+qui agit vraiment et que personne ne voyait. Ce chemin était **injoignable
+depuis l'Assistant** : sa sonde de disponibilité interrogeait le backend en
+synchrone depuis le handler, bloquant la boucle qui devait répondre. Corrigé,
+les décisions sont tracées et affichées. **G-23** : le chat passe par ACP et
+le pont par le gateway — deux transports, deux files, sans passerelle. Deux réserves mesurées et affichées — le premier
 basculement fige les défauts du jour dans le fichier, et un toolset de
 plugin peut être refusé tant que la découverte n'a pas abouti.
 
@@ -236,7 +249,8 @@ mentirait sur ce qu'il fait.
 | ~~Le fork était déclaré absent sur la foi d'un nom (G-19)~~ — **fermé HOS-268** | technical debt | §16 |
 | 12 surfaces exactes et sans consommateur frontend (G-20) | architectural | §16 |
 | La mémoire de l'agent échappe à la provenance Hermes OS (G-21) | architectural | §8/§16 |
-| Approbations, steering et interruption attendent le chat (G-22) | architectural | §16 |
+| ~~Approbations, steering et interruption attendent le chat (G-22)~~ — **partiellement fermé HOS-271** | architectural | §16 |
+| Deux transports agentiques coexistent sans passerelle (G-23) | architectural | §16 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |

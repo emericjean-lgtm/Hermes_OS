@@ -798,7 +798,30 @@ export interface AgentVueDTO {
   routines: AgentListeDTO<AgentRoutineDTO>;
 }
 
+// Ce que Hermes OS a repondu quand l'agent a demande a ecrire. Observation
+// seule : la decision vit dans l'adaptateur ACP. Un refus ne prouve pas
+// qu'une ecriture a ete empechee — le terminal de l'agent ne demande rien.
+export interface AgentPermissionDTO {
+  issue: string;
+  chemin: string;
+  detail: string;
+  session: string;
+  workspace: string;
+  quand: number;
+}
+
+export interface AgentPermissionsDTO {
+  disponible: boolean;
+  erreur: string | null;
+  total: number;
+  tronque: boolean;
+  borne: number;
+  refus: number;
+  elements: AgentPermissionDTO[];
+}
+
 export const bridgeClient = {
+  permissions: () => fetchJSON<AgentPermissionsDTO>("/bridge/agent/permissions"),
   capabilities: () => fetchJSON<BridgeNegotiationDTO>("/bridge/capabilities"),
   agent: () => fetchJSON<AgentVueDTO>("/bridge/agent"),
   basculerToolset: (nom: string, actif: boolean) =>

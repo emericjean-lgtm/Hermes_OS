@@ -60,6 +60,21 @@ async def vue_agent_complete() -> JSONResponse:
     return JSONResponse(vue_agent.vue_d_ensemble())
 
 
+@router.get("/bridge/agent/permissions",
+            summary="Ce que Hermes OS a répondu quand l'agent a demandé à écrire")
+async def permissions() -> JSONResponse:
+    """Observation seule : la décision reste dans l'adaptateur ACP.
+
+    Le contrôle agit vraiment — mesuré, deux refus sur un seul tour — et
+    n'avait aucun témoin. Un refus visible ici ne prouve pas qu'une
+    écriture a été empêchée : le terminal de l'agent ne demande aucune
+    permission, et il peut réessayer par là.
+    """
+    from backend.security import journal_permissions
+
+    return JSONResponse(journal_permissions.decisions())
+
+
 @router.get("/bridge/agent/sessions/{cle}/historique",
             summary="Les messages d'une session stockée")
 async def historique(cle: str) -> JSONResponse:

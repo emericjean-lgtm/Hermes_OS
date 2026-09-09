@@ -23,6 +23,7 @@ import {
   useHistoriqueSession,
   useRenommerSession,
   useBasculerToolset,
+  useAgentPermissions,
 } from "@/hooks/use-api";
 import type {
   AgentListeDTO,
@@ -33,9 +34,11 @@ import type {
 import { PanelLoading as Chargement } from "@/components/center-scaffold";
 import {
   History, Wrench, Bot, GitBranch, Clock, Split, BookOpen, Pencil, X,
+  ShieldAlert,
 } from "lucide-react";
 
-type Vue = "sessions" | "outils" | "bots" | "delegation" | "routines";
+type Vue =
+  | "sessions" | "outils" | "bots" | "delegation" | "routines" | "permissions";
 
 const ONGLETS: { id: Vue; label: string; icone: typeof History }[] = [
   { id: "sessions", label: "Sessions", icone: History },
@@ -43,6 +46,7 @@ const ONGLETS: { id: Vue; label: string; icone: typeof History }[] = [
   { id: "bots", label: "Bots", icone: Bot },
   { id: "delegation", label: "Délégation", icone: GitBranch },
   { id: "routines", label: "Routines", icone: Clock },
+  { id: "permissions", label: "Permissions", icone: ShieldAlert },
 ];
 
 /** Une panne du gateway n'est pas « rien à afficher ». */
@@ -145,6 +149,7 @@ export function CerveauCenter() {
           {vue === "bots" && <Bots liste={data.profils} />}
           {vue === "delegation" && <Delegation etat={data.delegation} />}
           {vue === "routines" && <Routines liste={data.routines} />}
+          {vue === "permissions" && <Permissions />}
         </>
       )}
     </div>
@@ -567,6 +572,78 @@ function Routines({ liste }: { liste: AgentListeDTO<Record<string, unknown>> }) 
             </div>
           ))}
         </div>
+      )}
+    </Card>
+  );
+}
+
+/** Ce que Hermes OS a répondu quand l'agent a demandé à écrire. */
+function Permissions() {
+  const { data, isLoading, isError, error } = useAgentPermissions();
+
+  const libelle: Record<string, { texte: string; ton: "success" | "warning" | "danger" }> = {
+    accordee: { texte: "accordée", ton: "success" },
+    refusee_hors_workspace: { texte: "hors workspace", ton: "danger" },
+    refusee_protege: { texte: "fichier protégé", ton: "danger" },
+    sans_option: { texte: "aucune option", ton: "warning" },
+  };
+
+  return (
+    <Card title="Décisions d'écriture demandées par le cerveau">
+      {isLoading ? (
+        <Chargement />
+      ) : isError ? (
+        <div className="py-4 text-[11px] font-mono text-hermes-alarm break-all">
+          {error instanceof Error ? error.message : "Endpoint injoignable"}
+        </div>
+      ) : !data ? null : (
+        <>
+          <div className="flex items-center justify-between pb-2">
+            <span className="text-[11px] font-mono text-hermes-muted tabular-nums">
+              {data.refus} refus sur {data.total} décision
+              {data.total > 1 ? "s" : ""}
+            </span>
+            <span className="text-[10px] font-mono text-hermes-dim">
+              fenêtre de {data.borne}
+              {data.tronque ? ", et il en reste" : ""}
+            </span>
+          </div>
+          <div className="pb-2 text-[10px] font-mono text-hermes-dim">
+            Un refus ne prouve pas qu'une écriture a été empêchée : le
+            terminal de l'agent ne demande aucune permission et peut
+            réessayer par là.
+          </div>
+          {!data.elements.length ? (
+            <Vide quoi="décision" />
+          ) : (
+            <div className="space-y-1.5 max-h-[520px] overflow-y-auto">
+              {data.elements.map((d, i) => {
+                const l = libelle[d.issue] ?? {
+                  texte: d.issue, ton: "warning" as const,
+                };
+                return (
+                  <div
+                    key={`${d.quand}-${i}`}
+                    className="border border-hermes-border/60 px-2.5 py-2"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-[11px] font-mono text-hermes-text truncate">
+                        {d.chemin}
+                      </span>
+                      <Badge variant={l.ton}>{l.texte}</Badge>
+                    </div>
+                    <div className="text-[10px] font-mono text-hermes-muted truncate">
+                      {d.detail}
+                    </div>
+                    <div className="text-[10px] font-mono text-hermes-dim tabular-nums">
+                      {horodatage(d.quand)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </Card>
   );
