@@ -626,6 +626,14 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### L'observateur (HOS-276)
+
+Une quatrième, et elle ne passe pas par le pont du tout. `on_skill_lifecycle`
+est un hook **plugin** de l'agent : le chemin qui porte l'identité complète
+d'une mutation de Skill n'est ni le Gateway, ni ACP, mais un troisième
+transport — du code de Hermes OS s'exécutant *dans* le processus de l'agent.
+Légitime, mesuré, et volontairement pas emprunté aujourd'hui (§10).
+
 ### La provenance (HOS-275)
 
 Et une troisième, mesurée en G-27 : `commands.catalog` **expose** bien une
@@ -733,7 +741,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274, HOS-275)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-276)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -954,8 +962,80 @@ bornées, chacune avec sa preuve), la provenance jointe à `GET /skills/agent`,
 et une colonne au Skills Center dont l'infobulle nomme le fichier. Rien
 n'est écrit, rien n'est copié dans `hermes.db`.
 
-**Ce que §10 attend encore.** La corrélation, si le plugin est un jour
-décidé. Le versioning et le rollback : le ledger de l'agent
+### G-28 — le plugin observateur : légitime, et pas installé (HOS-276)
+
+G-27 laissait une porte nommée : `on_skill_lifecycle` est un hook **plugin**
+documenté, et un plugin Hermes OS le recevrait avec son identité complète.
+G-28 l'a ouverte pour voir, sur un `HERMES_HOME` de substitution.
+
+    le point d'observation et son propriétaire      ADOPT
+    l'installation dans l'agent réel, aujourd'hui   DEFER
+
+#### La chaîne, démontrée
+
+Avec le fichier versionné dans ce dépôt
+(`integrations/hermes-agent/observateur-skills/`), trois mutations réelles :
+
+    created  g28-depot-a  task='tache-1'  session='sess-depot'  prov='local'
+    created  g28-depot-b  task='tache-2'  session='sess-depot'  prov='local'
+    patched  g28-depot-a  task='tache-4'  session='sess-depot'  prov='local'
+
+`task_id` **diffère d'une mutation à l'autre** : c'est exactement la clef de
+jointure qui manquait à G-27, et qu'aucun magasin natif ne persiste. Deux
+appels à `bump_use` intercalés n'ont rien laissé — `loaded` est écarté.
+Un **nouveau processus** relit l'état intégralement.
+
+#### Pourquoi ADOPT sur la légitimité
+
+L'observateur ne peut pas devenir une autorité **par construction du hook** :
+`_emit_skill_lifecycle` ignore la valeur de retour, et chaque callback est
+isolée. Mesuré :
+
+    plugin absent      non chargé   has_hook=False   mutation OK, enregistrement natif écrit
+    plugin désactivé   chargé       has_hook=False   mutation OK, enregistrement natif écrit
+    callback qui lève  chargé       has_hook=True    mutation OK, enregistrement natif écrit
+
+#### Pourquoi DEFER sur l'installation
+
+**Aucun consommateur.** Rien dans Hermes OS ne lit encore une relation
+Run ↔ Skill : installer produirait un fichier qui grossit et que personne ne
+lit — le producteur sans lecteur que ce dépôt passe son temps à défaire.
+
+**Les internes de l'agent changent dans quatre jours.**
+`plugin_compat.COMPAT_REMOVAL_DATE = 2026-09-14` : ce jour-là, tout plugin
+externe important un module interne est *désactivé*. Celui-ci n'en importe
+aucun — `scan_plugin()` rend « aucun », et un test le garde — donc il
+survit. Mais le runtime d'après n'a pas été mesuré.
+
+Préalables, dans cet ordre : une surface produit qui lit la relation, puis
+le runtime post-2026-09-14 mesuré.
+
+#### Le contrat, mesuré sur v0.21.0
+
+    action                    created | edited | patched | installed | loaded
+    skill_name                le nom local, NON anonymisé
+    provenance                installed | agent_created | external | local | unknown
+    task_id / session_id      str, parfois ""
+    telemetry_schema_version  "hermes.observer.v1"
+
+`loaded` part à chaque invocation de Skill ; les quatre autres sont des
+mutations. `PluginState` plafonne à 10 Mio, donc l'observateur ne retient
+que les mutations et borne sa liste : un observateur qui remplit son quota
+cesse d'observer sans le dire.
+
+`agent/skill_commands.py` appelle `bump_use` **sans** `session_id` : un fait
+peut arriver sans session, et le compléter fabriquerait la corrélation que
+G-27 a refusé d'inventer.
+
+#### Ce que ce contrat ne permettra toujours pas
+
+Rattacher une Skill à une **Mission** ou à un **Run**. Le `task_id` livré
+est celui de la tâche de l'agent, pas d'un Run du Ledger. Les relier
+demanderait une correspondance qui n'existe nulle part — c'est le sujet
+suivant, pas celui-ci.
+
+**Ce que §10 attend encore.** Le consommateur de la relation, puis
+l'installation. Le versioning et le rollback : le ledger de l'agent
 (`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas** sur cette
 installation — aucune mutation n'y a jamais été écrite — et aucune RPC ne
 l'expose. Appariement skill ↔ tâche reste PLANNED.
@@ -1074,6 +1154,13 @@ catégorie **et sa preuve** — le fichier de l'agent qui la soutient, en
 infobulle. C'est la règle que §15 devait déjà appliquer et n'appliquait
 nulle part : une interface qui affirme sans pouvoir montrer sa source est
 une affirmation, pas une lecture.
+
+**HOS-276 n'ajoute aucune surface, et c'est la décision.** Le plugin
+observateur est écrit, mesuré, et **pas installé** : sans écran qui lise la
+relation Run ↔ Skill, le poser créerait un producteur sans lecteur. §15
+mesure d'ordinaire l'inverse — des routes sans appelant — et la symétrie
+vaut : un producteur sans consommateur est le même défaut, pris par
+l'autre bout.
 
 ### Ce que l'Assistant est aujourd'hui, mesuré
 

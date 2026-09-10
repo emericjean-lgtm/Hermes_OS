@@ -1,0 +1,6 @@
+name: hermes-os-observateur-skills
+version: 0.1.0
+description: "Releve les faits de cycle de vie des Skills — action, nom, task_id, session_id — pour que Hermes OS puisse les correler. Observateur pur : il ne decide rien et ne modifie aucune Skill."
+author: "Hermes OS"
+hooks:
+  - on_skill_lifecycle
