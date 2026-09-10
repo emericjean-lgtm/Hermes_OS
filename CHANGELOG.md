@@ -1,3 +1,108 @@
+## HOS-281 — L'observateur installe, et la boucle fermee (2026-09-10)
+
+G-33. **ADOPT.** Le plugin tourne pour de vrai, sous
+`%LOCALAPPDATA%\hermes\plugins\hermes-os-observateur-skills`, active par
+`plugins.enabled`, et `scan_plugin` rend « aucun import interne » — sa
+condition de survie au retrait du 2026-09-14, dans quatre jours.
+
+### La chaine, avec l'observateur reellement installe
+
+    phase 1 (Hermes OS)  RUN-ALPHA -> ffb603fc...   RUN-BETA -> 9039b9d6...
+    phase 2 (agent)      g33-une   turn=ffb603fc...
+                         g33-deux  turn=ffb603fc...
+                         g33-trois turn=9039b9d6...
+    phase 3 (NOUVEAU     RUN-ALPHA  ['g33-deux', 'g33-une']
+             processus)  RUN-BETA   ['g33-trois']
+
+Plusieurs Skills dans un Run, plusieurs Runs, redemarrage : lus par un
+processus neuf, groupes correctement.
+
+### Ce que l'agent fait quand le plugin ne marche pas
+
+Les trois defaillances, avec les Skills verifiees **sur le disque** :
+
+    plugin absent      non charge   0 fait   Skills ecrites
+    plugin desactive   charge, off  0 fait   Skills ecrites
+    callback qui leve  charge, on   0 fait   Skills ecrites
+
+Et deux tours concurrents gardent chacun leur etiquette. L'observateur ne
+peut pas bloquer l'agent — G-28 l'avait etabli par construction, G-33 le
+mesure avec le plugin en place.
+
+### L'installation, par les mecanismes de l'agent
+
+Le repertoire est copie, et l'activation passe par `_set_plugin_enabled`,
+l'ecrivain de config de l'agent lui-meme. Editer `config.yaml` a la main
+aurait marche aussi, et aurait ete une seconde facon de faire la meme chose.
+Diff structurel apres coup : **aucune clef perdue**, une ajoutee
+(`plugins.disabled`, la liste de refus vide), et `plugins.enabled` a gagne
+exactement l'observateur.
+
+### Le patch, adopte
+
+`turn-id.patch` est desormais un **commit** du depot de l'agent
+(`fb6335dd14`, sur `693641aa8b`), et non plus un arbre de travail sale. Le
+repertoire `integrations/hermes-agent/observateur-skills/` reste la source
+du plugin : l'installation en est une copie, et un test compare les octets
+pour qu'il n'existe jamais deux versions du meme observateur.
+
+### Trois lectures, un seul proprietaire
+
+`backend/skills/observations.py` est la **troisieme** fois que Hermes OS lit
+le disque de l'agent — apres les competences (HOS-274) et leur provenance
+(HOS-275) — et la posture ne change pas : lire, jamais ecrire, jamais
+copier. Le fait appartient au plugin, la relation `T -> R` au bus de Hermes
+OS, et aucun des deux ne migre dans l'autre.
+
+Les observations non rattachees sont **ecartees** du groupement plutot que
+rangees sous une clef « inconnu » : une telle clef se lirait comme un Run et
+finirait affichee a cote des vrais.
+
+### Quatre contrats perimes, reecrits
+
+G-28, G-29 et G-30 gardaient « l'observateur n'est pas installe », « le
+backend ne le nomme pas », « le README dit qu'il est inerte ». G-33 leve les
+trois. Ils n'etaient ni faux ni casses : perimes. Ce qui les remplace est
+plus etroit et plus utile — un seul module a le droit de nommer le plugin
+(celui qui le LIT), le backend n'ecrit jamais dans le dossier des plugins de
+l'agent, et l'installation ne doit pas diverger du depot.
+
+La garde « le backend ne s'installe pas lui-meme » n'est pas une precaution
+de style : un backend qui reparerait le plugin au demarrage en deviendrait
+le mainteneur, et reinstallerait un plugin qu'un operateur avait peut-etre
+retire expres.
+
+### Une garde absente, trouvee par mutation
+
+Vider le `turn_id` **rendu** par le lecteur ne rougissait rien : le
+rattachement se fait sur le fait brut, si bien qu'un ecran affichant « quel
+tour a produit ceci » aurait montre du vide pendant que le Run, lui, restait
+juste. Le champ rendu est desormais verifie.
+
+### Preuves
+
+Dix mutations, dix rouges. Depot Hermes OS propre, depot de l'agent propre —
+un seul commit, aucun debris de travail. `data/db/hermes.db` intacte ; les
+mesures sont passees par des `HERMES_HOME` de substitution, sauf
+l'installation elle-meme, qui est le sujet de la passe.
+### Un releve que son propre script n'ecrivait pas
+
+Trouve parce que le patch de l'agent a change son empreinte
+(`0.21.0+693641aa8b43` -> `+fb6335dd142b`) et reveille la garde de G-19.
+Son message dit « relancez `scripts/registre_gateway.py` » — et le relancer
+ne reparait rien : `chemin_releve()` visait `etat.racine()/db/`, l'etat
+d'execution, alors que le test, cette entree et la roadmap nomment tous
+`config/gateway_registre.json`. Le script etait le seul dissident.
+
+Le relevé est une **mesure datee**, pas de l'etat : sa place est dans le
+depot, a cote du test qui la compare au runtime installe. Cible corrigee ;
+le dump ecrit dans l'etat d'execution, que personne ne lisait, retire. Le
+jeu des 206 methodes est identique — le patch turnId n'ajoute aucune RPC,
+ce qui est exactement ce que G-31 promettait.
+
+Le defaut ne pouvait pas se voir avant : tant qu'aucune empreinte ne
+changeait, la garde restait verte au-dessus d'un script qui ecrivait a cote.
+
 ## HOS-280 — La correlation Run ↔ Skill, etablie (2026-09-10)
 
 G-32. **ADOPT.** La relation que G-29 avait mesuree impossible existe, de

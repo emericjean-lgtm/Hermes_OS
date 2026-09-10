@@ -62,9 +62,19 @@ with open(sys.argv[1], "w", encoding="utf-8") as f:
 
 
 def chemin_releve() -> Path:
-    from backend.core import etat
+    """Le relevé versionné, celui que `test_matrice_capacites` relit.
 
-    return etat.racine() / "db" / "gateway_registre.json"
+    Il visait `etat.racine()/db/` — l'état d'exécution — alors que le test
+    lit `config/gateway_registre.json`. Suivre le message du test («
+    relancez `scripts/registre_gateway.py` ») laissait donc le test rouge :
+    le script écrivait un fichier que personne ne relisait, et le fichier
+    relu vieillissait tout seul. Trouvé quand le patch de l'agent a changé
+    son empreinte (G-33).
+
+    Le relevé est une **mesure datée**, pas de l'état : sa place est dans le
+    dépôt, à côté du test qui la compare au runtime installé.
+    """
+    return Path(__file__).resolve().parents[1] / "config" / "gateway_registre.json"
 
 
 def relever() -> dict:

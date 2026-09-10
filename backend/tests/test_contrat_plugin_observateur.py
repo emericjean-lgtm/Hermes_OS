@@ -135,6 +135,15 @@ def test_une_mutation_est_notee_avec_son_identite_complete(observateur):
     assert notes[0]["provenance"] == "local"
 
 
+def test_l_etiquette_de_tour_est_retenue(observateur):
+    """Depuis G-32, l'agent patche restitue `client_turn_id` — c'est la
+    seule chose qui rattache une mutation a un Run. Un observateur qui la
+    jetterait noterait des faits inutilisables."""
+    ctx, hook = _brancher(observateur)
+    hook(**_fait(client_turn_id="T-42"))
+    assert _notes(observateur, ctx)[0]["client_turn_id"] == "T-42"
+
+
 def test_l_usage_n_est_pas_note(observateur):
     """`loaded` part a CHAQUE invocation de Skill ; les quatre autres sont
     des mutations, donc rares. Le noter ferait croitre l'etat au rythme de
@@ -320,27 +329,40 @@ def test_le_manifeste_ne_declare_que_l_observation():
     assert declares == ["on_skill_lifecycle"], declares
 
 
-def test_hermes_os_n_installe_pas_le_plugin():
-    """DEFER veut dire DEFER. Aucun module du backend ne doit poser ce
-    plugin chez l'agent : l'installation est une decision, pas un effet de
-    bord d'un import."""
-    coupables = []
-    for module in (RACINE / "backend").rglob("*.py"):
-        if "tests" in module.parts:
-            continue
-        source = module.read_text(encoding="utf-8", errors="replace")
-        if "observateur-skills" in source or "hermes-os-observateur" in source:
-            coupables.append(str(module.relative_to(RACINE)))
-    assert not coupables, (
-        "le backend nomme le plugin : " + ", ".join(coupables))
+def test_le_depot_reste_la_source_du_plugin_installe():
+    """L'observateur est installe (G-33) : le contrat change de forme.
+
+    G-28 gardait « le backend ne pose pas ce plugin ». Ce qui compte
+    desormais est que l'installation soit une **copie** de ce repertoire, et
+    non une divergence : deux versions du meme observateur — celle du depot
+    et celle qui tourne — donneraient un plugin que personne ne relit.
+
+    La garde compare les octets. Elle est passante quand le plugin n'est pas
+    installe : ce n'est pas son sujet, et un poste de developpement n'a pas
+    a l'avoir.
+    """
+    import os
+
+    foyer = os.environ.get("HERMES_HOME", "").strip()
+    if not foyer:
+        pytest.skip("HERMES_HOME absent : rien d'installe a comparer")
+    installe = Path(foyer) / "plugins" / "hermes-os-observateur-skills"
+    if not installe.is_dir():
+        pytest.skip("observateur non installe sur ce poste")
+    for nom in ("plugin.yaml", "__init__.py"):
+        assert (installe / nom).read_bytes() == (PLUGIN / nom).read_bytes(), (
+            f"`{nom}` installe differe de celui du depot : deux versions du "
+            "meme observateur")
 
 
-def test_le_README_dit_que_le_plugin_n_est_pas_installe():
-    """Un plugin trouve dans un depot se lit comme un plugin actif. Sans
-    cette phrase, la passe suivante le croit pose et batit dessus."""
+def test_le_README_dit_que_le_plugin_est_installe_et_d_ou_il_vient():
+    """Un plugin trouve dans un depot se lit comme un plugin inerte. Depuis
+    G-33 il tourne, et le README doit dire les deux : qu'il est actif, et
+    que ce repertoire en reste la source."""
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
-    assert "n'est pas installé" in readme
-    assert "DEFER" in readme and "ADOPT" in readme
+    assert "est installé et actif" in readme
+    assert "reste la source" in readme
+    assert "ADOPT" in readme
 
 
 def test_aucun_module_hermes_os_ne_correle_depuis_les_compteurs():

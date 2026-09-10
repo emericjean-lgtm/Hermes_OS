@@ -626,6 +626,13 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### L'observateur, en service (HOS-281)
+
+Le quatrième transport n'est plus théorique : du code de Hermes OS tourne
+dans le processus de l'agent, en observateur pur, et rend compte. Cinq
+passes auront été nécessaires pour y arriver honnêtement — et chacune a
+refusé de livrer la moitié suivante avant d'avoir mesuré la précédente.
+
 ### La corrélation, bouclée (HOS-280)
 
 Quatre passes pour une seule question : « quelle Skill vient de quel Run ? »
@@ -774,7 +781,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-280)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-281)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1347,12 +1354,58 @@ Le préalable posé en G-28 — *« rien ne lit la relation »* — est levé :
 cette passe, comme le brief l'exigeait, mais la raison de l'attendre a
 disparu. Son installation est le jalon suivant.
 
-**Ce que §10 attend encore.** L'installation de l'observateur, puis
-l'adoption amont du patch `turn-id.patch` — il vit toujours dans un checkout
-local. Le versioning et le rollback : le ledger de l'agent
-(`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas** sur cette
-installation, et aucune RPC ne l'expose. Appariement skill ↔ tâche reste
-PLANNED.
+### G-33 — l'observateur installé, et la boucle fermée (HOS-281)
+
+**ADOPT.** Le plugin tourne pour de vrai, sous
+`%LOCALAPPDATA%\hermes\plugins\hermes-os-observateur-skills`, activé par
+`plugins.enabled`, et `scan_plugin` rend « aucun import interne » — sa
+condition de survie au retrait du 2026-09-14, dans quatre jours.
+
+#### La chaîne, avec l'observateur réellement installé
+
+    phase 1 (Hermes OS)  RUN-ALPHA → ffb603fc…    RUN-BETA → 9039b9d6…
+    phase 2 (agent)      g33-une  turn=ffb603fc…
+                         g33-deux turn=ffb603fc…
+                         g33-trois turn=9039b9d6…
+    phase 3 (NOUVEAU     RUN-ALPHA  ['g33-deux', 'g33-une']
+             processus)  RUN-BETA   ['g33-trois']
+
+#### Ce que l'agent fait quand le plugin ne marche pas
+
+Les trois défaillances, avec les Skills vérifiées **sur le disque** :
+
+    plugin absent      non chargé   0 fait   Skills écrites
+    plugin désactivé   chargé, off  0 fait   Skills écrites
+    callback qui lève  chargé, on   0 fait   Skills écrites
+
+L'observateur ne peut pas bloquer l'agent — G-28 l'avait établi par
+construction, G-33 le mesure avec le plugin en place.
+
+#### Le patch, adopté
+
+`turn-id.patch` est désormais un **commit** du dépôt de l'agent
+(`fb6335dd14`, sur `693641aa8b`), et non plus un arbre de travail sale. Le
+répertoire `integrations/hermes-agent/observateur-skills/` reste la source
+du plugin : l'installation en est une copie, et un test compare les octets
+pour qu'il n'existe jamais deux versions du même observateur.
+
+#### Trois lectures, un seul propriétaire
+
+`backend/skills/observations.py` est la **troisième** fois que Hermes OS lit
+le disque de l'agent — après les compétences (HOS-274) et leur provenance
+(HOS-275) — et la posture ne change pas : lire, jamais écrire, jamais
+copier. Le fait appartient au plugin, la relation `T → R` au bus de Hermes
+OS, et aucun des deux ne migre dans l'autre.
+
+Les observations non rattachées sont **écartées** du groupement plutôt que
+rangées sous une clé « inconnu » : une telle clé se lirait comme un Run et
+finirait affichée à côté des vrais.
+
+**Ce que §10 attend encore.** Une surface produit qui montre la relation —
+elle se lit, rien ne l'affiche (§15). Le versioning et le rollback : le
+ledger de l'agent (`.curator_ledger.jsonl`) les porterait, mais il
+**n'existe pas** sur cette installation, et aucune RPC ne l'expose.
+Appariement skill ↔ tâche reste PLANNED.
 
 ---
 
@@ -1499,6 +1552,12 @@ montre — et c'est la bonne séquence. Un écran demanderait d'abord que
 l'observateur soit installé chez l'agent, faute de quoi il afficherait « non
 corrélé » pour tous les Runs. §15 attend donc **deux** jalons, dans cet
 ordre : l'observateur, puis la surface.
+
+**HOS-281 franchit le premier.** L'observateur est installé et observe
+(§10, G-33) ; `backend/skills/observations.py` rend les mutations groupées
+par Run. Il ne reste que la surface — et pour la première fois de cette
+série, §15 attend quelque chose qui **existe** : la donnée est là, mesurée,
+et l'écran qui la montrera n'aura rien à inventer.
 
 ### Ce que l'Assistant est aujourd'hui, mesuré
 

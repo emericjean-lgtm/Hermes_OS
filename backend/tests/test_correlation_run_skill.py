@@ -224,14 +224,36 @@ def test_aucun_module_ne_devine_un_run_par_le_temps():
         "une heuristique temporelle approche les Skills : " + ", ".join(coupables))
 
 
-def test_le_plugin_observateur_reste_non_installe():
-    """G-28 avait pose un prealable : pas d'installation tant qu'aucun
-    lecteur reel de la relation n'existe. G-29 a mesure que la relation est
-    hors de portee, donc le lecteur ne peut pas exister non plus."""
-    for module in _modules_du_backend():
+def test_le_backend_n_ecrit_jamais_dans_le_dossier_des_plugins():
+    """G-28 et G-29 gardaient « l'observateur n'est pas installe ». G-33 l'a
+    installe, et la garde devient : Hermes OS ne s'installe pas lui-meme.
+
+    L'installation est un geste d'exploitation, fait une fois, par les
+    mecanismes de l'agent (`_set_plugin_enabled`). Un backend qui poserait
+    ou reparerait le plugin au demarrage en deviendrait le mainteneur — et
+    un agent mis a jour se verrait reinstaller un plugin qu'un operateur
+    avait peut-etre retire exprès."""
+    coupables = []
+    for module in (RACINE / "backend").rglob("*.py"):
+        if "tests" in module.parts:
+            continue
         source = module.read_text(encoding="utf-8", errors="replace")
-        assert "observateur-skills" not in source, module
-        assert "hermes-os-observateur" not in source, module
+        if "plugins" not in source:
+            continue
+        arbre = ast.parse(source)
+        for noeud in ast.walk(arbre):
+            if not isinstance(noeud, ast.Call):
+                continue
+            nom = getattr(noeud.func, "attr", None) or getattr(noeud.func, "id", None)
+            if nom not in {"copytree", "copy2", "copy", "write_text", "mkdir"}:
+                continue
+            litteraux = " ".join(
+                n.value for n in ast.walk(noeud)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str))
+            if "plugin" in litteraux.lower():
+                coupables.append(f"{module.relative_to(RACINE)} -> {nom}")
+    assert not coupables, (
+        "le backend ecrit dans les plugins de l'agent : " + ", ".join(coupables))
 
 
 def test_la_decision_et_sa_limite_sont_ecrites():

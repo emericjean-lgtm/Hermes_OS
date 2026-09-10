@@ -1,8 +1,12 @@
 # Observateur de cycle de vie des Skills — contrat mesuré (G-28, HOS-276)
 
-**Ce plugin n'est pas installé.** Il est écrit, mesuré, et gardé ici pour
-que la passe qui en aura besoin parte d'un contrat prouvé plutôt que de le
-re-dériver. Les deux préalables à son installation sont nommés plus bas.
+**Ce plugin est installé et actif** depuis G-33 (2026-09-10), sous
+`%LOCALAPPDATA%\hermes\plugins\hermes-os-observateur-skills`, activé par
+`plugins.enabled`. Ce répertoire en reste la source : l'installation en est
+une copie, et une correction se fait ici puis se réinstalle.
+
+Les deux préalables que G-28 avait posés sont levés — G-32 a établi la
+relation `turnId → run_id`, et `backend/skills/observations.py` la lit.
 
 ---
 
@@ -10,8 +14,8 @@ re-dériver. Les deux préalables à son installation sont nommés plus bas.
 
 | objet | verdict |
 |---|---|
-| le point d'observation `on_skill_lifecycle` et son propriétaire | **ADOPT** |
-| l'installation du plugin dans l'agent réel, aujourd'hui | **DEFER** |
+| le point d'observation `on_skill_lifecycle` et son propriétaire | **ADOPT** (G-28) |
+| l'installation du plugin dans l'agent réel | **ADOPT** (G-33) |
 
 La règle du brief était : *ne pas construire le lifecycle avant d'avoir
 prouvé que son point d'observation et son propriétaire sont
