@@ -411,7 +411,29 @@ class MissionExecutor:
         #    task that cannot run now fails; it does not report an invented
         #    result.
         try:
-            outcome = self._task_executor.execute(task, assignment)
+            # G-32. Le Run que cette tache sert, tenu par une correspondance
+            # ENREGISTREE (`execution_id -> run_id`, posee a l'ouverture), pas
+            # devinee. Lie ici et non a l'ouverture du run : `execute_task` est
+            # appele depuis le marcheur de graphe, donc hors de la pile qui a
+            # ouvert le run. Mesure du 2026-09-10 : un ContextVar survit a
+            # `_run_coro`, qui pousse pourtant la coroutine vers une boucle
+            # d'un autre thread — `call_soon_threadsafe` copie le contexte.
+            jeton_run = None
+            try:
+                from backend.runs.correlation import lier_run
+
+                run_de_la_tache = self._runs.get(sm._meta.execution_id, "")
+                if run_de_la_tache:
+                    jeton_run = lier_run(run_de_la_tache)
+            except Exception:  # noqa: BLE001 - une trace ne casse pas la tache
+                logger.debug("run non lie pour la correlation", exc_info=True)
+            try:
+                outcome = self._task_executor.execute(task, assignment)
+            finally:
+                if jeton_run is not None:
+                    from backend.runs.correlation import delier_run
+
+                    delier_run(jeton_run)
         except RuntimeUnavailableError as exc:
             with self._lock:
                 task.errors.append(str(exc))

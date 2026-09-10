@@ -74,7 +74,19 @@ def test_ral_protocols_are_runtime_checkable() -> None:
 
 
 def test_topic_enum_matches_hos_001_specification() -> None:
-    """Topic must contain exactly the 28 topics defined by HOS-001 + D-20."""
+    """Topic must contain exactly the 29 topics of HOS-001 + D-20 + G-32.
+
+    This list is a SPECIFICATION, not a running tally: a new topic fails
+    this test on purpose, so that adding one is a deliberate, recorded act
+    rather than a side effect. Each entry below is here because someone
+    decided it belongs.
+
+    ``run.turn.emitted`` (G-32, HOS-280) carries the ``turnId -> run_id``
+    relation. It lives on the bus rather than in a ``turns`` table because
+    ``backend/runs/registre.py`` already settled that question: "le registre
+    porte les runs ; le bus porte les evenements ; run_id les relie" — a
+    second event store is what that comment refuses.
+    """
     expected_topics = {
         "runtime.started",
         "runtime.stopped",
@@ -104,6 +116,7 @@ def test_topic_enum_matches_hos_001_specification() -> None:
         "system.metrics",
         "sdsl.message",
         "agent.message",
+        "run.turn.emitted",
     }
     actual_topics = {t.value for t in Topic}
     missing = expected_topics - actual_topics
@@ -111,7 +124,7 @@ def test_topic_enum_matches_hos_001_specification() -> None:
 
     assert not missing, f"missing topics: {missing}"
     assert not extra, f"unexpected extra topics: {extra}"
-    assert len(Topic) == 28, "expected exactly 28 topics"
+    assert len(Topic) == 29, "expected exactly 29 topics"
 
 
 def test_topic_values_are_strings() -> None:

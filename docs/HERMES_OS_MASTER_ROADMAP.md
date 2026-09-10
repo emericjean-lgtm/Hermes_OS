@@ -626,6 +626,16 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### La corrélation, bouclée (HOS-280)
+
+Quatre passes pour une seule question : « quelle Skill vient de quel Run ? »
+G-29 a mesuré que la relation n'existait pas et refusé de l'inventer ; G-30
+a trouvé que le protocole portait déjà le canal ; G-31 l'a fait restituer par
+l'agent ; G-32 y a branché un Run réel. Le résultat tient en une phrase :
+**la corrélation n'a jamais eu besoin d'une surface nouvelle — elle avait
+besoin qu'on ne jette pas celle qui existait**, et que chacun garde ses
+identités.
+
 ### La corrélation : un quatrième transport, patché (HOS-279)
 
 Le contrat turnId ne passe ni par le pont, ni par le Gateway, ni par le
@@ -764,7 +774,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-279)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-280)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1277,9 +1287,69 @@ forme. Corrigé : une clé par fait, et une façade de lecture qui les rend
 ordonnés. Un observateur qui perd silencieusement la moitié de ce qu'il
 observe est pire qu'absent.
 
-**Ce que §10 attend encore.** L'adoption amont du patch, puis un
-consommateur de la relation côté Hermes OS — le préalable que G-28 avait
-posé, toujours non levé. Le versioning et le rollback : le ledger de l'agent
+### G-32 — la corrélation Run ↔ Skill, établie (HOS-280)
+
+**ADOPT.** La chaîne que G-29 avait mesurée impossible existe, de bout en
+bout, sur deux processus et par-delà un redémarrage.
+
+    phase 1 (Hermes OS)  Run lié          : RUN-Z
+                         requête ACP      : _meta.hermes.turnId = 2a374b49…
+                         relation écrite  : RUN-Z
+    phase 2 (agent)      Skill g32-une   → client_turn_id = 2a374b49…
+                         Skill g32-deux  → client_turn_id = 2a374b49…
+    phase 3 (NOUVEAU     étiquette lue → Run retrouvé : RUN-Z
+             processus)  étiquette étrangère          : (aucun)
+
+Aucune identité ne change de propriétaire : Hermes OS garde `run_id`,
+l'agent garde `task_id` et `session_id`, et l'étiquette est une **troisième**
+identité, opaque, que Hermes OS frappe et reconnaît.
+
+#### Ce que la mesure a corrigé dans ma lecture
+
+Le chemin traverse `_run_coro`, qui pousse la coroutine vers une boucle d'un
+**autre thread** par `run_coroutine_threadsafe`. J'avais conclu qu'un
+`ContextVar` n'y survivrait pas et que le design par contexte était mort.
+Mesure : il survit — `call_soon_threadsafe` copie le contexte de l'appelant.
+La lecture du code disait le contraire.
+
+#### D'où vient le Run, et pourquoi ce n'est pas une devinette
+
+`execute_task` résout `self._runs.get(sm._meta.execution_id)` — la table que
+`_ouvrir_le_run` a posée. Une **correspondance enregistrée**, pas le dernier
+Run ni le plus récent : G-29 avait REJETÉ ces trois raccourcis, et des tests
+les interdisent. `run_de()`, l'accesseur que G-29 avait trouvé sans appelant,
+décrivait déjà cette table.
+
+#### Où vit la relation
+
+Sur le **bus durable**, parce que `backend/runs/registre.py` a déjà tranché :
+*« le registre porte les runs ; le bus porte les événements ; `run_id` les
+relie »*. Une table `turns` serait le second magasin d'événements que ce même
+commentaire refuse. Topic `run.turn.emitted`, ajouté à l'enum fermé comme sa
+docstring l'exige.
+
+**Rétention de sept jours** (`EventBusImpl(retention_days=7)`) : la relation
+est interrogeable une semaine, puis élaguée. C'est la politique du bus, et la
+changer serait une décision de bus.
+
+#### La règle qui tient tout le reste
+
+Une étiquette n'est posée que si sa relation a été **écrite**. Sans Run lié —
+le chat, une tâche hors mission — ou sans bus, `etiquette_du_tour()` rend
+`""`, et la requête ACP ne porte **aucune clé `_meta`** : elle est octet pour
+octet celle d'avant. Une étiquette sans relation promettrait une corrélation
+que personne ne pourrait résoudre.
+
+#### L'observateur de G-28 a maintenant un lecteur
+
+Le préalable posé en G-28 — *« rien ne lit la relation »* — est levé :
+`correlation.run_du_tour()` la lit. L'observateur reste non installé dans
+cette passe, comme le brief l'exigeait, mais la raison de l'attendre a
+disparu. Son installation est le jalon suivant.
+
+**Ce que §10 attend encore.** L'installation de l'observateur, puis
+l'adoption amont du patch `turn-id.patch` — il vit toujours dans un checkout
+local. Le versioning et le rollback : le ledger de l'agent
 (`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas** sur cette
 installation, et aucune RPC ne l'expose. Appariement skill ↔ tâche reste
 PLANNED.
@@ -1422,6 +1492,13 @@ implémentée et démontrée (§10, G-31). §15 ne s'ouvre pas pour autant : le
 patch est local, et Hermes OS n'envoie toujours pas de `_meta` — poser le
 champ sans savoir si l'agent en face le restitue produirait un écran qui
 affiche « non corrélé » sans pouvoir dire pourquoi.
+
+**HOS-280 ouvre la porte, et §15 reste volontairement fermé.** La relation
+existe et se lit (`correlation.run_du_tour()`), mais aucun écran ne la
+montre — et c'est la bonne séquence. Un écran demanderait d'abord que
+l'observateur soit installé chez l'agent, faute de quoi il afficherait « non
+corrélé » pour tous les Runs. §15 attend donc **deux** jalons, dans cet
+ordre : l'observateur, puis la surface.
 
 ### Ce que l'Assistant est aujourd'hui, mesuré
 

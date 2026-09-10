@@ -1,3 +1,131 @@
+## HOS-280 — La correlation Run ↔ Skill, etablie (2026-09-10)
+
+G-32. **ADOPT.** La relation que G-29 avait mesuree impossible existe, de
+bout en bout, sur deux processus et par-dela un redemarrage.
+
+    phase 1 (Hermes OS)  Run lie          : RUN-Z
+                         requete ACP      : _meta.hermes.turnId = 2a374b49...
+                         relation ecrite  : RUN-Z
+    phase 2 (agent)      Skill g32-une   -> client_turn_id = 2a374b49...
+                         Skill g32-deux  -> client_turn_id = 2a374b49...
+    phase 3 (NOUVEAU     etiquette lue -> Run retrouve : RUN-Z
+             processus)  etiquette etrangere          : (aucun)
+
+Aucune identite ne change de proprietaire : Hermes OS garde `run_id`,
+l'agent garde `task_id` et `session_id`, et l'etiquette est une **troisieme**
+identite, opaque, que Hermes OS frappe et reconnait.
+
+### Ce que la mesure a corrige dans ma lecture
+
+Le chemin traverse `_run_coro`, qui pousse la coroutine vers une boucle d'un
+**autre thread** par `run_coroutine_threadsafe`. J'ai conclu — a voix haute —
+qu'un `ContextVar` n'y survivrait pas et que le design par contexte etait
+mort. Mesure : il survit. `call_soon_threadsafe` copie le contexte de
+l'appelant. La lecture du code disait le contraire, et c'est la mesure qui a
+tranche.
+
+### D'ou vient le Run, et pourquoi ce n'est pas une devinette
+
+`execute_task` resout `self._runs.get(sm._meta.execution_id)` — la table que
+`_ouvrir_le_run` a posee a l'ouverture. Une **correspondance enregistree**,
+pas le dernier Run ni le plus recent : G-29 avait REJETE ces trois
+raccourcis, et des tests les interdisent maintenant.
+
+Detail qui boucle : `run_de()`, l'accesseur que G-29 avait trouve **sans
+aucun appelant**, decrivait deja exactement cette table. La donnee etait la ;
+il manquait le chemin.
+
+### Ou vit la relation
+
+Sur le **bus durable**, parce que `backend/runs/registre.py` a deja tranche :
+« le registre porte les runs ; le bus porte les evenements ; `run_id` les
+relie ». Une table `turns` serait le second magasin d'evenements que ce meme
+commentaire refuse. Topic `run.turn.emitted`, ajoute a l'enum ferme comme sa
+docstring l'exige — « new topics must be added here rather than using raw
+strings ».
+
+**Retention de sept jours** (`EventBusImpl(retention_days=7)`) : la relation
+est interrogeable une semaine, puis elaguee. C'est la politique du bus, et la
+changer serait une decision de bus, pas une raison de batir un magasin
+parallele.
+
+### La regle qui tient tout le reste
+
+Une etiquette n'est posee que si sa relation a ete **ecrite**. Sans Run lie —
+le chat, une tache hors mission — ou sans bus, `etiquette_du_tour()` rend
+`""`, et la requete ACP ne porte **aucune clef `_meta`** : elle est octet
+pour octet celle d'avant. Une etiquette sans relation promettrait une
+correlation que personne ne pourrait resoudre — la moitie d'un contrat, que
+G-31 refusait deja de livrer.
+
+### Deux contrats perimes, reecrits
+
+G-30 et G-31 gardaient « Hermes OS ne pose pas `_meta` » et « aucun module ne
+frappe d'etiquette ». G-32 leve les deux, par instruction explicite et sur
+une chaine demontree. Ils n'etaient ni faux ni casses : **perimes**. Ils
+disent desormais la condition — `_meta` seulement pour un Run lie, et une
+seule source de frappe.
+
+### Deux gardes que des mutations ont trouvees absentes
+
+**La reprise refrappait une etiquette.** Un processus d'agent qui meurt en
+plein tour est repris : session rouverte, message renvoye. C'est le meme tour
+logique, et lui donner une seconde etiquette ferait paraitre deux tours la ou
+un Run n'en a demande qu'un. Rien ne le gardait.
+
+**La liaison du Run pouvait fuir.** Sans `finally`, une tache qui leve
+laisserait son Run lie, et la suivante — d'un autre Run, ou d'aucun — en
+heriterait. La contamination aurait ete silencieuse et l'etiquette aurait
+pointe le mauvais Run.
+
+Les deux mutations restaient vertes tant que les tests perimes masquaient
+l'absence : elles ne rougissaient que par eux. Les reecrire a decouvert les
+trous.
+
+### L'observateur de G-28 a maintenant un lecteur
+
+Le prealable pose en G-28 — « rien ne lit la relation » — est leve :
+`correlation.run_du_tour()` la lit. L'observateur reste **non installe** dans
+cette passe, comme le brief l'exigeait, mais la raison de l'attendre a
+disparu. Son installation est le jalon suivant, avec l'adoption amont de
+`turn-id.patch`, toujours local.
+
+### Vingt rouges que j'ai failli ne pas voir
+
+La suite de cette passe a rendu **20 echecs**, et je ne les ai pas lus : la
+commande etait `pytest -q | tail -4`, qui n'ecrit que quatre lignes dans le
+fichier de sortie. Le « exit 0 » que j'y voyais etait celui de `tail`, pas de
+pytest. J'etais a un pas de commiter une suite rouge en la croyant verte.
+
+Les vingt venaient tous de ce changement, en deux familles.
+
+**Trois doubles de test** dont le `tour()` n'acceptait pas le `turn_id`
+ajoute au contrat du client — dix-neuf tests les partagent. Le vrai client le
+declare avec un defaut, donc rien de reel ne cassait.
+
+**Un test qui epingle l'enum des topics a une specification** : « exactly the
+28 topics defined by HOS-001 + D-20 ». Ce n'est pas une liste qui pousse
+toute seule — ce test existe pour qu'ajouter un topic soit un acte delibere
+et enregistre. J'avais lu la docstring de l'enum (« new topics must be added
+here rather than using raw strings ») comme une invitation a ajouter ; elle
+dit seulement de ne pas employer de chaine libre. `run.turn.emitted` est
+donc inscrit dans la specification, avec sa raison, et le compte passe a 29.
+
+### Preuves
+
+Suite complete 6092 passed, 3 skipped, 274 deselected ; tsc et vitest
+verts.
+
+Onze mutations, onze rouges : injection disparue, `_meta` pose sans
+etiquette, etiquette rendue sans relation, etiquette derivee du `run_id`,
+`session_id` employe comme etiquette, etiquette etrangere associee au dernier
+Run, Run devine, table creee, topic hors de l'enum, reprise qui refrappe, et
+liaison qui fuit.
+
+`data/db/hermes.db` intacte — le Run Ledger vit dans
+`%LOCALAPPDATA%\\HermesOS\\db\\hermes_os.db`, et le bus dans son propre
+fichier.
+
 ## HOS-279 — Le contrat turnId, implemente chez l'agent (2026-09-10)
 
 G-31. G-30 avait classe la restitution **ADAPT** : trois lignes a trois

@@ -62,6 +62,11 @@ class Topic(str, Enum):
     SYSTEM_METRICS = "system.metrics"
     SDSL_MESSAGE = "sdsl.message"
     AGENT_MESSAGE = "agent.message"
+    # G-32. La relation `turnId -> run_id` : Hermes OS frappe une etiquette
+    # opaque par tour ACP et l'enregistre ici. Le registre porte les runs, le
+    # bus porte les evenements — la regle que `backend/runs/registre.py` s'est
+    # donnee, et qui interdit une table `turns` parallele.
+    RUN_TURN_EMITTED = "run.turn.emitted"
 
 
 @dataclass(frozen=True)

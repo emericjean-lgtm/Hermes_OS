@@ -48,7 +48,8 @@ class _ClientFactice:
         self.reprise = bool(reprendre)
         return self
 
-    async def tour(self, texte, *, delai=0, au_fil_de_l_eau=None):
+    async def tour(self, texte, *, delai=0, au_fil_de_l_eau=None,
+                   turn_id=""):
         self.recus.append(texte)
         if au_fil_de_l_eau is not None:
             au_fil_de_l_eau("reponse", "fait")
@@ -334,7 +335,8 @@ class _ClientQuiMeurt(_ClientFactice):
         super().__init__()
         self._morts = morts
 
-    async def tour(self, texte, *, delai=0, au_fil_de_l_eau=None):
+    async def tour(self, texte, *, delai=0, au_fil_de_l_eau=None,
+                   turn_id=""):
         if not self._morts:
             self._morts.append(1)
             raise RuntimeError("flux ferme par l'agent")
@@ -384,7 +386,8 @@ class TestLaRepriseApresIncident:
         une panne durable transformerait un echec lisible en attente muette
         — ce qui a deja coute une seance entiere a ce projet."""
         class _ToujoursMort(_ClientFactice):
-            async def tour(self, texte, *, delai=0, au_fil_de_l_eau=None):
+            async def tour(self, texte, *, delai=0,
+                           au_fil_de_l_eau=None, turn_id=""):
                 raise RuntimeError("flux ferme par l'agent")
 
         registre = SessionsDeMission(fabrique=_ToujoursMort)

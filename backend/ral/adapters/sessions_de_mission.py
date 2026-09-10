@@ -422,9 +422,18 @@ class SessionsDeMission:
 
         premier = entree.tours == 0
         message = f"{amorce}\n\n{texte}" if (premier and amorce) else texte
+        # G-32. Une etiquette par tour, quand un Run est lie ; `""` sinon, et
+        # la requete part alors exactement comme avant — le chat et les taches
+        # hors mission ne sont pas correles, et ne doivent pas l'etre par
+        # defaut. Frappee UNE fois : la reprise ci-dessous rejoue le meme tour
+        # logique, et lui donner une seconde etiquette ferait croire a deux.
+        from backend.runs.correlation import etiquette_du_tour
+
+        etiquette = etiquette_du_tour()
         try:
             resultat = await entree.client.tour(
-                message, delai=delai, au_fil_de_l_eau=au_fil_de_l_eau)
+                message, delai=delai, au_fil_de_l_eau=au_fil_de_l_eau,
+                turn_id=etiquette)
         except Exception as erreur:  # noqa: BLE001 - une seule reprise
             # Un processus d'agent mort en plein tour ne doit pas emporter la
             # campagne. L'agent persiste ses sessions : on rouvre, on reprend
@@ -439,7 +448,8 @@ class SessionsDeMission:
                 await self._fermer_sans_verrou(cle)
                 entree = await self._ouvrir(cle, workspace)
             resultat = await entree.client.tour(
-                message, delai=delai, au_fil_de_l_eau=au_fil_de_l_eau)
+                message, delai=delai, au_fil_de_l_eau=au_fil_de_l_eau,
+                turn_id=etiquette)
         entree.tours += 1
         entree.derniere_activite = self._horloge()
         return resultat

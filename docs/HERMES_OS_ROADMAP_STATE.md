@@ -17,19 +17,19 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       G-14 fermé (HOS-264) — le catalogue est sondé
                       §16 🟡 (HOS-265→274) — le pont, la matrice,
                       le chat joignable et enfin interruptible
-                      §10 🟡 (HOS-274→279) — les Skills se lisent, le
+                      §10 🟡 (HOS-274→280) — les Skills se lisent, le
                       chiffre de HOS-153 était faux, la provenance est
-                      mesurée (60 système / 4 générées / 1 conflit), et le
-                      contrat turnId est ADOPT : implémenté chez l'agent
-                      (83 lignes, 3 fichiers) et démontré de bout en bout.
-                      Le patch est LOCAL — son adoption amont reste le
-                      prochain jalon, avec un consommateur de la relation
+                      mesurée (60 système / 4 générées / 1 conflit), et la
+                      corrélation Run ↔ Skill est ADOPT : démontrée sur
+                      deux processus et par-delà un redémarrage. Restent
+                      l'installation de l'observateur, puis l'adoption
+                      amont de `turn-id.patch`, toujours local
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      9be7735 (G-30, HOS-278) — dernier commit
-                               de code avant G-31 (turnId implémenté)
+BASELINE:                      a48fdb7 (G-31, HOS-279) — dernier commit
+                               de code avant G-32 (corrélation Run ↔ Skill)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud

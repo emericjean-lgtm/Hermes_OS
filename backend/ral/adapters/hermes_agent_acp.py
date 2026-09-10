@@ -455,7 +455,7 @@ class HermesAgentACP:
         return session
 
     async def tour(self, texte: str, *, delai: float = DELAI_TOUR_S,
-                   au_fil_de_l_eau: Any = None) -> Tour:
+                   au_fil_de_l_eau: Any = None, turn_id: str = "") -> Tour:
         """Un tour, dans le contexte accumulé.
 
         `au_fil_de_l_eau(genre, fragment)` est appelé pour chaque morceau
@@ -467,7 +467,8 @@ class HermesAgentACP:
         if self._session is None or not self._session.session_id:
             raise RuntimeError("aucune session ouverte")
         return await self._prompt(self._session, texte, delai,
-                                  au_fil_de_l_eau=au_fil_de_l_eau)
+                                  au_fil_de_l_eau=au_fil_de_l_eau,
+                                  turn_id=turn_id)
 
     async def annuler(self) -> bool:
         """Interrompt le tour en cours par le mecanisme natif d'ACP (G-24).
@@ -927,14 +928,22 @@ class HermesAgentACP:
         session.proc.stdin.write((json.dumps(reponse) + "\n").encode())
 
     async def _prompt(self, session: SessionAgent, texte: str,
-                      delai: float, *, au_fil_de_l_eau: Any = None) -> Tour:
+                      delai: float, *, au_fil_de_l_eau: Any = None,
+                      turn_id: str = "") -> Tour:
         collecte: list = []
         async with session.verrou:
             try:
                 reponse = await self._echanger(
                     session, "session/prompt",
                     {"sessionId": session.session_id,
-                     "prompt": [{"type": "text", "text": texte}]},
+                     "prompt": [{"type": "text", "text": texte}],
+                     # G-32. `_meta` est le champ qu'ACP reserve aux extensions
+                     # (« Implementations MUST NOT make assumptions about values
+                     # at these keys »), et `_meta.hermes` l'espace que l'agent
+                     # emploie deja lui-meme. Absent quand aucun Run n'est lie :
+                     # la requete est alors octet pour octet celle d'avant.
+                     **({"_meta": {"hermes": {"turnId": turn_id}}}
+                        if turn_id else {})},
                     delai, collecte, au_fil_de_l_eau=au_fil_de_l_eau)
             except Exception as erreur:  # noqa: BLE001 - un tour ne casse rien
                 # Le motif seul ne dit rien d'un tour qui expire : « aucune

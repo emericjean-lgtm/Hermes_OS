@@ -55,45 +55,53 @@ ACP = RACINE / "backend" / "ral" / "adapters" / "hermes_agent_acp.py"
 
 # ── L'abstention ──────────────────────────────────────────────────────
 
-def test_hermes_os_n_envoie_pas_encore_de_metadonnee():
-    """L'abstention tient, et sa raison a change.
+def test_hermes_os_n_envoie_de_metadonnee_que_pour_un_run_lie():
+    """L'abstention de G-30 est **levee**, et remplacee par une condition.
 
-    G-30 disait : l'agent ne restitue pas. Ce n'est plus vrai sur un agent
-    patche (G-31). Deux raisons subsistent, et aucune n'est levee :
+    G-30 et G-31 gardaient : « Hermes OS ne pose pas `_meta` », parce que
+    l'agent ne restituait rien puis parce que le patch etait local. G-32 a
+    branche l'identite d'un Run reel sur le contrat, et la chaine est
+    demontree de bout en bout. Le contrat n'est donc plus « jamais » mais
+    « seulement pour un Run lie » — et sans Run, la requete doit rester
+    octet pour octet celle d'avant.
 
-    - **le patch est local.** Un agent reinstalle ou mis a jour peut ne plus
-      le porter, et un client n'aurait aucun moyen de distinguer « pas de
-      mutation » de « pas de restitution » ;
-    - **rien ne lit la relation.** C'est le prealable de G-28, et il vaut
-      pour le client comme pour l'observateur."""
+    Le contrat precedent n'etait ni faux ni casse : il etait perime.
+    """
+    from backend.ral.adapters import hermes_agent_acp as acp
+
     source = ACP.read_text(encoding="utf-8")
     arbre = ast.parse(source)
     litteraux = {n.value for n in ast.walk(arbre)
                  if isinstance(n, ast.Constant) and isinstance(n.value, str)}
-    for champ in ("_meta", "turnId", "messageId", "message_id"):
-        assert champ not in litteraux, (
-            f"l'adaptateur ACP pose `{champ}` alors que l'agent ne le "
-            "restitue pas : la moitie d'un contrat")
+    assert "_meta" in litteraux and "turnId" in litteraux, (
+        "l'adaptateur ne pose plus l'etiquette : la chaine G-32 est rompue")
+    # Et la condition : ni `messageId`, qui est UNSTABLE et repondrait a une
+    # autre question (« ce message a-t-il ete enregistre »).
+    for hors_contrat in ("messageId", "message_id"):
+        assert hors_contrat not in litteraux, (
+            f"l'adaptateur emploie `{hors_contrat}`, marque UNSTABLE par ACP")
 
 
-def test_aucun_module_ne_frappe_un_identifiant_de_tour():
-    """Frapper des `turnId` avant qu'ils servent creerait un registre que
-    rien ne lit — et que la passe suivante croirait alimente.
-
-    La garde ne retient que `turn_id` / `turnId`, specifiques a ce contrat.
-    Ecrite avec `correlation_id`, elle accusait `events/system_event_bus.py`
-    — un champ anterieur, documente « optional correlation id to group
-    related events », ou Hermes OS groupe SES propres evenements et dont il
-    est l'autorite. Troisieme garde de cette serie a confondre une chaine
-    avec un defaut : `session.most_recent` (un nom de methode RPC),
-    `source_task_id` (la colonne du distributeur), et celle-ci."""
+def test_une_seule_source_frappe_les_etiquettes():
+    """Un second point de frappe produirait des etiquettes qu'aucune relation
+    n'enregistre — donc des tours corrélables cote agent et introuvables
+    ici. La garde remplace celle de G-30, qui interdisait toute frappe."""
+    autorises = {"backend/runs/correlation.py"}
+    coupables = []
     for module in (RACINE / "backend").rglob("*.py"):
         if "tests" in module.parts:
             continue
+        rel = module.relative_to(RACINE).as_posix()
+        if rel in autorises:
+            continue
         source = module.read_text(encoding="utf-8", errors="replace")
-        for invente in ("turn_id", "turnId"):
-            assert invente not in source, (
-                f"{module.relative_to(RACINE)} nomme `{invente}`")
+        arbre = ast.parse(source)
+        appels = {getattr(n.func, "attr", None) or getattr(n.func, "id", None)
+                  for n in ast.walk(arbre) if isinstance(n, ast.Call)}
+        if "frapper" in appels:
+            coupables.append(rel)
+    assert not coupables, (
+        "une seconde source frappe des etiquettes : " + ", ".join(coupables))
 
 
 def test_le_contrat_ne_contient_aucun_code_executable():
