@@ -17,19 +17,21 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       G-14 fermé (HOS-264) — le catalogue est sondé
                       §16 🟡 (HOS-265→274) — le pont, la matrice,
                       le chat joignable et enfin interruptible
-                      §10 🟡 (HOS-274→282) — les Skills se lisent, le
+                      §10 🟡 (HOS-274→283) — les Skills se lisent, le
                       chiffre de HOS-153 était faux, la provenance est
                       mesurée (60 système / 4 générées / 1 conflit), la
                       corrélation Run ↔ Skill est ADOPT, l'observateur est
-                      INSTALLÉ, et la relation est MONTRÉE : l'onglet
-                      Runs ↔ Skills sert `/skills/observations` sur de
-                      vrais événements. Restent versioning et rollback
+                      INSTALLÉ, la relation est MONTRÉE, et le cycle de vie
+                      est VÉRIFIÉ à l'octet (`/skills/gouvernance`). Le
+                      déclenchement reste DEFER : l'approbateur vivant
+                      n'est pas joignable (G-36). Restent versioning et
+                      rollback
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      919e86f (G-33, HOS-281) — dernier commit
-                               de code avant G-34 (la relation montrée)
+BASELINE:                      7509169 (G-34, HOS-282) — dernier commit
+                               de code avant G-35 (cycle de vie vérifié)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -276,6 +278,7 @@ mentirait sur ce qu'il fait.
 | ~~Empreinte déclarée sous le contexte servi (A-18)~~ — **fermé HOS-261** | architectural | §6 |
 | Rien ne détecte un Modelfile élargi sous une empreinte (A-20) | architectural | §6 |
 | La promotion d'un souvenir n'a aucune route HTTP (G-10) | architectural | §8 |
+| Deux files d'approbation, et le cockpit regarde la morte (G-36) | security | §15/§23 |
 | `assigned_tools` planifié et jamais invoqué (G-11) | technical debt | §7 |
 | ~~`_RegistreMissions` hydrate sur un ordre non garanti (A-19)~~ — **fermé HOS-262** | test | §3 |
 | ~~Le repli agentique défait toutes les décisions du routeur (G-12)~~ — **fermé HOS-263** | architectural | §6/§7 |

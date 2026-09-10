@@ -626,6 +626,19 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### Le dossier de l'agent, enfin lu (HOS-283)
+
+Quatrième lecture du disque de l'agent — après les compétences (HOS-274),
+leur provenance (HOS-275) et les mutations observées (HOS-281) — et la
+posture n'a pas bougé d'un pouce : lire, jamais écrire, jamais recopier.
+
+Ce que cette quatrième ajoute est la **confrontation**. Les trois
+précédentes rendaient ce que l'agent dit ; celle-ci compare ce qu'il a
+enregistré à ce que son disque porte, et les trois écarts possibles ont
+chacun leur nom. C'est la première fois que Hermes OS contredit l'agent
+sur son propre terrain — et il le peut parce qu'il recalcule, sans rien
+lui demander.
+
 ### Le quatrième transport, consommé (HOS-282)
 
 Un transport dont rien ne lit la sortie n'est pas un transport, c'est une
@@ -794,7 +807,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-282)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-283)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1471,10 +1484,82 @@ existe. Deux gardes de G-27 ont été rescopées pour la même raison : leur
 **nom** décrivait le dépôt entier là où leur mesure ne portait que sur
 l'inventaire.
 
+### G-35 — la gouvernance du cycle de vie (HOS-283)
+
+**ADOPT sur la vérification, DEFER sur le déclenchement**, et les deux
+verdicts sont mesurés plutôt que supposés.
+
+#### Le dossier existait, et personne ne le lisait
+
+L'agent tient déjà le dossier complet du cycle de vie de ses Skills, sur
+son disque, sous `<HERMES_HOME>/skills/.hub/` :
+
+    audit.log   une ligne par opération : INSTALL, BLOCKED, UNINSTALL
+    lock.json   source, identifiant, niveau de confiance, verdict du
+                scanner, empreinte, et les findings avec leur sévérité
+
+Aucun module de Hermes OS ne l'ouvrait. C'est le défaut le plus fréquent
+de ce dépôt sous sa forme la plus pure : la donnée de gouvernance est
+produite, complète, datée — et sans lecteur.
+
+#### Le chemin réel, mesuré de bout en bout
+
+Hub réel (5493 entrées), scanner réel, quarantaine réelle, sur un
+`HERMES_HOME` de substitution :
+
+| demande | disque | journal | ce que la RPC dit |
+|---|---|---|---|
+| `official/devops/actual-setup` | posée | `INSTALL … dangerous` | `installed: true` |
+| `skills-sh/mindrally/…/docker` | posée | `INSTALL … safe` | `installed: true` |
+| `skills-sh/bobmatnyc/…/docker` | **rien** | `BLOCKED … dangerous 25_findings` | `installed: true` |
+| `docker`, `skill-docker`, … | **rien** | **rien** | `installed: true` |
+| la même, déjà posée, sans `--force` | **rien** | **rien** | `installed: true` |
+
+Deux verdicts `dangerous`, deux issues opposées : la première est passée
+parce que sa source est `builtin`, la seconde a été bloquée parce qu'elle
+est `community`. Un écran qui dirait « installée » sans montrer les deux
+tairait exactement ce dont un opérateur a besoin.
+
+Et `actual-setup` est posée avec **cinq findings critiques** — dont un
+`env_exfil_curl`. La politique de l'agent l'autorise ; rien ne le montrait.
+
+#### La vérification tient à l'octet
+
+`content_hash` est une SHA-256 canonique sur (chemin POSIX, octets).
+Recalculée dans `backend/skills/gouvernance.py`, elle rend **exactement**
+celle du verrou sur les deux compétences posées. Un seul octet ajouté
+après coup fait basculer l'état en `alteree` — vérifié dans le navigateur,
+sur le disque, l'écran suivant.
+
+Réimplémentée plutôt qu'importée : `plugin_compat` désactive au
+2026-09-14 tout code externe qui importe les internes de l'agent, et une
+empreinte de gouvernance ne doit pas mourir avec une date.
+
+#### Pourquoi le déclenchement reste DEFER
+
+`do_install` est annoté `-> None` et rend `None` sur **tous** ses chemins,
+succès compris : il n'y a aucune valeur de retour à corriger en amont, et
+G-26 avait raison de refuser le bouton. La vérification lève cette
+objection — Hermes OS peut désormais dire ce qui a réellement été écrit.
+
+Ce qui la remplace est plus dur, et c'est une **découverte de cette
+passe** : il y a **deux files d'approbation**, et le cockpit regarde la
+mauvaise. La file vivante, celle qu'Aegis remplit (`record_pending`,
+servie par `/security/approvals`), n'a **aucun appelant frontend** — elle
+figure dans les orphelins connus. Celle que le Dashboard affiche est
+`/approval`, servie par `backend/policy/`, alimentée seulement par
+`autonomous_guard`. Router une installation de Skill vers la file vivante
+la rendrait invisible ; la router vers l'autre ne garderait rien.
+
+C'est exactement le motif que G-26 avait nommé pour le `pending` de
+l'agent — « le producteur existe, l'approbateur est injoignable » — un
+étage plus haut, et cette fois chez nous. **G-36** : rendre la file
+d'approbation vivante joignable depuis le cockpit.
+
 **Ce que §10 attend encore.** Le versioning et le rollback : le ledger de
 l'agent (`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas**
 sur cette installation, et aucune RPC ne l'expose. Appariement skill ↔
-tâche reste PLANNED. La surface, elle, n'est plus une attente.
+tâche reste PLANNED. Le déclenchement d'une installation attend G-36.
 
 ---
 
@@ -1632,6 +1717,18 @@ relation sur de vrais événements — vérifié dans le navigateur, pas
 seulement en test. C'est la première fois de cette série qu'une capacité
 traverse §16 (le transport), §10 (la donnée) et §15 (l'écran) sans
 qu'aucun maillon ne soit `PRESENT` sans être `ACTUALLY USED`.
+
+**HOS-283 ajoute la gouvernance, et corrige la ligne du tableau
+ci-dessus.** « Cycle de vie des skills : 9 routes, aucune création, liste
+seule » décrivait un `PRESENT`. L'onglet **Gouvernance** sert
+`GET /skills/gouvernance` : ce que le hub a posé, avec le verdict du
+scanner, le niveau de confiance qui a décidé, et l'état **vérifié à
+l'octet** de chaque compétence. La création reste sans surface, et la
+raison n'est plus « ça n'écrit pas de façon vérifiable » — c'est vérifiable
+depuis G-35 — mais « l'approbateur est injoignable » (G-36).
+
+§15 gagne au passage une dette nommée : le Dashboard affiche une file
+d'approbation qui n'est pas celle qui garde les opérations réelles.
 
 Ce que la ligne « Cycle de vie des skills » du tableau ci-dessus devient :
 la **création** reste sans surface — G-27 a mesuré qu'`install` rend

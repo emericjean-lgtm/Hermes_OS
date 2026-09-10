@@ -1014,6 +1014,62 @@ export interface ObservationsSkills {
   non_rattachees: (MutationObservee & { raison: RaisonSansRun })[];
 }
 
+/** Ce que `GET /skills/gouvernance` rend : le dossier du cycle de vie des
+ *  Skills, tenu par l'agent et VERIFIE par Hermes OS (G-35, HOS-283).
+ *
+ *  Trois populations a ne pas confondre, et l'ecran ne doit jamais deduire
+ *  l'une de l'autre : `AgentSkills` est l'INVENTAIRE installe ;
+ *  `ObservationsSkills` sont les MUTATIONS observees pendant un Run ; ici
+ *  ce sont les OPERATIONS de cycle de vie ecrites par le hub de l'agent —
+ *  une competence creee par l'agent lui-meme n'y figure pas. */
+export interface OperationSkill {
+  horodatage: string;
+  /** `INSTALL` | `BLOCKED` | `UNINSTALL`, ou `""` quand la ligne du
+   *  journal n'a pas la forme attendue : elle est alors rendue entiere
+   *  dans `detail` plutot que devinee. */
+  action: string;
+  skill: string;
+  source: string;
+  confiance: string;
+  verdict: string;
+  detail: string;
+}
+
+/** L'etat d'une competence posee, confronte au disque. Borne cote backend.
+ *  `conforme` = l'empreinte recalculee egale celle enregistree ;
+ *  `alteree` = le dossier a change depuis le scan ;
+ *  `annoncee_absente` = le verrou l'annonce, le dossier n'est pas la. */
+export type EtatPosee = "conforme" | "alteree" | "annoncee_absente";
+
+export interface SkillPosee {
+  nom: string;
+  source: string;
+  identifiant: string;
+  confiance: string;
+  verdict: string;
+  chemin: string;
+  empreinte_attendue: string;
+  /** `""` quand le dossier n'est pas la — jamais un zero ni un « ok ». */
+  empreinte_reelle: string;
+  etat: EtatPosee;
+  /** Findings du scanner comptes par severite. Comptes et non recopies :
+   *  le detail porte le chemin et l'extrait du fichier incrimine. */
+  findings: Record<string, number>;
+}
+
+export interface GouvernanceSkills {
+  /** Distingue « l'agent n'a jamais rien pose par le hub » de « Hermes OS
+   *  n'a pas su lire son dossier ». Un ecran vide dirait sinon la meme
+   *  chose dans les deux cas, et le second est une panne. */
+  dossier_lisible: boolean;
+  racine: string;
+  operations: OperationSkill[];
+  posees: SkillPosee[];
+  alertes: { alterees: number; absentes: number; bloquees: number };
+  /** Ce que ce dossier ne peut PAS montrer, dit plutot que taire. */
+  angle_mort: string;
+}
+
 export const skillsClient = {
   list: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params) : "";
@@ -1025,6 +1081,7 @@ export const skillsClient = {
   agentSkills: () => fetchJSON<AgentSkills>("/skills/agent"),
   observations: () =>
     fetchJSON<ObservationsSkills>("/skills/observations"),
+  gouvernance: () => fetchJSON<GouvernanceSkills>("/skills/gouvernance"),
   select: (data: { task_description: string; domain?: string }) =>
     fetchJSON<unknown>("/skills/select", {
       method: "POST",

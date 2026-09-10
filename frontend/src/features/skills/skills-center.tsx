@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Sparkles, FolderTree, Search, ChevronLeft, ChevronRight, GitBranch, Unlink,
+  ShieldCheck, ShieldAlert, FileWarning,
 } from "lucide-react";
 import { Badge } from "@/components/ui/card";
 import {
@@ -12,6 +13,7 @@ import {
 import {
   skillsClient, type AgentSkills, type SkillProvenance,
   type ObservationsSkills, type MutationObservee, type RaisonSansRun,
+  type GouvernanceSkills, type SkillPosee, type EtatPosee,
 } from "@/services/client";
 import {
   useSkillsCatalogue, useSkillsRecherche, useSkillDetail,
@@ -56,7 +58,7 @@ import {
  * sécurité pour une réussite.
  */
 
-type Onglet = "agent" | "runs" | "distributeur" | "catalogue";
+type Onglet = "agent" | "runs" | "gouvernance" | "distributeur" | "catalogue";
 
 export function SkillsCenter() {
   const [onglet, setOnglet] = useState<Onglet>("agent");
@@ -74,6 +76,15 @@ export function SkillsCenter() {
     staleTime: 60_000,
   });
 
+  // Le dossier du cycle de vie tenu par le hub de l'agent, verifie
+  // (G-35). Troisieme population : ni l'inventaire, ni les mutations d'un
+  // Run — les operations d'installation, avec leur controle de securite.
+  const gouvernance = useQuery({
+    queryKey: ["skills", "gouvernance"],
+    queryFn: () => skillsClient.gouvernance(),
+    staleTime: 30_000,
+  });
+
   // Les mutations observees, et le Run qui les a demandees (G-34). Requete
   // separee de l'inventaire : deux populations distinctes, deux couts —
   // celle-ci rejoue le bus, l'autre marche l'arbre des competences.
@@ -87,6 +98,8 @@ export function SkillsCenter() {
   const domaines = agent.data?.domaines ?? [];
   const distribues = distributeur.data?.length ?? 0;
   const runsObserves = observations.data?.runs.length ?? 0;
+  const alertes = gouvernance.data?.alertes;
+  const aSignaler = (alertes?.alterees ?? 0) + (alertes?.absentes ?? 0);
 
   return (
     <div className="animate-fade-in">
@@ -126,6 +139,11 @@ export function SkillsCenter() {
               badge: runsObserves || undefined,
             },
             {
+              id: "gouvernance",
+              label: "Gouvernance",
+              badge: aSignaler || undefined,
+            },
+            {
               id: "distributeur",
               label: "Distributeur",
               badge: distribues || undefined,
@@ -146,6 +164,8 @@ export function SkillsCenter() {
           />
         ) : onglet === "runs" ? (
           <OngletRuns requete={observations} />
+        ) : onglet === "gouvernance" ? (
+          <OngletGouvernance requete={gouvernance} />
         ) : onglet === "catalogue" ? (
           <OngletCatalogue />
         ) : (
@@ -795,6 +815,242 @@ function RaisonAbsence({ raison }: { raison: RaisonSansRun }) {
       <Badge variant="warning">{l.texte}</Badge>
     </span>
   );
+}
+
+/* -- Le cycle de vie, verifie ------------------------------------- */
+
+/**
+ * Ce que le cycle de vie des Skills a reellement fait (G-35, HOS-283).
+ *
+ * L'agent tient ce dossier lui-meme, sur son disque : `.hub/audit.log` et
+ * `.hub/lock.json`. Hermes OS le lit et le CONFRONTE au disque en
+ * recalculant l'empreinte de chaque competence posee. Cet ecran ne montre
+ * donc pas ce que l'agent a annonce, mais ce que la verification a trouve.
+ *
+ * ## Pourquoi le verdict et la confiance sont cote a cote
+ *
+ * Mesure du 2026-09-10 : `actual-setup` est posee avec un verdict
+ * `dangerous` et cinq findings critiques, parce que sa source est
+ * `builtin` ; une autre competence au meme verdict a ete BLOQUEE parce
+ * qu'elle etait `community`. Meme verdict, issues opposees. Afficher
+ * « installee » sans ces deux colonnes tairait exactement ce dont un
+ * operateur a besoin.
+ *
+ * ## Ce que l'ecran ne peut pas montrer, et le dit
+ *
+ * Un refus silencieux — nom introuvable, deja installee sans `--force` —
+ * n'ecrit ni fichier ni ligne d'audit. Aucun lecteur a posteriori ne peut
+ * le distinguer d'une operation jamais demandee. La phrase est affichee
+ * plutot que tue.
+ */
+function OngletGouvernance({
+  requete,
+}: {
+  requete: ReturnType<typeof useQuery<GouvernanceSkills>>;
+}) {
+  const d = requete.data;
+  const posees = d?.posees ?? [];
+  const operations = d?.operations ?? [];
+
+  return (
+    <AsyncPanel
+      title="Cycle de vie des Skills, verifie"
+      subtitle={d?.racine ?? "Le dossier que l'agent tient lui-meme"}
+      isLoading={requete.isLoading}
+      isError={requete.isError}
+      error={requete.error}
+      isEmpty={posees.length === 0 && operations.length === 0}
+      emptyLabel={
+        d && !d.dossier_lisible
+          ? "Le dossier `.hub` de l'agent n'existe pas : aucune competence " +
+            "n'a jamais ete posee par le hub sur cette installation."
+          : "Aucune operation de cycle de vie enregistree."
+      }
+    >
+      {posees.length > 0 && (
+        <>
+          <div className="flex items-center gap-1.5 mb-2">
+            <ShieldCheck size={11} className="text-hermes-arc" />
+            <span className="num text-[10px] uppercase tracking-[0.11em] text-hermes-muted">
+              Posees par le hub ({posees.length})
+            </span>
+          </div>
+          <DataTable
+            rows={posees}
+            rowKey={(p) => p.nom}
+            columns={[
+              {
+                header: "Competence",
+                cell: (p: SkillPosee) => (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Sparkles size={11} className="text-hermes-sodium" />
+                    <span className="num text-[11px] text-hermes-text">{p.nom}</span>
+                  </span>
+                ),
+              },
+              {
+                header: "Source",
+                cell: (p: SkillPosee) => (
+                  <span className="text-[10px] text-hermes-muted" title={p.identifiant}>
+                    {p.source || "\u2014"}
+                  </span>
+                ),
+              },
+              {
+                header: "Confiance",
+                cell: (p: SkillPosee) => (
+                  <span className="num text-[10px] text-hermes-glacier">
+                    {p.confiance || "\u2014"}
+                  </span>
+                ),
+              },
+              { header: "Verdict du scan", cell: (p: SkillPosee) => <Verdict p={p} /> },
+              { header: "Verifiee", cell: (p: SkillPosee) => <EtatVerifie p={p} /> },
+            ]}
+          />
+        </>
+      )}
+
+      {operations.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-hermes-border/60">
+          <div className="flex items-center gap-1.5 mb-2">
+            <FileWarning size={11} className="text-hermes-dim" />
+            <span className="num text-[10px] uppercase tracking-[0.11em] text-hermes-muted">
+              Journal des operations ({operations.length})
+            </span>
+          </div>
+          <DataTable
+            rows={operations}
+            rowKey={(o, i) => `${o.horodatage}/${o.skill}/${i}`}
+            columns={[
+              {
+                header: "Quand",
+                cell: (o) => (
+                  <span className="num text-[10px] text-hermes-muted">
+                    {o.horodatage || "\u2014"}
+                  </span>
+                ),
+              },
+              { header: "Action", cell: (o) => <ActionSkill action={o.action} /> },
+              {
+                header: "Competence",
+                cell: (o) => (
+                  <span className="num text-[11px] text-hermes-text">
+                    {o.skill || "\u2014"}
+                  </span>
+                ),
+              },
+              {
+                header: "Source",
+                cell: (o) => (
+                  <span className="text-[10px] text-hermes-muted">
+                    {o.source ? `${o.source} / ${o.confiance}` : "\u2014"}
+                  </span>
+                ),
+              },
+              {
+                header: "Verdict",
+                cell: (o) => (
+                  <span className="num text-[10px] text-hermes-muted">
+                    {o.verdict || "\u2014"}
+                  </span>
+                ),
+              },
+              {
+                header: "Detail",
+                cell: (o) => (
+                  <span className="num text-[10px] text-hermes-dim" title={o.detail}>
+                    {o.detail || "\u2014"}
+                  </span>
+                ),
+              },
+            ]}
+          />
+        </div>
+      )}
+
+      {d && (
+        <p className="pt-3 text-[10px] text-hermes-dim">
+          Angle mort : {d.angle_mort}.
+        </p>
+      )}
+    </AsyncPanel>
+  );
+}
+
+/** Le verdict du scanner et ses findings. Le verdict seul ne suffit pas :
+ *  `dangerous` est passe sur une source `builtin` et a bloque sur une
+ *  source `community`, mesure le 2026-09-10. */
+function Verdict({ p }: { p: SkillPosee }) {
+  const total = Object.values(p.findings).reduce((a, b) => a + b, 0);
+  const critiques = p.findings.critical ?? 0;
+  const ton =
+    p.verdict === "safe" ? "success" : p.verdict === "dangerous" ? "danger" : "warning";
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      title={
+        total
+          ? Object.entries(p.findings)
+              .map(([s, n]) => `${n} ${s}`)
+              .join(", ")
+          : "aucun finding enregistre"
+      }
+    >
+      <Badge variant={ton}>{p.verdict || "\u2014"}</Badge>
+      {total > 0 && (
+        <span className="num text-[10px] text-hermes-dim">
+          {total} finding(s){critiques ? `, ${critiques} critique(s)` : ""}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Le resultat de la CONFRONTATION, pas ce que l'agent a annonce. */
+function EtatVerifie({ p }: { p: SkillPosee }) {
+  if (p.etat === "conforme") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5"
+        title={`empreinte recalculee ${p.empreinte_reelle}`}
+      >
+        <ShieldCheck size={11} className="text-hermes-arc" />
+        <Badge variant="success">conforme</Badge>
+      </span>
+    );
+  }
+  const libelle: Record<EtatPosee, { texte: string; titre: string }> = {
+    conforme: { texte: "conforme", titre: "" },
+    alteree: {
+      texte: "alteree",
+      titre:
+        `Le verrou annonce ${p.empreinte_attendue}, le disque porte ` +
+        `${p.empreinte_reelle} : le dossier a change depuis le scan.`,
+    },
+    annoncee_absente: {
+      texte: "annoncee, absente",
+      titre:
+        `Le verrou l'annonce sous ${p.chemin || "(sans chemin)"}, ` +
+        "le dossier n'est pas la.",
+    },
+  };
+  const l = libelle[p.etat];
+  return (
+    <span className="inline-flex items-center gap-1.5" title={l.titre}>
+      <ShieldAlert size={11} className="text-hermes-red" />
+      <Badge variant="danger">{l.texte}</Badge>
+    </span>
+  );
+}
+
+/** Les actions que l'agent ecrit. Une valeur inattendue est rendue telle
+ *  quelle : la ranger dans l'une des trois connues serait une affirmation. */
+function ActionSkill({ action }: { action: string }) {
+  if (!action) return <span className="text-hermes-dim">ligne illisible</span>;
+  const ton =
+    action === "INSTALL" ? "success" : action === "BLOCKED" ? "danger" : "info";
+  return <Badge variant={ton}>{action}</Badge>;
 }
 
 export default SkillsCenter;

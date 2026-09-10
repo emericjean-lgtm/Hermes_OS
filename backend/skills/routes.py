@@ -276,6 +276,28 @@ async def observations_de_l_agent(limite: int = Query(200, ge=1, le=1000)) -> di
     return await obs.vue(limite)
 
 
+@router.get("/gouvernance")
+async def gouvernance_du_cycle_de_vie(
+    limite: int = Query(200, ge=1, le=1000),
+) -> dict:
+    """Le dossier du cycle de vie des Skills, VERIFIE (G-35, HOS-283).
+
+    L'agent tient deja ce dossier sur son disque — `.hub/audit.log` et
+    `.hub/lock.json` — et rien dans Hermes OS ne le lisait. Cette route ne
+    le recopie pas : elle le lit, et **confronte** ce que l'agent a
+    enregistre a ce que le disque porte, en recalculant l'empreinte.
+
+    Elle ne declenche rien. `skills.manage install` rend
+    `{"installed": true}` dans tous les cas, y compris apres un blocage de
+    securite : gouverner une operation qu'on ne peut pas verifier
+    reviendrait a signer un compte rendu qu'on n'a pas lu. Le declenchement
+    reste DEFER, et sa raison est mesuree — voir §10 de la roadmap.
+    """
+    from backend.skills import gouvernance
+
+    return gouvernance.vue(limite)
+
+
 @router.get("/cache")
 async def get_cache() -> dict:
     return handle_get_cache()

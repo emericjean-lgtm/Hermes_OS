@@ -1,3 +1,125 @@
+## HOS-283 — Le cycle de vie des Skills, verifie (2026-09-10)
+
+G-35. **ADOPT sur la verification, DEFER sur le declenchement**, et les
+deux verdicts sont mesures plutot que supposes.
+
+### Le dossier existait, et personne ne le lisait
+
+L'agent tient deja le dossier complet du cycle de vie de ses Skills, sur
+son disque, sous `<HERMES_HOME>/skills/.hub/` : `audit.log` (une ligne par
+INSTALL, BLOCKED, UNINSTALL) et `lock.json` (source, identifiant, niveau de
+confiance, verdict du scanner, empreinte, findings avec leur severite).
+
+Aucun module de Hermes OS ne l'ouvrait. C'est le defaut le plus frequent de
+ce depot sous sa forme la plus pure : la donnee de gouvernance est
+produite, complete, datee — et sans lecteur.
+
+### Le chemin reel, mesure de bout en bout
+
+Hub reel (5493 entrees), scanner reel, quarantaine reelle, sur un
+`HERMES_HOME` de substitution. Cinq issues, cinq empreintes disque
+differentes, **une seule reponse RPC** :
+
+    official/devops/actual-setup      posee   INSTALL ... dangerous
+    skills-sh/mindrally/.../docker    posee   INSTALL ... safe
+    skills-sh/bobmatnyc/.../docker    RIEN    BLOCKED ... dangerous 25_findings
+    docker, skill-docker, openclaw-*  RIEN    aucune ligne
+    la meme, deja posee, sans --force RIEN    aucune ligne
+
+`skills.manage install` rend `{"installed": true}` dans les cinq cas.
+
+Deux verdicts `dangerous`, deux issues opposees : la premiere est passee
+parce que sa source est `builtin`, la seconde a ete bloquee parce qu'elle
+est `community`. Et `actual-setup` est posee avec **cinq findings
+critiques**, dont un `env_exfil_curl`. La politique de l'agent l'autorise ;
+rien ne le montrait. L'ecran montre desormais le verdict ET la confiance
+cote a cote — separement, ils ne veulent rien dire.
+
+### La verification tient a l'octet
+
+`content_hash` est une SHA-256 canonique sur (chemin POSIX, octets),
+ordonnee par la **chaine** du chemin — l'agent porte le commentaire de
+l'incident que l'ordre lui a coute : trier des `Path` est insensible a la
+casse sous Windows, et chaque competence installee se declarait perimee
+pour toujours.
+
+Recalculee dans `backend/skills/gouvernance.py`, elle rend **exactement**
+celle du verrou sur les deux competences posees. Un octet ajoute apres
+coup fait basculer l'etat en `alteree` — verifie sur le disque, puis dans
+le navigateur, le badge de l'onglet passant a 1.
+
+Reimplementee plutot qu'importee : `plugin_compat` desactive au 2026-09-14
+tout code externe qui importe les internes de l'agent. Une empreinte de
+gouvernance ne doit pas mourir avec une date.
+
+### Trois ecarts, trois noms, aucun deduit d'un autre
+
+    conforme            l'empreinte recalculee egale celle enregistree
+    alteree             le dossier a change depuis le scan
+    annoncee_absente    le verrou l'annonce, le dossier n'est pas la
+
+Et ce que la vue ne peut PAS voir est affiche plutot que tu : un refus
+silencieux n'ecrit ni fichier ni ligne d'audit, donc aucun lecteur *a
+posteriori* ne peut le distinguer d'une operation jamais demandee. Sans
+cette phrase, le journal se lirait comme exhaustif et une passe suivante
+« reparerait » l'absence en inventant une ligne.
+
+### Pourquoi le declenchement reste DEFER
+
+`do_install` est annote `-> None` et rend `None` sur **tous** ses chemins,
+succes compris : il n'y a aucune valeur de retour a corriger en amont.
+G-26 avait donc raison de refuser le bouton. La verification leve cette
+objection — Hermes OS peut desormais dire ce qui a reellement ete ecrit.
+
+Ce qui la remplace est plus dur, et c'est une **decouverte de cette
+passe** : il y a **deux files d'approbation**, et le cockpit regarde la
+mauvaise. La file vivante, celle qu'Aegis remplit (`record_pending`,
+servie par `/security/approvals`), n'a **aucun appelant frontend** — elle
+figure dans les orphelins connus depuis le 2026-09-07. Celle que le
+Dashboard affiche est `/approval`, servie par `backend/policy/`, alimentee
+seulement par `autonomous_guard`.
+
+Router une installation de Skill vers la file vivante la rendrait
+invisible ; la router vers l'autre ne garderait rien. C'est exactement le
+motif que G-26 avait nomme pour le `pending` de l'agent — « le producteur
+existe, l'approbateur est injoignable » — un etage plus haut, et cette fois
+chez nous. **G-36** ouvert.
+
+### Deux gardes qui se sont mordues
+
+**Une garde absente, trouvee par mutation.** Remplacer `source` par
+`source or "official"` ne rougissait rien : aucune garde n'exercait une
+entree de verrou incomplete. Une competence de provenance inconnue se
+serait affichee `official` — une provenance FABRIQUEE, exactement ce que
+G-27 a passe une passe entiere a refuser sur l'inventaire.
+
+**Un commentaire qui declenche la garde qu'il explique.**
+`test_tout_ce_qui_vit_sous_la_racine_est_preserve` cherche dans tout
+`backend/` un appel a l'accesseur de racine suivi d'un litteral de
+dossier. Mon helper s'appelait `_racine()` : la garde a exige que `.hub`
+entre dans `preserve_set()` — or `.hub` vit chez l'agent, sous
+`%LOCALAPPDATA%\hermes`, et la mise a jour de Hermes OS ne le voit meme
+pas. L'y inscrire aurait ete une fausse promesse. Renomme `_competences()`
+— un meilleur nom de toute facon. Puis le commentaire qui *expliquait* le
+motif l'a redeclenche, parce que la garde lit le texte source. Une garde
+ecrite sur une forme se fait piquer par la prose qui la decrit.
+
+### Preuves
+
+Dix-huit mutations, dix-huit rouges : tout declare conforme, un dossier
+absent qui passe pour pose, l'empreinte qui ignore le contenu ou l'ordre
+canonique, la confiance deduite du verdict, la source manquante devenue
+officielle, le journal qui perd les blocages, les findings recopies, le
+lecteur qui cree le dossier du hub, une route qui declenche une
+installation, l'ecran qui affirme `conforme` quoi qu'il arrive. Base et
+restauration a zero.
+
+Suite backend : 6137 passed, 3 skipped, 274 deselected, 0 failed.
+Frontend : `tsc` propre, 149 tests verts dont 8 neufs sur cet onglet.
+`data/db/hermes.db` intacte ; l'installation reelle de l'agent n'a pas ete
+touchee — les competences de mesure sont posees sous un `HERMES_HOME` de
+substitution. Les deux depots propres.
+
 ## HOS-282 — La relation Run ↔ Skill, montree (2026-09-10)
 
 G-34. **ADOPT.** L'onglet **Runs ↔ Skills** du Skills Center sert

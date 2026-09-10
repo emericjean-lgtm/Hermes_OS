@@ -16,11 +16,15 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import type { ObservationsSkills } from "@/services/client";
+import type {
+  ObservationsSkills, GouvernanceSkills, SkillPosee,
+} from "@/services/client";
 
 const donnees = vi.hoisted(() => ({
   observations: {} as ObservationsSkills,
+  gouvernance: {} as GouvernanceSkills,
   appels: 0,
+  appelsGouvernance: 0,
 }));
 
 vi.mock("@/services/client", () => ({
@@ -36,6 +40,10 @@ vi.mock("@/services/client", () => ({
     observations: () => {
       donnees.appels += 1;
       return Promise.resolve(donnees.observations);
+    },
+    gouvernance: () => {
+      donnees.appelsGouvernance += 1;
+      return Promise.resolve(donnees.gouvernance);
     },
   },
 }));
@@ -61,7 +69,40 @@ const VIDE: ObservationsSkills = {
   non_rattachees: [],
 };
 
+const GOUV_VIDE: GouvernanceSkills = {
+  dossier_lisible: false,
+  racine: "/agent/skills/.hub",
+  operations: [],
+  posees: [],
+  alertes: { alterees: 0, absentes: 0, bloquees: 0 },
+  angle_mort: "un refus silencieux n'ecrit rien",
+};
+
+function posee(p: Partial<SkillPosee>): SkillPosee {
+  return {
+    nom: "une", source: "official", identifiant: "official/x/une",
+    confiance: "builtin", verdict: "safe", chemin: "x/une",
+    empreinte_attendue: "sha256:aaaa", empreinte_reelle: "sha256:aaaa",
+    etat: "conforme", findings: {}, ...p,
+  };
+}
+
+async function ouvrirGouvernance(g: GouvernanceSkills) {
+  donnees.gouvernance = g;
+  donnees.observations = VIDE;
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <SkillsCenter />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByText("Gouvernance"));
+}
+
 async function ouvrir(observations: ObservationsSkills) {
+  donnees.gouvernance = GOUV_VIDE;
   donnees.observations = observations;
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -76,6 +117,7 @@ async function ouvrir(observations: ObservationsSkills) {
 
 beforeEach(() => {
   donnees.appels = 0;
+  donnees.appelsGouvernance = 0;
 });
 
 describe("l'onglet Runs ↔ Skills", () => {
@@ -222,5 +264,114 @@ describe("l'onglet Runs ↔ Skills", () => {
     const vide = await screen.findByText(/Aucune observation/);
     expect(vide.textContent).toContain("pas installe");
     expect(vide.textContent).toContain("Ce n'est pas");
+  });
+});
+
+describe("l'onglet Gouvernance", () => {
+  it("consomme la route et montre ce que le hub a pose", async () => {
+    await ouvrirGouvernance({
+      ...GOUV_VIDE,
+      dossier_lisible: true,
+      posees: [posee({ nom: "actual-setup" })],
+    });
+    await waitFor(() => expect(donnees.appelsGouvernance).toBeGreaterThan(0));
+    expect(await screen.findByText("actual-setup")).toBeInTheDocument();
+  });
+
+  it("montre le verdict ET la confiance, jamais l'un sans l'autre", async () => {
+    // Mesure du 2026-09-10 : meme verdict `dangerous`, issues opposees —
+    // passee sur une source `builtin`, bloquee sur une source `community`.
+    // Un ecran qui tairait la confiance rendrait les deux identiques.
+    await ouvrirGouvernance({
+      ...GOUV_VIDE,
+      dossier_lisible: true,
+      posees: [posee({
+        nom: "actual-setup", verdict: "dangerous", confiance: "builtin",
+        findings: { critical: 5, medium: 3 },
+      })],
+    });
+    const ligne = (await screen.findByText("actual-setup")).closest("tr")!;
+    expect(ligne.textContent).toContain("dangerous");
+    expect(ligne.textContent).toContain("builtin");
+    expect(ligne.textContent).toContain("8 finding(s)");
+    expect(ligne.textContent).toContain("5 critique(s)");
+  });
+
+  it("n'annonce pas `conforme` quand l'empreinte differe", async () => {
+    // Le faux succes tel qu'il se verrait a l'ecran : « installee » ne
+    // veut pas dire « inchangee ».
+    await ouvrirGouvernance({
+      ...GOUV_VIDE,
+      dossier_lisible: true,
+      posees: [posee({
+        etat: "alteree",
+        empreinte_attendue: "sha256:aaaa",
+        empreinte_reelle: "sha256:bbbb",
+      })],
+      alertes: { alterees: 1, absentes: 0, bloquees: 0 },
+    });
+    const ligne = (await screen.findByText("une")).closest("tr")!;
+    expect(ligne.textContent).toContain("alteree");
+    expect(ligne.textContent).not.toContain("conforme");
+  });
+
+  it("distingue « annoncee, absente » de « alteree »", async () => {
+    await ouvrirGouvernance({
+      ...GOUV_VIDE,
+      dossier_lisible: true,
+      posees: [posee({ etat: "annoncee_absente", empreinte_reelle: "" })],
+      alertes: { alterees: 0, absentes: 1, bloquees: 0 },
+    });
+    expect(await screen.findByText("annoncee, absente")).toBeInTheDocument();
+    expect(screen.queryByText("alteree")).toBeNull();
+  });
+
+  it("montre un blocage dans le journal, sans rien poser", async () => {
+    await ouvrirGouvernance({
+      ...GOUV_VIDE,
+      dossier_lisible: true,
+      operations: [{
+        horodatage: "2026-09-10T19:54:04Z", action: "BLOCKED",
+        skill: "docker", source: "skills.sh", confiance: "community",
+        verdict: "dangerous", detail: "25_findings",
+      }],
+      alertes: { alterees: 0, absentes: 0, bloquees: 1 },
+    });
+    expect(await screen.findByText("BLOCKED")).toBeInTheDocument();
+    expect(screen.getByText("25_findings")).toBeInTheDocument();
+    expect(screen.queryByText(/Posees par le hub/)).toBeNull();
+  });
+
+  it("dit « ligne illisible » plutot que de deviner une operation", async () => {
+    // Le parseur comptait les mots : « ceci n'est pas une ligne d'audit »
+    // en fait six et devenait une operation. L'ecran doit refleter le
+    // refus de deviner, pas le masquer.
+    await ouvrirGouvernance({
+      ...GOUV_VIDE,
+      dossier_lisible: true,
+      operations: [{
+        horodatage: "", action: "", skill: "", source: "", confiance: "",
+        verdict: "", detail: "ceci n'est pas une ligne d'audit",
+      }],
+    });
+    expect(await screen.findByText("ligne illisible")).toBeInTheDocument();
+  });
+
+  it("affiche l'angle mort plutot que de laisser croire le journal exhaustif",
+    async () => {
+      await ouvrirGouvernance({
+        ...GOUV_VIDE,
+        dossier_lisible: true,
+        posees: [posee({})],
+        angle_mort: "un refus silencieux n'ecrit ni fichier ni ligne d'audit",
+      });
+      expect(await screen.findByText(/Angle mort/)).toBeInTheDocument();
+      expect(screen.getByText(/refus silencieux/)).toBeInTheDocument();
+    });
+
+  it("un hub absent se lit comme tel, pas comme une panne", async () => {
+    await ouvrirGouvernance(GOUV_VIDE);
+    const vide = await screen.findByText(/dossier `.hub`/);
+    expect(vide.textContent).toContain("jamais ete posee");
   });
 });
