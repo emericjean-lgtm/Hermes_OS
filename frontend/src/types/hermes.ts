@@ -58,7 +58,15 @@ export interface ResourceStatus {
     vram_total_bytes: number;
     vram_used_bytes: number;
     vram_free_bytes: number;
+    /** Le bord de la puce — ce que `nvidia-smi` nomme `temperature.gpu`.
+     *  `null` veut dire « non mesuree », jamais « froide » : sur une carte
+     *  AMD sans `nvidia-smi`, ce champ est reste `null` de HOS-035 a
+     *  HOS-284 alors que la carte publiait la valeur. */
     temperature_celsius: number | null;
+    /** La jonction (« hotspot »), la grandeur qui gouverne l'etranglement
+     *  thermique. Mesuree separement, jamais deduite du bord — l'ecart
+     *  entre les deux monte a sept degres en charge sur RX 6800. */
+    temperature_hotspot_celsius?: number | null;
     utilization_pct: number | null;
     available: boolean;
     /** A-15 : `false` veut dire « aucune sonde physique n'a répondu ».

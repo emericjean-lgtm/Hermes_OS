@@ -40,7 +40,11 @@ export function InstrumentBar({ onOpenPalette }: { onOpenPalette: () => void }) 
   // s'afficher comme absents, jamais comme 0 %.
   const vramPct = vramPourcent(res?.gpu);
   const ramPct = typeof res?.ram?.usage_pct === "number" ? res.ram.usage_pct : null;
+  // HOS-284 : ce champ etait `null` depuis HOS-035 sur cette machine —
+  // seule la branche `nvidia-smi` le posait, et elle n'existe pas sur une
+  // carte AMD. Le thermometre ci-dessous n'avait donc jamais pu s'afficher.
   const temp = res?.gpu?.temperature_celsius ?? null;
+  const hotspot = res?.gpu?.temperature_hotspot_celsius ?? null;
 
   const subsystems = health?.subsystems ? Object.values(health.subsystems) : [];
   const healthy = subsystems.filter((s) => s?.status === "HEALTHY").length;
@@ -74,18 +78,40 @@ export function InstrumentBar({ onOpenPalette }: { onOpenPalette: () => void }) 
       <div className="hidden lg:flex items-center gap-5 px-5 shrink-0">
         <TelemetryTrace label="VRAM" value={vramPct} color="#ff9436" />
         <TelemetryTrace label="RAM" value={ramPct} color="#5eb8e8" width={104} />
-        {temp !== null && (
-          <div className="flex items-center gap-1.5">
-            <Thermometer size={11} className="text-hermes-dim" />
+        {/* Le thermometre est rendu meme sans mesure, et affiche alors
+            « ––• » : c'est la regle que cette barre s'est donnee plus haut,
+            et le faire disparaitre laisserait croire qu'il n'y a rien a
+            surveiller. Les seuils viennent de `config.gpu_alert_temp_c`
+            (85) et `gpu_critical_temp_c` (90). */}
+        <div
+          className="flex items-center gap-1.5"
+          title={
+            temp === null
+              ? "Temperature du GPU non mesuree — aucune sonde n'a repondu"
+              : hotspot !== null
+              ? `GPU ${Math.round(temp)}°C au bord, ${Math.round(hotspot)}°C a la jonction`
+              : `GPU ${Math.round(temp)}°C au bord`
+          }
+        >
+          <Thermometer size={11} className="text-hermes-dim" />
+          {temp === null ? (
+            <span className="num text-[10.5px] tabular-nums text-hermes-dim">
+              ––
+            </span>
+          ) : (
             <span
               className={`num text-[10.5px] tabular-nums ${
-                temp >= 90 ? "text-hermes-alarm" : temp >= 85 ? "text-hermes-gold" : "text-hermes-muted"
+                temp >= 90
+                  ? "text-hermes-alarm"
+                  : temp >= 85
+                  ? "text-hermes-gold"
+                  : "text-hermes-muted"
               }`}
             >
               {Math.round(temp)}°C
             </span>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="flex-1 min-w-0" />

@@ -65,6 +65,8 @@ async def get_status():
         ),
         "ram_usage_pct": round(mem.usage_pct * 100, 1),
         "gpu_temperature": gpu.temperature_celsius,
+        "gpu_temperature_hotspot": getattr(
+            gpu, "temperature_hotspot_celsius", None),
         "active_alerts": [
             {"event_type": t, "severity": s} for t, s in thresholds
         ],

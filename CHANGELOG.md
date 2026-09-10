@@ -1,3 +1,94 @@
+## HOS-284 — La temperature du GPU, mesuree (2026-09-10)
+
+Le champ existait depuis HOS-035. `allocation_policy` refusait une
+admission au-dessus de `max_gpu_temp_c`, `resource_manager` publiait une
+alerte a 85 degC, la barre d'instruments avait un thermometre pret a
+s'afficher. **Rien ne remplissait `temperature_celsius`** : seule la
+branche `nvidia-smi` le posait, et sur cette machine — AMD RX 6800 —
+`nvidia-smi` n'existe pas.
+
+Encore le meme motif : un controle qui ne pouvait pas se declencher, et un
+composant d'interface que personne n'avait jamais vu. Ni l'un ni l'autre
+n'etait casse ; ils attendaient une mesure qui n'arrivait jamais.
+
+### D'ou vient le chiffre
+
+De `atiadlxx.dll`, l'AMD Display Library posee **par le pilote**. Pas
+d'outil tiers, pas de service a lancer, pas de paquet a ajouter : la carte
+est lue par la bibliotheque de son propre pilote, en `ctypes`. Mesure du
+jour : `rocm-smi`, `amd-smi` et `nvidia-smi` sont tous absents ;
+`atiadlxx.dll` est presente et `ADL2_Main_Control_Create` rend `0`.
+
+`ADL2_OverdriveN_Temperature_Get` et `ADL2_Overdrive6_Temperature_Get`
+rendent tous deux `-8` (*not supported*) sur RDNA2. PMLog est le seul
+chemin, et c'est pour cela qu'il est le seul implemente.
+
+### Les capteurs n'ont pas ete lus dans une entete
+
+`ADL2_New_QueryPMLogData_Get` rend 256 capteurs dont douze sont declares
+supportes ici. Prendre un index dans une documentation aurait ete
+exactement la supposition que ce depot paie cher — un mauvais index rend
+un nombre parfaitement credible. Ils ont ete identifies en **chargeant la
+carte** :
+
+    t(s)   [1]clk  [23]W   [8]     [27]
+       0      243     26     28      29     repos
+       3     2080    135     32      39     charge : horloge et puissance
+      12     2026    139     37      44     sautent ; [8] et [27] montent
+      15        0      7     30      30     fin : la puissance retombe
+      36        0      7     28      29     d'un coup, la temperature non
+
+**L'inertie est le discriminant.** Une puissance passe de 139 W a 7 W en
+moins de trois secondes ; une temperature non. Et `[27] >= [8]` a chacun
+des vingt-cinq releves — la jonction est plus chaude que le bord, c'est
+physique. `[8]` est donc le bord, `[27]` la jonction.
+
+### Deux garde-fous, parce qu'un mauvais index est credible
+
+- la valeur doit tomber dans une plage physiquement plausible : un index
+  qui glisserait sur une horloge (2026) ou une puissance (139) echoue ;
+- la jonction doit etre au moins aussi chaude que le bord : un index qui
+  intervertirait les deux echoue.
+
+`None` veut dire « non mesuree », jamais « froide ». La sonde ne rend
+aucun chiffre par defaut — une garde le verifie sur l'arbre syntaxique,
+parce que c'est exactement la faute que A-15 a corrigee sur la VRAM.
+
+### La temperature n'est pas l'occupation
+
+Elle est posee **apres** la chaine de sondes VRAM, pas dans l'une d'elles :
+une carte dont l'occupation n'est pas lisible a tout de meme une
+temperature lisible, et `occupation_mesuree=False` ne dit rien du
+thermometre. Une mesure amont — `nvidia-smi` — n'est jamais ecrasee : les
+deux chemins doivent dire la meme chose.
+
+### Ce que la barre affiche
+
+`VRAM 4 % · RAM 44 % · 29 degC`, a cote des deux autres contraintes.
+L'infobulle porte les deux grandeurs : « GPU 29 degC au bord, 30 degC a la
+jonction ». Le thermometre ne disparait plus quand la mesure manque — il
+affiche `––`, ce que la barre annonce dans son propre commentaire depuis
+le debut, et un cadran absent se lirait « rien a surveiller ».
+
+### Verification de bout en bout
+
+Par HTTP, pendant une inference reelle : **37/44 degC en charge**, retour a
+**29/30 degC** ensuite, VRAM a 3,78 Gio. La barre est passee de 27 a
+29 degC entre deux relevés — la valeur suit la carte.
+
+Une garde absente, trouvee par mutation : intervertir les deux index ne
+rougissait rien. L'echange rompt l'invariant, la sonde rend `None`, et une
+garde qui TOLERE `None` ne voit plus rien — le filet du module masquait
+l'erreur qu'il devait signaler. La garde ajoutee dit : si le pilote publie
+les deux index interroges, la sonde DOIT rendre un couple.
+
+### Preuves
+
+Dix mutations, dix rouges. Suite backend : 6155 passed, 3 skipped, 274
+deselected, 0 failed. `tsc` propre, 149 tests vitest. Aucune dependance
+ajoutee — une garde d'arbre syntaxique interdit a ce module d'importer
+autre chose que la bibliotheque standard.
+
 ## HOS-283 — Le cycle de vie des Skills, verifie (2026-09-10)
 
 G-35. **ADOPT sur la verification, DEFER sur le declenchement**, et les

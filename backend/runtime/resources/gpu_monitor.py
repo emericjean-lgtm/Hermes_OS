@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
@@ -71,15 +72,47 @@ class GPUMonitor:
         une mesure qui répond à une autre question (A-15).
         """
         info = self._try_rocm_smi()
-        if info is not None:
+        if info is None:
+            info = self._try_nvidia_smi()
+        if info is None:
+            info = self._try_compteurs_windows()
+        if info is None:
+            info = self._non_mesure()
+        return self._avec_temperature(info)
+
+    @staticmethod
+    def _avec_temperature(info: GPUInfo) -> GPUInfo:
+        """Poser la temperature mesuree, sans toucher au reste (HOS-284).
+
+        Elle est ajoutee **apres** la chaine de sondes VRAM, et non dans
+        l'une d'elles, parce que c'est une mesure independante : une carte
+        dont l'occupation n'est pas lisible a tout de meme une temperature
+        lisible, et `occupation_mesuree=False` ne dit rien du thermometre.
+
+        Le champ existait depuis HOS-035 et seule la branche `nvidia-smi`
+        le posait. Sur cette machine — AMD, sans `nvidia-smi` — il est
+        reste `None` pendant que `allocation_policy` refusait au-dessus de
+        `max_gpu_temp_c` et que la barre d'instruments gardait un
+        thermometre invisible : un controle qui ne pouvait pas se
+        declencher, et un composant que personne n'avait vu.
+
+        Une sonde qui rend `None` laisse le champ tel quel : on n'ecrase
+        jamais une mesure de `nvidia-smi` par une absence.
+        """
+        if not info.available:
             return info
-        info = self._try_nvidia_smi()
-        if info is not None:
+        from backend.runtime.resources import temperature_gpu
+
+        releve = temperature_gpu.temperatures()
+        if releve is None:
             return info
-        info = self._try_compteurs_windows()
-        if info is not None:
-            return info
-        return self._non_mesure()
+        return replace(
+            info,
+            temperature_celsius=(info.temperature_celsius
+                                 if info.temperature_celsius is not None
+                                 else releve.edge),
+            temperature_hotspot_celsius=releve.hotspot,
+        )
 
     def _non_mesure(self) -> GPUInfo:
         """Aucune sonde n'a répondu. Reste à savoir s'il y a une carte.

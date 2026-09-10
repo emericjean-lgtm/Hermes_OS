@@ -41,6 +41,13 @@ class GPUInfo:
     vram_used_bytes: int = 0
     vram_free_bytes: int = 0
     temperature_celsius: Optional[float] = None
+    #: La jonction (« hotspot »), quand la carte la publie. C'est elle qui
+    #: gouverne l'etranglement thermique, alors que `temperature_celsius`
+    #: est le bord de la puce — celui que `nvidia-smi` nomme
+    #: `temperature.gpu`. Les deux sont mesurees, aucune n'est deduite de
+    #: l'autre, et l'ecart entre elles est une information : sur RX 6800 il
+    #: monte a sept degres en charge.
+    temperature_hotspot_celsius: Optional[float] = None
     utilization_pct: Optional[float] = None
     available: bool = True
     # A-15 : « carte absente » et « carte présente, occupation non

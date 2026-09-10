@@ -95,6 +95,8 @@ class ResourceManager:
                 "vram_used_bytes": gpu.vram_used_bytes,
                 "vram_free_bytes": gpu.vram_free_bytes,
                 "temperature_celsius": gpu.temperature_celsius,
+                "temperature_hotspot_celsius": getattr(
+                    gpu, "temperature_hotspot_celsius", None),
                 "utilization_pct": gpu.utilization_pct,
                 "available": gpu.available,
                 # A-15 : sans ce drapeau, un consommateur lit
