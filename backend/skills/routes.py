@@ -254,6 +254,28 @@ def _origine(p) -> dict:
     }
 
 
+@router.get("/observations")
+async def observations_de_l_agent(limite: int = Query(200, ge=1, le=1000)) -> dict:
+    """Quel Run a mute quelle Skill (G-34, HOS-282).
+
+    La premiere surface produit de la relation etablie en G-32 et observee
+    en G-33. Elle ne calcule rien : elle lit ce que l'observateur a note
+    chez l'agent, resout chaque etiquette par la relation que Hermes OS a
+    elle-meme publiee sur son bus, et joint le Run Ledger pour dire ce
+    qu'est le Run.
+
+    Distincte de `/skills/agent`, et les deux ne se remplacent pas :
+    `/skills/agent` liste l'**inventaire** installe — soixante-cinq
+    competences, avec leur provenance ; celle-ci liste les **mutations**
+    observees depuis que le plugin tourne. Une competence de l'inventaire
+    n'a de Run que si une mutation lui en attache un, et l'absence reste
+    une absence.
+    """
+    from backend.skills import observations as obs
+
+    return await obs.vue(limite)
+
+
 @router.get("/cache")
 async def get_cache() -> dict:
     return handle_get_cache()

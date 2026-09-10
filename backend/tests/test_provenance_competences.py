@@ -263,13 +263,21 @@ def test_le_piege_is_agent_created_n_est_pas_utilise():
 
 # ── La correlation, refusee et dite ───────────────────────────────────
 
-def test_aucune_competence_n_est_rattachee_a_un_run():
-    """Mesure : 0 des 75 enregistrements porte `task_id` ou `session_id`.
-    Les deux traversent le hook `on_skill_lifecycle`, consomme par un relais
-    qui agrege sans identite locale.
+def test_la_provenance_d_une_competence_installee_ne_porte_aucun_run():
+    """Mesure G-27 : 0 des 75 enregistrements de l'agent porte `task_id` ou
+    `session_id`. Les deux traversent le hook `on_skill_lifecycle`, consomme
+    par un relais qui agrege sans identite locale.
 
-    Un champ « run » rendu ici serait vide ou invente. Il n'y en a pas, et
-    la raison est portee pour que la passe suivante ne le recable pas."""
+    **Rescopee par G-34.** Cette garde s'appelait « aucune competence n'est
+    rattachee a un Run » — un titre que G-33 a rendu faux sans que rien ne
+    rougisse, parce qu'il decrivait le depot entier alors que la mesure ne
+    portait que sur l'INVENTAIRE. La relation existe depuis, sur les
+    mutations observees (`/skills/observations`), et elle ne vient pas
+    d'ici : ni des fichiers de la competence, ni d'une deduction.
+
+    Ce qu'elle tient reste exactement ce qu'elle tenait : `Provenance` ne
+    gagne pas de champ de correlation, parce que rien dans les fichiers
+    d'une competence installee ne nommerait le Run qui l'a posee."""
     arbre = ast.parse((RACINE / "backend" / "skills"
                        / "provenance.py").read_text(encoding="utf-8"))
     noms = {n.target.id for n in ast.walk(arbre)
@@ -287,9 +295,13 @@ def test_aucune_competence_n_est_rattachee_a_un_run():
         "un champ de correlation existe alors que rien ne le remplit")
 
 
-def test_la_route_dit_pourquoi_il_n_y_a_pas_de_run():
+def test_la_route_dit_pourquoi_l_inventaire_ne_porte_pas_de_run():
     """Une absence sans explication se lit comme un oubli, et la passe
-    suivante la « repare » en inventant un champ."""
+    suivante la « repare » en inventant un champ.
+
+    G-34 ajoute la moitie qui manquait : l'ecran doit aussi dire OU la
+    relation existe. Sans cela, l'explication de G-27 se lit comme « il n'y
+    en a nulle part », ce qui a cesse d'etre vrai."""
     source = (RACINE / "backend" / "skills"
               / "routes.py").read_text(encoding="utf-8")
     assert "correlation_impossible" in source
@@ -297,7 +309,9 @@ def test_la_route_dit_pourquoi_il_n_y_a_pas_de_run():
     ecran = (RACINE / "frontend" / "src" / "features" / "skills"
              / "skills-center.tsx").read_text(encoding="utf-8")
     assert "correlation_impossible" in ecran, (
-        "l'ecran tait pourquoi aucune competence n'a de Run")
+        "l'ecran tait pourquoi l'inventaire n'a pas de Run")
+    assert "skillsClient.observations()" in ecran, (
+        "l'ecran explique l'absence sans montrer ou la relation existe")
 
 
 def test_l_ecran_ne_nomme_aucune_categorie_absente_du_backend():

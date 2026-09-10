@@ -626,6 +626,19 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### Le quatrième transport, consommé (HOS-282)
+
+Un transport dont rien ne lit la sortie n'est pas un transport, c'est une
+dette. `_meta.hermes.turnId` fait désormais l'aller-retour complet jusqu'à
+un écran : Hermes OS pose l'étiquette dans la requête ACP, l'agent la
+restitue dans son événement de cycle de vie, l'observateur la note, et le
+Skills Center l'affiche à côté du Run qui l'a frappée.
+
+Le pont n'y est pour rien, et c'est le résultat : la chaîne n'emprunte
+**aucune** des 206 méthodes du gateway. G-19 avait relevé le registre pour
+que personne n'invente de nom ; G-34 confirme par l'usage que la relation
+n'en avait besoin d'aucun.
+
 ### L'observateur, en service (HOS-281)
 
 Le quatrième transport n'est plus théorique : du code de Hermes OS tourne
@@ -781,7 +794,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-281)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-282)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1401,11 +1414,67 @@ Les observations non rattachées sont **écartées** du groupement plutôt que
 rangées sous une clé « inconnu » : une telle clé se lirait comme un Run et
 finirait affichée à côté des vrais.
 
-**Ce que §10 attend encore.** Une surface produit qui montre la relation —
-elle se lit, rien ne l'affiche (§15). Le versioning et le rollback : le
-ledger de l'agent (`.curator_ledger.jsonl`) les porterait, mais il
-**n'existe pas** sur cette installation, et aucune RPC ne l'expose.
-Appariement skill ↔ tâche reste PLANNED.
+### G-34 — la relation, montrée (HOS-282)
+
+**ADOPT.** L'onglet **Runs ↔ Skills** du Skills Center sert
+`GET /skills/observations` : il montre quel Run a muté quelle Skill, et
+c'est la première surface produit de la relation construite de G-29 à
+G-33.
+
+#### Mesuré sur la chaîne réelle, bout en bout
+
+Bus durable réel, Run Ledger réel, quatre Runs réellement ouverts, chemin
+ACP réel (`_meta.hermes.turnId`), observateur réellement installé. Seul le
+disque des Skills de l'agent est substitué — y poser sept compétences de
+démonstration serait l'écriture non justifiée que le brief interdit.
+
+    RUN 0654af85…  perdu   g34-alpha (created), g34-partagee (created)
+    RUN 8d1a5993…  perdu   g34-partagee (edited)
+    RUN 1c9276d1…  perdu   g34-concurrent-c    ┐ deux tours réellement
+    RUN e3e9d384…  perdu   g34-concurrent-d    ┘ concurrents, sans mélange
+    run-hors-ledger-g34    g34-hors-ledger  → « absent du Run Ledger »
+    sans Run               g34-hors-run     → « aucune étiquette »
+                           g34-etrangere    → « étiquette non résolue »
+
+`g34-partagee` porte les deux moitiés du contrat : **un même Skill muté
+par deux Runs différents**, et la vue « Par Skill » l'affiche `2
+mutation(s) · 2 Run(s)`. Les quatre Runs s'affichent `perdu` — la
+réconciliation du Ledger les a marqués ainsi parce que le processus qui
+les avait ouverts n'existait plus. C'est le Ledger qui parle, pas une
+donnée figée.
+
+#### Quatre absences, quatre libellés distincts
+
+C'est le cœur de la passe. Un écran qui range ce qu'il ne sait pas au même
+endroit que ce qu'il sait détruit à l'affichage cinq passes de mesure :
+
+| ce qui manque | ce que l'écran dit |
+|---|---|
+| le tour n'avait pas de `turnId` | « aucune étiquette » |
+| l'étiquette n'est pas de Hermes OS, ou est élaguée | « étiquette non résolue » |
+| le Run n'est pas dans le Ledger | « absent du Run Ledger » |
+| le Ledger n'a pas pu être lu | « registre indisponible » |
+
+Les deux dernières se confondraient sans le drapeau `registre_lisible` :
+une panne de base ferait dire « Run inconnu » de Runs parfaitement
+enregistrés. Une **mutation** l'a prouvé — la garde initiale passait le
+couple en dur et n'exerçait jamais la fonction qui le pose.
+
+#### Un contrat périmé, corrigé
+
+L'onglet Agent affirmait « Aucune compétence n'est rattachée à un Run ».
+G-33 l'avait rendu faux **sans que rien ne rougisse**, parce que c'était
+une affirmation d'écran et non une lecture de donnée. La phrase est
+désormais bornée à l'inventaire — aucun fichier de compétence installée ne
+nomme un Run, ce qui reste vrai — et renvoie à l'onglet où la relation
+existe. Deux gardes de G-27 ont été rescopées pour la même raison : leur
+**nom** décrivait le dépôt entier là où leur mesure ne portait que sur
+l'inventaire.
+
+**Ce que §10 attend encore.** Le versioning et le rollback : le ledger de
+l'agent (`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas**
+sur cette installation, et aucune RPC ne l'expose. Appariement skill ↔
+tâche reste PLANNED. La surface, elle, n'est plus une attente.
 
 ---
 
@@ -1555,9 +1624,20 @@ ordre : l'observateur, puis la surface.
 
 **HOS-281 franchit le premier.** L'observateur est installé et observe
 (§10, G-33) ; `backend/skills/observations.py` rend les mutations groupées
-par Run. Il ne reste que la surface — et pour la première fois de cette
-série, §15 attend quelque chose qui **existe** : la donnée est là, mesurée,
-et l'écran qui la montrera n'aura rien à inventer.
+par Run.
+
+**HOS-282 franchit le second, et ferme la séquence.** L'onglet
+**Runs ↔ Skills** consomme `GET /skills/observations` et montre la
+relation sur de vrais événements — vérifié dans le navigateur, pas
+seulement en test. C'est la première fois de cette série qu'une capacité
+traverse §16 (le transport), §10 (la donnée) et §15 (l'écran) sans
+qu'aucun maillon ne soit `PRESENT` sans être `ACTUALLY USED`.
+
+Ce que la ligne « Cycle de vie des skills » du tableau ci-dessus devient :
+la **création** reste sans surface — G-27 a mesuré qu'`install` rend
+`true` après un blocage de sécurité, et un bouton dessus mentirait. Ce qui
+change est l'**observation** : ce que l'agent fait de ses Skills se lit
+enfin, avec son Run.
 
 ### Ce que l'Assistant est aujourd'hui, mesuré
 

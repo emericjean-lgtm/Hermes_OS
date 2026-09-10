@@ -1,3 +1,114 @@
+## HOS-282 — La relation Run ↔ Skill, montree (2026-09-10)
+
+G-34. **ADOPT.** L'onglet **Runs ↔ Skills** du Skills Center sert
+`GET /skills/observations` et montre quel Run a mute quelle Skill. C'est la
+premiere surface produit de la relation construite de G-29 a G-33, et elle
+ne calcule rien : elle met cote a cote trois lectures dont aucune ne lui
+appartient.
+
+### Trois proprietaires, et l'ecran n'en est aucun
+
+La mutation vient de l'observateur installe chez l'agent, la relation
+`turnId -> run` du bus durable de Hermes OS, et ce qu'*est* le Run du Run
+Ledger. Rien n'est recopie d'un magasin dans l'autre : c'est la meme
+posture qu'en HOS-274 (les competences), HOS-275 (leur provenance) et
+HOS-281 (les mutations). Aucun registre neuf, aucune seconde verite.
+
+### Mesure sur la chaine reelle
+
+Bus durable reel, Run Ledger reel, quatre Runs reellement ouverts, chemin
+ACP reel, observateur reellement installe. Un processus **neuf** relit
+tout — c'est la preuve de redemarrage :
+
+    RUN 0654af85...  perdu   g34-alpha (created), g34-partagee (created)
+    RUN 8d1a5993...  perdu   g34-partagee (edited)
+    RUN 1c9276d1...  perdu   g34-concurrent-c    | deux tours reellement
+    RUN e3e9d384...  perdu   g34-concurrent-d    | concurrents, sans melange
+    run-hors-ledger-g34      g34-hors-ledger  -> « absent du Run Ledger »
+    sans Run                 g34-hors-run     -> « aucune etiquette »
+                             g34-etrangere    -> « etiquette non resolue »
+
+`g34-partagee` porte la moitie du contrat qu'aucune passe precedente
+n'avait exercee : **un meme Skill mute par deux Runs differents**. La vue
+« Par Skill » l'affiche `2 mutation(s) · 2 Run(s)`, verifie dans le
+navigateur.
+
+Les quatre Runs s'affichent `perdu`. Ce n'est pas un defaut : la
+reconciliation du Ledger les a marques ainsi parce que le processus qui les
+avait ouverts n'existait plus. Le Ledger parle, la donnee n'est pas figee.
+
+Ce qui est substitue, et cela seul : le disque des Skills de l'agent. Y
+poser sept competences de demonstration serait l'ecriture non justifiee
+sous `%LOCALAPPDATA%\hermes` que le brief interdit. Le bus et le Ledger,
+qui appartiennent a Hermes OS, sont les vrais.
+
+### Quatre absences, quatre libelles distincts
+
+Le coeur de la passe. Un ecran qui range ce qu'il ne sait pas au meme
+endroit que ce qu'il sait detruit a l'affichage cinq passes de mesure :
+
+| ce qui manque | ce que l'ecran dit |
+|---|---|
+| le tour n'avait pas de `turnId` | « aucune etiquette » |
+| l'etiquette n'est pas de Hermes OS, ou est elaguee | « etiquette non resolue » |
+| le Run n'est pas dans le Ledger | « absent du Run Ledger » |
+| le Ledger n'a pas pu etre lu | « registre indisponible » |
+
+Les deux dernieres se confondraient sans le drapeau `registre_lisible` :
+une panne de base ferait dire « Run inconnu » de Runs parfaitement
+enregistres — une affirmation fausse nee d'une panne.
+
+Les mutations non rattachees sont **ecartees** du groupement, jamais
+rangees sous une clef « inconnu » qui se lirait comme un vrai Run. La vue
+est une **partition**, pas une liste filtree : `runs` et `non_rattachees`
+couvrent exactement les observations lues, et aucune des deux ne peut etre
+obtenue en taisant l'autre.
+
+### Un contrat perime, et deux gardes qui le laissaient passer
+
+L'onglet Agent affirmait « Aucune competence n'est rattachee a un Run ».
+G-33 l'a rendu faux **sans que rien ne rougisse**, parce que c'etait une
+affirmation d'ecran et non une lecture de donnee.
+
+`CORRELATION_IMPOSSIBLE` reste exacte, et sa portee est celle qu'elle a
+toujours eue : les **enregistrements de l'agent** ne portent ni `task_id`
+ni `session_id`, 0 sur 75. Ce qui a change est qu'une relation vit
+desormais ailleurs. La phrase de l'ecran est donc bornee a l'inventaire —
+aucun fichier de competence installee ne nomme un Run — et renvoie a
+l'onglet ou la relation existe.
+
+Deux gardes de G-27 ont ete rescopees pour la meme raison : leur **nom**
+decrivait le depot entier la ou leur mesure ne portait que sur
+l'inventaire. Un nom de garde qui deborde sa mesure est une affirmation
+gratuite qui vieillit sans prevenir.
+
+### Une garde absente, et un instrument faux
+
+**La garde.** `test_un_ledger_illisible_ne_se_lit_pas_comme_un_run_inconnu`
+passait le couple `(False, {})` en dur : elle mesurait ce que la vue fait
+du drapeau, jamais la fonction qui le pose. Remplacer `return False, {}`
+par `return True, {}` dans `_detail_des_runs` laissait tout vert. Trouve
+par mutation, jamais par relecture.
+
+**L'instrument.** Trois mutations frontend sont revenues vertes. Verifie
+plutot que cru : le motif `Tests\s+(\d+) failed` ne franchit pas les codes
+ANSI que vitest intercale, et rendait 0 pour une suite rouge. La mutation
+10, rejouee a la main, faisait bien echouer sa garde. C'est la lecon de
+`CLAUDE.md` appliquee a un instrument qu'on ecrit soi-meme : un resultat
+invraisemblable se verifie avant de se conclure.
+
+### Preuves
+
+Quatorze mutations, quatorze rouges — melange de deux Runs, rattachement au
+mauvais Skill, relation inventee quand `turnId` manque, ecran qui aplatit
+les groupes, ecran qui donne un Run aux orphelines, ecran qui cesse
+d'appeler la route, route declaree derriere `/{skill_id}`. Base et
+restauration a zero.
+
+Suite backend : 6115 passed, 3 skipped, 274 deselected, 0 failed.
+Frontend : `tsc` propre, 141 tests verts dont 9 neufs sur cet ecran.
+`data/db/hermes.db` intacte. Les deux depots propres.
+
 ## HOS-281 — L'observateur installe, et la boucle fermee (2026-09-10)
 
 G-33. **ADOPT.** Le plugin tourne pour de vrai, sous

@@ -965,6 +965,55 @@ export interface AgentSkills {
   correlation_impossible: string;
 }
 
+/** Ce que `GET /skills/observations` rend : quel Run a mute quelle Skill
+ *  (G-34, HOS-282).
+ *
+ *  A ne pas confondre avec `AgentSkills`, qui est l'**inventaire** des
+ *  soixante-cinq competences installees. Ici ce sont les **mutations**
+ *  observees par le plugin depuis qu'il tourne : une competence de
+ *  l'inventaire n'apparait ici que si elle a ete creee ou modifiee pendant
+ *  un tour observe. Les deux populations ne se recouvrent pas, et l'ecran
+ *  ne doit jamais deduire l'une de l'autre. */
+export interface MutationObservee {
+  skill: string;
+  action: string;
+  provenance: string;
+  turn_id: string;
+  observe_a: number;
+}
+
+/** Pourquoi une mutation n'est rattachee a aucun Run. Borne cote backend :
+ *  `sans_etiquette` = le tour ne portait pas de `turnId` (hors Run, ou agent
+ *  non patche) ; `etiquette_non_resolue` = une etiquette existe mais Hermes
+ *  OS n'a pas la relation — jamais frappee ici, ou elaguee par les sept
+ *  jours de retention du bus. Les deux se lisent « aucun Run », jamais
+ *  « pas de Run ». */
+export type RaisonSansRun = "sans_etiquette" | "etiquette_non_resolue";
+
+export interface RunObserve {
+  run: string;
+  /** `null` = ce Run n'est pas dans le Run Ledger. A ne lire ainsi que si
+   *  `registre_lisible` : sinon c'est la panne qui parle, pas le registre. */
+  detail: {
+    mission: string;
+    objectif: string;
+    statut: string;
+    agent: string;
+  } | null;
+  skills: MutationObservee[];
+}
+
+export interface ObservationsSkills {
+  retention_jours: number;
+  /** Un `state.json` du plugin a ete trouve. `false` couvre trois causes
+   *  indistinguables d'ici — plugin absent, desactive, ou qui n'a rien vu. */
+  etat_lisible: boolean;
+  observees: number;
+  registre_lisible: boolean;
+  runs: RunObserve[];
+  non_rattachees: (MutationObservee & { raison: RaisonSansRun })[];
+}
+
 export const skillsClient = {
   list: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params) : "";
@@ -974,6 +1023,8 @@ export const skillsClient = {
   },
   get: (id: string) => fetchJSON<Skill>(`/skills/${id}`),
   agentSkills: () => fetchJSON<AgentSkills>("/skills/agent"),
+  observations: () =>
+    fetchJSON<ObservationsSkills>("/skills/observations"),
   select: (data: { task_description: string; domain?: string }) =>
     fetchJSON<unknown>("/skills/select", {
       method: "POST",

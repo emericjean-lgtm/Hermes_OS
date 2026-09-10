@@ -17,18 +17,19 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       G-14 fermé (HOS-264) — le catalogue est sondé
                       §16 🟡 (HOS-265→274) — le pont, la matrice,
                       le chat joignable et enfin interruptible
-                      §10 🟡 (HOS-274→281) — les Skills se lisent, le
+                      §10 🟡 (HOS-274→282) — les Skills se lisent, le
                       chiffre de HOS-153 était faux, la provenance est
                       mesurée (60 système / 4 générées / 1 conflit), la
-                      corrélation Run ↔ Skill est ADOPT, et l'observateur
-                      est INSTALLÉ : les mutations se lisent groupées par
-                      Run. Reste la surface qui les montrera (§15)
+                      corrélation Run ↔ Skill est ADOPT, l'observateur est
+                      INSTALLÉ, et la relation est MONTRÉE : l'onglet
+                      Runs ↔ Skills sert `/skills/observations` sur de
+                      vrais événements. Restent versioning et rollback
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      d24ae17 (G-32, HOS-280) — dernier commit
-                               de code avant G-33 (observateur installé)
+BASELINE:                      919e86f (G-33, HOS-281) — dernier commit
+                               de code avant G-34 (la relation montrée)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -310,7 +311,11 @@ mentirait sur ce qu'il fait.
 
 - **8 runs orphelins** de mes missions de diagnostic, conservés
   volontairement : `Registre` n'expose aucune suppression, et retirer des
-  lignes SQL contournerait la seule autorité du Ledger.
+  lignes SQL contournerait la seule autorité du Ledger. **Plus 4 de
+  G-34** (`mission: g34-demonstration`), ouverts pour démontrer la
+  relation Run ↔ Skill sur le Ledger réel, et marqués `perdu` par la
+  réconciliation puisque le processus qui les portait est mort. Même
+  raison de les garder : les effacer demanderait de contourner le Ledger.
 - **`data/db/hermes.db`** (17,7 Mio) dans le dépôt, non suivi, vestige
   d'avant HOS-215 : données potentiellement utilisateur, décision séparée.
 - **`backend/api/hos_routes.py`** non monté (0 route sur 423) — documenté

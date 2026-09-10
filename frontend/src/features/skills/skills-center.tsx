@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Sparkles, FolderTree, Search, ChevronLeft, ChevronRight,
+  Sparkles, FolderTree, Search, ChevronLeft, ChevronRight, GitBranch, Unlink,
 } from "lucide-react";
 import { Badge } from "@/components/ui/card";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/components/center-scaffold";
 import {
   skillsClient, type AgentSkills, type SkillProvenance,
+  type ObservationsSkills, type MutationObservee, type RaisonSansRun,
 } from "@/services/client";
 import {
   useSkillsCatalogue, useSkillsRecherche, useSkillDetail,
@@ -55,7 +56,7 @@ import {
  * sécurité pour une réussite.
  */
 
-type Onglet = "agent" | "distributeur" | "catalogue";
+type Onglet = "agent" | "runs" | "distributeur" | "catalogue";
 
 export function SkillsCenter() {
   const [onglet, setOnglet] = useState<Onglet>("agent");
@@ -73,9 +74,19 @@ export function SkillsCenter() {
     staleTime: 60_000,
   });
 
+  // Les mutations observees, et le Run qui les a demandees (G-34). Requete
+  // separee de l'inventaire : deux populations distinctes, deux couts —
+  // celle-ci rejoue le bus, l'autre marche l'arbre des competences.
+  const observations = useQuery({
+    queryKey: ["skills", "observations"],
+    queryFn: () => skillsClient.observations(),
+    staleTime: 30_000,
+  });
+
   const total = agent.data?.total ?? 0;
   const domaines = agent.data?.domaines ?? [];
   const distribues = distributeur.data?.length ?? 0;
+  const runsObserves = observations.data?.runs.length ?? 0;
 
   return (
     <div className="animate-fade-in">
@@ -110,6 +121,11 @@ export function SkillsCenter() {
           tabs={[
             { id: "agent", label: "Agent", badge: total || undefined },
             {
+              id: "runs",
+              label: "Runs ↔ Skills",
+              badge: runsObserves || undefined,
+            },
+            {
               id: "distributeur",
               label: "Distributeur",
               badge: distribues || undefined,
@@ -128,6 +144,8 @@ export function SkillsCenter() {
             filtre={filtre}
             setFiltre={setFiltre}
           />
+        ) : onglet === "runs" ? (
+          <OngletRuns requete={observations} />
         ) : onglet === "catalogue" ? (
           <OngletCatalogue />
         ) : (
@@ -223,9 +241,17 @@ function OngletAgent({
           },
         ]}
       />
+      {/* Cette phrase disait « aucune compétence n'est rattachée à un
+          Run ». G-33 l'a périmée sans que rien ne rougisse, parce qu'elle
+          était une affirmation d'écran et non une lecture de donnée. Elle
+          dit désormais ce qui est vrai de CET inventaire — aucun fichier de
+          compétence installée ne nomme un Run — et renvoie à l'onglet où la
+          relation existe réellement. */}
       <p className="pt-3 text-[10px] text-hermes-dim">
-        Aucune compétence n'est rattachée à un Run : {requete.data
-          ?.correlation_impossible ?? "corrélation non mesurée"}.
+        Cet inventaire ne porte aucun Run : {requete.data
+          ?.correlation_impossible ?? "corrélation non mesurée"}. Les
+        mutations observées, elles, sont rattachées — onglet{" "}
+        <span className="text-hermes-muted">Runs ↔ Skills</span>.
       </p>
     </AsyncPanel>
   );
@@ -482,6 +508,292 @@ function DetailDuHub({ nom }: { nom: string }) {
         </pre>
       )}
     </div>
+  );
+}
+
+/* -- Quel Run a mute quelle Skill --------------------------------- */
+
+/**
+ * La premiere surface produit de la relation Run <-> Skill (G-34, HOS-282).
+ *
+ * Trois proprietaires, et l'ecran n'en est aucun : la mutation vient de
+ * l'observateur installe chez l'agent, la relation `turnId -> run` du bus
+ * durable de Hermes OS, et ce qu'*est* le Run du Run Ledger. Cet ecran ne
+ * fait que les mettre cote a cote.
+ *
+ * ## Ce qu'il ne fait jamais
+ *
+ * Il ne complete pas. Une mutation sans Run reste sans Run, et va dans son
+ * propre bloc avec sa cause -- jamais dans un Run << inconnu >>, qui se
+ * lirait comme un vrai et finirait affiche a cote d'eux. Un Run absent du
+ * Ledger affiche son identifiant seul plutot qu'un objectif emprunte au
+ * voisin.
+ *
+ * ## Deux vues, une seule donnee
+ *
+ * << Par Run >> et << Par Skill >> sont deux lectures de `runs` -- la
+ * seconde est un pivot, pas une seconde requete. C'est ce qui rend visible
+ * qu'un meme Skill a servi a plusieurs Runs sans qu'aucune ligne ne soit
+ * dupliquee dans la donnee.
+ */
+function OngletRuns({
+  requete,
+}: {
+  requete: ReturnType<typeof useQuery<ObservationsSkills>>;
+}) {
+  const [vue, setVue] = useState<"run" | "skill">("run");
+  const d = requete.data;
+  const runs = d?.runs ?? [];
+  const orphelines = d?.non_rattachees ?? [];
+
+  // Le pivot : un Skill, les Runs qui l'ont mute. Derive de `runs`, donc
+  // incapable de nommer un Run que la donnee ne porte pas.
+  const parSkill = useMemo(() => {
+    const table = new Map<string, { run: string; m: MutationObservee }[]>();
+    for (const r of runs) {
+      for (const m of r.skills) {
+        const liste = table.get(m.skill) ?? [];
+        liste.push({ run: r.run, m });
+        table.set(m.skill, liste);
+      }
+    }
+    return [...table.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [runs]);
+
+  return (
+    <AsyncPanel
+      title="Ce que chaque Run a fait des Skills"
+      subtitle={
+        d
+          ? `${d.observees} mutation(s) observee(s) \u00b7 retention ${d.retention_jours} jours`
+          : "Observees chez l'agent, rattachees par Hermes OS"
+      }
+      isLoading={requete.isLoading}
+      isError={requete.isError}
+      error={requete.error}
+      isEmpty={runs.length === 0 && orphelines.length === 0}
+      emptyLabel={
+        d && !d.etat_lisible
+          ? "Aucune observation. L'observateur n'est pas installe, pas active, " +
+            "ou n'a rien vu \u2014 trois situations que Hermes OS ne distingue " +
+            "pas d'ici. Ce n'est pas \u00ab aucune mutation \u00bb."
+          : "Aucune mutation de Skill observee pendant la periode de retention."
+      }
+      action={
+        <div className="flex items-center gap-1.5">
+          {(["run", "skill"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setVue(v)}
+              className={`num text-[10px] uppercase tracking-[0.11em] px-2 py-1
+                border clip-corner-sm transition-colors ${
+                  vue === v
+                    ? "text-hermes-sodium border-hermes-sodium/45 bg-hermes-sodium/[0.09]"
+                    : "text-hermes-dim border-hermes-border/60 hover:text-hermes-muted"
+                }`}
+            >
+              {v === "run" ? "Par Run" : "Par Skill"}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {d && !d.registre_lisible && runs.length > 0 && (
+        <p className="mb-3 text-[10px] text-hermes-amber">
+          Le Run Ledger n&apos;a pas pu etre lu : les Runs sont montres par
+          leur seul identifiant. Ce n&apos;est pas &laquo;&nbsp;ces Runs sont
+          inconnus&nbsp;&raquo;.
+        </p>
+      )}
+
+      {vue === "run" ? (
+        <div className="space-y-3">
+          {runs.map((r) => (
+            <div
+              key={r.run}
+              className="border border-hermes-border/60 clip-corner-sm p-3"
+            >
+              <div className="flex items-baseline justify-between gap-3 mb-2">
+                <span className="inline-flex items-center gap-1.5">
+                  <GitBranch size={11} className="text-hermes-glacier" />
+                  <span className="num text-[11px] text-hermes-text">{r.run}</span>
+                </span>
+                {r.detail ? (
+                  <span className="flex items-center gap-2">
+                    <Badge variant="info">{r.detail.statut}</Badge>
+                    <span className="text-[10px] text-hermes-muted">
+                      {r.detail.objectif || r.detail.mission || "\u2014"}
+                    </span>
+                  </span>
+                ) : d?.registre_lisible ? (
+                  <span className="text-[10px] text-hermes-dim">
+                    absent du Run Ledger
+                  </span>
+                ) : null}
+              </div>
+              <DataTable
+                rows={r.skills}
+                rowKey={(m, i) => `${r.run}/${m.turn_id}/${m.skill}/${i}`}
+                columns={colonnesMutation}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {parSkill.map(([skill, occurrences]) => (
+            <div
+              key={skill}
+              className="border border-hermes-border/60 clip-corner-sm p-3"
+            >
+              <div className="flex items-baseline justify-between gap-3 mb-2">
+                <span className="inline-flex items-center gap-1.5">
+                  <Sparkles size={11} className="text-hermes-sodium" />
+                  <span className="num text-[11px] text-hermes-text">{skill}</span>
+                </span>
+                <span className="num text-[10px] text-hermes-dim">
+                  {occurrences.length} mutation(s) {"\u00b7"}{" "}
+                  {new Set(occurrences.map((o) => o.run)).size} Run(s)
+                </span>
+              </div>
+              <DataTable
+                rows={occurrences}
+                rowKey={(o, i) => `${skill}/${o.run}/${i}`}
+                columns={[
+                  {
+                    header: "Run",
+                    cell: (o) => (
+                      <span className="num text-[11px] text-hermes-glacier">
+                        {o.run}
+                      </span>
+                    ),
+                  },
+                  {
+                    header: "Action",
+                    cell: (o) => (
+                      <Badge variant="info">{o.m.action || "\u2014"}</Badge>
+                    ),
+                  },
+                  {
+                    header: "Tour",
+                    cell: (o) => <Etiquette valeur={o.m.turn_id} />,
+                  },
+                  {
+                    header: "Observee",
+                    cell: (o) => <Horodatage v={o.m.observe_a} />,
+                  },
+                ]}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {orphelines.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-hermes-border/60">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Unlink size={11} className="text-hermes-dim" />
+            <span className="num text-[10px] uppercase tracking-[0.11em] text-hermes-muted">
+              Mutations sans Run ({orphelines.length})
+            </span>
+          </div>
+          <p className="mb-2 text-[10px] text-hermes-dim">
+            Elles sont montrees a part, jamais rangees sous un Run
+            &laquo;&nbsp;inconnu&nbsp;&raquo; : une telle cle se lirait comme
+            un vrai Run.
+          </p>
+          <DataTable
+            rows={orphelines}
+            rowKey={(m, i) => `orpheline/${m.skill}/${i}`}
+            columns={[
+              ...colonnesMutation,
+              {
+                header: "Pourquoi aucun Run",
+                cell: (m: MutationObservee & { raison: RaisonSansRun }) => (
+                  <RaisonAbsence raison={m.raison} />
+                ),
+              },
+            ]}
+          />
+        </div>
+      )}
+    </AsyncPanel>
+  );
+}
+
+const colonnesMutation = [
+  {
+    header: "Competence",
+    cell: (m: MutationObservee) => (
+      <span className="inline-flex items-center gap-1.5">
+        <Sparkles size={11} className="text-hermes-sodium" />
+        <span className="num text-[11px] text-hermes-text">
+          {m.skill || "\u2014"}
+        </span>
+      </span>
+    ),
+  },
+  {
+    header: "Action",
+    cell: (m: MutationObservee) => (
+      <Badge variant="info">{m.action || "\u2014"}</Badge>
+    ),
+  },
+  {
+    header: "Tour",
+    cell: (m: MutationObservee) => <Etiquette valeur={m.turn_id} />,
+  },
+  {
+    header: "Observee",
+    cell: (m: MutationObservee) => <Horodatage v={m.observe_a} />,
+  },
+];
+
+/** L'etiquette de tour, tronquee. Un `uuid4` entier mange la colonne, et
+ *  l'entier reste en infobulle pour qui veut la recouper avec le bus. */
+function Etiquette({ valeur }: { valeur: string }) {
+  if (!valeur) return <span className="text-hermes-dim">absente</span>;
+  return (
+    <span className="num text-[10px] text-hermes-muted" title={valeur}>
+      {valeur.slice(0, 12)}
+      {"\u2026"}
+    </span>
+  );
+}
+
+function Horodatage({ v }: { v: number }) {
+  if (!v) return <span className="text-hermes-dim">{"\u2014"}</span>;
+  return (
+    <span className="num text-[10px] text-hermes-muted">
+      {new Date(v * 1000).toLocaleString()}
+    </span>
+  );
+}
+
+/** Les deux causes bornees par le backend. L'ecran ne les paraphrase pas :
+ *  il les traduit, et n'en invente pas une troisieme. */
+function RaisonAbsence({ raison }: { raison: RaisonSansRun }) {
+  const table: Record<RaisonSansRun, { texte: string; titre: string }> = {
+    sans_etiquette: {
+      texte: "aucune etiquette",
+      titre:
+        "Le tour ne portait pas de turnId : hors Run (le chat), ou un agent " +
+        "sans le contrat G-31.",
+    },
+    etiquette_non_resolue: {
+      texte: "etiquette non resolue",
+      titre:
+        "Une etiquette existe, mais Hermes OS n'a pas la relation : jamais " +
+        "frappee ici, ou elaguee par les sept jours de retention du bus.",
+    },
+  };
+  const l = table[raison];
+  if (!l) return <span className="text-hermes-dim">{raison}</span>;
+  return (
+    <span title={l.titre}>
+      <Badge variant="warning">{l.texte}</Badge>
+    </span>
   );
 }
 

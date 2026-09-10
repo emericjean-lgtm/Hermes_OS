@@ -131,15 +131,119 @@ async def observations(limite: int = 200) -> list[Observation]:
     ) for fait in bruts]
 
 
-async def par_run(limite: int = 200) -> dict[str, list[Observation]]:
+def grouper(obs: list[Observation]) -> dict[str, list[Observation]]:
     """Les observations rattachées, groupées par Run.
 
     Les non rattachées sont **écartées** plutôt que rangées sous une clef
     « inconnu » : une telle clef se lirait comme un Run et finirait
     affichée à côté des vrais.
+
+    Pure et synchrone, parce que `vue()` a besoin des deux moitiés — les
+    groupes *et* le reste — et que `par_run()` refaisait sinon la
+    résolution du bus une seconde fois pour la même liste.
     """
     groupes: dict[str, list[Observation]] = {}
-    for o in await observations(limite):
+    for o in obs:
         if o.run:
             groupes.setdefault(o.run, []).append(o)
     return groupes
+
+
+async def par_run(limite: int = 200) -> dict[str, list[Observation]]:
+    """Les observations rattachées, groupées par Run."""
+    return grouper(await observations(limite))
+
+
+#: Pourquoi une mutation n'est rattachée à aucun Run. Deux causes, bornées
+#: comme les catégories de provenance (G-27) : une chaîne libre laisserait
+#: l'écran broder.
+SANS_ETIQUETTE = "sans_etiquette"
+ETIQUETTE_NON_RESOLUE = "etiquette_non_resolue"
+
+
+def _raison(o: Observation) -> str:
+    """La cause de l'absence de Run, jamais une supposition sur le Run.
+
+    `ETIQUETTE_NON_RESOLUE` couvre deux situations que Hermes OS ne peut
+    pas distinguer d'ici — une étiquette qu'il n'a jamais frappée (un autre
+    client ACP) et une étiquette dont la relation a passé les sept jours de
+    rétention du bus. Les séparer demanderait un second magasin ; les
+    confondre sous un même code dit la vérité de ce qu'on sait.
+    """
+    return SANS_ETIQUETTE if not o.turn_id else ETIQUETTE_NON_RESOLUE
+
+
+def _detail_des_runs(runs: list[str]) -> tuple[bool, dict[str, dict]]:
+    """Ce que le Run Ledger sait de ces Runs, et s'il a pu être lu.
+
+    Le booléen n'est pas décoratif. Sans lui, un registre injoignable et un
+    Run absent du registre rendraient le même `None`, et l'écran dirait
+    « Run inconnu » d'un Run parfaitement connu — une affirmation fausse
+    née d'une panne. Le distinguer laisse l'écran dire « registre
+    indisponible », qui est ce qu'on sait.
+    """
+    if not runs:
+        return True, {}
+    try:
+        from backend.runs.registre import Registre
+
+        registre = Registre()
+        detail: dict[str, dict] = {}
+        for identifiant in runs:
+            run = registre.lire(identifiant)
+            if run is not None:
+                detail[identifiant] = {
+                    "mission": run.mission,
+                    "objectif": run.objectif,
+                    "statut": run.statut.value,
+                    "agent": run.agent,
+                }
+        return True, detail
+    except Exception:  # noqa: BLE001
+        logger.warning("registre des runs illisible", exc_info=True)
+        return False, {}
+
+
+def _mutation(o: Observation) -> dict:
+    return {"skill": o.skill, "action": o.action,
+            "provenance": o.provenance, "turn_id": o.turn_id,
+            "observe_a": o.observe_a}
+
+
+async def vue(limite: int = 200) -> dict:
+    """La vue produit : quel Run a muté quelle Skill (G-34, HOS-282).
+
+    Une **partition**, pas une liste filtrée : `runs` porte ce qui est
+    rattaché, `non_rattachees` porte le reste avec sa cause. Aucune des
+    deux ne peut donc être obtenue en taisant l'autre, et l'écran n'a rien
+    à décider sur ce qu'il ne montre pas.
+
+    Trois propriétaires, trois lectures, aucune recopie : la mutation vient
+    du plugin, la relation `T → R` du bus de Hermes OS, et ce qu'est le Run
+    du Run Ledger.
+    """
+    obs = await observations(limite)
+    groupes = grouper(obs)
+    lisible, detail = _detail_des_runs(sorted(groupes))
+    return {
+        "retention_jours": 7,
+        "etat_lisible": bool(_dossiers_d_etat()),
+        "observees": len(obs),
+        "registre_lisible": lisible,
+        "runs": [
+            {
+                "run": identifiant,
+                # `None` = ce Run n'est pas dans le Ledger. A ne lire ainsi
+                # que si `registre_lisible` : sinon c'est la panne qui parle.
+                "detail": detail.get(identifiant),
+                "skills": [_mutation(o) for o in
+                           sorted(groupes[identifiant],
+                                  key=lambda x: (x.observe_a, x.skill))],
+            }
+            for identifiant in sorted(groupes)
+        ],
+        "non_rattachees": [
+            {**_mutation(o), "raison": _raison(o)}
+            for o in obs if not o.rattachee
+        ],
+    }

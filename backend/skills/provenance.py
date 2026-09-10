@@ -307,6 +307,21 @@ def _nom_de_frontmatter(skill_md: Path) -> str:
 #: relation de provenance. La table `skills` de `hermes.db` a bien une
 #: colonne `source_task_id` — elle est vide, et la remplir avec les
 #: competences de l'agent en ferait une seconde verite.
+#:
+#: **Amende par G-34 (HOS-282).** La mesure ci-dessus reste exacte, et sa
+#: portee est celle qu'elle a toujours eue : les **enregistrements de
+#: l'agent**. Ce qui a change n'est pas eux — c'est qu'une relation vit
+#: desormais ailleurs, chez Hermes OS : `_meta.hermes.turnId` pose a
+#: l'aller (G-31), la relation `turnId -> run` publiee sur le bus durable
+#: (G-32), et l'observateur qui restitue l'etiquette au retour (G-33).
+#:
+#: La consequence pour cette colonne ne bouge pas d'un pouce : la
+#: provenance d'une competence **installee** ne porte toujours aucun Run,
+#: parce qu'aucun de ses fichiers n'en nomme un. La relation ne concerne
+#: que les **mutations observees**, et c'est `/skills/observations` qui les
+#: sert. Confondre les deux populations ferait dire a l'inventaire ce que
+#: seul le journal des mutations sait.
 CORRELATION_IMPOSSIBLE = (
-    "task_id et session_id traversent le hook on_skill_lifecycle sans etre "
-    "persistes : 0 des 75 enregistrements les porte")
+    "les enregistrements de l'agent ne portent ni task_id ni session_id : "
+    "0 des 75 les porte. La relation Run <-> Skill existe ailleurs, sur les "
+    "mutations observees — voir /skills/observations")

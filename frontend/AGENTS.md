@@ -47,7 +47,7 @@ cette signature ? » se demande au typage installé, jamais à un document.
 
 ```bash
 npx tsc --noEmit     # la seule autorité sur ce qui compile
-npx vitest run       # 92 tests
+npx vitest run       # 141 tests (mesure du 2026-09-10)
 ```
 
 Backend et frontend se lancent par `preview_start` (`.claude/launch.json`),
