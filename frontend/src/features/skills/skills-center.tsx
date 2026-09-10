@@ -9,7 +9,9 @@ import { Badge } from "@/components/ui/card";
 import {
   AsyncPanel, CenterHeader, CenterTabs, DataTable, StatGrid, Toolbar,
 } from "@/components/center-scaffold";
-import { skillsClient, type AgentSkills } from "@/services/client";
+import {
+  skillsClient, type AgentSkills, type SkillProvenance,
+} from "@/services/client";
 import {
   useSkillsCatalogue, useSkillsRecherche, useSkillDetail,
 } from "@/hooks/use-api";
@@ -215,9 +217,65 @@ function OngletAgent({
               </span>
             ),
           },
+          {
+            header: "D'où elle vient",
+            cell: (r) => <EtiquetteProvenance competence={r} />,
+          },
         ]}
       />
+      <p className="pt-3 text-[10px] text-hermes-dim">
+        Aucune compétence n'est rattachée à un Run : {requete.data
+          ?.correlation_impossible ?? "corrélation non mesurée"}.
+      </p>
     </AsyncPanel>
+  );
+}
+
+/**
+ * Une categorie de provenance, et la preuve en infobulle.
+ *
+ * Mesure G-27 du 2026-09-10 sur cette installation : 60 systeme intactes,
+ * 4 generees par l'agent, 1 conflit. Les categories viennent des fichiers de
+ * l'agent — `.bundled_manifest` (avec verification d'empreinte),
+ * `.hub/lock.json`, `.usage.json` — jamais d'une deduction.
+ */
+function EtiquetteProvenance({
+  competence,
+}: {
+  competence: {
+    provenance: SkillProvenance;
+    provenance_preuve: string;
+    provenance_conflit?: string[];
+  };
+}) {
+  const table: Record<
+    SkillProvenance,
+    { texte: string; ton: "success" | "warning" | "danger" | "info" }
+  > = {
+    systeme_intacte: { texte: "système, intacte", ton: "success" },
+    systeme_modifiee: { texte: "système, modifiée", ton: "warning" },
+    posee_par_le_hub: { texte: "posée par le hub", ton: "info" },
+    generee_par_l_agent: { texte: "générée par l'agent", ton: "info" },
+    sans_marqueur: { texte: "sans marqueur", ton: "warning" },
+    conflit: { texte: "provenance en conflit", ton: "danger" },
+    inconnue: { texte: "inconnue", ton: "warning" },
+  };
+  const l = table[competence.provenance] ?? {
+    texte: competence.provenance,
+    ton: "warning" as const,
+  };
+  const conflit = competence.provenance_conflit;
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      title={
+        conflit
+          ? `${competence.provenance_preuve} — created_by ${conflit.join(" / ")}`
+          : competence.provenance_preuve
+      }
+    >
+      <Badge variant={l.ton}>{l.texte}</Badge>
+    </span>
   );
 }
 

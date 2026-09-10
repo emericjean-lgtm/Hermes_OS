@@ -1,3 +1,126 @@
+## HOS-275 — La provenance des Skills, mesuree et bornee (2026-09-10)
+
+G-27. G-26 avait conclu que la provenance n'existait pas sur la surface de
+lecture. C'etait vrai de la **RPC**, et faux du **disque** : l'agent tient
+trois fichiers qui la portent reellement.
+
+    origine d'une competence installee   ADOPT    trois fichiers, lus
+    systeme/upstream + integrite         ADOPT    empreinte recalculee
+    generee par l'agent                  ADOPT    `created_by: "agent"`
+    posee par le hub                     ADOPT    lock.json (vide ici)
+    modification directe hors workflow   ADOPT    vue par l'empreinte
+    persistance + redemarrage            ADOPT    demontres
+    « utilisateur »                      REJECT   `null` couvre deux cas
+    « apprise », « approuvee »           REJECT   aucun champ ne les porte
+    correlation session / Run / Mission  REJECT   0/75, emise puis agregee
+    ledger porteur d'une relation        DEFER    pas de clef de jointure
+
+### Ce que l'agent persiste vraiment
+
+    .bundled_manifest   69 entrees `nom:hash` — et 69/69 encore intactes
+    .hub/lock.json      VIDE : aucune competence n'est passee par le hub
+    .usage.json         75 enregistrements, dont 5 `created_by: "agent"`
+
+`created_by` est **ecrit par `skill_manage`**, jamais deduit. La chaine
+complete a ete demontree sur un `HERMES_HOME` de substitution, sans ecrire
+un octet dans le foyer reel :
+
+    creation au premier plan          -> created_by: null
+    creation sous BACKGROUND_REVIEW   -> created_by: "agent"
+    nouveau processus                 -> relit les deux
+
+Persistance et redemarrage acquis. Sur l'installation : **60 systeme
+intactes, 4 generees par l'agent, 1 en conflit**.
+
+### Le piege que cette passe ferme
+
+`skill_usage.is_agent_created()` ne lit **jamais** `created_by`. Malgre son
+nom, il rend « ni bundled ni hub ». Mesure sur la substitution :
+
+    g27-avant-plan     created_by=None     is_agent_created=True   <- faux
+    g27-revue-de-fond  created_by='agent'  is_agent_created=True
+
+`list_agent_created_skill_names()`, qui lit l'enregistrement, exclut la
+premiere a juste titre. Deux fonctions voisines, deux methodes opposees. Un
+garde interdit son usage cote Hermes OS, et une mutation le mesure.
+
+### Trois refus, et leur raison
+
+**« Utilisateur » n'est pas disponible.** `created_by: null` couvre a la
+fois « creee au premier plan, donc a l'utilisateur » et « aucune origine
+enregistree ». Les deux produisent le meme octet. La categorie s'appelle
+donc `sans_marqueur` et n'affirme rien.
+
+**« Apprise » et « approuvee » n'existent pas.** Aucun champ ne les porte,
+et la file d'approbation n'a jamais servi (G-26 : `pending/` n'existe pas).
+
+**La correlation a un Run est impossible.** `skill_manage` transmet bien
+`task_id` et `session_id` a `record_created` / `bump_patch`, mais `_apply`
+n'ecrit que `created_by` : les deux partent dans le hook
+`on_skill_lifecycle`, consomme ici par le relais de metriques partagees qui
+« emet un fait sans son identite locale » et n'agrege que des compteurs a
+dimensions bucketisees. Mesure : **0 des 75 enregistrements** les porte, et
+`telemetry/shared_metrics` ne contient aucun nom de competence.
+
+Sans clef de jointure, le Run Ledger ne peut porter aucune relation. La
+table `skills` de `hermes.db` a bien une colonne `source_task_id` — elle est
+**vide**, et la remplir avec les competences de l'agent en ferait la seconde
+verite que HOS-274 est alle fermer. Le chemin existe et il est nomme :
+`on_skill_lifecycle` est un hook **plugin** documente, et un plugin Hermes
+OS le recevrait avec son identite complete — mais cela demanderait
+d'installer du code dans l'agent, decision qui n'appartient pas a une passe
+de diagnostic.
+
+### Le conflit de clef, rendu tel quel
+
+Le magasin est indexe par nom de frontmatter dans 74 cas sur 75. Une
+competence dont le dossier et le `name:` different porte donc **deux
+enregistrements** : `documentation-verification` (`created_by: "agent"`,
+jamais utilisee) et `Documentation & Identity Verification` (`created_by:
+null`, trois usages) designent le meme dossier.
+
+On ne tranche pas. `conflit` est une categorie a part entiere, rendue avec
+ses deux valeurs. Preferer l'une serait exactement l'inference que G-27
+interdit.
+
+### Ce que le Gateway expose, et pourquoi ca ne suffit pas
+
+`commands.catalog` rend `{usage, origin}` par competence. Mais son `origin`
+ne consulte jamais `created_by` : il rend `hub` / `bundled` / `local`. Les
+5 `local` de cette installation *sont* les 5 `created_by: "agent"` — par
+**coincidence**, puisque aucune competence n'a ete ecrite a la main. En
+conclure une equivalence serait l'inference que G-27 interdit. La provenance
+se lit donc sur le disque, ou le marqueur est ecrit.
+
+### Une categorie sans sa preuve est une affirmation
+
+Chaque provenance rendue porte le fichier qui la soutient, et l'infobulle de
+l'ecran le montre : `.bundled_manifest 7e829b4f / disque 7e829b4f`. C'est la
+regle que le brief posait et que rien n'appliquait : une interface qui
+affirme sans pouvoir montrer sa source n'est pas une lecture.
+
+### Une mutation refaite
+
+La mutation « provenance deduite de la localisation » importait d'abord
+`skill_usage` depuis le venv de Hermes OS. Elle rougissait — sur une
+`ImportError`, pas sur le defaut qu'elle nommait. Reecrite pour appliquer la
+**meme regle** sans importer, elle touche les trois tests de comportement
+attendus. Un mutant qui ne cree pas le defaut ne mesure pas la garde.
+
+### Preuves
+
+Suite complete 6015 passed, 3 skipped, 274 deselected.
+
+Douze mutations, douze rouges : empreinte ignoree, cache de processus figeant
+la lecture, modification directe invisible, champ de correlation vide,
+`created_by` nul passant pour generee, recopie dans `hermes.db`, provenance
+deduite de la localisation, categorie sans preuve, conflit tranche en
+silence, route taisant l'absence de correlation, ecran affirmant
+« utilisateur », et appel au piege `is_agent_created`.
+
+`data/db/hermes.db` intacte ; rien n'a ete ecrit sous `%LOCALAPPDATA%\hermes`
+— la demonstration est passee par un `HERMES_HOME` de substitution.
+
 ## HOS-274 — Les Skills : une verite de trop, et un faux succes (2026-09-09)
 
 G-26. La passe devait etablir le cycle des Skills du cerveau. Elle a

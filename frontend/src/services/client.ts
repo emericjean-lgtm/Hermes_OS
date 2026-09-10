@@ -936,13 +936,33 @@ export const memoryClient = {
  *  Distinct de `skillsClient.list()`, qui sert le registre du
  *  `SkillDistributor` — vide, mesure a `count: 0`. Les fondre ferait croire
  *  le distributeur peuple. */
+// La provenance d'une competence : une categorie BORNEE et la preuve qui la
+// soutient. La preuve n'est pas decorative — une categorie seule serait une
+// affirmation d'interface, et c'est precisement ce que G-27 interdit.
+//
+// `sans_marqueur` n'est PAS « utilisateur » : `created_by: null` couvre a la
+// fois « creee au premier plan » et « aucune origine enregistree », et rien
+// ne les separe. `conflit` = deux enregistrements pour un meme dossier ;
+// l'ecran montre les deux valeurs plutot que d'en choisir une.
+export type SkillProvenance =
+  | "systeme_intacte" | "systeme_modifiee" | "posee_par_le_hub"
+  | "generee_par_l_agent" | "sans_marqueur" | "conflit" | "inconnue";
+
 export interface AgentSkills {
   total: number;
   racine: string;
   domaines: {
     nom: string;
-    competences: { nom: string; description: string }[];
+    competences: {
+      nom: string;
+      description: string;
+      provenance: SkillProvenance;
+      provenance_preuve: string;
+      provenance_conflit?: string[];
+    }[];
   }[];
+  // Pourquoi aucune competence n'est rattachee a un Run : mesure G-27.
+  correlation_impossible: string;
 }
 
 export const skillsClient = {

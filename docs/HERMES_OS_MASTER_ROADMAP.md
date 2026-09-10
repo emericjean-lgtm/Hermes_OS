@@ -626,6 +626,18 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### La provenance (HOS-275)
+
+Et une troisième, mesurée en G-27 : `commands.catalog` **expose** bien une
+provenance — `{usage, origin}` par compétence — mais son `origin` ne consulte
+jamais `created_by`. Il rend `hub` / `bundled` / `local`, si bien qu'une
+compétence générée par l'agent y est indistinguable d'une compétence écrite
+à la main. Mesure : les 5 `local` de cette installation *sont* les 5
+`created_by: "agent"` — par coïncidence, puisque aucune compétence n'a été
+écrite à la main. En conclure une équivalence serait exactement l'inférence
+que G-27 interdit. La provenance se lit donc sur le disque, où le marqueur
+est écrit.
+
 ### La règle anti-orphelin
 
 `test_pas_de_backend_orphelin.py` : toute route `/api/v1` doit avoir un
@@ -721,7 +733,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274, HOS-275)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -865,13 +877,88 @@ la mesure). C'est l'agent qui écrit, par son propre chemin ; Hermes OS ne
 touche pas son disque. La nuance est notée parce que confondre les deux est
 exactement ce que ce dépôt paie cher.
 
-**Ce que §10 attend encore.** Provenance par skill — `skill_provenance` est
-un `ContextVar` de processus (`foreground` / `background_review`), pas une
-donnée portée par la skill, et la charge utile de `list` ne transporte que
-des noms : la distinction utilisateur / système / générée **n'existe pas**
-sur la surface de lecture. Le ledger (`.curator_ledger.jsonl`) enregistre
-un acteur par mutation mais aucune RPC ne l'expose. Appariement skill ↔
-tâche, versioning et rollback restent PLANNED.
+### G-27 — le contrat de provenance, mesuré (HOS-275)
+
+G-26 avait conclu que la provenance n'existait pas sur la surface de
+lecture. C'était vrai de la **RPC**, et faux du **disque** : l'agent tient
+trois fichiers qui la portent réellement.
+
+    .bundled_manifest   69 entrées `nom:hash` — et 69/69 encore intactes
+    .hub/lock.json      VIDE : aucune compétence n'est passée par le hub
+    .usage.json         75 enregistrements, dont 5 `created_by: "agent"`
+
+`created_by` est **écrit par `skill_manage`**, jamais déduit. La chaîne
+complète a été démontrée sur un `HERMES_HOME` de substitution : création au
+premier plan → `created_by: null` ; création sous `BACKGROUND_REVIEW` →
+`created_by: "agent"` ; **un nouveau processus relit les deux**. Persistance
+et redémarrage acquis, sans écrire un octet dans le foyer réel.
+
+Sur l'installation : **60 système intactes, 4 générées par l'agent, 1 en
+conflit**.
+
+#### Le piège que G-27 ferme
+
+`skill_usage.is_agent_created()` ne lit **jamais** `created_by` : il rend
+« ni bundled ni hub ». Mesure — une compétence créée au premier plan, donc
+`created_by: null`, en ressort `True`, pendant que
+`list_agent_created_skill_names()`, qui lit l'enregistrement, l'exclut à
+juste titre. Deux fonctions voisines, deux méthodes opposées. Un garde
+interdit son usage côté Hermes OS.
+
+#### Le conflit de clef
+
+Le magasin est indexé par nom de frontmatter dans 74 cas sur 75. Une
+compétence dont le dossier et le `name:` diffèrent porte donc **deux
+enregistrements** : `documentation-verification` (`created_by: "agent"`) et
+`Documentation & Identity Verification` (`created_by: null`) désignent le
+même dossier. On ne tranche pas — `conflit` est une catégorie rendue telle
+quelle, avec ses deux valeurs.
+
+#### La corrélation : REJECT, et la mesure qui le dit
+
+`skill_manage` transmet bien `task_id` et `session_id` à `record_created` /
+`bump_patch`. Mais `_apply` n'écrit que `created_by` : les deux identifiants
+partent dans le hook `on_skill_lifecycle`, consommé ici par le relais de
+métriques partagées, qui « émet un fait sans son identité locale » et
+n'agrège que des compteurs à dimensions bucketisées. Mesure : **0 des 75
+enregistrements** les porte, et `telemetry/shared_metrics` ne contient aucun
+nom de compétence.
+
+Sans clef de jointure, le Run Ledger ne peut porter aucune relation. La
+table `skills` de `hermes.db` a bien une colonne `source_task_id` — elle est
+**vide**, et la remplir avec les compétences de l'agent en ferait la seconde
+vérité que HOS-274 est allé fermer.
+
+Le chemin existe et il est nommé : `on_skill_lifecycle` est un hook
+**plugin** documenté, et un plugin Hermes OS le recevrait avec son identité
+complète. Cela demanderait d'installer du code dans l'agent — une décision
+d'architecture qui n'appartient pas à une passe de diagnostic.
+
+#### Verdicts
+
+    origine d'une compétence installée   ADOPT    trois fichiers, lus
+    système/upstream + intégrité         ADOPT    empreinte recalculée
+    générée par l'agent                  ADOPT    `created_by: "agent"`
+    posée par le hub                     ADOPT    lock.json (vide ici)
+    modification directe hors workflow   ADOPT    détectée par l'empreinte,
+                                                  pour les compétences du
+                                                  manifeste seulement
+    persistance + redémarrage            ADOPT    démontrés
+    « utilisateur »                      REJECT   `null` couvre deux cas
+    « apprise », « approuvée »           REJECT   aucun champ ne les porte
+    corrélation session / Run / Mission  REJECT   0/75, émise puis agrégée
+    ledger Hermes OS porteur de relation DEFER    pas de clef de jointure
+
+**Livré.** `backend/skills/provenance.py` (lecture seule, sept catégories
+bornées, chacune avec sa preuve), la provenance jointe à `GET /skills/agent`,
+et une colonne au Skills Center dont l'infobulle nomme le fichier. Rien
+n'est écrit, rien n'est copié dans `hermes.db`.
+
+**Ce que §10 attend encore.** La corrélation, si le plugin est un jour
+décidé. Le versioning et le rollback : le ledger de l'agent
+(`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas** sur cette
+installation — aucune mutation n'y a jamais été écrite — et aucune RPC ne
+l'expose. Appariement skill ↔ tâche reste PLANNED.
 
 ---
 
@@ -981,6 +1068,12 @@ manquent. §10 porte la mesure et la correction.
 Le catalogue du hub y rejoint les deux registres existants, en lecture
 seule (trois routes `GET`, trois appelants). Trois registres, un écran, et
 aucun qui raconte l'autre.
+
+**Et depuis HOS-275, la colonne « d'où elle vient ».** Elle porte une
+catégorie **et sa preuve** — le fichier de l'agent qui la soutient, en
+infobulle. C'est la règle que §15 devait déjà appliquer et n'appliquait
+nulle part : une interface qui affirme sans pouvoir montrer sa source est
+une affirmation, pas une lecture.
 
 ### Ce que l'Assistant est aujourd'hui, mesuré
 

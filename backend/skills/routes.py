@@ -208,23 +208,49 @@ async def competences_de_l_agent() -> dict:
     d'ici sont ce que le cerveau des missions sait deja faire. Confondre
     les deux ferait croire le distributeur peuple.
     """
+    from backend.skills import provenance as prov
     from backend.skills import registre
 
     competences = registre.lire()
     groupes = registre.par_domaine(competences)
+    # Servie ici plutot que par une route a part : cet appel marche deja
+    # l'arbre, et la provenance coute 134 ms mesurees pour soixante-cinq
+    # competences, hachage des dossiers compris. Une seconde route la
+    # ferait payer deux fois et pourrait la desynchroniser de la liste.
+    origines = prov.par_competence(competences)
+    inconnue = prov.Provenance(prov.INCONNUE, "non calculee")
     return {
         "total": len(competences),
         "domaines": [
             {
                 "nom": domaine,
                 "competences": [
-                    {"nom": c.nom, "description": c.description}
+                    {
+                        "nom": c.nom,
+                        "description": c.description,
+                        **_origine(origines.get(c.nom, inconnue)),
+                    }
                     for c in sorted(liste, key=lambda x: x.nom)
                 ],
             }
             for domaine, liste in sorted(groupes.items())
         ],
         "racine": str(registre.racine_des_competences()),
+        "correlation_impossible": prov.CORRELATION_IMPOSSIBLE,
+    }
+
+
+def _origine(p) -> dict:
+    """La categorie **et sa preuve**.
+
+    Rendre la categorie seule en ferait une affirmation d'interface, ce que
+    G-27 interdit : l'ecran doit pouvoir dire d'ou il la tient, et un
+    lecteur aller verifier le fichier nomme.
+    """
+    return {
+        "provenance": p.categorie,
+        "provenance_preuve": p.preuve,
+        **({"provenance_conflit": list(p.conflit)} if p.conflit else {}),
     }
 
 
