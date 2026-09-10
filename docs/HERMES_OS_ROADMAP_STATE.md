@@ -17,18 +17,18 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       G-14 fermé (HOS-264) — le catalogue est sondé
                       §16 🟡 (HOS-265→274) — le pont, la matrice,
                       le chat joignable et enfin interruptible
-                      §10 🟡 (HOS-274→277) — les Skills se lisent, le
+                      §10 🟡 (HOS-274→278) — les Skills se lisent, le
                       chiffre de HOS-153 était faux, la provenance est
-                      mesurée (60 système / 4 générées / 1 conflit), et la
-                      corrélation Run ↔ Skill est DEFER : rien ne propage
-                      d'identité vers l'agent, et la session groupe par
-                      projet, jamais par Run
+                      mesurée (60 système / 4 générées / 1 conflit), et le
+                      transport d'une étiquette de tour EXISTE nativement
+                      (`_meta` d'ACP, mesuré) : il manque sa restitution,
+                      trois lignes amont que Hermes OS ne peut pas écrire
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      cd40dff (G-28, HOS-276) — dernier commit
-                               de code avant G-29 (corrélation)
+BASELINE:                      326b7af (G-29, HOS-277) — dernier commit
+                               de code avant G-30 (contrat amont)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud

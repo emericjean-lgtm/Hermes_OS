@@ -1,3 +1,127 @@
+## HOS-278 — L'etiquette de tour existe deja, a moitie (2026-09-10)
+
+G-30. G-29 concluait qu'il faudrait un identifiant de tour fourni par le
+client. Cette passe est allee voir si le runtime peut le porter. **Le
+transport existe, nativement, et il est mesure.**
+
+    le transport, cote ACP           ADOPT    natif, mesure
+    la restitution dans l'evenement  ADAPT    trois points amont
+    le contrat complet, aujourd'hui  bloque   non livrable ici
+    la meme chose cote Gateway       REJECT   canal privilegie
+    un registre propre a Hermes OS   REJECT   seconde verite
+
+### `_meta` arrive deja au handler de l'agent
+
+`PromptRequest` d'ACP v0.11.2 (`PROTOCOL_VERSION = 1`) porte `_meta`,
+*« reserved by ACP to allow clients and agents to attach additional metadata
+to their interactions »*. Et le routeur le **deplie en arguments nommes** :
+
+    params = {k: getattr(model_obj, k) for k in model.model_fields if k != "field_meta"}
+    if meta := getattr(model_obj, "field_meta", None):
+        params.update(meta)
+    return await func(**params)
+
+Mesure sur le runtime installe, en envoyant
+`_meta: {"hermes": {"turnId": "run-42#tour-3"}}` :
+
+    kwargs recus : {"message_id": null, "hermes": {"turnId": "run-42#tour-3"}}
+
+La signature de l'agent est `prompt(self, prompt, session_id, **kwargs)` :
+la metadonnee **arrive**, et l'agent l'ignore. L'espace de noms n'est pas
+invente non plus — `acp_adapter/provenance.py` decrit deja une *« additive
+Hermes extension under ACP `_meta.hermes` »*, dans le sens sortant. La
+proposition emprunte le meme chemin en sens inverse.
+
+### Ce qui manque, et ou exactement
+
+Trois coutures, toutes existantes :
+
+1. `acp_adapter/server.py:prompt()` — lire `kwargs["hermes"]["turnId"]` ;
+2. `agent/turn_context.py` — le lier au tour, a cote de
+   `set_current_write_origin`, deja lie la par le meme mecanisme ;
+3. `tools/skill_usage.py:_emit_skill_lifecycle` — le restituer, absent
+   quand il est absent.
+
+Zero changement de protocole, aucune methode nouvelle. Hermes OS ne peut
+pas ecrire ces trois lignes : **ADAPT ne veut donc pas dire
+« constructible maintenant »**. La specification est ecrite, la demande est
+formulee, le contrat reste bloque amont.
+
+### La propriete qui le distingue de tout ce que G-29 a ecarte
+
+Le `turnId` voyage **dans l'evenement**, pas dans une table partagee. Rien a
+garder entre l'emission et la lecture, rien a perdre au redemarrage.
+`SessionsDeMission._identifiants` etait volatile, le Ledger n'a pas de
+colonne de session, `audit_log` a six lignes : un contrat qui dependrait
+d'un etat partage heriterait des trois.
+
+### Les options ecartees
+
+`messageId` est marque **UNSTABLE** — *« may be removed or changed at any
+point »* — et l'agent l'echoerait dans la `PromptResponse`, pas dans les
+evenements Skill.
+
+`_hosted_task` du Gateway est le precedent le plus proche : `prompt.submit`
+accepte **deja** une enveloppe cliente portant `turn_id`, `task_id`,
+`room_id`. Mais `_hosted_submit_error` exige `session["source"] ==
+"bot_room"` **et** un `_hosted_terminal_callback` **appelable** — un objet
+Python qui ne traverse pas JSON-RPC. Canal interne au processus, pas ouvert
+a un client.
+
+### Une mesure qui corrige G-29 au passage
+
+Sur le chemin ACP, le `task_id` de l'agent **est** son `session_id` :
+`run_conversation(..., task_id=session_id)`. G-29 disait que `task_id`
+n'etait pas un `run_id` ; G-30 ajoute qu'il n'est meme pas un identifiant de
+tour. Un evenement Skill de chat ou de mission porte donc aujourd'hui deux
+fois la meme valeur.
+
+### Et une phrase de HOS-277 corrigee
+
+HOS-277 ecrivait « aucune methode du runtime ne le permettrait ». C'etait
+trop fort : le protocole accepte la metadonnee, et elle arrive. Ce qui
+manque est la restitution. La roadmap porte la correction.
+
+### Quatre gardes satisfaites par un doublon
+
+Quatre fois dans cette passe, une garde a ete verte alors que le defaut
+etait present, parce que la chaine cherchee figurait deux fois pour deux
+raisons :
+
+- `correlation_id` accusait `events/system_event_bus.py`, un champ anterieur
+  ou Hermes OS groupe SES propres evenements ;
+- « ne le touche pas » servait aussi au cas « session reprise » du tableau,
+  si bien que vider la section 7 ne rougissait pas ;
+- `{"hermes": {"turnId": ...}}` figurait dans la ligne d'ENTREE de la
+  mesure, si bien que supprimer le RESULTAT ne rougissait pas ;
+- et deux mutants ecrits pour la section 7 ne creaient pas le defaut qu'ils
+  nommaient.
+
+Chaque fois, c'est la mutation qui a vu, jamais la relecture. Les gardes
+portent desormais sur des sections et sur des reperes uniques.
+
+### Ce qui est livre
+
+`integrations/hermes-agent/contrat-correlation/README.md` — la decision, la
+mesure, les trois coutures, les cinq identites et leurs proprietaires, les
+neuf cas de falsification, et la demande a formuler amont. **Un seul
+fichier, et un test verifie qu'il n'y en a pas d'autre** : un module Python
+dans ce dossier deviendrait, a la premiere relecture distraite, une
+implementation.
+
+Hermes OS n'envoie toujours pas de `_meta`. Poser le champ pendant que
+l'agent le jette livrerait la moitie d'un contrat, et la moitie suivante
+serait tentee de deviner le reste. Un test garde l'abstention.
+
+### Preuves
+
+Suite complete 6063 passed, 3 skipped, 274 deselected ; tsc et vitest
+verts.
+
+Douze mutations, douze rouges. `data/db/hermes.db` intacte ; aucune ecriture
+dans les magasins de Hermes Agent ; le plugin observateur de G-28 reste non
+installe.
+
 ## HOS-277 — La correlation Run ↔ Skill : ou elle se perd (2026-09-10)
 
 G-29. G-28 avait pose un prealable a l'installation de l'observateur : *un

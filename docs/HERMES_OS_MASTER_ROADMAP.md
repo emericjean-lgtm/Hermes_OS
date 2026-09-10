@@ -626,14 +626,19 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
-### La corrélation, et ce que le pont n'y peut rien (HOS-277)
+### La corrélation, et ce que le pont n'y peut rien (HOS-277, corrigé par HOS-278)
 
 Le pont sait demander à l'agent ce qu'il porte. Il ne sait pas lui dire pour
-quel Run il travaille — et aucune méthode du runtime ne le permettrait :
-`session/prompt` ne transporte que `{sessionId, prompt}`, et le mode jetable
-lance l'agent sans aucun identifiant de tâche. La limite n'est donc pas dans
-le pont, elle est dans ce que le protocole accepte. Détail et décision
-en §10.
+quel Run il travaille. HOS-277 en concluait que « aucune méthode du runtime
+ne le permettrait » : **c'était trop fort**, et G-30 l'a mesuré. Le champ
+`_meta` de `session/prompt` est réservé par ACP aux extensions, il arrive
+jusqu'au handler de l'agent, et l'agent l'ignore. Le protocole accepte donc
+la métadonnée ; c'est la **restitution** qui manque.
+
+Ce qui reste vrai : le mode jetable lance l'agent sans aucun identifiant, et
+le Gateway n'offre aucun canal ouvert. La limite n'est ni dans le pont ni
+dans le protocole — elle est dans trois lignes que l'agent n'écrit pas
+encore. Détail, spécification et décision en §10.
 
 ### L'observateur (HOS-276)
 
@@ -750,7 +755,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-277)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-278)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1124,11 +1129,84 @@ un champ que Hermes OS pose sur `session/prompt` et que
 une capacité à construire ici. Tant qu'elle n'existe pas, l'observateur de
 G-28 reste non installé : sans relation, il n'aurait rien à corréler.
 
-**Ce que §10 attend encore.** Cette étiquette de tour, en amont. Le
-versioning et le rollback : le ledger de l'agent
-(`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas** sur cette
-installation — aucune mutation n'y a jamais été écrite — et aucune RPC ne
-l'expose. Appariement skill ↔ tâche reste PLANNED.
+### G-30 — l'étiquette de tour existe déjà, à moitié (HOS-278)
+
+G-29 concluait qu'il faudrait un identifiant de tour fourni par le client.
+G-30 est allé voir si le runtime peut le porter. **Le transport existe,
+nativement, et il est mesuré.**
+
+    le transport, côté ACP           ADOPT    natif, mesuré
+    la restitution dans l'événement  ADAPT    trois points amont
+    le contrat complet, aujourd'hui  bloqué   non livrable ici
+    la même chose côté Gateway       REJECT   canal privilégié
+    un registre propre à Hermes OS   REJECT   seconde vérité
+
+#### `_meta` arrive déjà au handler de l'agent
+
+`PromptRequest` d'ACP v0.11.2 (`PROTOCOL_VERSION = 1`) porte `_meta`,
+*réservé par le protocole pour que clients et agents attachent des
+métadonnées à leurs interactions*. Et le routeur le **déplie en arguments
+nommés** :
+
+```python
+params = {k: getattr(model_obj, k) for k in model.model_fields if k != "field_meta"}
+if meta := getattr(model_obj, "field_meta", None):
+    params.update(meta)
+return await func(**params)
+```
+
+Mesure du 2026-09-10, en envoyant `_meta: {"hermes": {"turnId":
+"run-42#tour-3"}}` au runtime installé :
+
+    kwargs reçus : {"message_id": null, "hermes": {"turnId": "run-42#tour-3"}}
+
+La signature de l'agent est `prompt(self, prompt, session_id, **kwargs)` :
+la métadonnée **arrive**, et l'agent l'ignore. L'espace de noms n'est pas
+inventé non plus — `acp_adapter/provenance.py` décrit déjà une *« additive
+Hermes extension under ACP `_meta.hermes` »*, dans le sens sortant.
+
+#### Ce qui manque, et où exactement
+
+Trois coutures, toutes existantes : lire le champ dans
+`acp_adapter/server.py:prompt()`, le lier au tour dans
+`agent/turn_context.py` — à côté de `set_current_write_origin`, déjà lié là
+par le même mécanisme — et le restituer dans `_emit_skill_lifecycle`
+(`tools/skill_usage.py`). Zéro changement de protocole, aucune méthode
+nouvelle.
+
+Hermes OS ne peut pas écrire ces trois lignes. **ADAPT** ne veut donc pas
+dire « constructible maintenant » : la spécification est écrite, la demande
+est formulée, et le contrat reste bloqué amont.
+
+#### La propriété qui le distingue de tout ce que G-29 a écarté
+
+Le `turnId` voyage **dans l'événement**, pas dans une table partagée. Il n'y
+a donc rien à garder entre l'émission et la lecture, et rien à perdre au
+redémarrage. `SessionsDeMission._identifiants` était volatile, le Ledger n'a
+pas de colonne de session, `audit_log` a six lignes : un contrat qui
+dépendrait d'un état partagé hériterait des trois. Celui-ci n'en dépend pas.
+
+#### Les options écartées
+
+`messageId` est **UNSTABLE** et s'échoerait dans la `PromptResponse`, pas
+dans les événements Skill. Le `_hosted_task` du Gateway est le précédent le
+plus proche — `prompt.submit` accepte déjà une enveloppe cliente portant un
+`turn_id` — mais sa garde exige `session["source"] == "bot_room"` **et** un
+callback **appelable**, un objet Python qui ne traverse pas JSON-RPC.
+
+#### Une mesure qui corrige G-29 au passage
+
+Sur le chemin ACP, le `task_id` de l'agent **est** son `session_id` :
+`run_conversation(..., task_id=session_id)`. G-29 disait que `task_id`
+n'était pas un `run_id` ; G-30 ajoute qu'il n'est même pas un identifiant
+de tour.
+
+**Ce que §10 attend encore.** La restitution amont, spécifiée dans
+`integrations/hermes-agent/contrat-correlation/`. Le versioning et le
+rollback : le ledger de l'agent (`.curator_ledger.jsonl`) les porterait,
+mais il **n'existe pas** sur cette installation — aucune mutation n'y a
+jamais été écrite — et aucune RPC ne l'expose. Appariement skill ↔ tâche
+reste PLANNED.
 
 ---
 
@@ -1256,6 +1334,12 @@ l'autre bout.
 pas le blocage : la relation qu'il aurait affichée **n'existe pas** (§10,
 G-29). §15 n'a donc rien à brancher ici, et c'est un résultat, pas un
 report — une parité ne se mesure qu'entre deux choses qui existent.
+
+**HOS-278 nomme la condition de réouverture.** La relation deviendrait
+affichable si l'agent restituait un `turnId` fourni par le client — le
+transport existe déjà et la mesure le prouve (§10, G-30). §15 reste donc
+fermé sur ce point, mais plus pour une raison inconnue : pour une raison
+écrite, localisée en trois fichiers amont.
 
 ### Ce que l'Assistant est aujourd'hui, mesuré
 
