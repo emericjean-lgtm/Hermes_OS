@@ -1,3 +1,129 @@
+## HOS-279 — Le contrat turnId, implemente chez l'agent (2026-09-10)
+
+G-31. G-30 avait classe la restitution **ADAPT** : trois lignes a trois
+coutures existantes, que Hermes OS ne pouvait pas ecrire. Cette passe les a
+ecrites chez l'agent et a mesure la chaine complete. **ADOPT.**
+
+### La chaine, mesuree
+
+Reelle a chaque maillon sauf un — le corps du tour, ou le modele deciderait
+d'appeler `skill_manage`, remplace par une mutation deterministe. C'est la
+*decision* du modele qu'on substitue, pas le mecanisme :
+
+    _meta -> MessageRouter reel -> HermesACPAgent.prompt() reel
+          -> _run_agent_turn reel (copy_context + ExitStack)
+          -> skill_manage reel -> _emit_skill_lifecycle reel -> plugin reel
+
+    g31-a              turn='A'
+    g31-b              turn='B'
+    g31-c1             turn='C'   ┐ deux Skills,
+    g31-c2             turn='C'   ┘ un seul tour
+    g31-sans           turn=None
+    g31-meta-vide      turn=None    `_meta` sans `hermes`
+    g31-hermes-vide    turn=None    `hermes` sans `turnId`
+    g31-hors-tour      turn=None    hors de tout tour
+    g31-x              turn='X'   ┐ deux tours
+    g31-y              turn='Y'   ┘ concurrents
+
+La clef est **absente**, pas vide, quand aucun `turnId` n'est fourni : une
+chaine vide se lirait « correle a rien » et inviterait un consommateur a la
+remplir. Apres redemarrage, un tour sans `turnId` n'herite d'aucune identite
+precedente, alors que `A B C X Y` etaient sur le disque. Et `.usage.json` ne
+porte aucun champ de tour — **rien n'est persiste pour la correlation**.
+
+### Une couture que G-30 avait mal nommee
+
+G-30 designait `agent/turn_context.py`. La mesure a corrige :
+`acp_adapter/server.py:_run_agent_turn` est le *« Executor-thread body of one
+turn, run inside `contextvars.copy_context()` so ContextVar writes are
+isolated from concurrent sessions »*. L'isolation entre tours concurrents y
+est deja **architecturale** — ce n'est pas une propriete que le patch
+ajoute, c'est une propriete dont il herite — et la fonction porte un
+`ExitStack` ou les autres contextes de tour sont lies. Lier ailleurs aurait
+ete lier sur le thread de la boucle, hors du contexte copie.
+
+### La provenance, et sa limite
+
+`integrations/hermes-agent/contrat-correlation/turn-id.patch` est le
+`git diff` exact contre le checkout de l'agent a **`693641aa8b`** (v0.21.0) :
+83 lignes, trois fichiers, zero changement de protocole, aucune methode
+nouvelle.
+
+**Le patch vit dans un checkout local.** `hermes update` fait un `git pull`
+avec autostash : le patch est mis de cote puis reapplique, au mieux, et un
+changement amont conflictuel l'echouerait en laissant un autostash
+orphelin. Ce n'est pas une base durable — c'est pourquoi il est versionne
+ici, et pourquoi la seule fin correcte est son adoption amont.
+
+### La suite de l'agent, mesuree des deux cotes
+
+Avant et apres, par `git stash` sur la meme commande : **6 echecs, 232
+passes, 3 ignores**, jeu d'echecs identique. Les six sont des limitations
+Windows preexistantes — symlinks, `fcntl`, `PosixPath`. La suite large de
+l'agent n'est pas executable sous Windows, et ce n'est pas cette passe qui
+l'a rendue telle.
+
+### Un defaut trouve dans l'observateur de G-28
+
+La sonde de mesure a perdu **un fait sur deux** quand deux tours concurrents
+ont emis en meme temps. Cause : `state.get(...)` puis `state.set(...)` —
+chaque appel est atomique chez l'agent, la **paire** ne l'est pas, et les
+deux threads avaient lu la meme liste avant que l'un ecrive.
+
+L'observateur de G-28 avait exactement la meme forme. Corrige : une clef par
+fait, avec horodatage, PID et rang, et une facade `mutations()` qui les rend
+ordonnes — la forme des clefs est un detail du plugin, et l'exposer
+obligerait tout lecteur a la connaitre. Le plafond `FAITS_MAX` disparait
+avec la liste : c'est au consommateur de drainer, un observateur ne decide
+pas ce qui merite d'etre oublie.
+
+Un observateur qui perd silencieusement la moitie de ce qu'il observe est
+pire qu'absent : il donne une trace qu'on croit complete.
+
+### Cinq gardes trouvees par des mutations
+
+Trois mutations sont restees **vertes** au premier passage, et une
+quatriemme a rougi pour la mauvaise raison :
+
+- la garde sur les identites ne regardait que deux formes de ligne : la
+  substitution glissee dans le `return` de `_client_turn_id` passait ;
+- la garde sur l'emplacement de la liaison verifiait une **presence**, pas
+  un emplacement ;
+- la garde sur la localite du patch cherchait « checkout local » dans le
+  document entier, ou la phrase figure deux fois — **cinquieme** fois de
+  cette serie qu'une chaine presente deux fois satisfait une garde ;
+- et le mutant « la liaison quitte le corps du tour » ecrivait
+  `if client_turn_id and False`, ce qui **supprime** la liaison au lieu de
+  la deplacer : il ne creait pas le defaut qu'il nommait.
+
+La garde finale porte sur la **pile du tour** : toute liaison doit etre
+enregistree par `_bind_guarded(stack, ...)`, et cette pile n'existe que dans
+`_run_agent_turn`. Elle ne regarde pas l'en-tete du hunk — git y met le nom
+de la **classe**, pas de la methode, et les deux hunks affichent
+`class HermesACPAgent`.
+
+L'extraction de la fonction depuis le patch a demande trois bornes
+successives, chacune fausse pour une raison differente : une ligne de
+contexte absente des ajouts, un `def` en colonne 0 qui n'existe pas parce
+que le hunk suivant modifie une **methode**, et une indentation qui ne
+s'arrete pas parce qu'un hunk voisin commence aussi par des lignes
+indentees. La borne juste est le **hunk** — la frontiere que le diff porte
+lui-meme.
+
+### Ce que Hermes OS ne fait toujours pas
+
+Il n'envoie pas de `_meta`, et la raison a change. G-30 disait : l'agent ne
+restitue pas. Ce n'est plus vrai sur un agent patche. Deux raisons
+subsistent : le patch est **local**, donc un client ne pourrait pas
+distinguer « pas de mutation » de « pas de restitution » ; et **rien ne lit
+la relation** — le prealable de G-28, toujours non leve.
+
+### Preuves
+
+Douze mutations, douze rouges. Suite complete 6073 passed, 3 skipped,
+274 deselected ; tsc et vitest verts. `data/db/hermes.db` intacte ; le depot de
+l'agent ne porte que les trois fichiers du patch, sans debris.
+
 ## HOS-278 — L'etiquette de tour existe deja, a moitie (2026-09-10)
 
 G-30. G-29 concluait qu'il faudrait un identifiant de tour fourni par le

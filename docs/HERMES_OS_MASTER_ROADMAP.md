@@ -626,6 +626,15 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### La corrélation : un quatrième transport, patché (HOS-279)
+
+Le contrat turnId ne passe ni par le pont, ni par le Gateway, ni par le
+plugin : il passe par le **protocole ACP lui-même**, dans un champ que la
+spécification réserve aux extensions. Trois lignes chez l'agent, et
+l'identité du client traverse jusqu'à l'événement Skill. Le pont n'y est
+pour rien — et c'est le résultat : la corrélation n'avait pas besoin d'une
+surface nouvelle, elle avait besoin qu'on ne jette pas celle qui existait.
+
 ### La corrélation, et ce que le pont n'y peut rien (HOS-277, corrigé par HOS-278)
 
 Le pont sait demander à l'agent ce qu'il porte. Il ne sait pas lui dire pour
@@ -755,7 +764,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-278)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-279)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1201,12 +1210,79 @@ Sur le chemin ACP, le `task_id` de l'agent **est** son `session_id` :
 n'était pas un `run_id` ; G-30 ajoute qu'il n'est même pas un identifiant
 de tour.
 
-**Ce que §10 attend encore.** La restitution amont, spécifiée dans
-`integrations/hermes-agent/contrat-correlation/`. Le versioning et le
-rollback : le ledger de l'agent (`.curator_ledger.jsonl`) les porterait,
-mais il **n'existe pas** sur cette installation — aucune mutation n'y a
-jamais été écrite — et aucune RPC ne l'expose. Appariement skill ↔ tâche
-reste PLANNED.
+### G-31 — le contrat turnId, implémenté et démontré (HOS-279)
+
+G-30 avait classé la restitution **ADAPT** : trois lignes à trois coutures
+existantes, que Hermes OS ne pouvait pas écrire. G-31 les a écrites chez
+l'agent, et a mesuré la chaîne complète. **ADOPT.**
+
+#### La chaîne, mesurée
+
+Réelle à chaque maillon sauf un — le corps du tour, où le modèle déciderait
+d'appeler `skill_manage`, remplacé par une mutation déterministe. C'est la
+*décision* du modèle qu'on substitue, pas le mécanisme :
+
+    _meta → MessageRouter réel → HermesACPAgent.prompt() réel
+          → _run_agent_turn réel (copy_context + ExitStack)
+          → skill_manage réel → _emit_skill_lifecycle réel → plugin réel
+
+    g31-a              turn='A'
+    g31-b              turn='B'
+    g31-c1             turn='C'   ┐ deux Skills,
+    g31-c2             turn='C'   ┘ un seul tour
+    g31-sans           turn=None
+    g31-meta-vide      turn=None    `_meta` sans `hermes`
+    g31-hermes-vide    turn=None    `hermes` sans `turnId`
+    g31-hors-tour      turn=None    hors de tout tour
+    g31-x              turn='X'   ┐ deux tours
+    g31-y              turn='Y'   ┘ concurrents
+
+La clé est **absente**, pas vide, quand aucun `turnId` n'est fourni. Après
+redémarrage, un tour sans `turnId` n'hérite d'aucune identité précédente,
+alors que `A B C X Y` étaient sur le disque. Et `.usage.json` ne porte aucun
+champ de tour : **rien n'est persisté pour la corrélation**.
+
+#### Une couture mal nommée par G-30
+
+G-30 désignait `agent/turn_context.py`. La mesure a corrigé :
+`acp_adapter/server.py:_run_agent_turn` est le *« Executor-thread body of one
+turn, run inside `contextvars.copy_context()` so ContextVar writes are
+isolated from concurrent sessions »*. L'isolation entre tours concurrents y
+est déjà **architecturale**, et la fonction porte un `ExitStack` où les
+autres contextes de tour sont liés. Lier ailleurs aurait été lier sur le
+thread de la boucle, hors du contexte copié.
+
+#### La provenance, et sa limite
+
+`integrations/hermes-agent/contrat-correlation/turn-id.patch` est le
+`git diff` exact contre le checkout de l'agent à **`693641aa8b`** (v0.21.0) :
+83 lignes, trois fichiers, zéro changement de protocole.
+
+**Le patch vit dans un checkout local.** `hermes update` fait un `git pull`
+avec autostash : le patch est mis de côté puis réappliqué, au mieux, et un
+changement amont conflictuel l'échouerait. Ce n'est pas une base durable —
+c'est pourquoi le patch est versionné ici, et pourquoi la seule fin correcte
+est son adoption amont.
+
+La suite de l'agent est restée à son état d'avant, mesurée avant et après par
+`git stash` : **6 échecs, 232 passés, 3 ignorés**, jeu d'échecs identique —
+tous des limitations Windows préexistantes (symlinks, `fcntl`, `PosixPath`).
+
+#### Un défaut trouvé dans l'observateur de G-28
+
+La sonde de mesure a perdu un fait sur deux quand deux tours concurrents ont
+émis en même temps : `state.get(...)` puis `state.set(...)` — chaque appel
+est atomique, la **paire** ne l'est pas. L'observateur de G-28 avait la même
+forme. Corrigé : une clé par fait, et une façade de lecture qui les rend
+ordonnés. Un observateur qui perd silencieusement la moitié de ce qu'il
+observe est pire qu'absent.
+
+**Ce que §10 attend encore.** L'adoption amont du patch, puis un
+consommateur de la relation côté Hermes OS — le préalable que G-28 avait
+posé, toujours non levé. Le versioning et le rollback : le ledger de l'agent
+(`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas** sur cette
+installation, et aucune RPC ne l'expose. Appariement skill ↔ tâche reste
+PLANNED.
 
 ---
 
@@ -1340,6 +1416,12 @@ affichable si l'agent restituait un `turnId` fourni par le client — le
 transport existe déjà et la mesure le prouve (§10, G-30). §15 reste donc
 fermé sur ce point, mais plus pour une raison inconnue : pour une raison
 écrite, localisée en trois fichiers amont.
+
+**HOS-279 lève cette condition, sur un agent patché.** La restitution est
+implémentée et démontrée (§10, G-31). §15 ne s'ouvre pas pour autant : le
+patch est local, et Hermes OS n'envoie toujours pas de `_meta` — poser le
+champ sans savoir si l'agent en face le restitue produirait un écran qui
+affiche « non corrélé » sans pouvoir dire pourquoi.
 
 ### Ce que l'Assistant est aujourd'hui, mesuré
 

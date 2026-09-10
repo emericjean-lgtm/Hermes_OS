@@ -1,10 +1,8 @@
-# Contrat de corrélation Run ↔ Skill — spécification amont (G-30, HOS-278)
+# Contrat de corrélation Run ↔ Skill — implémenté et démontré (G-30 → G-31)
 
-**Rien ici n'est implémenté, et rien ne doit l'être dans Hermes OS.** Ce
-document est la demande minimale à formuler à Hermes Agent, avec les mesures
-qui la soutiennent. Les identités qu'elle relie appartiennent à deux
-propriétaires distincts, et c'est ce qui la rend possible sans seconde
-autorité.
+**Rien ici n'est implémenté *dans Hermes OS*, et rien ne doit l'être.** La
+modification vit chez Hermes Agent : `turn-id.patch`, à côté de ce fichier,
+en est la provenance exacte.
 
 ---
 
@@ -12,17 +10,17 @@ autorité.
 
 | objet | verdict |
 |---|---|
-| le transport d'une métadonnée opaque, côté ACP | **ADOPT** — natif, mesuré |
-| la restitution dans `on_skill_lifecycle` | **ADAPT** — trois points amont |
-| le contrat complet, aujourd'hui | **bloqué amont** — non livrable ici |
+| le transport d'une métadonnée opaque, côté ACP | **ADOPT** — natif, mesuré (G-30) |
+| la restitution dans `on_skill_lifecycle` | **ADOPT** — implémentée et démontrée (G-31) |
 | la même chose côté Gateway | **REJECT** — canal privilégié, infranchissable |
 | un registre de corrélation propre à Hermes OS | **REJECT** — seconde vérité |
 
-**ADAPT**, donc : la surface n'est pas hypothétique. Elle existe, elle est
-mesurée, et il manque trois lignes à trois coutures qui existent déjà. Mais
-ces trois lignes sont chez l'agent : Hermes OS ne peut pas les écrire, et
-lire « ADAPT » comme « on peut le construire maintenant » serait un
-contresens.
+G-30 avait classé la restitution **ADAPT** : trois lignes à trois coutures
+existantes, que Hermes OS ne pouvait pas écrire. G-31 les a écrites chez
+l'agent et a mesuré la chaîne complète. Le verdict passe donc à **ADOPT**,
+avec une limite qui n'est pas cosmétique — voir « La provenance » plus bas :
+le patch vit dans un checkout local, et `hermes update` le met au mieux en
+autostash.
 
 ---
 
@@ -125,20 +123,75 @@ au tour.
 
 ## 4. Le chemin de propagation, et les trois points amont
 
-Trois coutures, toutes déjà existantes :
+Trois coutures, toutes déjà existantes. **G-30 en avait mal nommé une**, et
+la mesure l'a corrigée :
 
-1. **`acp_adapter/server.py`, `prompt()`** — lire
-   `kwargs.get("hermes", {}).get("turnId")`. Il arrive déjà (mesuré) ; il
-   suffit de ne plus le jeter.
-2. **`agent/turn_context.py`** — le lier pour la durée du tour, à côté de
-   `set_current_write_origin(...)`, qui y est déjà lié pour la même raison
-   et par le même mécanisme (un `ContextVar`). Le module s'appelle
-   « turn_context » : c'est littéralement sa fonction.
-3. **`tools/skill_usage.py`, `_emit_skill_lifecycle`** — ajouter le champ à
-   la charge utile du hook, **absent quand il est absent**.
+1. **`acp_adapter/server.py`, `_client_turn_id()` + `prompt()`** — lire
+   `kwargs["hermes"]["turnId"]`. Il arrive déjà ; il suffit de ne plus le
+   jeter.
+2. **`acp_adapter/server.py`, `_run_agent_turn()`** — et non
+   `agent/turn_context.py`, comme G-30 le supposait. `_run_agent_turn` est
+   le *« Executor-thread body of one turn, run inside
+   `contextvars.copy_context()` so ContextVar writes are isolated from
+   concurrent sessions »* : l'isolation entre tours concurrents y est déjà
+   architecturale, et la fonction porte un `ExitStack` où les autres
+   contextes de tour sont liés. Lier ailleurs aurait été lier sur le thread
+   de la boucle, hors du contexte copié.
+3. **`tools/skill_provenance.py`** — le `ContextVar` lui-même, à côté de
+   `_write_origin` qui existe pour la même sorte de portée.
+4. **`tools/skill_usage.py`, `_emit_skill_lifecycle`** — ajouter le champ à
+   la charge utile, **absent quand il est absent**.
 
 Rien à changer dans le protocole, rien à ajouter au schéma, aucune méthode
-nouvelle.
+nouvelle. 83 lignes, trois fichiers.
+
+## 4 bis. La démonstration (G-31)
+
+Chaîne réelle à chaque maillon sauf un : le corps du tour, où le modèle
+déciderait d'appeler `skill_manage`, remplacé par une mutation déterministe.
+C'est la *décision* du modèle qu'on substitue, pas le mécanisme mesuré.
+
+    _meta → MessageRouter réel → HermesACPAgent.prompt() réel
+          → _run_agent_turn réel (copy_context + ExitStack)
+          → skill_manage réel → _emit_skill_lifecycle réel → plugin réel
+
+Relevé :
+
+    g31-a              action=created  turn='A'
+    g31-b              action=created  turn='B'
+    g31-c1             action=created  turn='C'
+    g31-c2             action=created  turn='C'
+    g31-sans           action=created  turn=None
+    g31-meta-vide      action=created  turn=None      _meta sans `hermes`
+    g31-hermes-vide    action=created  turn=None      `hermes` sans `turnId`
+    g31-hors-tour      action=created  turn=None      hors de tout tour
+    g31-x              action=created  turn='X'   ┐ deux tours
+    g31-y              action=created  turn='Y'   ┘ concurrents
+
+    clé absente quand aucun turnId : g31-sans, g31-meta-vide,
+                                     g31-hermes-vide, g31-hors-tour
+
+Après redémarrage, un tour **sans** `turnId` n'hérite d'aucune identité
+précédente : `client_turn_id` absent, alors que `A B C X Y` étaient sur le
+disque. Et `.usage.json` ne porte **aucun** champ de tour : rien n'est
+persisté *pour* la corrélation.
+
+La suite de l'agent est restée à son état d'avant — 42 passés, 1 échec
+préexistant (`test_acp_resource_link_file_is_inlined_as_text`), identique
+avant et après le patch.
+
+## 4 ter. La provenance, et sa limite
+
+`turn-id.patch`, à côté de ce fichier, est le `git diff` exact contre le
+checkout de l'agent à **`693641aa8b`** (v0.21.0).
+
+**Le patch vit dans un checkout local.** `hermes update` fait un `git pull`
+avec autostash (`_stash_local_changes_if_needed` /
+`_restore_stashed_changes`) : le patch est mis de côté puis réappliqué, au
+mieux, et un changement amont conflictuel l'échouerait en laissant un
+autostash orphelin. Ce n'est pas une base durable — c'est pourquoi le patch
+est versionné ici, et pourquoi la seule fin correcte est son adoption
+amont.
 
 ## 5. Les limites de persistance
 
@@ -206,11 +259,21 @@ n'est pas explicitement présent.** Il n'y a pas de cas « au mieux ».
 > interprétation, aucune validation, aucune valeur par défaut.
 
 Trois fichiers, trois coutures existantes, zéro changement de protocole.
+**`turn-id.patch` est cette demande, écrite et mesurée** — il ne reste qu'à
+la proposer.
 
 ---
 
 ## Ce que Hermes OS ne fait pas en attendant
 
-Il n'envoie pas de `_meta` : un client qui poserait le champ sans que
-l'agent le restitue produirait la moitié d'un contrat, et la moitié
-suivante serait tentée de la deviner. Un test garde cette abstention.
+Il n'envoie toujours pas de `_meta`, et la raison a changé. G-30 disait :
+l'agent ne restitue pas. Ce n'est plus vrai sur un agent patché. La raison
+est maintenant double, et aucune des deux n'est levée :
+
+- **le patch est local.** Un agent réinstallé ou mis à jour peut ne plus le
+  porter, et un client qui poserait le champ n'aurait aucun moyen de savoir
+  si le silence vient de « pas de mutation » ou de « pas de restitution » ;
+- **rien ne lit la relation.** C'est le préalable que G-28 avait posé pour
+  l'observateur, et il tient pour le client comme pour lui.
+
+Un test garde cette abstention.

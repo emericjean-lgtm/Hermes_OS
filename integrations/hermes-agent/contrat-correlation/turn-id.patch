@@ -1,0 +1,142 @@
+diff --git a/acp_adapter/server.py b/acp_adapter/server.py
+index 431f7368d8..9874055294 100644
+--- a/acp_adapter/server.py
++++ b/acp_adapter/server.py
+@@ -179,6 +179,28 @@ def _restore_env(key: str, value: str | None) -> None:
+         os.environ[key] = value
+ 
+ 
++def _client_turn_id(kwargs: dict[str, Any]) -> str:
++    """The opaque turn id the client attached to this prompt, or "".
++
++    ACP reserves ``_meta`` for extensions ("Implementations MUST NOT make
++    assumptions about values at these keys"), and the router spreads its
++    top-level keys into the handler's ``**kwargs``. A client that sends
++    ``_meta: {"hermes": {"turnId": "..."}}`` therefore arrives here as
++    ``kwargs["hermes"]["turnId"]`` — the same ``_meta.hermes`` namespace this
++    adapter already uses outbound for session provenance.
++
++    Never generated, never validated, never defaulted: the value is opaque to
++    the agent, which only carries it and hands it back. Anything that is not a
++    non-empty string is treated as absent, because a client that sent junk did
++    not send a correlation.
++    """
++    extension = kwargs.get("hermes")
++    if not isinstance(extension, dict):
++        return ""
++    turn_id = extension.get("turnId")
++    return turn_id.strip() if isinstance(turn_id, str) else ""
++
++
+ def _bind_guarded(stack: contextlib.ExitStack, label: str, setup: Callable[[], Callable[[], None]]) -> None:
+     """Run ``setup`` (returns its teardown) and register the teardown; failures in either half only
+     log — the turn must still run without the binding."""
+@@ -712,6 +734,7 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
+     def _run_agent_turn(
+         self, *, state: SessionState, session_id: str, user_text: str, user_content: Any, conn: Any,
+         loop: asyncio.AbstractEventLoop, approval_cb: Any, edit_approval_requester: Any,
++        client_turn_id: str = "",
+     ) -> dict:
+         """Executor-thread body of one turn, run inside ``contextvars.copy_context()`` so
+         ContextVar writes are isolated from concurrent sessions.
+@@ -754,6 +777,19 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
+             if edit_approval_requester:
+                 _bind_guarded(stack, "edit approval requester", _edit_approval)
+             stack.callback(reset_hermes_interactive_context, set_hermes_interactive_context(True))
++            # Client turn correlation, bound HERE and not on the loop thread: this body
++            # runs inside the per-turn ``contextvars.copy_context()``, which is what keeps
++            # concurrent sessions from seeing each other's id. Bound only when the client
++            # sent one — an unset ContextVar reads as "" and the lifecycle hook then omits
++            # the key, so a turn without a client id behaves exactly as before.
++            if client_turn_id:
++                def _turn_correlation() -> Callable[[], None]:
++                    from tools.skill_provenance import reset_current_turn_id, set_current_turn_id
++
++                    token = set_current_turn_id(client_turn_id)
++                    return lambda: reset_current_turn_id(token)
++
++                _bind_guarded(stack, "client turn id", _turn_correlation)
+             # Tools tag side-effects with the ACP session (``kanban_create``); save/restore it.
+             stack.callback(_restore_env, "HERMES_SESSION_ID", os.environ.get("HERMES_SESSION_ID"))
+             os.environ["HERMES_SESSION_ID"] = session_id
+@@ -809,10 +845,13 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
+             state.cancel_event.clear()
+         cbs = self._wire_turn_callbacks(state, session_id, conn, loop)
+ 
++        client_turn_id = _client_turn_id(kwargs)
++
+         def _run_agent() -> dict:
+             return self._run_agent_turn(
+                 state=state, session_id=session_id, user_text=user_text, user_content=user_content, conn=conn,
+                 loop=loop, approval_cb=cbs.approval_cb, edit_approval_requester=cbs.edit_approval_requester,
++                client_turn_id=client_turn_id,
+             )
+ 
+         try:
+diff --git a/tools/skill_provenance.py b/tools/skill_provenance.py
+index 3df9cf1430..1ea54a3745 100644
+--- a/tools/skill_provenance.py
++++ b/tools/skill_provenance.py
+@@ -24,3 +24,38 @@ def get_current_write_origin() -> str:
+ 
+ def is_background_review() -> bool:
+     return get_current_write_origin() == BACKGROUND_REVIEW
++
++
++# --- Client turn correlation -------------------------------------------------
++# An OPAQUE identifier the ACP client may attach to one prompt via
++# ``_meta.hermes.turnId`` (the `_meta` field ACP reserves for extensions). It is
++# echoed back, unchanged, in every ``on_skill_lifecycle`` event of that turn so
++# the client can attribute skill mutations to the unit of work IT knows about.
++#
++# Deliberately NOT ``task_id`` or ``session_id``: on the ACP path both are the
++# session id (``run_conversation(..., task_id=session_id)``), so neither is
++# turn-granular, and both are the agent's identities rather than the client's.
++#
++# Never generated here. Absent in means absent out: an unset turn id is "",
++# and ``_emit_skill_lifecycle`` then omits the key entirely rather than
++# inventing a default that a consumer could mistake for a real correlation.
++_turn_correlation: contextvars.ContextVar[str] = contextvars.ContextVar(
++    "skill_client_turn_id", default="")
++
++
++def set_current_turn_id(turn_id: str) -> contextvars.Token[str]:
++    """Bind the client-supplied turn id for the duration of one turn.
++
++    Bound where the turn body runs, so it inherits the per-turn
++    ``contextvars.copy_context()`` that already isolates concurrent sessions.
++    """
++    return _turn_correlation.set(str(turn_id or ""))
++
++
++def reset_current_turn_id(token: contextvars.Token[str]) -> None:
++    _turn_correlation.reset(token)
++
++
++def get_current_turn_id() -> str:
++    """The client turn id for this turn, or "" when the client supplied none."""
++    return _turn_correlation.get()
+diff --git a/tools/skill_usage.py b/tools/skill_usage.py
+index 48d7edc9d3..ed1a90ec3f 100644
+--- a/tools/skill_usage.py
++++ b/tools/skill_usage.py
+@@ -441,10 +441,18 @@ def _emit_skill_lifecycle(skill_name: str, action: str, *, record: Optional[Dict
+     try:
+         from hermes_cli.lifecycle import has_hook, invoke_hook
+         if has_hook("on_skill_lifecycle"):
++            # Client turn correlation: echoed only when the client supplied one on
++            # this turn's prompt (``_meta.hermes.turnId``). The key is OMITTED when
++            # absent — an empty string would read as "correlated to nothing" and
++            # invites a consumer to fill it in. Separate from task_id/session_id,
++            # which are the agent's own identities and are equal on the ACP path.
++            from tools.skill_provenance import get_current_turn_id
++            client_turn_id = get_current_turn_id()
+             invoke_hook("on_skill_lifecycle", action=action, skill_name=skill_name,
+                         provenance=telemetry_provenance(skill_name, record), task_id=task_id or "",
+                         session_id=session_id or "", use_count=facts.get("use_count"), reused=facts.get("reused"),
+-                        reuse_after_patch=facts.get("reuse_after_patch"))
++                        reuse_after_patch=facts.get("reuse_after_patch"),
++                        **({"client_turn_id": client_turn_id} if client_turn_id else {}))
+     except Exception:
+         logger.debug("skill_usage lifecycle hook failed for %s/%s", skill_name, action, exc_info=True)
+ 

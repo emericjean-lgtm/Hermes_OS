@@ -17,18 +17,19 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       G-14 fermé (HOS-264) — le catalogue est sondé
                       §16 🟡 (HOS-265→274) — le pont, la matrice,
                       le chat joignable et enfin interruptible
-                      §10 🟡 (HOS-274→278) — les Skills se lisent, le
+                      §10 🟡 (HOS-274→279) — les Skills se lisent, le
                       chiffre de HOS-153 était faux, la provenance est
                       mesurée (60 système / 4 générées / 1 conflit), et le
-                      transport d'une étiquette de tour EXISTE nativement
-                      (`_meta` d'ACP, mesuré) : il manque sa restitution,
-                      trois lignes amont que Hermes OS ne peut pas écrire
+                      contrat turnId est ADOPT : implémenté chez l'agent
+                      (83 lignes, 3 fichiers) et démontré de bout en bout.
+                      Le patch est LOCAL — son adoption amont reste le
+                      prochain jalon, avec un consommateur de la relation
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      326b7af (G-29, HOS-277) — dernier commit
-                               de code avant G-30 (contrat amont)
+BASELINE:                      9be7735 (G-30, HOS-278) — dernier commit
+                               de code avant G-31 (turnId implémenté)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud

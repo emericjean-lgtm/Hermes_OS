@@ -33,6 +33,8 @@ mutations sont retenues.
 from __future__ import annotations
 
 import json
+import os
+import threading
 import time
 
 #: Les cinq actions que `tools/skill_usage.py` emet, mesurees le 2026-09-10.
@@ -42,12 +44,14 @@ import time
 ACTIONS_DE_MUTATION = frozenset({"created", "edited", "patched", "installed"})
 ACTION_D_USAGE = "loaded"
 
-#: Au-dela, on jette les plus anciens. `PluginState` plafonne a 10 Mio et
-#: refuse l'ecriture au-dela : un observateur qui remplirait son quota
-#: cesserait d'observer sans le dire.
-FAITS_MAX = 2000
+#: Le prefixe des clefs de fait. `PluginState` plafonne a 10 Mio ; un
+#: consommateur qui draine regulierement garde l'etat petit, et c'est a lui
+#: de le faire — un observateur ne decide pas ce qui merite d'etre oublie.
+PREFIXE_FAIT = "fait-"
 
 _CTX = {}
+_COMPTEUR = [0]
+_COMPTEUR_VERROU = threading.Lock()
 
 
 def _serialisable(valeur):
@@ -68,6 +72,14 @@ def _on_skill_lifecycle(**faits):
 
     Le retour est ignore par l'agent ; le rendre explicitement `None` dit
     que ce plugin ne pretend influencer aucune decision.
+
+    **Une clef par fait, et c'est une correction mesuree.** La premiere
+    version faisait `state.get("mutations")` puis `state.set("mutations")` :
+    chaque appel est atomique, la PAIRE ne l'est pas. G-31 a fait tourner
+    deux tours ACP concurrents — chacun dans son `copy_context`, sur le
+    meme executeur — et **un fait sur deux a disparu** : les deux threads
+    avaient lu la meme liste avant que l'un ecrive. Un observateur qui perd
+    silencieusement la moitie de ce qu'il observe est pire qu'absent.
     """
     ctx = _CTX.get("ctx")
     if ctx is None:
@@ -75,15 +87,30 @@ def _on_skill_lifecycle(**faits):
     if faits.get("action") == ACTION_D_USAGE:
         return None
     try:
-        notes = ctx.state.get("mutations", [])
-        if not isinstance(notes, list):
-            notes = []
-        notes.append({"observe_a": time.time(),
-                      **{cle: _serialisable(v) for cle, v in faits.items()}})
-        ctx.state.set("mutations", notes[-FAITS_MAX:])
+        with _COMPTEUR_VERROU:
+            _COMPTEUR[0] += 1
+            rang = _COMPTEUR[0]
+        # L'horodatage ordonne les faits entre processus, le rang les separe
+        # a l'interieur d'un meme : deux tours concurrents peuvent tomber sur
+        # la meme microseconde.
+        cle = "%s%d-%d-%d" % (PREFIXE_FAIT, int(time.time() * 1_000_000),
+                              os.getpid(), rang)
+        ctx.state.set(cle, {"observe_a": time.time(),
+                            **{c: _serialisable(v) for c, v in faits.items()}})
     except Exception:  # noqa: BLE001 - un observateur casse reste silencieux
         pass
     return None
+
+
+def mutations(etat: dict) -> list:
+    """Les faits d'un `state.json`, du plus ancien au plus recent.
+
+    Le lecteur vit ici plutot que chez le consommateur : la forme des clefs
+    est un detail de ce plugin, et l'exposer obligerait tout lecteur a la
+    connaitre — donc a se tromper le jour ou elle change.
+    """
+    faits = [(c, v) for c, v in etat.items() if c.startswith(PREFIXE_FAIT)]
+    return [v for _, v in sorted(faits, key=lambda p: p[0])]
 
 
 def register(ctx):

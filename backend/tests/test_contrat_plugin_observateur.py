@@ -66,7 +66,12 @@ def observateur():
 
 
 class _Etat:
-    """La facade `ctx.state` de l'agent, reduite a ce que le plugin emploie."""
+    """La facade `ctx.state` de l'agent, reduite a ce que le plugin emploie.
+
+    `set` est atomique chez l'agent (verrou inter-processus + ecriture
+    atomique) ; c'est la PAIRE `get`/`set` qui ne l'etait pas, et que la
+    correction de G-31 a supprimee.
+    """
 
     def __init__(self, leve=False):
         self.donnees = {}
@@ -109,6 +114,11 @@ def _brancher(observateur, leve=False):
     return ctx, ctx.hooks["on_skill_lifecycle"]
 
 
+def _notes(observateur, ctx):
+    """Les faits, lus par la facade du plugin — jamais par sa forme de clef."""
+    return observateur.mutations(ctx.state.donnees)
+
+
 # ── Ce qu'il note, et ce qu'il ecarte ─────────────────────────────────
 
 def test_une_mutation_est_notee_avec_son_identite_complete(observateur):
@@ -117,7 +127,7 @@ def test_une_mutation_est_notee_avec_son_identite_complete(observateur):
     0 des 75 enregistrements les porte)."""
     ctx, hook = _brancher(observateur)
     hook(**_fait(task_id="tache-77", session_id="sess-xyz"))
-    notes = ctx.state.donnees["mutations"]
+    notes = _notes(observateur, ctx)
     assert len(notes) == 1
     assert notes[0]["task_id"] == "tache-77"
     assert notes[0]["session_id"] == "sess-xyz"
@@ -133,7 +143,7 @@ def test_l_usage_n_est_pas_note(observateur):
     ctx, hook = _brancher(observateur)
     for _ in range(50):
         hook(**_fait(action="loaded", use_count=3, reused=True))
-    assert "mutations" not in ctx.state.donnees
+    assert _notes(observateur, ctx) == []
     assert ctx.state.ecritures == 0
 
 
@@ -141,7 +151,7 @@ def test_l_usage_n_est_pas_note(observateur):
 def test_les_quatre_mutations_mesurees_sont_retenues(observateur, action):
     ctx, hook = _brancher(observateur)
     hook(**_fait(action=action))
-    assert ctx.state.donnees["mutations"][0]["action"] == action
+    assert _notes(observateur, ctx)[0]["action"] == action
 
 
 # ── Ce qu'il n'invente pas ────────────────────────────────────────────
@@ -152,7 +162,7 @@ def test_une_session_absente_reste_absente(observateur):
     la correlation que G-27 a refuse d'inventer."""
     ctx, hook = _brancher(observateur)
     hook(**_fait(session_id=""))
-    assert ctx.state.donnees["mutations"][0]["session_id"] == ""
+    assert _notes(observateur, ctx)[0]["session_id"] == ""
 
 
 def test_une_provenance_inconnue_sort_telle_quelle(observateur):
@@ -160,13 +170,13 @@ def test_une_provenance_inconnue_sort_telle_quelle(observateur):
     pas. La traduire vers une categorie connue serait affirmer."""
     ctx, hook = _brancher(observateur)
     hook(**_fait(provenance="quelque-chose-de-neuf"))
-    assert ctx.state.donnees["mutations"][0]["provenance"] == "quelque-chose-de-neuf"
+    assert _notes(observateur, ctx)[0]["provenance"] == "quelque-chose-de-neuf"
 
 
 def test_une_action_inconnue_est_notee_sans_traduction(observateur):
     ctx, hook = _brancher(observateur)
     hook(**_fait(action="archived"))
-    assert ctx.state.donnees["mutations"][0]["action"] == "archived"
+    assert _notes(observateur, ctx)[0]["action"] == "archived"
 
 
 def test_aucun_champ_n_est_ajoute_hors_de_ce_que_l_agent_livre(observateur):
@@ -174,7 +184,7 @@ def test_aucun_champ_n_est_ajoute_hors_de_ce_que_l_agent_livre(observateur):
     `run_id` vide inviterait la passe suivante a le remplir."""
     ctx, hook = _brancher(observateur)
     hook(**_fait())
-    notes = ctx.state.donnees["mutations"][0]
+    notes = _notes(observateur, ctx)[0]
     assert set(notes) == set(_fait()) | {"observe_a"}
 
 
@@ -207,20 +217,51 @@ def test_sans_enregistrement_prealable_le_hook_ne_leve_pas(observateur):
 def test_une_valeur_non_serialisable_ne_perd_pas_le_fait(observateur):
     ctx, hook = _brancher(observateur)
     hook(**_fait(reused=object()))
-    note = ctx.state.donnees["mutations"][0]
+    note = _notes(observateur, ctx)[0]
     assert isinstance(note["reused"], str)
     assert note["task_id"] == "tache-1", "le reste du fait survit"
 
 
-def test_les_faits_sont_bornes(observateur):
-    """Sans borne, l'etat grossit jusqu'au quota et l'ecriture est refusee."""
+def test_deux_faits_simultanes_ne_s_ecrasent_pas(observateur):
+    """Le defaut que G-31 a mesure, et la raison de la correction.
+
+    La premiere version faisait `state.get("mutations")` puis
+    `state.set("mutations")`. Chaque appel est atomique chez l'agent ; la
+    PAIRE ne l'est pas. Deux tours ACP concurrents — chacun dans son
+    `copy_context`, sur le meme executeur — ont perdu **un fait sur deux** :
+    les deux threads avaient lu la meme liste avant que l'un ecrive.
+
+    Un observateur qui perd silencieusement la moitie de ce qu'il observe
+    est pire qu'absent : il donne une trace qu'on croit complete."""
+    import threading
+
     ctx, hook = _brancher(observateur)
-    for i in range(observateur.FAITS_MAX + 25):
+    barriere = threading.Barrier(8)
+
+    def _poser(i):
+        barriere.wait()
+        hook(**_fait(skill_name=f"s{i}", task_id=f"t{i}"))
+
+    fils = [threading.Thread(target=_poser, args=(i,)) for i in range(8)]
+    for t in fils:
+        t.start()
+    for t in fils:
+        t.join()
+
+    notes = _notes(observateur, ctx)
+    assert len(notes) == 8, f"{8 - len(notes)} fait(s) perdu(s)"
+    assert {n["skill_name"] for n in notes} == {f"s{i}" for i in range(8)}
+
+
+def test_les_faits_sont_ordonnes(observateur):
+    """Un consommateur draine dans l'ordre ; des clefs non triables le
+    forceraient a re-trier sur un champ que le plugin pourrait cesser
+    d'emettre."""
+    ctx, hook = _brancher(observateur)
+    for i in range(5):
         hook(**_fait(skill_name=f"s{i}"))
-    notes = ctx.state.donnees["mutations"]
-    assert len(notes) == observateur.FAITS_MAX
-    assert notes[-1]["skill_name"] == f"s{observateur.FAITS_MAX + 24}", (
-        "ce sont les plus ANCIENS qu'on jette")
+    assert [n["skill_name"] for n in _notes(observateur, ctx)] == [
+        f"s{i}" for i in range(5)]
 
 
 def test_l_etat_est_persiste_et_non_garde_en_memoire(observateur):
@@ -244,7 +285,7 @@ def test_le_plugin_n_importe_que_la_bibliotheque_standard():
     Mesure du 2026-09-10 : `scan_plugin()` sur ce repertoire rend « aucun ».
     La garde tient cette propriete, qui est la condition de survie du
     plugin a la mise a jour."""
-    autorises = {"json", "time", "__future__"}
+    autorises = {"json", "os", "threading", "time", "__future__"}
     arbre = ast.parse(SOURCE.read_text(encoding="utf-8"))
     importes = set()
     for noeud in ast.walk(arbre):
