@@ -626,6 +626,15 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### La corrélation, et ce que le pont n'y peut rien (HOS-277)
+
+Le pont sait demander à l'agent ce qu'il porte. Il ne sait pas lui dire pour
+quel Run il travaille — et aucune méthode du runtime ne le permettrait :
+`session/prompt` ne transporte que `{sessionId, prompt}`, et le mode jetable
+lance l'agent sans aucun identifiant de tâche. La limite n'est donc pas dans
+le pont, elle est dans ce que le protocole accepte. Détail et décision
+en §10.
+
 ### L'observateur (HOS-276)
 
 Une quatrième, et elle ne passe pas par le pont du tout. `on_skill_lifecycle`
@@ -741,7 +750,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-276)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-277)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1034,8 +1043,89 @@ est celui de la tâche de l'agent, pas d'un Run du Ledger. Les relier
 demanderait une correspondance qui n'existe nulle part — c'est le sujet
 suivant, pas celui-ci.
 
-**Ce que §10 attend encore.** Le consommateur de la relation, puis
-l'installation. Le versioning et le rollback : le ledger de l'agent
+### G-29 — la corrélation Run ↔ Skill : où elle se perd (HOS-277)
+
+G-28 avait posé un préalable à l'installation de l'observateur : *un
+lecteur réel de la relation*. G-29 est allé voir si cette relation peut
+seulement exister. Elle ne le peut pas aujourd'hui, et l'endroit exact où
+elle se perd est mesuré.
+
+    PRESENT       oui   l'agent émet task_id + session_id (G-28)
+    PROPAGATED    NON   c'est ici que ça casse
+    CALLED        n/a
+    PERSISTENT    NON
+    RESTART-SAFE  NON
+
+    la relation Run ↔ Skill                            DEFER
+    la déduire du temps, du compteur ou de l'unicité   REJECT
+
+#### Rien n'est propagé vers l'agent
+
+Le mode jetable lance l'agent avec `--query --model --provider --base_url
+--max_turns [--toolsets] --quiet --usage-file`. **Aucun identifiant de
+tâche.** Le `task_id` que Hermes OS tient ne sert qu'à son propre bus
+d'événements. Et `session/prompt` ne transporte que `{sessionId, prompt}` :
+y ajouter un champ serait inventer une API que le serveur ignorerait en
+silence.
+
+Le `task_id` qui arrive dans un événement Skill est donc **généré par
+l'agent**, sans aucun rapport avec celui de Hermes OS. Les deux portent le
+même nom et ne désignent pas la même chose.
+
+#### Ce qui remonte, remonte trop tard
+
+`_extract_session_id` récupère bien le `session_id` de l'agent, depuis
+stdout ou le fichier d'usage — mais à la **complétion**, donc après les
+événements Skill du tour. Et il n'est écrit nulle part : ni dans le Ledger,
+ni ailleurs.
+
+#### Le plafond de granularité est la session, pas le Run
+
+    cle_de_session({'project_id': 'P1', 'mission_id': 'M-alpha'}) -> 'projet:P1'
+    cle_de_session({'project_id': 'P1', 'mission_id': 'M-beta'})  -> 'projet:P1'
+
+Deux missions d'un même projet **partagent la session**, et c'est délibéré :
+`cle_de_session` groupe par projet pour qu'une campagne de 26 sections garde
+sa continuité. Un `session_id` ne désigne donc pas une mission. Et une
+mission porte plusieurs Runs — `runs.tentative`, `runs.parent` — si bien
+que même une session 1:1 avec une mission ne désignerait jamais un Run.
+
+#### Rien n'est persisté, et un commentaire l'affirmait
+
+`SessionsDeMission._identifiants` est un dictionnaire **en mémoire** : une
+instance neuve le trouve vide. Son commentaire annonçait pourtant la survie
+« après un redémarrage du backend ». G-29 était venu y chercher une clef de
+jointure durable ; bâtir dessus aurait pris une table volatile pour une
+trace. Le commentaire est corrigé.
+
+La table `runs` porte **29 colonnes**, aucune de session. Et `audit_log` a
+exactement les colonnes qu'il faudrait — `session_id`, `task_id`,
+`project_id` — pour **six lignes**, toutes des vérifications manuelles
+d'août, `task_id` toujours `NULL`.
+
+#### Pourquoi DEFER et non REJECT
+
+Rien n'est faux dans l'architecture : les frontières d'autorité sont nettes,
+et c'est précisément parce qu'elles le sont qu'aucune des deux parties ne
+peut fabriquer l'identité de l'autre. Il manque une donnée que seul l'amont
+peut fournir.
+
+REJECT, en revanche, sur les trois raccourcis à portée de main —
+« l'événement le plus proche dans le temps », « la seule session ouverte »,
+« le dernier Run démarré ». Ils produiraient des associations confiantes et
+fausses, et des tests les interdisent maintenant.
+
+#### Le chantier suivant
+
+Il n'est pas dans Hermes OS. La relation deviendrait possible si l'agent
+acceptait — et renvoyait — une **étiquette de tour fournie par le client** :
+un champ que Hermes OS pose sur `session/prompt` et que
+`on_skill_lifecycle` restitue. C'est une demande à formuler en amont, pas
+une capacité à construire ici. Tant qu'elle n'existe pas, l'observateur de
+G-28 reste non installé : sans relation, il n'aurait rien à corréler.
+
+**Ce que §10 attend encore.** Cette étiquette de tour, en amont. Le
+versioning et le rollback : le ledger de l'agent
 (`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas** sur cette
 installation — aucune mutation n'y a jamais été écrite — et aucune RPC ne
 l'expose. Appariement skill ↔ tâche reste PLANNED.
@@ -1161,6 +1251,11 @@ relation Run ↔ Skill, le poser créerait un producteur sans lecteur. §15
 mesure d'ordinaire l'inverse — des routes sans appelant — et la symétrie
 vaut : un producteur sans consommateur est le même défaut, pris par
 l'autre bout.
+
+**HOS-277 ferme la question autrement qu'attendu.** L'écran manquant n'était
+pas le blocage : la relation qu'il aurait affichée **n'existe pas** (§10,
+G-29). §15 n'a donc rien à brancher ici, et c'est un résultat, pas un
+report — une parité ne se mesure qu'entre deux choses qui existent.
 
 ### Ce que l'Assistant est aujourd'hui, mesuré
 

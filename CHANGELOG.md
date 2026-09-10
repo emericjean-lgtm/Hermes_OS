@@ -1,3 +1,128 @@
+## HOS-277 — La correlation Run ↔ Skill : ou elle se perd (2026-09-10)
+
+G-29. G-28 avait pose un prealable a l'installation de l'observateur : *un
+lecteur reel de la relation*. Cette passe est allee voir si cette relation
+peut seulement exister. Elle ne le peut pas, et l'endroit exact ou elle se
+perd est mesure.
+
+    PRESENT       oui   l'agent emet task_id + session_id (G-28)
+    PROPAGATED    NON   c'est ici que ca casse
+    CALLED        n/a
+    PERSISTENT    NON
+    RESTART-SAFE  NON
+
+    la relation Run ↔ Skill                           DEFER
+    la deduire du temps, du compteur ou de l'unicite   REJECT
+
+### Rien n'est propage vers l'agent
+
+Le mode jetable lance l'agent avec exactement huit drapeaux : `--query
+--model --provider --base_url --max_turns [--toolsets] --quiet
+--usage-file`. **Aucun identifiant de tache.** Le `task_id` que Hermes OS
+tient ne sert qu'a son propre bus d'evenements — `TASK_STARTED`,
+`TASK_COMPLETED`.
+
+Et `session/prompt` ne transporte que `{sessionId, prompt}`. Y ajouter un
+champ serait inventer une API que le serveur ignorerait **en silence**, ce
+qui est pire que la refuser.
+
+Le `task_id` qui arrive dans un evenement Skill est donc **genere par
+l'agent**. Les deux portent le meme nom et ne designent pas la meme chose.
+
+### Ce qui remonte, remonte trop tard
+
+`_extract_session_id` recupere bien le `session_id` de l'agent, depuis
+stdout ou le fichier d'usage — mais a la **completion**, donc apres les
+evenements Skill du tour. Et il n'est ecrit nulle part : ni dans le Ledger,
+ni ailleurs. Il traverse `ChatResponse.metadata` et disparait.
+
+### Le plafond de granularite est la session, pas le Run
+
+    cle_de_session({'project_id': 'P1', 'mission_id': 'M-alpha'}) -> 'projet:P1'
+    cle_de_session({'project_id': 'P1', 'mission_id': 'M-beta'})  -> 'projet:P1'
+
+Deux missions d'un meme projet **partagent la session**, et c'est delibere :
+`cle_de_session` groupe par projet pour qu'une campagne de 26 sections garde
+sa continuite. Un `session_id` ne designe donc pas une mission.
+
+Et une mission porte plusieurs Runs — `runs.tentative`, `runs.parent` — si
+bien que meme une session 1:1 avec une mission ne designerait jamais un Run.
+
+### Rien n'est persiste, et un commentaire l'affirmait
+
+`SessionsDeMission._identifiants` est un dictionnaire **en memoire** : une
+instance neuve le trouve vide. Son commentaire annoncait pourtant la survie
+« apres un redemarrage du backend ». G-29 etait venu y chercher une clef de
+jointure durable ; batir dessus aurait pris une table volatile pour une
+trace. Le commentaire est corrige — ce qu'il apporte vraiment (reprendre le
+contexte apres un processus d'agent mort) reste dit.
+
+La table `runs` porte **29 colonnes**, aucune de session. Et `audit_log` a
+exactement les colonnes qu'il faudrait — `session_id`, `task_id`,
+`project_id` — pour **six lignes**, toutes des verifications manuelles
+d'aout, `task_id` toujours `NULL`.
+
+### Pourquoi DEFER et non REJECT
+
+Rien n'est faux dans l'architecture. Les frontieres d'autorite sont nettes,
+et c'est precisement parce qu'elles le sont qu'aucune des deux parties ne
+peut fabriquer l'identite de l'autre. Il manque une donnee que seul l'amont
+peut fournir.
+
+REJECT, en revanche, sur les trois raccourcis a portee de main —
+« l'evenement le plus proche dans le temps », « la seule session ouverte »,
+« le dernier Run demarre ». Ils produiraient des associations confiantes et
+fausses ; des tests les interdisent maintenant.
+
+### Le chantier suivant n'est pas dans Hermes OS
+
+La relation deviendrait possible si l'agent acceptait — et renvoyait — une
+**etiquette de tour fournie par le client** : un champ que Hermes OS pose
+sur `session/prompt` et que `on_skill_lifecycle` restitue. C'est une demande
+a formuler en amont, pas une capacite a construire ici. Tant qu'elle
+n'existe pas, l'observateur de G-28 reste non installe : sans relation, il
+n'aurait rien a correler.
+
+### Deux gardes ecrites de travers, et ce qu'elles ont appris
+
+La garde contre les heuristiques temporelles balayait le **texte** des
+fichiers. Elle accusait `backend/bridge/hermes_agent_bridge.py` a cause du
+litteral `"session.most_recent"` — un nom de methode RPC dans la matrice de
+capacites. Reecrite sur les identifiants de l'arbre syntaxique, elle regarde
+ce que le module *fait* plutot que ce qu'il *contient*.
+
+La garde sur les charges utiles, elle, accusait
+`mcp_server/server.py:_skill_to_dict` et son `source_task_id`. Or c'est
+l'entite `Skill` **du distributeur** de Hermes OS : ce champ relie une
+competence de Hermes OS a une tache de Hermes OS, une relation ou il EST
+l'autorite. HOS-274 avait fixe que les deux magasins ne se confondent pas ;
+une garde qui les confond accuse le mauvais. Recentree sur les trois
+surfaces qui servent les competences de **l'agent**.
+
+### Le trou qu'une mutation a trouve
+
+La mutation « la route affirme un `run_id` » est restee **verte** au premier
+essai : toutes les gardes regardaient les modules qui *calculent*, aucune ne
+regardait la charge utile rendue. Une surface pouvait donc fabriquer la
+relation au dernier metre, et l'interface l'aurait affichee comme un fait.
+`test_la_route_des_competences_de_l_agent_ne_rend_aucune_relation` existe a
+cause de ce vert.
+
+### Preuves
+
+Suite complete 6049 passed, 3 skipped, 274 deselected ; tsc et vitest
+verts.
+
+Dix mutations, dix rouges : un `task_id` pousse vers l'agent, un `run_id`
+dans le prompt ACP, la table volatile declaree durable, la session keyee par
+mission seule, une colonne de session au Ledger, une relation declaree dans
+la provenance, un Run devine par le plus recent, une route qui affirme un
+`run_id`, la roadmap qui perd sa mesure, et le backend qui nomme le plugin
+non installe.
+
+`data/db/hermes.db` intacte ; aucune ecriture dans les magasins de
+Hermes Agent.
+
 ## HOS-276 — L'observateur de Skills : legitime, et pas installe (2026-09-10)
 
 G-28. G-27 laissait une porte nommee : `on_skill_lifecycle` est un hook

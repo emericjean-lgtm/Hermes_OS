@@ -17,17 +17,18 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       G-14 fermé (HOS-264) — le catalogue est sondé
                       §16 🟡 (HOS-265→274) — le pont, la matrice,
                       le chat joignable et enfin interruptible
-                      §10 🟡 (HOS-274→276) — les Skills se lisent, le
+                      §10 🟡 (HOS-274→277) — les Skills se lisent, le
                       chiffre de HOS-153 était faux, la provenance est
-                      mesurée (60 système / 4 générées / 1 conflit), et le
-                      plugin qui porterait la corrélation est prouvé
-                      faisable mais DEFER faute de consommateur
+                      mesurée (60 système / 4 générées / 1 conflit), et la
+                      corrélation Run ↔ Skill est DEFER : rien ne propage
+                      d'identité vers l'agent, et la session groupe par
+                      projet, jamais par Run
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      4791d00 (G-27, HOS-275) — dernier commit
-                               de code avant G-28 (plugin observateur)
+BASELINE:                      cd40dff (G-28, HOS-276) — dernier commit
+                               de code avant G-29 (corrélation)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud

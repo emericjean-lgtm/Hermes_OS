@@ -168,12 +168,18 @@ class SessionsDeMission:
         # mesurait le tick du système, pas la règle d'expiration.
         self._horloge = horloge or time.monotonic
         self._verrou = asyncio.Lock()
-        # Les identifiants de session **survivent a la fermeture**. L'agent
-        # persiste ses sessions sur disque : garder l'identifiant permet de
-        # reprendre le contexte apres un processus mort, ou apres un
-        # redemarrage du backend. Sans cela, un agent qui meurt a la section
-        # 18 d'un cahier emporte toute la campagne — et le harnais ne
-        # vaudrait alors, a cet instant, que le mode jetable qu'il remplace.
+        # Les identifiants de session **survivent a la fermeture de la
+        # session**, pas au redemarrage du backend : ce dictionnaire vit en
+        # memoire, et une instance neuve le trouve vide (mesure G-29). Ce
+        # qu'il apporte reste reel — l'agent persiste ses sessions sur
+        # disque, donc garder l'identifiant permet de reprendre le contexte
+        # apres un processus d'agent mort, et sans cela un agent qui meurt a
+        # la section 18 d'un cahier emporte toute la campagne.
+        #
+        # La correction porte sur une phrase qui affirmait aussi la survie
+        # « apres un redemarrage du backend ». Elle etait fausse, et G-29
+        # est alle chercher ici une clef de jointure Run <-> Skill : batir
+        # dessus aurait pris une table volatile pour une trace durable.
         self._identifiants: dict[str, str] = {}
 
     # -- interrogation ------------------------------------------------
