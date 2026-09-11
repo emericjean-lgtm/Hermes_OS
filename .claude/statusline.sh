@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Hermes OS - Claude Code status line v3
+# Hermes OS - Claude Code status line v4
 # Affiche uniquement des métriques déjà fournies par Claude Code :
-# répertoire, modèle, effort, contexte, tokens, cache, coût, limites.
+# répertoire, modèle, effort, contexte, tokens courants, cache et limites.
 # Aucune requête réseau supplémentaire : la status line reste locale.
 
 set -e
@@ -29,8 +29,9 @@ CTX_PCT="$(extract_json 'd.get("context_window", {}).get("used_percentage")')"
 CTX_SIZE="$(extract_json 'd.get("context_window", {}).get("context_window_size")')"
 INPUT_TOKENS="$(extract_json 'd.get("context_window", {}).get("total_input_tokens")')"
 OUTPUT_TOKENS="$(extract_json 'd.get("context_window", {}).get("total_output_tokens")')"
-CACHE_HIT_RATIO="$(extract_json 'd.get("prompt_cache", {}).get("hit_ratio")')"
+CACHE_HIT_RATIO="$(extract_json '((d.get("prompt_cache", {}).get("hit_ratio") or 0) * 100) if d.get("prompt_cache", {}).get("hit_ratio") is not None else ""')"
 CACHE_MISSES="$(extract_json 'd.get("prompt_cache", {}).get("misses")')"
+CACHE_WARM="$(extract_json 'd.get("prompt_cache", {}).get("warm")')"
 SESSION_COST="$(extract_json 'd.get("cost", {}).get("total_cost_usd")')"
 FIVE_HOUR="$(extract_json 'd.get("rate_limits", {}).get("five_hour", {}).get("used_percentage")')"
 SEVEN_DAY="$(extract_json 'd.get("rate_limits", {}).get("seven_day", {}).get("used_percentage")')"
@@ -63,7 +64,9 @@ fi
 CACHE_STR="n/a"
 if [ -n "$CACHE_HIT_RATIO" ]; then
   CACHE_STR="$(format_pct "$CACHE_HIT_RATIO")"
-  [ -n "$CACHE_MISSES" ] && CACHE_STR="${CACHE_STR}/${CACHE_MISSES}m"
+  [ "$CACHE_WARM" = "True" ] && CACHE_STR="${CACHE_STR}/warm"
+  [ "$CACHE_WARM" = "False" ] && CACHE_STR="${CACHE_STR}/cold"
+  [ -n "$CACHE_MISSES" ] && CACHE_STR="${CACHE_STR} m${CACHE_MISSES}"
 fi
 
 TOKENS_STR=""
@@ -97,6 +100,6 @@ printf "${CYAN}[cwd]${RESET} ${BOLD}%s${RESET} ${DIM}|${RESET} ${AMBER}[mdl]${RE
   "$CWD_DISPLAY" "$MODEL_DISPLAY" "$EFFORT"
 printf "  ${CTX_COLOR}ctx:${RESET} [${CTX_COLOR}%s${RESET}] ${BOLD}%s${RESET}" "$CTX_BAR" "$CTX_PCT_STR"
 [ -n "$CTX_SIZE" ] && printf " ${DIM}(${CTX_SIZE})${RESET}"
-printf " ${DIM}|${RESET} ${GREEN}tokens:${RESET} %s ${DIM}|${RESET} ${GREEN}cache:${RESET} %s ${DIM}|${RESET}" "$TOKENS_STR" "$CACHE_STR"
+printf " ${DIM}|${RESET} ${GREEN}tok:${RESET} %s ${DIM}|${RESET} ${GREEN}cache:${RESET} %s ${DIM}|${RESET}" "$TOKENS_STR" "$CACHE_STR"
 [ -n "$COST_STR" ] && printf " ${GREEN}cost:${RESET}%s ${DIM}|${RESET}" "$COST_STR"
 printf " ${DIM}%s${RESET}\n" "$LIMITS_STR"
