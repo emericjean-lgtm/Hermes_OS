@@ -26,9 +26,16 @@ diffuse. La garde vit donc là où est la socket — une seule autorité,
 ## Ce que ce fichier ne prouve pas
 
 Que le pare-feu *détecte* tout. Il prouve qu'on ne peut pas le
-contourner. Mesuré au passage et consigné séparément : il reconnaît
-`sk-…` comme secret et **ignore `sk-or-v1-…`**, le format de clé
-d'OpenRouter lui-même. C'est un défaut de détection, pas de routage.
+contourner — le **routage**, pas la **détection**.
+
+Le défaut de détection que cette passe avait mesuré au passage et
+consigné sans le corriger — `sk-…` reconnu, `sk-or-v1-…` ignoré, le
+format de clé d'OpenRouter lui-même — **est fermé depuis A-10
+(HOS-290)** : `test_pare_feu_openrouter.py` le couvre, et le motif
+corrigé vit dans `audit_log._SECRET_PATTERNS`, la même et unique
+autorité. Les deux fichiers restent séparés parce qu'ils prouvent deux
+choses différentes : ici qu'aucun chemin n'échappe au pare-feu, là que
+le pare-feu voit ce qu'il doit voir.
 """
 
 from __future__ import annotations

@@ -62,7 +62,24 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         r'(\s*[:=]\s*)(["\']?)([^\s"\',;}]{4,})',
     ), r"\g<0>"),  # replaced by _redact_keyed below, which keeps the key
     # Common provider key shapes, matched on their own.
-    (re.compile(r"\bsk-[A-Za-z0-9]{16,}\b"), "[REDACTED]"),
+    #
+    # A-10 (HOS-290): the class after "sk-" excludes "-", so the rule
+    # below used to be `\bsk-[A-Za-z0-9]{16,}\b` and could not match
+    # `sk-or-v1-<64 hex>` — OpenRouter's own key format, and OpenRouter
+    # is the provider this repo actually calls. Measured before the fix:
+    # `sk-<32 alnum>` refused, all eight `sk-or-v1-…` placements allowed
+    # straight through the firewall.
+    #
+    # The optional `{0,3}` segments are the provider labels that live
+    # between the scheme and the entropy (`or-v1-`, and `ant-`/`proj-`
+    # for other vendors). They are bounded rather than open so that the
+    # rule stays a key shape and not "anything containing sk-": each
+    # label is at most 8 lowercase-alnum chars, and the final run still
+    # carries the original 16-char entropy floor. That floor is what
+    # keeps prose out — "le préfixe sk-or", "le format est sk-or-v1-<hex>"
+    # and "risk-reward" all fail it, verified.
+    (re.compile(r"\bsk-(?:[a-z0-9]{1,8}-){0,3}[A-Za-z0-9]{16,}\b"),
+     "[REDACTED]"),
     (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,}\b"), "[REDACTED]"),
     # Telegram bot tokens: <digits>:<base64-ish>. The suffix is normally
     # 35 chars; the threshold is 20 so a shortened or test token is

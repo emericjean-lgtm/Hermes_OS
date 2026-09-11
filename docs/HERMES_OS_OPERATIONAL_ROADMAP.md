@@ -6,8 +6,9 @@
 > Il complète `docs/HERMES_OS_MASTER_ROADMAP.md` : le document maître décrit l'architecture, l'historique et les écarts ; ce document impose l'ordre de travail.
 >
 > Dernière mise à jour : 2026-09-11
-> Dernier jalon vérifié : HOS-289 / G-40
-> Dernier commit de code vérifié : `25ddb52a3c117199a085caaf42428dc4cdad656e`
+> Dernier jalon vérifié : HOS-290 / A-10
+> Dernier commit de code vérifié : voir `git log -1` — A-10 fermé sur la
+> base `25ddb52a3c117199a085caaf42428dc4cdad656e`
 
 ## 1. Règles d'exécution
 
@@ -29,22 +30,33 @@
 
 ## 2. Situation courante
 
-**Chantier actif : #1 — A-10 pare-feu OpenRouter**
+**Chantier actif : #2 — A-3 checkpoints / restauration**
 
 Statut : 🟠 **À EXÉCUTER**
 
-Objectif : terminer A-10 sur le chemin réel OpenRouter, notamment la détection du format de clé OpenRouter `sk-or-v1-*`, sans introduire de faux positifs ni un second scanner. Le chantier doit couvrir les chemins `chat` et `chat_events`, les mutations négatives/positives et l'absence de contournement.
+**#1 — A-10 pare-feu OpenRouter : 🟢 FERMÉ le 2026-09-11 (HOS-290).**
+Le motif `\bsk-[A-Za-z0-9]{16,}\b` excluait `-` de sa classe et ne pouvait
+donc pas voir `sk-or-v1-<64 hex>` — le pare-feu était aveugle à la clé de
+son propre fournisseur. Relevé avant correctif : `sk-<32 alnum>` refusé,
+`sk-or-v1-…` autorisé aux **huit** placements essayés. Corrigé dans
+`audit_log._SECRET_PATTERNS`, l'unique scanner — `pare_feu` y délègue
+déjà, aucun second détecteur créé. Segments de fournisseur bornés et
+plancher d'entropie de 16 conservé : 7 textes légitimes vérifiés non
+bloquants. **Preuve à la socket** (`transport=None`, serveur HTTP local
+comptant les connexions) : 0 requête sur `chat` et `chat_events` avec
+secret, 1 requête et réponse reçue sans secret. Cinq mutations rouges
+puis vertes. **§4 passe 🟢.**
 
-**Prochain chantier obligatoire après A-10 : #2 — A-3 checkpoints / restauration.**
+**Prochain chantier obligatoire : #2 — A-3 checkpoints / restauration.**
 
-Base de travail : HOS-289 / G-40. Le dernier audit des Centers est terminé et la branche `main` était propre et alignée sur l'origine.
+Base de travail : HOS-290 / A-10.
 
 ## 3. Ordre obligatoire des chantiers
 
 | # | Chantier | Statut opérationnel | Condition de clôture |
 |---:|---|---|---|
-| 1 | **A-10 — Pare-feu OpenRouter** | 🟠 ACTIF | format OpenRouter réel reconnu ; absence de secret refusée sur chemin réel ; faux positifs conservés ; mutations rouges puis vertes |
-| 2 | **A-3 — Checkpoints / restauration** | 🟠 NEXT | décision explicite sur restauration ; si conservée, chemin restore réellement appelable, persistant et testé ; sinon capacité reclassée sans faux contrat |
+| 1 | ~~**A-10 — Pare-feu OpenRouter**~~ | 🟢 **FERMÉ (HOS-290)** | rempli : `sk-or-v1-*` reconnu ; refus prouvé à la socket sur `chat` et `chat_events` (0 requête) ; 7 faux positifs conservés ; 5 mutations rouges puis vertes |
+| 2 | **A-3 — Checkpoints / restauration** | 🟠 **ACTIF** | décision explicite sur restauration ; si conservée, chemin restore réellement appelable, persistant et testé ; sinon capacité reclassée sans faux contrat |
 | 3 | **A-4 — Habilitation Workspace / MCP** | 🔴🟠 NEXT | workspace actif comme frontière d'autorisation ; MCP et filesystem contraints par Project validé ; chemin UI→backend→Aegis→outil démontré |
 | 4 | **G-15 — Invalidation des probes** | 🟠 | invalidation/re-évaluation automatique lorsque poids, `num_ctx`, paramètres ou état agentique changent sous un même tag ; preuves datées et consommées |
 | 5 | **G-11 — `assigned_tools` réellement utilisé** | 🟠 | champ relié au vrai chemin d'exécution et démontré par allow/deny contrastés |
@@ -72,7 +84,7 @@ Base de travail : HOS-289 / G-40. Le dernier audit des Centers est terminé et l
 - §1 Contract & Verification : 🟢 COMPLETED
 - §2 Run Ledger & Execution Lineage : 🟢 COMPLETED
 - §3 Checkpoints / Approval / Sandbox / Security : 🟡 PARTIAL
-- §4 Cloud / Providers / Quota : 🟡 PARTIAL
+- §4 Cloud / Providers / Quota : 🟢 COMPLETED (A-1 + A-10 fermés)
 - §5 Runtime / RAL / Model Intelligence : 🟢 COMPLETED
 - §6 Cognitive Scheduler / Resource Intelligence : 🟡 PARTIAL
 - §7 Advanced Agent Orchestration : 🟠 PLANNED
@@ -89,7 +101,8 @@ Base de travail : HOS-289 / G-40. Le dernier audit des Centers est terminé et l
 ## 5. Jalons déjà validés à ne pas rouvrir sans preuve nouvelle
 
 - §1 / §2 / §5 : fondations démontrées.
-- A-1 : pare-feu cloud fermé, mais A-10 reste le correctif spécifique du format de secret OpenRouter.
+- A-1 / HOS-255 : pare-feu cloud inévitable (défaut de **routage**).
+- A-10 / HOS-290 : format de secret OpenRouter `sk-or-v1-*` reconnu (défaut de **détection**). Les deux étaient distincts et sont fermés ; §4 est 🟢.
 - A-2 / HOS-256 : contrôles HOS-217/218 câblés sur le chemin réel.
 - §6.1 / HOS-263 : décision du routeur réellement consommée et repli borné par la preuve.
 - G-14 / HOS-264 : capacité agentique mesurée sur les six modèles du catalogue.
@@ -112,6 +125,7 @@ Base de travail : HOS-289 / G-40. Le dernier audit des Centers est terminé et l
 - G-21 : mémoire Hermes Agent non exposée via RPC.
 - G-25 : steering différé, car ACP n'offre pas d'injection dans le tour actif.
 - G-41 : trou documentaire HOS-112→189, volontairement non reconstruit rétrospectivement.
+- A-21 : la règle `clé=valeur` de `redact` couvre `…_API_KEY` et `…_SECRET` mais **pas un nom en `…_KEY` seul** — mesuré HOS-290. Sans danger pour une clé dont la *forme* est reconnue (le cas OpenRouter), ouvert pour une clé d'une autre forme derrière un tel nom. Défaut de nommage, pas de format : hors périmètre A-10.
 - Capability assertions sans producteur : garde fiable non encore résolue car les regex confondaient affirmation et négation.
 - Secondary Center tabs : ouverture visuelle exhaustive non encore réalisée.
 
@@ -145,8 +159,10 @@ Lorsqu'un nouveau travail Hermes OS commence, utiliser d'abord :
 
 ## 9. Actuel
 
-**ACTIVE: A-10**
+**ACTIVE: A-3**
 
-**NEXT: A-3**
+**NEXT: A-4**
+
+*(A-10 fermé le 2026-09-11, HOS-290.)*
 
 **DO NOT JUMP AHEAD.**

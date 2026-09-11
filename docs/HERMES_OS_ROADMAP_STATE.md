@@ -228,9 +228,11 @@ ou moins :
 1. ~~**R-3 / R-4**~~ — **fermés le 2026-09-05 (HOS-259)**. La borne vient
    de `ResourceManager`, relue à chaque étape ; le portillon qui
    l'applique est partagé par toutes les missions.
-2. **A-10** — trouvé en fermant A-1 : le pare-feu ignore `sk-or-v1-…`,
-   le format de clé d'OpenRouter. Défaut de détection, pas de routage.
-   Bloque §4.
+2. ~~**A-10**~~ — **fermé le 2026-09-11 (HOS-290)**. Le pare-feu
+   ignorait `sk-or-v1-…`, le format de clé d'OpenRouter lui-même : la
+   classe du motif excluait le tiret. Corrigé dans l'unique scanner
+   (`audit_log._SECRET_PATTERNS`), prouvé à la socket — 0 requête
+   émise sur `chat` et `chat_events`. **§4 passe 🟢.**
 3. ~~**A-18**~~ — **fermé le 2026-09-05 (HOS-261)**. L'empreinte dépend
    du contexte servi ; le catalogue porte désormais deux chiffres, et
    l'admission retient le pire cas du tag.
@@ -246,7 +248,7 @@ ou moins :
 2026-09-05 parce que la trajectoire produit n'était écrite nulle part —
 pas parce qu'elle est prête. Ce qui la précède :
 
-1. **A-10** ferme §4 ;
+1. ~~**A-10**~~ — **fermé le 2026-09-11 (HOS-290)**, §4 est 🟢 ;
 2. ~~**T-22 / §6.1**~~ — **tranché le 2026-09-05 (ADAPT)** : l'architecture
    existante suffisait, aucun ordonnanceur n'était requis ;
 3. ~~**T-29**~~ — **tranché le 2026-09-06 (ADAPT)**, et ~~**G-14**~~
@@ -275,7 +277,8 @@ mentirait sur ce qu'il fait.
 | Gap | Classe | Section |
 |---|---|---|
 | ~~Contournement du pare-feu cloud (A-1)~~ — **fermé HOS-255** | security | §4 |
-| Le pare-feu ignore `sk-or-v1-…` (A-10) | security | §4 |
+| ~~Le pare-feu ignore `sk-or-v1-…` (A-10)~~ — **fermé HOS-290** | security | §4 |
+| La règle `clé=valeur` de `redact` ne couvre pas un nom en `…_KEY` seul (A-21) — mesuré HOS-290 : `_API_KEY` et `_SECRET` caviardés, `OPENROUTER_KEY:` non ; sans danger pour les clés dont la forme est reconnue, ouvert pour les autres | security | §4 |
 | ~~Source d'admission = `/api/ps` (A-15)~~ — **fermé HOS-258** | architectural | §6 |
 | Aucune sonde d'occupation sur Linux sans `rocm-smi` (A-16) | architectural | §6 |
 | ~~Comptabilité VRAM/CPU par Run (R-6)~~ — **fermé HOS-260** | observability | §6 |

@@ -15,7 +15,7 @@
 | §1 | Contract & Verification | 🟢 | aucune | Hermes OS |
 | §2 | Run Ledger & Execution Lineage | 🟢 | aucune | Hermes OS |
 | §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | ~~A-2~~ fermé · **fermer A-3** | Hermes OS |
-| §4 | Cloud / Providers / Quota | **🟡** | ~~A-1~~ fermé · **fermer A-10** | Hermes OS |
+| §4 | Cloud / Providers / Quota | **🟢** | ~~A-1~~ fermé · ~~A-10~~ fermé (HOS-290) | Hermes OS |
 | §5 | Runtime / RAL / Model Intelligence | 🟢 | aucune | Hermes OS |
 | §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 🟢 · §6.2 · A-15 · R-3/R-4 · R-6 · A-18 fermés · **§6.6 non ouverte** | AIOS ; Hermes Agent |
 | §7 | Advanced Agent Orchestration | 🟠 | audit de décision | Hermes Agent ; OpenHands ; Autonomous OS |
@@ -285,11 +285,30 @@ Une liste blanche structurelle de fichiers autorisés à parler à
 OpenRouter empêche la réapparition d'un troisième chemin. Le goulet garde
 courtier, quota et publication. Trois mutations vérifiées.
 
-**Ce qui l'empêche encore d'être 🟢 — A-10.** Le pare-feu reconnaît
-`sk-…` comme secret et **ignore `sk-or-v1-…`**, le format de clé
-d'OpenRouter lui-même — mesuré. Défaut de **détection**, distinct du
-défaut de **routage** que A-1 était. Le corriger touche aux motifs et
-peut produire des faux positifs bloquants : passe dédiée.
+**A-10 — fermé le 2026-09-11 (HOS-290).** Le pare-feu reconnaissait
+`sk-…` et **ignorait `sk-or-v1-…`**, le format de clé d'OpenRouter
+lui-même — aveugle à la clé de son propre fournisseur. Défaut de
+**détection**, distinct du défaut de **routage** que A-1 était.
+
+La cause tenait en un caractère : `\bsk-[A-Za-z0-9]{16,}\b`, dont la
+classe exclut `-`. Après `sk-`, le moteur lit `or`, bute sur le tiret, et
+le quantificateur échoue. Relevé au commit `25ddb52` : `sk-<32 alnum>`
+→ REFUSE, `sk-or-v1-<64 hex>` → AUTORISE **aux huit placements
+essayés**.
+
+Corrigé dans `audit_log._SECRET_PATTERNS`, l'unique scanner — ni second
+détecteur, ni règle dans `pare_feu`, qui délègue déjà à `redact`. Les
+segments de fournisseur (`or-v1-`, `ant-`) sont bornés et le plancher
+d'entropie de 16 caractères est conservé : c'est lui qui garde la prose
+dehors — « le préfixe sk-or », « le format est sk-or-v1-<hex> » et
+« risk-reward » restent autorisés, vérifié.
+
+**Preuve au niveau de la socket**, pas du joint de test : avec
+`transport=None` — donc le vrai transport réseau — et `base_url` pointé
+sur un serveur HTTP local qui compte les connexions, un secret produit
+**0 requête** sur `chat` comme sur `chat_events`, un message légitime en
+produit exactement **1** et reçoit sa réponse. Cinq mutations
+adversariales vérifiées.
 
 <details><summary>A-1 — le défaut tel qu'il était (conservé)</summary>
 
@@ -2312,7 +2331,7 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | ID | Classe | Gap | Section | Preuve |
 |---|---|---|---|---|
 | ~~A-1~~ | **security** | ~~Deux chemins envoient un prompt cloud sans pare-feu~~ — **fermé HOS-255** | §4 | garde dans `OpenRouterClient`, liste blanche structurelle, 3 mutations |
-| **A-10** | **security** | Le pare-feu ignore `sk-or-v1-…`, le format de clé d'OpenRouter | §4 | mesuré : `sk-…` → refusé ; `sk-or-v1-…` → autorisé, aucun constat |
+| ~~**A-10**~~ | **security** | ~~Le pare-feu ignore `sk-or-v1-…`, le format de clé d'OpenRouter~~ — **fermé HOS-290** | §4 | était : `sk-…` → refusé, `sk-or-v1-…` → autorisé aux 8 placements. Motif élargi dans `audit_log`, prouvé à la socket : 0 requête émise |
 | ~~A-2~~ | **security** | ~~HOS-217/218 livrés, testés, 0 appelant~~ — **fermé HOS-256** | §3 | câblés sur les coutures existantes, 6 mutations, garde structurelle des lanceurs |
 | A-3 | **functional** | Points de reprise pris, jamais restaurables | §3 | `prendre` 1 appelant, `restaurer` 0, aucune route |
 | ~~A-19~~ | **test** | ~~`_RegistreMissions` hydrate sur un ordre non garanti~~ — **fermé HOS-262** | §3 | `ORDER BY cree_le DESC, rowid DESC` ; 0/20 → 5/20 avant, 25/25 après |
@@ -2423,7 +2442,7 @@ des passes ne sont pas reconstituées.
 | T-21 | 2026-09-04 | Mission ↔ Run Ledger | ADOPT | un journal dont les lignes s'effacent avec leur sujet n'est plus un journal | pas de cascade ; l'absence de mission n'est pas une `Cause` | HOS-253 | 🟢 appliqué |
 | **T-22** | — | §6.1 — autorité d'ordonnancement | **ouvert** | un ordonnanceur est par nature une seconde autorité au-dessus du RAL | à trancher **avant** toute ligne de §6 | §6 | 🟠 à décider |
 | T-23 | 2026-09-04 | A-1 — replis cloud hors pare-feu | **ADAPT** | le goulet prétendait être seul et ne l'était pas ; le router était impossible sans perdre le streaming | garde dans le client, autorité inchangée | HOS-255 | 🟢 appliqué |
-| **T-27** | — | A-10 — motifs de détection du pare-feu | **ouvert** | il ignore le format de clé de son propre fournisseur | élargir les motifs sans produire de faux positifs bloquants | §4 | 🟠 à décider |
+| **T-27** | — | A-10 — motifs de détection du pare-feu | **tranché ADAPT (HOS-290)** | il ignorait le format de clé de son propre fournisseur | motif élargi **dans le scanner existant**, segments de fournisseur bornés, plancher d'entropie de 16 conservé : 7 textes légitimes vérifiés non bloquants | §4 | 🟢 fermé |
 | T-24 | 2026-09-04 | A-2 — contrôles de sécurité non câblés | **ADOPT** | les deux invariants étaient réels *et* non couverts par ailleurs | câblés sur les coutures existantes, aucune politique nouvelle | HOS-256 | 🟢 appliqué |
 | **T-25** | — | A-3 — restauration des points de reprise | **ouvert** | on prend ce qu'on ne sait pas rendre | exposer ou cesser de prendre | §3 | 🟠 à décider |
 | **T-26** | — | A-4 — habilitation de portée projet | **ouvert** | l'isolation repose sur la bonne foi du modèle | modèle d'habilitation à définir | §8 | 🟠 à décider |

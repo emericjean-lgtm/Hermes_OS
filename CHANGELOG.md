@@ -1,3 +1,123 @@
+## HOS-290 — Le pare-feu ne voyait pas la clé de son propre fournisseur (2026-09-11)
+
+A-10. Ferme §4.
+
+### Le défaut, en un caractère
+
+    _SECRET_PATTERNS :  \bsk-[A-Za-z0-9]{16,}\b
+
+`-` n'est pas dans la classe. Une clé OpenRouter s'écrit
+`sk-or-v1-<64 hexadécimaux> ` : après `sk-`, le moteur lit `or`, bute sur
+le tiret, et `{16,}` échoue. Le pare-feu reconnaissait la clé d'OpenAI et
+laissait passer celle d'**OpenRouter — le seul fournisseur cloud que ce
+dépôt appelle réellement**.
+
+Relevé au commit `25ddb52`, avant correctif, sur `pare_feu.examiner` :
+
+    sk-<32 alnum>                        REFUSE     (A-1, correct)
+    sk-or-v1-<64 hex>                    AUTORISE   ← le défaut
+    … nue, début, milieu, fin,
+      guillemets, deux-points, point,
+      URL — 8 placements               8× AUTORISE
+
+A-1 (HOS-255) avait mesuré ce défaut **en passant**, l'avait consigné
+dans sa propre docstring et ne l'avait pas corrigé : c'était un défaut de
+**détection**, quand A-1 traitait le **routage**. Les deux sont
+maintenant fermés, et les deux fichiers de garde restent séparés parce
+qu'ils prouvent deux choses différentes — l'un qu'aucun chemin n'échappe
+au pare-feu, l'autre que le pare-feu voit ce qu'il doit voir.
+
+### Une ligne, dans le scanner qui existait déjà
+
+`pare_feu.py` ne porte aucun détecteur : il délègue à
+`audit_log.redact`, qu'il nomme « le plus proche d'un `secret_scanner`
+que ce dépôt possède ». Le correctif vit donc là, et nulle part ailleurs.
+Ni second scanner, ni détecteur OpenRouter dédié, ni règle parallèle dans
+le pare-feu.
+
+    \bsk-(?:[a-z0-9]{1,8}-){0,3}[A-Za-z0-9]{16,}\b
+
+Les segments intermédiaires sont les étiquettes de fournisseur qui vivent
+entre le schéma et l'entropie (`or-v1-`, et `ant-`/`proj-` ailleurs). Ils
+sont **bornés** — trois au plus, huit caractères chacun — pour que la
+règle reste une forme de clé et non « tout ce qui contient sk- ». Le
+plancher d'entropie de 16 caractères est conservé tel quel : c'est lui
+qui garde la prose dehors.
+
+### Le risque réel du correctif était le faux positif
+
+Un pare-feu qui refuse tout est un pare-feu qu'on désarme dans la
+semaine — la leçon du canary (HOS-218). Sept textes que quelqu'un écrit
+vraiment en parlant d'OpenRouter sont donc vérifiés **non bloquants** :
+
+    le préfixe sk-or identifie OpenRouter
+    le format d'OpenRouter est sk-or-v1-<hex>
+    un profil risk-reward intéressant
+    identifiant sk-abc123 dans le ticket
+    extrait : sk-or-v1-0123abcd (tronqué)
+    ne colle jamais ta clé OpenRouter ici
+    lis OPENROUTER_API_KEY dans l'environnement
+
+La mutation qui abaisse le plancher d'entropie à 1 fait rougir ces
+gardes-là : elles sont causales, pas décoratives.
+
+### La preuve est à la socket, pas au joint de test
+
+`httpx.MockTransport` prouve qu'aucune requête n'est **construite**. Il
+ne prouve pas qu'aucun octet n'atteint une socket, puisqu'il remplace
+précisément la couche qui la tient. La preuve finale laisse donc
+`transport=None` — le vrai transport réseau — et pointe `base_url` sur un
+serveur HTTP local qui compte les connexions acceptées :
+
+    chat         secret    →  0 requête   REFUS avant émission
+    chat         légitime  →  1 requête   réponse reçue, message intact
+    chat_events  secret    →  0 requête   REFUS avant émission
+    aucun corps reçu ne contient la clé
+
+### Mutations
+
+Cinq, toutes rouges, aucune conservée :
+
+    A  motif OpenRouter retiré            16 rouges
+    B  plancher d'entropie ramené à 1      4 rouges  (les faux positifs)
+    D  `_filtrer` retiré de chat          10 rouges
+    E  `_filtrer` retiré de chat_events    7 rouges
+    F  le refus n'interrompt plus l'envoi 12 rouges
+
+F est celle qui compte : elle démontre que `appels == 0` mesure bien le
+refus, et non l'absence de serveur.
+
+### Preuves
+
+Suite backend complète verte. Aucun secret réel n'a été lu ni écrit :
+toutes les clés des tests sont fabriquées dans leur propre fichier.
+`data/db/hermes.db` intacte, aucune donnée utilisateur touchée, aucune
+autorité de sécurité ajoutée — Aegis et le pare-feu restent ce qu'ils
+étaient.
+
+### Le document qui manquait est arrivé pendant la passe
+
+Le brief nommait `docs/HERMES_OS_OPERATIONAL_ROADMAP.md` et
+`docs/HERMES_OS_CLAUDE_CODE_PROMPT_PROTOCOL.md` comme sources à lire
+d'abord. Ni l'un ni l'autre n'existait dans l'arbre local, et je l'ai
+signalé plutôt que de supposer leur contenu. Ils étaient sur `origin/main`,
+poussés après `25ddb52` : `main` local était **en retard de quatre
+commits**, tous purement documentaires. Intégrés en avance rapide — aucun
+recouvrement avec le correctif, donc aucun conflit possible.
+
+La roadmap opérationnelle est désormais la source d'ordre : elle impose un
+chantier actif unique, et elle portait déjà G-41 et les deux limites de
+couverture déclarées en HOS-289. Elle passe A-10 en 🟢, §4 en 🟢, et
+A-3 devient le chantier actif.
+
+### Écart consigné, non traité
+
+Le motif `key=value` de `redact` liste `api[_-]?key`, `access[_-]?key`,
+`private[_-]?key` mais **pas `key` seul** : `OPENROUTER_KEY: <valeur>`
+n'est donc pas caviardé *par cette règle-là*. Ici la valeur est prise par
+la règle de forme, donc rien ne fuit ; mais une clé d'une autre forme
+derrière un nom en `…_KEY` passerait. Hors périmètre A-10 (défaut de
+nommage, pas de format OpenRouter), inscrit comme gap.
 ## HOS-289 — Les vingt Centers jamais ouverts (2026-09-11)
 
 G-40. Vingt-deux Centers n'avaient jamais ete regardes. Plutot que vingt-deux
