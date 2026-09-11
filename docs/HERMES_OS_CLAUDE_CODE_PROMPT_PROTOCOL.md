@@ -1,14 +1,14 @@
 # HERMES OS — CLAUDE CODE PROMPT PROTOCOL
 
 > Standard used by ChatGPT when generating prompts for Claude Code for Hermes OS.
-> The protocol combines the Hermes OS execution discipline with current Anthropic guidance for agentic coding.
+> The protocol combines the Hermes OS execution discipline with current Anthropic guidance for agentic coding and context economics.
 >
-> Target runtime: **Claude Code + Claude Opus + operator-selected high effort**.
+> Target runtime: **Claude Code + adaptive model/effort selection**.
 > The prompt must optimize the work performed by the agent, not merely the prose returned by the agent.
 
 ## 1. Purpose
 
-Every Hermes OS Claude Code prompt must be designed to maximize the probability that one autonomous pass produces a correct, integrated, verified and committed result, while minimizing follow-up prompts, scope drift, fake green tests and unnecessary architecture.
+Every Hermes OS Claude Code prompt must be designed to maximize the probability that one autonomous pass produces a correct, integrated, verified and committed result, while minimizing follow-up prompts, scope drift, fake green tests and unnecessary context consumption.
 
 The prompt is a **task contract**, not a conversation starter.
 
@@ -26,11 +26,9 @@ It must tell Claude:
 
 ## 2. Evidence base and prompt-design principles
 
-Anthropic's current guidance supports clear and direct instructions, explicit success criteria, sequential structure when order matters, structured XML tags for complex prompts, explicit action requests, and exploration/plan/code/commit workflows. Anthropic also recommends validating real behavior instead of relying only on tests and using persistent project instructions for recurring rules. [Sources listed at the end.]
+Anthropic's current guidance supports clear and direct instructions, explicit success criteria, sequential structure when order matters, structured XML tags for complex prompts, explicit action requests, exploration/plan/code/commit workflows, and careful context management.
 
-For current Opus models, avoid indiscriminate over-prompting. Opus is already strong at self-correction and verification; therefore Hermes prompts should specify **what evidence must exist**, rather than mechanically demanding several redundant re-check passes or artificial self-critique loops.
-
-For subagents, allow delegation only when it provides a real benefit: independent workstreams, isolated context, or genuinely parallel investigation. Do not force subagents for simple search, single-file changes or sequential work where maintaining local context is more effective.
+For current Claude Code models, avoid indiscriminate over-prompting. Strong models can self-correct and verify; Hermes prompts should specify **what evidence must exist**, rather than mechanically demanding several redundant re-check passes or artificial self-critique loops.
 
 ## 3. Mandatory prompt architecture
 
@@ -84,12 +82,6 @@ Do not paste the entire project history unless the task genuinely needs it. Poin
 Write one unambiguous objective sentence, then one paragraph explaining the reason.
 
 The objective must describe the desired system behavior, not merely a file edit.
-
-Bad:
-> Modifier `foo.py`.
-
-Good:
-> Fermer A-10 : reconnaître le format réel des secrets OpenRouter sur les chemins `chat` et `chat_events`, sans créer de second scanner ni introduire de faux positifs, puis démontrer le refus avant émission réseau.
 
 ## 7. Scope block
 
@@ -165,7 +157,7 @@ When the active chantier contains a measurable contract, prefer a red-first muta
 
 **baseline green → break the required invariant → expected guard/test red → fix → guard/test green → real-path demonstration**
 
-Do not require a separate "verification phase" when Opus already verifies its work naturally. Require the evidence itself.
+Do not require a separate generic "verification phase" when the selected model already verifies naturally. Require the evidence itself.
 
 ## 12. Acceptance criteria
 
@@ -177,9 +169,9 @@ For each criterion specify:
 - evidence source;
 - failure condition.
 
-Prefer:
+Prefer a concrete causal path such as:
 
-> `message → pare-feu → REFUS → aucun appel OpenRouter`
+> `message → pare-feu → REFUS → aucun appel réseau`
 
 over:
 
@@ -225,21 +217,76 @@ Explicitly require a principled implementation when there is a risk of overfitti
 
 Use a helper or new abstraction only when it is justified by the existing architecture or by multiple real consumers.
 
-## 16. Resource and scope efficiency
+## 16. Context and token efficiency
 
-The user deliberately uses Claude Code with Opus at high effort. Do not compensate by stuffing the prompt with artificial reasoning instructions.
+Claude Code should be treated as a finite context and reasoning budget, not as an infinite text pipe.
 
-Instead:
-- front-load the decisive context;
-- tell Claude where the source of truth lives;
-- state the invariant and proof target precisely;
-- let Opus reason through implementation alternatives;
-- prevent scope creep explicitly;
-- require concrete evidence.
+Rules:
 
-Anthropic's current guidance indicates that newer Opus models can over-verify and over-expand scope when old scaffolding is too prescriptive. The protocol therefore favors **targeted verification requirements** over repeated generic "double-check everything" instructions.
+- **New unrelated chantier:** ChatGPT must tell the operator to use `/clear` before the next prompt.
+- **Same chantier with growing context:** use `/compact` only when context size justifies it and at a logical pause. Preserve decisions, tests, current diff, errors, evidence and next action.
+- **Bad trajectory:** prefer `/rewind` when an earlier cached prefix remains useful instead of summarizing obsolete work.
+- Avoid changing models mid-chore unless there is a measured reason. Different models do not share the same prompt cache.
+- Keep `CLAUDE.md` and permanent rules compact. Detailed procedures belong in scoped rules or on-demand Skills.
+- Prefer path-scoped rules when a rule applies to a specific subsystem.
+- Prefer Skills for occasional procedures. Purely manual Skills may use `disable-model-invocation: true` so they are not auto-selected.
+- Do not preload large MCP tool collections. Prefer deferred discovery and CLI tools where they already provide the same information.
+- Keep MCP descriptions short and operational: purpose, critical constraint, useful output.
+- Reduce large tool outputs before injecting them into context, but never hide information necessary for a proof or diagnosis.
+- Use code intelligence, symbol search and targeted excerpts before full-file reads when available.
+- Do not add token-compression tooling solely because it claims large savings. Measure quality, duration and actual usage on a representative Hermes task first.
 
-## 17. Subagent policy
+The goal is **less irrelevant context**, never less proof.
+
+## 17. Model and effort policy
+
+Hermes OS uses adaptive model selection rather than treating Opus as a permanent default.
+
+### `opusplan` default for substantial work
+
+Use `opusplan` for substantial roadmap work when available. It uses Opus for the planning phase and Sonnet for the execution phase, matching the common pattern of deeper architectural reasoning followed by lower-cost implementation.
+
+### Sonnet direct
+
+Use `sonnet` directly for routine implementation, bounded fixes, documentation, refactors and ordinary test work where architecture is already understood.
+
+### Haiku
+
+Use `haiku` only for genuinely simple, isolated tasks such as small extraction, classification or trivial support work. Do not delegate security or architectural judgment to it.
+
+### Effort
+
+- `medium`: routine, cost-sensitive work.
+- `high`: architecture, security, difficult debugging, integration and proof-critical work.
+- `max` / `ultrathink`: exceptional, targeted reasoning only, not the default.
+- Agent teams and large parallel subagent structures require explicit leverage; do not create them by habit.
+
+### Model choice at the end of every bilan
+
+Before generating the next prompt, ChatGPT must decide explicitly whether to keep the current model or change it, using:
+- task complexity;
+- expected architecture/reasoning difficulty;
+- evidence requirements;
+- observed context consumption;
+- cache behavior when visible;
+- remaining usage budget;
+- whether the task is mostly planning or execution.
+
+ChatGPT must state the decision to the operator in a compact preamble:
+
+```text
+Session suivante
+/clear: OUI | NON
+/compact: OUI | NON
+/rewind: OUI | NON
+Modèle: opusplan | opus | sonnet | haiku
+Effort: low | medium | high | max
+Pourquoi: une phrase factuelle
+```
+
+Do not change model merely to chase a theoretical token saving. Preserve enough intelligence for the active chantier.
+
+## 18. Subagent policy
 
 Claude may use subagents only where they provide clear leverage.
 
@@ -256,7 +303,9 @@ Avoid:
 
 For Hermes OS, a subagent must never become a hidden second authority for Mission, Ledger, Aegis, verification or ResourceManager.
 
-## 18. Browser and runtime verification
+For agent teams, keep the number of teammates small, assign focused tasks and stop inactive teammates promptly.
+
+## 19. Browser and runtime verification
 
 When the feature has a UI or real service path, the prompt must specify a **demonstration path**, not merely a build.
 
@@ -266,7 +315,7 @@ Preferred form:
 
 For backend-only work, require the strongest available real integration probe.
 
-## 19. Persistence and restart safety
+## 20. Persistence and restart safety
 
 When state is involved, explicitly distinguish:
 - in-memory effect;
@@ -276,7 +325,7 @@ When state is involved, explicitly distinguish:
 
 If the feature claims persistence or restoration, the prompt must demand a restart/reload proof rather than inferring persistence from one process.
 
-## 20. Documentation and Git
+## 21. Documentation and Git
 
 Every substantive pass must end with:
 - minimal relevant documentation updates;
@@ -289,7 +338,7 @@ For long-running work, Git is part of the coordination mechanism. Commit after e
 
 Do not manufacture historical narrative to fill missing changelog periods. Record real evidence only.
 
-## 21. Final report contract
+## 22. Final report contract
 
 The prompt must require the following exact report order:
 
@@ -308,10 +357,11 @@ The prompt must require the following exact report order:
 13. `NEW GAPS:`
 14. `ROADMAP UPDATE:`
 15. `NEXT CHANTIER:` exact number and title
+16. `USAGE/COST SIGNALS:` when available, summarize `/usage`, context percentage, cache signal, effort and any obvious expensive phase. Never invent a metric that Claude Code did not expose.
 
 The final report should be concise enough to inspect quickly but complete enough for ChatGPT to audit independently.
 
-## 22. What ChatGPT must add dynamically to each prompt
+## 23. What ChatGPT must add dynamically to each prompt
 
 The generic protocol is not itself a task prompt. For each new chantier, ChatGPT must dynamically insert:
 
@@ -323,11 +373,12 @@ The generic protocol is not itself a task prompt. For each new chantier, ChatGPT
 - the exact required real path;
 - the most valuable mutations for that chantier;
 - the relevant runtime/browser demonstration;
-- the precise next chantier number.
+- the precise next chantier number;
+- the chosen model and effort for the task when a direct model is better than `opusplan`.
 
 Never reuse an old chantier prompt unchanged after the repository has moved.
 
-## 23. Prompt density rule
+## 24. Prompt density rule
 
 The prompt should be **complete but not bloated**.
 
@@ -345,7 +396,7 @@ A good prompt should allow Claude to answer these questions without guessing:
 - What evidence must I leave behind?
 - What chantier comes next?
 
-## 24. Prompt adaptation for Hermes OS
+## 25. Prompt adaptation for Hermes OS
 
 Hermes OS is unusual because it has repeatedly suffered from the same class of defects: correct code with no caller, decorative routes, fabricated measurements, authority duplication, tests that exercised only one path, and probes that measured the wrong thing.
 
@@ -363,9 +414,7 @@ Therefore every prompt should prioritize these checks whenever relevant:
 
 **State check:** Does the effect survive the process boundary when persistence is part of the contract?
 
-These checks are more valuable for Hermes OS than adding more generic ceremony to every prompt.
-
-## 25. Required prompt style
+## 26. Required prompt style
 
 Prompts should be:
 - imperative;
@@ -381,15 +430,19 @@ Prompts should be:
 
 Do not tell Claude to reveal hidden reasoning. Ask for decisions, evidence and concise rationale instead.
 
-## 26. Sources used to calibrate this protocol
-
-1. Anthropic, **Prompting best practices**, current documentation. Guidance on clarity, explicit output constraints, XML structure, long context, tool use, agentic workflows, subagent orchestration, overengineering and test-fitting.
-2. Anthropic, **Claude Code Best Practices**, current engineering guidance. Guidance on explore/plan/code/commit, TDD-style workflows, specific instructions, checklists/scratchpads, and course correction.
-3. Anthropic, **Prompting Claude Opus 5**, current model guidance. Guidance on task scope, over-verification, self-correction and subagent use.
-4. Anthropic, **Claude Code model configuration**, current documentation. Guidance on adaptive effort and the relationship between model choice and reasoning depth.
-5. Anthropic, **How Claude remembers your project**, current Claude Code documentation. Guidance on persistent instructions through `CLAUDE.md` and project-scoped rules.
-6. Anthropic, **Claude Code security**, current documentation. Guidance on permission boundaries and safe operation.
-
 ## 27. Canonical rule
 
-> **Every Claude Code prompt generated for Hermes OS must be optimized for one complete, bounded, measurable engineering pass. It must give Claude the current state, exact objective, authoritative constraints, observable acceptance criteria, real-path proof requirements and exact next chantier, while avoiding redundant reasoning ceremony and unrelated scope.**
+> **Every Claude Code prompt generated for Hermes OS must be optimized for one complete, bounded, measurable engineering pass. It must give Claude the current state, exact objective, authoritative constraints, observable acceptance criteria, real-path proof requirements and exact next chantier, while avoiding redundant reasoning ceremony and unnecessary permanent context. Model and effort are chosen to fit the work, not by habit.**
+
+## 28. Sources used to calibrate this protocol
+
+1. Anthropic, **Manage costs effectively**, current Claude Code documentation. Guidance on model choice, `/clear`, `/compact`, MCP, code intelligence, hooks and CLAUDE.md context size.
+2. Anthropic, **Claude Code model configuration**, current documentation. Guidance on `opusplan`, model aliases and adaptive effort.
+3. Anthropic, **Claude Code settings**, current documentation. Project-scoped settings such as `model`, `fallbackModel`, `statusLine` and `enableArtifact`.
+4. Anthropic, **Prompt caching**, current documentation. Guidance on stable prefixes and cache impact of model/tool changes.
+5. Anthropic, **MCP**, current documentation. Guidance on deferred tool discovery and `alwaysLoad` implications.
+6. Anthropic, **Memory / CLAUDE.md**, current documentation. Guidance on compact permanent instructions and scoped rules.
+7. Anthropic, **Status line**, current documentation. Guidance on local status metrics including context, cache, cost, effort and rate limits.
+8. JetBrains, 2026 **RTK benchmark**. Independent evidence that a popular output compressor did not reliably reduce total cost in higher-effort Claude Code runs.
+9. JetBrains, 2026 **Ponytail benchmark**. Independent evidence of a modest median cost reduction on a controlled task set, supporting measurement before adoption.
+
