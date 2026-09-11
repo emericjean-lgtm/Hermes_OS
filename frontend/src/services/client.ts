@@ -20,7 +20,6 @@ import type {
   ToolExecution,
   ToolHealth,
   MCPServer,
-  PolicyRule,
   ApprovalRequest,
   ApprobationAegis,
   EntreeJournal,
@@ -1191,12 +1190,10 @@ export const toolsClient = {
 
 // ── Governance ───────────────────────────────────────
 export const governanceClient = {
-  rules: () => fetchJSON<unknown>("/policy/rules").then((d) => unwrap<PolicyRule>(d, "rules")),
-  evaluate: (data: { operation: string; agent_id?: string; mission_id?: string }) =>
-    fetchJSON<{ verdict: string; reason: string; rule_id?: string }>("/policy/evaluate", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+  // G-38 : `rules` et `evaluate` visaient `/policy/*`, servi par
+  // `backend/policy/` — retire. Ses dix regles n'etaient evaluees nulle
+  // part et deux d'entre elles contredisaient la politique en vigueur ;
+  // celle qui s'applique est servie par `securityClient.autonomy()`.
   // G-36 : `approvals`/`approve`/`reject` pointaient sur `/approval`, la
   // file de `backend/policy/` — un dictionnaire en memoire SANS PRODUCTEUR
   // (`set_policy_engine` n'est jamais appele, mesure du 2026-09-11). Le
@@ -1214,11 +1211,6 @@ export const governanceClient = {
     fetchJSON<ApprobationAegis>(`/security/approvals/${id}`, {
       method: "POST",
       body: JSON.stringify({ approved: false }),
-    }),
-  _approvalPolitiqueRetiree: (id: string, comment?: string) =>
-    fetchJSON<ApprovalRequest>(`/approval/${id}/reject`, {
-      method: "POST",
-      body: JSON.stringify({ comment }),
     }),
   // G-37 : `audit` lisait `/audit`, servi par `backend/policy/audit_log.py`
   // — un anneau EN MEMOIRE ecrit par `PolicyEngine.evaluate`, qui n'est

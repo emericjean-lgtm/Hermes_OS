@@ -238,10 +238,11 @@ class TestDependencyInjection:
 
         assert memory_routes._manager is bootstrap.container.get("memory_manager")
 
-    def test_policy_routes_are_bound(self, client, bootstrap):
-        from backend.policy import routes as policy_routes
-
-        assert policy_routes._engine is bootstrap.container.get("policy_engine")
+    # `test_policy_routes_are_bound` retire en G-38 avec `backend/policy/` :
+    # il verifiait que les routes parlaient au moteur du conteneur et non a
+    # un second, ce qui etait juste — mais le module n'a plus ni routes ni
+    # moteur. La meme propriete est tenue pour l'autorite qui reste, par
+    # `test_security_routes_are_bound` juste au-dessus.
 
     def test_orchestrator_routes_are_bound(self, client, bootstrap):
         from backend.runtime.orchestrator import routes as orch_routes

@@ -1,3 +1,98 @@
+## HOS-287 — Le retrait de `backend/policy/` (2026-09-11)
+
+G-38. La proposition de G-37 est executee. Le module n'existe plus : neuf
+fichiers, 1346 lignes, et le `ServiceSpec` qui les construisait.
+
+### Ce qui est parti
+
+    backend/policy/                    9 modules
+    tests/architecture/test_policy.py  45 tests, exclusivement HOS-046
+    ServiceSpec `policy_engine`        + ses deux fabriques
+    ComponentInfo `policy.engine`      du registre de composants
+    governanceClient.rules / .evaluate
+    usePolicyRules
+    /approval/* des orphelins connus   les routes n'existent plus
+
+### Ce qui n'a pas bouge, et c'est le resultat
+
+    routes montees          344 -> 338   exactement -6
+    sous-systemes           23  -> 22    exactement le service retire
+    /policy/rules, /policy/evaluate, /approval,
+    /approval/{id}/approve, /approval/{id}/reject, /audit   -> 404
+    /security/approvals     200, 212 demandes — identique
+    /security/autonomy      200 — identique
+    /logs (journal §18)     200, 6 entrees — identique
+    /health                 200
+    aucune autre route perdue
+
+Et a l'execution, dans le navigateur : **aucune requete** ne part vers
+`/approval`, `/audit` ou `/policy/*`. Le cockpit demarre, la file d'Aegis
+s'affiche avec ses 207 demandes en attente, l'etat est nominal.
+
+Ce n'etait pas acquis : un module monte au bootstrap, declarant trois
+evenements et servant six routes, peut tres bien avoir un consommateur
+qu'aucune lecture ne montre. Le retrait le prouve mieux que l'audit.
+
+### Ce que la suppression a revele
+
+**Deux dependances que mon balayage initial avait manquees**, parce qu'il
+excluait `tests/` — je cherchais les chemins runtime et j'ai filtre trop
+large :
+
+- une classe `TestApprovalExplainer` de dix tests, **cachee dans un
+  fichier de conversation de 99 tests** ;
+- `test_policy_routes_are_bound`, dans le test d'assemblage.
+
+Un module ne se retire proprement qu'en cherchant aussi la ou l'on ne
+s'attend pas a le trouver. Les deux ont ete trouvees par la suite qui
+refusait de collecter, pas par une relecture.
+
+### Le compte des tests se tient exactement
+
+6187 -> 6130 collectes, soit **-57**. Chaque test manquant a son origine :
+
+    45  tests/architecture/test_policy.py (fichier supprime)
+    10  TestApprovalExplainer + test_concurrent_approvals
+     3  test_no_route_returns_5xx[...] — PARAMETRE sur les routes montees
+     1  la garde de contradiction, renommee (remplacee par deux)
+    ---
+    59  disparus, +2 ajoutes = -57
+     1  test_policy_routes_are_bound, deselectionne : 274 -> 273
+
+Les trois cas de fumee sont ceux que je n'avais pas prevus : ils sont
+**generes depuis les routes elles-memes**, et retirer trois routes `GET`
+en retire trois. Un ecart de tests non explique aurait ete le seul vrai
+risque de cette passe — c'est ainsi qu'une suppression emporte
+silencieusement une couverture qu'on croyait garder.
+
+### La garde change de forme
+
+`test_la_contradiction_mesuree_est_inscrite` lisait les dix regles pour
+tenir au dossier le fait qui justifiait tout : `internet_access_allowed:
+allow` contre `network_call` qui exige « high »,
+`system_modification_denied: deny` contre `system_config` qui demande un
+humain. Ces regles n'existent plus ; ce qu'il faut garder est leur
+ABSENCE. Elle devient deux gardes : le repertoire reste supprime et le
+`ServiceSpec` ne revient pas, d'une part ; la politique en vigueur tient
+encore ce qui a ete mesure, d'autre part — si Aegis changeait d'avis sur
+ces deux actions, la justification tomberait et devrait etre re-tranchee
+plutot qu'heritee.
+
+Les autres gardes de G-37 sont inchangees et toujours vertes :
+`set_policy_engine` sans appelant, Aegis toujours injecte, le cockpit qui
+ne lit aucune surface sans producteur et lit les trois autorites reelles.
+
+### Ce qui n'est pas touche
+
+Aegis, `security/approvals.py`, `core/audit_log.py`, le Governance Center,
+et les 206 demandes historiques — inchangees, comptees apres coup :
+196 `file_read`, 8 `verification_run`, 2 `file_edit`, 1 `skill_install`.
+
+### Preuves
+
+Suite backend : 6127 passed, 3 skipped, 273 deselected, 0 failed. `tsc`
+propre, 153 tests vitest. `data/db/hermes.db` intacte.
+
 ## HOS-286 — L'audit de `backend/policy/` (2026-09-11)
 
 G-37. **REJECT comme autorite.** Les trois responsabilites du module sont

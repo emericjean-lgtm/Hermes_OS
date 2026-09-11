@@ -246,24 +246,54 @@ def test_les_regles_de_policy_ne_sont_plus_presentees_comme_la_politique():
         "l'ecran lit encore les regles de backend/policy/")
 
 
-def test_la_contradiction_mesuree_est_inscrite():
-    """Le fait qui justifie tout ce qui precede. Sans lui consigne quelque
-    part, la passe suivante rebranchera les dix regles en croyant reparer
-    un oubli."""
-    from backend.policy.policy_engine import PolicyEngine
+def test_le_module_de_politique_reste_supprime():
+    """**Rescopee par G-38**, qui a retire `backend/policy/`.
 
-    noms = {r["name"] for r in PolicyEngine().get_rules()}
-    assert {"internet_access_allowed", "system_modification_denied"} <= noms, (
-        "les deux regles qui contredisent Aegis ont change de nom : "
-        "verifier que la contradiction mesuree en G-37 tient encore")
+    Elle lisait les dix regles pour tenir la contradiction au dossier —
+    `internet_access_allowed: allow` contre `network_call` qui exige
+    « high », `system_modification_denied: deny` contre `system_config` qui
+    demande un humain. Ces regles n'existent plus ; ce qu'il faut garder
+    est leur ABSENCE.
 
+    Le recreer ne serait pas une erreur en soi. Le recreer **et le
+    brancher** en serait une, et c'est ce que les gardes precedentes
+    tiennent. Celle-ci ferme la porte un cran plus tot : le repertoire
+    absent, aucune reactivation ne peut etre accidentelle.
+    """
+    # Deux echecs distincts, deux messages. Le premier a ete rencontre :
+    # un `git stash` de mesure a fait revenir les sources le temps d'une
+    # collecte, Python a compile, et le `__pycache__` est reste apres le
+    # `pop`. Un message unique aurait annonce « le module est revenu » pour
+    # neuf `.pyc` orphelins — vrai sur la forme, faux sur le fond.
+    sources = sorted(p.name for p in POLICY.rglob("*.py")) if POLICY.exists() else []
+    assert not sources, (
+        "backend/policy/ est revenu : " + ", ".join(sources) + ". G-37 a "
+        "mesure que ses trois responsabilites sont portees ailleurs et que "
+        "deux de ses regles contredisent la politique en vigueur. Le "
+        "rebrancher demande de trancher a nouveau laquelle s'applique.")
+    assert not POLICY.exists(), (
+        "backend/policy/ existe sans source : du bytecode orphelin, "
+        "probablement laisse par un `git stash`. Rien ne l'importe, mais "
+        "un repertoire mort brouille la lecture — le retirer.")
+
+    source = (RACINE / "backend" / "core" / "bootstrap"
+              / "service_registry.py").read_text(encoding="utf-8")
+    assert 'key="policy_engine"' not in source, (
+        "le ServiceSpec `policy_engine` est revenu")
+
+
+def test_la_politique_en_vigueur_tient_encore_ce_qui_a_ete_mesure():
+    """Le pendant du precedent. La suppression se justifiait par ce
+    qu'Aegis dit de ces deux memes actions ; si Aegis changeait d'avis, la
+    justification tomberait et devrait etre re-tranchee plutot que
+    heritee."""
     import yaml
 
     config = yaml.safe_load(
         (RACINE / "config" / "security.yaml").read_text(encoding="utf-8"))
     cats = config["action_categories"]
-    # `internet_access_allowed: allow` contre une categorie qui, elle,
-    # demande un seuil d'autonomie ; `system_modification_denied: deny`
-    # contre une categorie qui demande un humain, pas un refus.
+    # La ou `internet_access_allowed` disait « allow », Aegis demande un
+    # seuil ; la ou `system_modification_denied` disait « deny », Aegis
+    # demande un humain — pas un refus.
     assert cats["network_call"]["min_autonomy_for_auto_allow"] == "high"
     assert cats["system_config"]["mandatory_validation"] is True

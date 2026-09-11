@@ -635,6 +635,14 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### Le module retiré, et ce que son retrait a coûté (HOS-287)
+
+Rien. C'est le résultat, et il n'était pas acquis : un module monté au
+bootstrap, déclarant trois événements et servant six routes, peut très
+bien avoir un consommateur qu'aucune lecture ne montre. Le retrait le
+prouve mieux que l'audit — 338 routes au lieu de 344, et les six sont
+exactement celles qu'on visait.
+
 ### Une seule autorité, et elle est nommée (HOS-286)
 
 Le pont ne touche pas à `backend/policy/`, et c'est le résultat : rien
@@ -1897,21 +1905,35 @@ sur la mauvaise source. Ni le compteur d'orphelins ni le typage ne
 pouvaient le voir, puisque les deux surfaces existaient — et l'écran
 affichait une politique de sécurité **qui ne gouvernait rien**.
 
-#### Ce qui n'est pas fait, et pourquoi
+#### La suppression, executée en G-38 (HOS-287)
 
-`backend/policy/` n'est **pas supprimé**. Le module n'a plus aucun
-consommateur produit, mais sa suppression touche le `ServiceSpec`, le
-bootstrap, trois routeurs montés et leurs tests — une passe à part, et
-une décision qui n'appartient pas à un audit. La proposition est écrite
-ci-dessous ; ce qui est livré ici est le diagnostic, le rebranchement des
-trois écrans, et les gardes qui empêchent qu'il redevienne une autorité.
+La proposition ci-dessus a été suivie. `backend/policy/` n'existe plus :
+9 modules, 1346 lignes, et le `ServiceSpec` qui les construisait.
 
-**Proposition de suppression propre (non exécutée).** Retirer le
-`ServiceSpec` `policy_engine` et son `route_binder` ; supprimer
-`backend/policy/` (8 modules, 1346 lignes) ; retirer `governanceClient.rules`,
-`.evaluate` et `usePolicyRules` du frontend ; retirer `/policy/*` et
-`/approval/*` des orphelins connus. Aucun autre module n'importe
-`backend.policy` — mesuré.
+    routes montées          344 -> 338   exactement -6
+    sous-systèmes           23  -> 22    exactement le service retiré
+    /policy/rules, /policy/evaluate, /approval,
+    /approval/{id}/approve, /approval/{id}/reject, /audit   -> 404
+    /security/approvals     200, 212 demandes — identique
+    /security/autonomy      200 — identique
+    /logs (journal §18)     200, 6 entrées — identique
+    aucune autre route perdue
+
+Et à l'exécution, dans le navigateur : **aucune requête** ne part vers
+`/approval`, `/audit` ou `/policy/*`.
+
+**Ce que la suppression a révélé.** Deux dépendances que le balayage
+initial avait manquées, parce qu'il excluait `tests/` : une classe
+`TestApprovalExplainer` de dix tests cachée dans un fichier de
+conversation de 99 tests, et `test_policy_routes_are_bound` dans le test
+d'assemblage. Un module ne se retire proprement qu'en cherchant aussi là
+où on ne s'attend pas à le trouver.
+
+**Et le compte des tests se tient exactement** : 6187 → 6130 collectés,
+soit −57. Les trois derniers venaient de
+`test_no_route_returns_5xx[...]`, **paramétré sur les routes montées** —
+retirer trois routes `GET` retire trois cas. Un écart de tests non
+expliqué aurait été le seul vrai risque de cette passe.
 
 **HOS-285 ferme la ligne « approbations » du tableau ci-dessus.** Elle
 n'y figurait pas, et c'est précisément ce que G-36 a trouvé : le cockpit

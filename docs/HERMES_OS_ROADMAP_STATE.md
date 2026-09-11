@@ -29,8 +29,8 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      e32ce27 (G-36, HOS-285) — dernier commit
-                               de code avant G-37 (audit de
+BASELINE:                      94d9f0a (G-37, HOS-286) — dernier commit
+                               de code avant G-38 (retrait de
                                `backend/policy/`)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
@@ -279,7 +279,7 @@ mentirait sur ce qu'il fait.
 | Rien ne détecte un Modelfile élargi sous une empreinte (A-20) | architectural | §6 |
 | La promotion d'un souvenir n'a aucune route HTTP (G-10) | architectural | §8 |
 | ~~Deux files d'approbation, et le cockpit regarde la morte (G-36)~~ — **fermé HOS-285** | security | §15/§23 |
-| ~~La file de `backend/policy/` n'a aucun producteur ni consommateur (G-37)~~ — **audité HOS-286, REJECT ; suppression proposée, non exécutée** | technical debt | §15 |
+| ~~La file de `backend/policy/` n'a aucun producteur ni consommateur (G-37)~~ — **audité HOS-286 (REJECT), supprimé HOS-287** | technical debt | §15 |
 | `assigned_tools` planifié et jamais invoqué (G-11) | technical debt | §7 |
 | ~~`_RegistreMissions` hydrate sur un ordre non garanti (A-19)~~ — **fermé HOS-262** | test | §3 |
 | ~~Le repli agentique défait toutes les décisions du routeur (G-12)~~ — **fermé HOS-263** | architectural | §6/§7 |
@@ -326,7 +326,10 @@ mentirait sur ce qu'il fait.
   depuis HOS-072, conservé comme façade morte plutôt que supprimé sans
   décision.
 - **43 modules sans appelant** (8,4 %), dont 13 sans test. Inventoriés,
-  non élagués.
+  non élagués. **Neuf de moins depuis HOS-287** : `backend/policy/` est
+  retiré, après l'audit qui a mesuré que ses trois responsabilités
+  étaient portées ailleurs. C'est le premier élagage de cette liste, et
+  il a demandé deux passes — une pour prouver, une pour retirer.
 - **La suite complète n'est pas verte de façon reproductible** (A-17).
   `tests/integration/test_assembly.py::TestEventWiring::
   test_no_real_subsystem_event_is_dropped` lance un objectif autonome

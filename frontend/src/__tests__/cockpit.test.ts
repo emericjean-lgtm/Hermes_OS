@@ -294,9 +294,12 @@ describe("API Client Endpoints", () => {
     expect(typeof toolsClient.execute).toBe("function");
   });
 
-  it("governanceClient has approve/reject/audit methods", async () => {
-    const { governanceClient } = await import("@/services/client");
-    expect(typeof governanceClient.rules).toBe("function");
+  it("governanceClient has approve/reject/journal methods", async () => {
+    const { governanceClient, securityClient } = await import("@/services/client");
+    // G-38 : `rules` visait `/policy/rules`, retire avec
+    // `backend/policy/`. La politique en vigueur est servie par
+    // `securityClient.autonomy()`.
+    expect(typeof securityClient.autonomy).toBe("function");
     expect(typeof governanceClient.approvals).toBe("function");
     expect(typeof governanceClient.approve).toBe("function");
     expect(typeof governanceClient.reject).toBe("function");

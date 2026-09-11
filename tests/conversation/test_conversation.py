@@ -36,7 +36,6 @@ from backend.conversation.routes import (
 from backend.explainability.decision_explainer import DecisionExplainer
 from backend.explainability.explanation_models import DecisionType, RiskLevel
 from backend.explainability.routes import handle_explain, handle_get_explanation, handle_list_explanations
-from backend.policy.approval_explainer import ApprovalExplainer
 from backend.voice.speech_to_text import SpeechToTextProvider
 from backend.voice.text_to_speech import TextToSpeechProvider
 from backend.voice.locale import PiperLocal, WhisperLocal
@@ -572,71 +571,6 @@ class TestDecisionExplainer:
 
 
 # ═══════════════════════════════════════════════════════════════
-# Approval Explainer Tests
-# ═══════════════════════════════════════════════════════════════
-
-class TestApprovalExplainer:
-    def test_request_approval(self):
-        ae = ApprovalExplainer()
-        req = ae.request_approval("delete_workspace", "Supprimer le workspace production", "high")
-        assert req.status == "pending"
-        assert req.risk_level == RiskLevel.HIGH
-
-    def test_approve_request(self):
-        ae = ApprovalExplainer()
-        req = ae.request_approval("action", "description", "medium")
-        approved = ae.approve(req.request_id)
-        assert approved is not None
-        assert approved.status == "approved"
-
-    def test_reject_request(self):
-        ae = ApprovalExplainer()
-        req = ae.request_approval("action", "description", "low")
-        rejected = ae.reject(req.request_id)
-        assert rejected is not None
-        assert rejected.status == "rejected"
-
-    def test_get_pending(self):
-        ae = ApprovalExplainer()
-        ae.request_approval("a1", "desc1", "medium")
-        ae.request_approval("a2", "desc2", "high")
-        pending = ae.get_pending()
-        assert len(pending) == 2
-
-    def test_get_pending_after_approve(self):
-        ae = ApprovalExplainer()
-        req = ae.request_approval("a", "desc", "low")
-        ae.approve(req.request_id)
-        pending = ae.get_pending()
-        assert len(pending) == 0
-
-    def test_get_request(self):
-        ae = ApprovalExplainer()
-        req = ae.request_approval("test", "desc", "low")
-        found = ae.get_request(req.request_id)
-        assert found is not None
-
-    def test_get_request_not_found(self):
-        ae = ApprovalExplainer()
-        found = ae.get_request("nonexistent")
-        assert found is None
-
-    def test_format_for_user(self):
-        ae = ApprovalExplainer()
-        req = ae.request_approval("delete_db", "Supprimer la base de données", "critical")
-        formatted = ae.format_for_user(req)
-        assert "Action" in formatted
-        assert "Critique" in formatted.lower() or "CRITICAL" in formatted
-
-    def test_format_with_agents(self):
-        ae = ApprovalExplainer()
-        req = ae.request_approval("edit_code", "Modifier le code", "medium",
-                                  affected_agents=["CoderAgent", "ReviewerAgent"])
-        formatted = ae.format_for_user(req)
-        assert "CoderAgent" in formatted
-
-
-# ═══════════════════════════════════════════════════════════════
 # Voice Interface Tests
 # ═══════════════════════════════════════════════════════════════
 
@@ -764,19 +698,4 @@ class TestThreadSafetyConversation:
         history = exp.get_history()
         assert len(history) >= 15
 
-    def test_concurrent_approvals(self):
-        ae = ApprovalExplainer()
-        errors = []
-        def request_and_approve(n):
-            try:
-                req = ae.request_approval(f"action_{n}", f"desc_{n}", "medium")
-                if n % 2 == 0:
-                    ae.approve(req.request_id)
-                else:
-                    ae.reject(req.request_id)
-            except Exception as e:
-                errors.append(e)
-        threads = [threading.Thread(target=request_and_approve, args=(i,)) for i in range(15)]
-        for t in threads: t.start()
-        for t in threads: t.join()
-        assert len(errors) == 0
+

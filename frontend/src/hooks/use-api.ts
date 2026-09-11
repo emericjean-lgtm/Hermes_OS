@@ -49,7 +49,6 @@ import type {
   SkillSelection,
   ToolDefinition,
   ToolExecution,
-  PolicyRule,
   ApprovalRequest,
   ApprobationAegis,
   EntreeJournal,
@@ -402,15 +401,6 @@ export function useMCPServers() {
 }
 
 // ── Governance ───────────────────────────────────────
-/** @deprecated G-37 : `/policy/rules` sert les dix règles de
- *  `backend/policy/`, qu'aucun chemin n'évalue — `set_policy_engine` n'est
- *  jamais appelé, et deux d'entre elles CONTREDISENT la politique en
- *  vigueur. Aucun écran ne l'appelle plus ; `useAutonomy()` sert la
- *  matrice Aegis, la seule appliquée. Conservé le temps de la décision de
- *  suppression de `backend/policy/` (§15, G-37), pas au-delà. */
-export function usePolicyRules() {
-  return useQuery<PolicyRule[]>({ queryKey: ["policy", "rules"], queryFn: governanceClient.rules });
-}
 /** La file d'AEGIS — celle qui garde les actions reelles (G-36).
  *  Voir `ApprobationAegis` : le cockpit lisait la file de `backend/policy/`,
  *  qui n'a aucun producteur, et annoncait « vide » par construction. */

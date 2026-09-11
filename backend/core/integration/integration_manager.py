@@ -221,15 +221,10 @@ class IntegrationManager:
                 consumed_events=["agent.*", "execution.*"],
             ),
             # ── Policy ──
-            ComponentInfo(
-                id="policy.engine", name="Policy & Approval Engine",
-                category=ComponentCategory.POLICY, version="1.0.0",
-                description="Governance and approval (HOS-046)",
-                dependencies=["core.event_hub"],
-                capabilities=["policy_evaluation", "approval_workflow", "audit_logging"],
-                produced_events=["policy.*", "approval.*"],
-                consumed_events=["agent.*", "execution.*"],
-            ),
+            # `policy.engine` (HOS-046) retire en G-38 avec son module :
+            # il declarait produire `policy.*` et `approval.*`, dont aucun
+            # n'a jamais ete emis. La politique en vigueur est celle
+            # d'Aegis, et les approbations passent par sa file.
             # ── Workspace ──
             ComponentInfo(
                 id="workspace.manager", name="Workspace Manager",

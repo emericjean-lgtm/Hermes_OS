@@ -1389,17 +1389,13 @@ def _bind_tool_routes(c: Any, svc: Any) -> list[Any]:
 
 
 # ── Governance ────────────────────────────────────────────────────────
-
-def _make_policy_engine(c: Any) -> Any:
-    from backend.policy.policy_engine import PolicyEngine
-
-    return PolicyEngine(on_event=_dispatcher(c, "policy_engine"))
-
-
-def _bind_policy_routes(c: Any, svc: Any) -> list[Any]:
-    from backend.policy.routes import approval_router, audit_router, create_policy_routes
-
-    return [create_policy_routes(svc), approval_router, audit_router]
+#
+# `_make_policy_engine` et `_bind_policy_routes` ont ete retires en G-38
+# (HOS-287) avec le module `backend/policy/` qu'ils construisaient. Le
+# diagnostic de G-37 : ses trois responsabilites etaient portees ailleurs,
+# il n'avait aucun appelant reel — `set_policy_engine` n'a jamais ete
+# appele — et deux de ses dix regles CONTREDISAIENT la politique en
+# vigueur. La gouvernance qui reste ici est `security_engine`, plus bas.
 
 
 def _make_workspace_manager(c: Any) -> Any:
@@ -2028,17 +2024,13 @@ SERVICE_SPECS: tuple[ServiceSpec, ...] = (
         capabilities=("tool_execution", "mcp_client", "sandbox"),
     ),
     # ── Governance ──
-    ServiceSpec(
-        key="policy_engine",
-        name="Policy & Human Approval",
-        category=ComponentCategory.POLICY,
-        factory=_make_policy_engine,
-        dependencies=("event_dispatcher",),
-        route_binder=_bind_policy_routes,
-        produced_events=("approval.requested", "approval.granted", "audit.created"),
-        description="Policy evaluation, approval queue, audit log (HOS-046)",
-        capabilities=("policy", "approval", "audit"),
-    ),
+    # Le `ServiceSpec` `policy_engine` (HOS-046) a ete retire en G-38.
+    # Ses trois `produced_events` — `approval.requested`,
+    # `approval.granted`, `audit.created` — comptaient ZERO occurrence sur
+    # le bus durable : rien n'appelait `PolicyEngine.evaluate`, seul
+    # emetteur des trois. Les responsabilites qu'il declarait sont portees
+    # par `security_engine` (Aegis, ci-dessous) pour la politique et les
+    # approbations, et par `backend/core/audit_log.py` pour le journal.
     ServiceSpec(
         key="workspace_manager",
         name="Workspace & Sandbox",
