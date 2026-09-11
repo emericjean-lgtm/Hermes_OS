@@ -72,9 +72,31 @@ Pour chaque nouveau rapport Claude :
 
 Le prompt Claude doit être produit seulement après que le chantier actif et son contexte ont été vérifiés contre la source persistante.
 
+## Règle 8 — Protocole obligatoire de génération des prompts Claude Code
+
+Chaque prompt généré pour Claude Code doit respecter `docs/HERMES_OS_CLAUDE_CODE_PROMPT_PROTOCOL.md`.
+
+Ce protocole est obligatoire pour les chantiers Hermes OS et doit être appliqué dynamiquement au chantier courant. ChatGPT ne doit pas recycler mécaniquement un ancien prompt si le dépôt, le commit, les preuves ou les gaps ont changé.
+
+Le prompt doit être conçu comme un contrat d'ingénierie complet et borné : contexte utile, objectif unique, périmètre, non-objectifs, preuves existantes, inspection requise, contrat d'exécution, critères d'acceptation, mutations adversariales pertinentes, preuve du chemin réel, sécurité/persistance lorsque concernées, documentation minimale, Git et rapport final.
+
+Le prompt doit être calibré pour **Claude Code + Claude Opus + effort élevé** tel que choisi par l'opérateur. Il ne doit pas ajouter de cérémonial de raisonnement inutile qui ferait doublon avec les capacités natives d'Opus. Il doit demander des preuves concrètes plutôt que des injonctions génériques du type « vérifie encore trois fois ».
+
+Le prompt doit notamment :
+- demander l'inspection du dépôt et des sources de vérité avant les modifications ;
+- privilégier `inspect → establish baseline → implement → focused verification → integrate → adversarial mutation → runtime/browser proof → regression → commit/push` lorsque pertinent ;
+- conserver l'échelle `PRESENT → IMPORTED → CALLED → REAL PATH → BEHAVIOR CORRECT → PERSISTENT → RESTART-SAFE → ACTUALLY USED → TESTED → DEMONSTRATED` ;
+- imposer un chemin réel mesurable quand la capacité en possède un ;
+- absorber les corrections directement nécessaires au chantier actif ;
+- isoler les problèmes sans rapport dans des gaps au lieu d'élargir silencieusement le chantier ;
+- interdire les faux verts, le test-fitting et les contournements ;
+- n'utiliser les sous-agents que lorsqu'ils apportent un vrai avantage d'indépendance, d'isolement de contexte ou de parallélisme ;
+- terminer par un rapport structuré contenant le verdict et le numéro exact du chantier suivant.
+
 ## État d'installation de cette règle
 
 - Protocole créé : 2026-09-11
+- Protocole prompts Claude Code : `docs/HERMES_OS_CLAUDE_CODE_PROMPT_PROTOCOL.md`
 - Roadmap opérationnelle : `docs/HERMES_OS_OPERATIONAL_ROADMAP.md`
 - Roadmap maître : `docs/HERMES_OS_MASTER_ROADMAP.md`
 - État historique : `docs/HERMES_OS_ROADMAP_STATE.md`
