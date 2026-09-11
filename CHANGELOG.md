@@ -108,6 +108,21 @@ bout. Le couple, lui, demande deux accords distincts (deux empreintes),
 ce qui est mesuré, dit honnêtement à l'opérateur, et enregistré en
 **A-23** au lieu d'être masqué.
 
+### Une seconde sonde corrigée, la mienne cette fois
+
+La suite de référence a été mesurée au commit de base dans une copie de
+travail neuve, pour ne pas avoir à annoncer un chiffre par soustraction.
+Elle a rendu **1 échec** — et l'échec était dans l'instrument : git
+convertit les fins de ligne à la sortie, `plugin.yaml` passe de 304 à 310
+octets et `__init__.py` de 4795 à 4914, et
+`test_le_depot_reste_la_source_du_plugin_installe` compare des octets. Le
+plugin installé est **identique au dépôt principal**, vérifié par `cmp`.
+
+Référence réelle : **6218** au commit de base, **6231** ici, 13 tests
+ajoutés. Aucune régression. La fragilité de la garde est enregistrée en
+**A-25** — son contrat est juste, son instrument est trop strict d'un
+cran.
+
 **A-24** : `prune_snapshots` et `StepCounter` n'ont aucun appelant de
 production. Le §19.3 demande un instantané tous les N pas ; `every` vaut
 10 et personne ne compte. Rien ne borne la croissance : 26 instantanés

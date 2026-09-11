@@ -325,6 +325,7 @@ primitive, et G-11 décide d'où bâtir Cowork.
 | ~~Points de reprise pris et jamais restaurables (A-3)~~ — **fermé HOS-291** | functional | §3 |
 | `ALLOWED_PATHS` n'est pas consulté pour une restauration (A-22) — `data_migration` est `path_based: false` ; le seul verrou est la validation humaine. Basculer la catégorie refuserait toute restauration d'instantané (`target_path=None` → `deny`, mesuré HOS-291) | security | §3 |
 | Le couple fichiers + état demande deux accords distincts (A-23) — empreintes `{checkpoint}` et `{snapshot}` ; non atteignable aujourd'hui, le seul producteur prend `avec_etat=False` | architectural | §3 |
+| La garde d'octets du plugin observateur rougit sur une copie de travail neuve (A-25) — mesuré HOS-291 : LF → CRLF à la sortie de git, 304 → 310 et 4795 → 4914 octets ; le contrat est juste, l'instrument est trop strict d'un cran | test | §3 |
 | `prune_snapshots` et `StepCounter` sans appelant de production (A-24) — 26 instantanés pour un `keep` de 20, et le « tous les N pas » du §19.3 n'a jamais lieu | technical debt | §3 |
 | Portée projet MCP validée mais non autorisée (A-4) | security | §8 / §10 |
 | Workflows utilisateur écrits dans le dépôt (A-5) | technical debt | §3 |
