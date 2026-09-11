@@ -551,6 +551,9 @@ class MissionExecutor:
             task.provider_used = str(meta_sortie.get("fournisseur") or "")
             task.decision_de_routage = _decision_en_json(
                 meta_sortie, served_model, outcome.runtime_id)
+            # G-11: what actually ran, not AgentCoordinator's keyword-matched
+            # guess — see execution_models.TaskExecution.tools_used.
+            task.tools_used = list(meta_sortie.get("tools_invoked") or [])
 
             # 3. Validate
             sm.transition(ExecutionState.VALIDATING, f"Validating task {task_id}")
@@ -599,7 +602,11 @@ class MissionExecutor:
                 "runtime": task.assigned_runtime,
                 "model": served_model,
                 "skills": task.assigned_skills,
-                "tools": task.assigned_tools,
+                # G-11: agent/runtime/model above are all what actually
+                # served the task, not what was requested — tools now
+                # matches that convention instead of being the one
+                # unmeasured recommendation in this dict.
+                "tools": task.tools_used,
                 "outcome": task.validation_outcome.value if task.validation_outcome else None,
                 "duration_ms": task.duration_ms,
             }
@@ -618,7 +625,11 @@ class MissionExecutor:
                      if t is not None]
             runtimes = _unique(t.assigned_runtime for t in tasks)
             skills = _unique(s for t in tasks for s in (t.assigned_skills or []))
-            tools = _unique(s for t in tasks for s in (t.assigned_tools or []))
+            # G-11: aggregated from what each task actually invoked
+            # (tools_used), not AgentCoordinator's assigned_tools guess —
+            # this feeds FeedbackLoop.get_memory_input/get_intelligence_input,
+            # which would otherwise train on tool usage that never happened.
+            tools = _unique(s for t in tasks for s in (t.tools_used or []))
             agents = _unique(t.assigned_agent for t in tasks) or list(sm._meta.tags)
             # HOS-069: this used to default to empty — a failed task's
             # actual reason (VRAM admission denial, Ollama timeout,

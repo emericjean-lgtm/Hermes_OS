@@ -1,3 +1,100 @@
+## HOS-294 — `assigned_tools` planifié, jamais invoqué (2026-09-12)
+
+G-11. Ferme le chantier opérationnel #5.
+
+### Le défaut
+
+`AgentCoordinator._select_tools` recommande des outils par correspondance
+de mots-clés entre le titre d'une tâche et le catalogue de plugins MCP
+(klaatcode/oh_my_pi). Le constat d'origine (HOS-069,
+`task_executor.py:31`) : rien n'invoque jamais cette recommandation — les
+deux seuls chemins d'exécution réels vivent dans un espace de noms
+disjoint. Hermes Agent choisit ses propres outils par son propre MCP
+(HOS-085 l'interdit à Hermes OS) ; la boucle locale de Hermes OS
+(`_run_tool_loop`, le seul chemin où elle possède réellement sa propre
+boucle) n'offre qu'un jeu fixe `workspace_*`/`verification_*`, sans
+rapport avec le catalogue de plugins.
+
+Ce que le constat d'origine ne disait pas, et que cette passe a mesuré :
+ce champ jamais invoqué atteignait quand même l'opérateur. Vue nominative
+sur `mission_executor.py`, `execute_task` renvoyait
+`"tools": task.assigned_tools` aux côtés de `"agent"`/`"runtime"`/`"model"`
+— trois champs qui rapportent, eux, ce qui a réellement servi, pas ce qui
+avait été demandé. `finalize()` agrégeait la même recommandation dans
+`ExecutionReport.tools_used`, un champ nommé « used » et jamais rempli par
+une mesure. Ce rapport est le producteur documenté de
+`FeedbackLoop.get_memory_input`/`get_intelligence_input` (Memory,
+Knowledge Graph, Runtime Intelligence) — actuellement sans appelant, donc
+sans dommage constaté aujourd'hui, mais un champ qui ment sur ce qui a
+tourné ne devient dangereux que le jour où quelqu'un le branche, pas le
+jour où on le corrige.
+
+### Décision
+
+Deux voies fermaient G-11. Invoquer réellement `assigned_tools` — rejeté :
+sur le chemin hermes-agent cela violerait HOS-085 (Hermes OS choisissant
+les outils du cerveau) ; sur le chemin local cela exigerait un second pont
+d'outils vers un catalogue que ce chemin ne peut de toute façon pas
+exécuter, une architecture nouvelle et disproportionnée pour une dette
+classée *technical debt* et non *architectural* dans
+`HERMES_OS_MASTER_ROADMAP.md`. Arrêter de faire passer la recommandation
+pour une mesure — retenu : c'est le changement minimal, et
+`_run_tool_loop` mesurait déjà un signal réel voisin
+(`tool_calls_made`, un compte) sans jamais le faire remonter jusqu'au
+rapport.
+
+### Ce qui a été livré
+
+`_run_tool_loop` capture désormais aussi les **noms** des outils
+réellement appelés (`tools_invoked`, dédupliqués en ordre de première
+apparition — un outil appelé trois fois est un outil qui a tourné, pas
+trois). `TaskExecution` gagne un champ `tools_used`, peuplé par
+`MissionExecutor` depuis les métadonnées réelles de l'outcome, sur le même
+idiome que `model_used`/`provider_used` (HOS-241/242) : ce qui a réellement
+servi, distinct de ce qui avait été demandé. `execute_task` et
+`finalize()` rapportent désormais `tools_used`, jamais `assigned_tools`.
+Sur le chemin hermes-agent, `tools_used` reste honnêtement vide — Hermes
+OS n'observe pas ce que le cerveau invoque sur sa propre connexion MCP, et
+le repêcher depuis `assigned_tools` aurait reproduit exactement G-11.
+`assigned_tools` lui-même n'a pas bougé : il reste le texte indicatif
+documenté dans le prompt, jamais une invocation.
+
+### Preuves
+
+`backend/tests/test_g11_outils_reellement_invoques.py`, 6 tests neufs.
+Niveau `MissionExecutor` : le rapport par tâche et le rapport agrégé
+portent ce qu'un exécuteur scripté déclare avoir réellement invoqué, pas
+ce qu'un outil enregistré et keyword-matché sur le titre de la tâche
+aurait fait recommander par le coordinateur — les deux listes sont
+délibérément différentes dans le montage pour qu'une confusion se voie ;
+mutation vérifiée à la main (`tools`/`tools_used` repointés sur
+`assigned_tools`) : 3 des 6 tests rougissent exactement sur l'assertion
+attendue, remis au vert ensuite. Cas limite : sans `tools_invoked` dans les
+métadonnées (le chemin hermes-agent), le rapport reste `[]`, jamais
+repêché depuis `assigned_tools`. Niveau `RealTaskExecutor` : la boucle
+locale, exercée contre un vrai workspace et un vrai Aegis (fixture
+existante de `test_real_task_executor.py`), rapporte les noms réels
+appelés ; un second montage vérifie qu'un outil appelé deux fois
+(`workspace_exists`, `workspace_exists`, `workspace_read`) ne compte
+qu'une fois dans `tools_invoked` tout en laissant `tool_calls_made` à 3.
+
+Aucun test existant modifié dans son intention. Suite complète : voir le
+rapport de fin de chantier.
+
+### Limites dites
+
+- `assigned_tools`/`AgentCoordinator._select_tools` restent en place,
+  décoratifs par construction : les retirer toucherait cinq fichiers de
+  test qui construisent des `TaskExecution(assigned_tools=[...])` sans
+  rapport avec ce chantier, pour un gain qui n'est pas celui que G-11
+  visait (le rapport mentait, pas le champ lui-même).
+- `FeedbackLoop.get_memory_input`/`get_intelligence_input` restent sans
+  appelant — `tools_used` y arrive maintenant honnête, mais brancher ces
+  méthodes est un chantier distinct, non ouvert ici.
+- Le chemin hermes-agent ne rapporte toujours aucun outil réellement
+  utilisé, par construction (HOS-085) : c'est un vide honnête, pas une
+  mesure manquante à combler.
+
 ## HOS-293 — Un verdict agentique est une mesure datée (2026-09-12)
 
 G-15. Ferme le chantier opérationnel #4.

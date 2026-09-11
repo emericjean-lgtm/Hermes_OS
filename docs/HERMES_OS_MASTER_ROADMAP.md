@@ -1889,7 +1889,7 @@ des capacités **livrées, testées, et sans consommateur produit** :
 | Promotion d'un souvenir | 4 niveaux, testé | **aucune route HTTP** | `PRESENT` (G-10) |
 | Points de reprise | `prendre` appelé | aperçu + restauration branchés (HOS-291) | `DEMONSTRATED` (A-3 fermé) |
 | Cycle de vie des skills | 9 routes, **aucune création** | liste seule | `PRESENT` (G-5) |
-| `assigned_tools` d'une tâche | planifié, jamais invoqué | — | décoratif (G-11) |
+| `assigned_tools` d'une tâche | planifié, jamais invoqué | — | décoratif, rapport corrigé (G-11 fermé HOS-294) |
 
 §15 n'invente donc pas un produit : elle **branche celui qui est déjà
 construit**, et nomme ce qui manque réellement.
@@ -2237,16 +2237,26 @@ manque, et c'est structurel :
 - **le worklog** est presque là : la chronologie du Centre Autonome et le
   bus d'événements le portent ; il n'est pas dans l'Assistant.
 
-**Et une asymétrie qui décide d'où bâtir Cowork.** Le **chat** dispose de
-treize outils réels quand un projet est lié ; une **tâche de mission**
-n'en appelle aucun — `assigned_tools` est planifié et jamais invoqué
-(G-11), l'agent apportant les siens. Bâtir Cowork sur le chemin de mission
-suppose donc de résoudre G-11 ; le bâtir sur le chemin de conversation
-hérite d'outils qui marchent déjà. C'est une question de §15.1, et elle
-n'est pas tranchée.
+**Et une asymétrie qui décide d'où bâtir Cowork — G-11 en a clarifié la
+nature sans la refermer.** Le **chat** dispose de treize outils réels
+quand un projet est lié ; une **tâche de mission** n'en appelle aucun de
+ce catalogue — `assigned_tools` (la recommandation d'`AgentCoordinator`)
+reste un texte indicatif, jamais invoqué. **HOS-294 a fermé G-11** tel que
+déposé dans la table des écarts : le rapport de mission ne fait plus
+passer cette recommandation pour une mesure (`ExecutionReport.tools_used`
+vient désormais de ce qui a réellement tourné). Mesuré en la fermant :
+invoquer réellement `assigned_tools` violerait HOS-085 sur le chemin
+hermes-agent, ou exigerait un second pont d'outils vers un catalogue que
+la boucle locale ne peut de toute façon pas exécuter — donc **l'asymétrie
+elle-même reste entière**, et n'était pas ce que G-11 promettait de
+résoudre. Bâtir Cowork sur le chemin de mission demande toujours une
+route neuve vers ce catalogue de treize outils, pas la fermeture de G-11 ;
+le bâtir sur le chemin de conversation hérite d'outils qui marchent déjà.
+C'est une question de §15.1, et elle n'est pas tranchée.
 
-**Dépend de** : ~~A-3~~ (fermé HOS-291), §7 (orchestration), G-11, et de
-la décision T-28.
+**Dépend de** : ~~A-3~~ (fermé HOS-291), §7 (orchestration), ~~G-11~~
+(fermé HOS-294 — l'asymétrie qu'il décrivait reste ouverte, voir
+ci-dessus), et de la décision T-28.
 
 #### §15.5 — Explainability & resource visibility — 🟠 réalisable, et le meilleur rapport
 
@@ -2372,7 +2382,7 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | G-8 | **technical debt** | Deux vocabulaires « mission » (`Mission` / `MissionInstance`) | §7 | deux routes homonymes, une seule montée |
 | G-9 | **technical debt** | 8 runs orphelins ; aucune suppression exposée par `Registre` | §2 | dette acceptée, voir STATE |
 | G-10 | **architectural** | La promotion d'un souvenir n'a **aucune route HTTP** | §8 | `promouvoir` à 4 niveaux, testé ; `memory/routes.py` n'expose que search/graph/experiences/index/statistics |
-| G-11 | **technical debt** | `assigned_tools` d'une tâche est planifié et **jamais invoqué** | §7 | `task_executor.py:31` le documente ; l'agent a ses propres outils, la sélection du planificateur est décorative |
+| ~~**G-11**~~ | ~~technical debt~~ | ~~`assigned_tools` d'une tâche est planifié et **jamais invoqué**~~ — **fermé HOS-294** | §7 | invoquer réellement la recommandation violerait HOS-085 (agent) ou exigerait un second pont d'outils vers un catalogue disjoint (local) ; le rapport de mission ne la fait plus passer pour une mesure — `TaskExecution.tools_used`/`ExecutionReport.tools_used` viennent désormais de ce que `_run_tool_loop` a réellement invoqué, jamais de `assigned_tools` |
 | ~~**G-12**~~ | ~~architectural~~ | ~~Le repli agentique défait **toutes** les décisions du routeur~~ — **fermé HOS-263** | §6/§7 | mesuré : 0 sur 5 avant, **5 sur 5** après ; un repli ne défait plus une décision sans porter une preuve qu'elle n'a pas |
 | ~~**G-14**~~ | ~~architectural~~ | ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue~~ — **fermé HOS-264** | §7 | 18 essais réels, 6 modèles, 6/6 prouvés ; chaîne magasin → prédicat → modèle engagé mesurée sur le vrai bootstrap. La sonde mesurait la convention de chemin et non le modèle : corrigée sur la formulation même de la production |
 | ~~**G-15**~~ | ~~observability~~ | ~~Un verdict agentique est une mesure datée que rien ne réévalue~~ — **fermé HOS-293** | §6/§7 | même remède que le pont (§16) : le magasin indexe désormais chaque verdict sur l'empreinte (digest `/api/tags` + `num_ctx` du Modelfile) mesurée au moment de la sonde, et `measured_success_for` la revérifie à chaque lecture — un `ollama pull` ou un `num_ctx` édité sous le même tag rend le verdict `None` (non prouvé), jusqu'au prédicat de production et à `_agentic_model` |

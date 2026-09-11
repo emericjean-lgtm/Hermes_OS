@@ -33,8 +33,8 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      f75e36d (A-4, HOS-292) — dernier commit
-                               de code avant G-15 (HOS-293)
+BASELINE:                      6a27535 (merge, HOS-293/G-15) — dernier
+                               commit de code avant G-11 (HOS-294)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -112,6 +112,16 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                rouges puis vertes, chaîne bout en bout
                                jusqu'à `_agentic_model` et redémarrage
                                inter-processus démontrés
+                               G-11 fermé (HOS-294) — le rapport de
+                               mission ne fait plus passer la
+                               recommandation jamais invoquée
+                               d'`AgentCoordinator` pour une mesure ;
+                               `TaskExecution.tools_used` vient de ce que
+                               `_run_tool_loop` a réellement appelé, vide
+                               et honnête sur le chemin hermes-agent ;
+                               l'asymétrie qui décide d'où bâtir Cowork
+                               (§15.4) reste ouverte — G-11 fermait le
+                               mensonge du rapport, pas l'asymétrie
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -263,6 +273,30 @@ cache, appliqué au second magasin qui en avait besoin. 15 mutations
 rouges puis vertes, chaîne bout en bout démontrée jusqu'à
 `RealTaskExecutor._agentic_model`, et redémarrage inter-processus vérifié.
 
+**G-11 est fermé le 2026-09-12 (HOS-294).** `AgentCoordinator._select_tools`
+recommande des outils par mot-clé contre le catalogue de plugins MCP ;
+`task_executor.py:31` documentait depuis HOS-069 que rien ne l'invoque
+jamais — un espace de noms disjoint des deux seuls chemins d'exécution
+réels (Hermes Agent choisit ses propres outils par son propre MCP,
+HOS-085 l'interdit à Hermes OS ; la boucle locale n'offre qu'un jeu fixe
+`workspace_*`/`verification_*`). Ce que HOS-069 ne disait pas : ce champ
+jamais invoqué atteignait quand même l'opérateur — `execute_task`
+rapportait `"tools": task.assigned_tools` aux côtés de trois champs qui
+rapportent, eux, ce qui a réellement servi, et `finalize()` agrégeait la
+même recommandation dans un `ExecutionReport.tools_used` jamais rempli par
+une mesure. Invoquer réellement `assigned_tools` a été écarté — ça violerait
+HOS-085 sur le chemin agent, ou exigerait un second pont d'outils
+disproportionné sur le chemin local, pour une dette classée *technical
+debt* et non *architectural*. `_run_tool_loop` capture désormais les noms
+réels appelés (`tools_invoked`), et `TaskExecution.tools_used` — sur
+l'idiome de `model_used`/`provider_used` — les rapporte à la place de la
+recommandation ; vide et honnête sur le chemin hermes-agent, jamais
+repêché depuis `assigned_tools`. 6 tests neufs, mutation vérifiée à la
+main : reconnecter le rapport à `assigned_tools` fait rougir 3 des 6
+exactement sur l'assertion attendue. `assigned_tools` lui-même n'a pas
+bougé — le mensonge était dans le rapport, pas dans le champ — et
+l'asymétrie qui décide d'où bâtir Cowork (§15.4) reste donc ouverte.
+
 ---
 
 ## NEXT_ACTION
@@ -324,7 +358,9 @@ aucun appelant, et un bouton « reprendre » sans restauration mentirait
 sur ce qu'il fait. **A-3 est fermé le 2026-09-11 (HOS-291)** — la
 restauration est appelable, gouvernée par Aegis et démontrée. Le blocage
 qui reste sur §15.4 est donc l'autre : fork/branche n'a toujours aucune
-primitive, et G-11 décide d'où bâtir Cowork.
+primitive, et l'asymétrie que G-11 décrivait décide toujours d'où bâtir
+Cowork (voir HOS-294 ci-dessous : G-11 est fermé, l'asymétrie qu'il
+décrivait ne l'est pas).
 
 ---
 
@@ -343,7 +379,7 @@ primitive, et G-11 décide d'où bâtir Cowork.
 | La promotion d'un souvenir n'a aucune route HTTP (G-10) | architectural | §8 |
 | ~~Deux files d'approbation, et le cockpit regarde la morte (G-36)~~ — **fermé HOS-285** | security | §15/§23 |
 | ~~La file de `backend/policy/` n'a aucun producteur ni consommateur (G-37)~~ — **audité HOS-286 (REJECT), supprimé HOS-287** | technical debt | §15 |
-| `assigned_tools` planifié et jamais invoqué (G-11) | technical debt | §7 |
+| ~~`assigned_tools` planifié et jamais invoqué (G-11)~~ — **fermé HOS-294** | technical debt | §7 |
 | ~~`_RegistreMissions` hydrate sur un ordre non garanti (A-19)~~ — **fermé HOS-262** | test | §3 |
 | ~~Le repli agentique défait toutes les décisions du routeur (G-12)~~ — **fermé HOS-263** | architectural | §6/§7 |
 | ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue (G-14)~~ — **fermé HOS-264** | architectural | §7 |

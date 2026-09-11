@@ -28,10 +28,18 @@ Design constraints it has to respect:
   and the model actually used come from the runtime's own response, not from an
   estimate.
 
-Known, documented limitation (HOS-069 audit): ``assigned_tools``
-(AgentCoordinator's pick, an unrelated keyword-matched recommendation —
-see agent_coordinator.py's ``_select_tools``) is still only ever a text
-hint, never invoked as a real tool/MCP call. What *is* now real: when a
+Known, documented limitation (HOS-069 audit, narrowed by G-11): ``assigned_tools``
+(AgentCoordinator's pick, an unrelated keyword-matched recommendation over
+the MCP plugin catalogue — see agent_coordinator.py's ``_select_tools``)
+is still only ever a text hint, never invoked as a real tool/MCP call —
+wiring it up would mean either building a second tool-dispatch bridge for
+a namespace neither real path can reach, or, on the hermes-agent path,
+Hermes OS choosing the brain's tools for it, which HOS-085 already forbids.
+What G-11 fixed: the report a mission produces no longer repeats that
+guess as fact. ``TaskExecution.tools_used`` / ``ExecutionReport.tools_used``
+(mission_executor.py) now carry what ``_run_tool_loop`` actually called,
+not what the coordinator recommended — see ``tools_invoked`` in this
+executor's own outcome metadata, below. What *is* now real: when a
 task's Mission is bound to an ACTIVE, validated Project (Workspace/
 Filesystem tool layer, ``workspace_project_for`` below), this executor
 offers the model real ``workspace_*`` filesystem tools and actually
@@ -953,6 +961,13 @@ class RealTaskExecutor:
                 # bound, or the model never called one) — see
                 # _run_tool_loop's ChatResponse.metadata.
                 "tool_calls_made": int(meta.get("tool_calls_made") or 0),
+                # G-11: which tools those calls actually named. Empty for
+                # the hermes-agent path — Hermes OS does not observe what
+                # Hermes Agent invokes over its own MCP connection (that
+                # would mean this backend spying on the brain's own tool
+                # loop), so this stays honestly empty rather than
+                # borrowing AgentCoordinator's assigned_tools guess.
+                "tools_invoked": list(meta.get("tools_invoked") or []),
             },
         )
         outcome.artifact_path = self._persist_artifact(task, outcome)
@@ -1411,6 +1426,13 @@ class RealTaskExecutor:
         tools = workspace_tool_schemas() + verification_tool_schemas()
         working_messages = list(messages)
         tool_calls_made = 0
+        # G-11: what the model actually called, distinct from
+        # AgentCoordinator's assigned_tools recommendation (a keyword match
+        # against an unrelated MCP catalogue — see _build_messages's
+        # docstring). This list is the real signal MissionExecutor now
+        # reports as "tools used"; order-preserving de-dup, since a tool
+        # called three times is still one tool that ran, not three.
+        tools_invoked: dict[str, None] = {}
         try:
             for _round in range(_tours_d_outils_max()):
                 content_parts: list[str] = []
@@ -1425,7 +1447,8 @@ class RealTaskExecutor:
                     return ChatResponse(
                         content="".join(content_parts),
                         metadata={"model": model, "provider": "ollama",
-                                  "tool_calls_made": tool_calls_made},
+                                  "tool_calls_made": tool_calls_made,
+                                  "tools_invoked": list(tools_invoked)},
                     )
 
                 working_messages.append({
@@ -1446,6 +1469,8 @@ class RealTaskExecutor:
                     except Exception as exc:
                         result = f"Tool {name!r} failed: {type(exc).__name__}: {exc}"
                     tool_calls_made += 1
+                    if name:
+                        tools_invoked[name] = None
                     working_messages.append({
                         "role": "tool", "content": str(result), "tool_name": name,
                     })
@@ -1471,7 +1496,8 @@ class RealTaskExecutor:
             return ChatResponse(
                 content="".join(final_parts),
                 metadata={"model": model, "provider": "ollama",
-                          "tool_calls_made": tool_calls_made},
+                          "tool_calls_made": tool_calls_made,
+                          "tools_invoked": list(tools_invoked)},
             )
         except OllamaUnavailableError as exc:
             raise RuntimeUnavailableError(f"Ollama unavailable: {exc}") from exc

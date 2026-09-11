@@ -193,8 +193,18 @@ class TaskExecution:
     # AgentCoordinator's recommendation, surfaced to the model as a text
     # hint in the system prompt (see RealTaskExecutor._build_messages()) —
     # NOT a real tool/MCP invocation (HOS-069 audit finding). No tool named
-    # here is ever actually called.
+    # here is ever actually called. See tools_used below for what was.
     assigned_tools: list[str] = field(default_factory=list)
+    # G-11: what this task's completion actually invoked, taken from
+    # RealTaskExecutor's outcome metadata by MissionExecutor — same idiom
+    # as model_used/provider_used above. Distinct from assigned_tools:
+    # a retry, a namespace mismatch, or the model simply not calling what
+    # was recommended all make the two lists diverge, and only this one
+    # is a measurement. Empty on the hermes-agent path, where Hermes OS
+    # cannot see which tools the brain used over its own MCP connection —
+    # never backfilled from assigned_tools, which would just reintroduce
+    # the fabrication this field exists to remove.
+    tools_used: list[str] = field(default_factory=list)
     result: Any = None
     errors: list[str] = field(default_factory=list)
     retries: int = 0
