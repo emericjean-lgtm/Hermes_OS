@@ -1,3 +1,114 @@
+## HOS-286 — L'audit de `backend/policy/` (2026-09-11)
+
+G-37. **REJECT comme autorite.** Les trois responsabilites du module sont
+re-attribuees a leur proprietaire reel, et aucune n'est perdue :
+
+    evaluation de politique -> Aegis (`config/security.yaml` +
+                               `AegisEngine`, relu a chaque evaluation)
+    file d'approbation      -> Aegis (`security/approvals.py`, SQLite) —
+                               deja ferme en G-36
+    journal d'audit         -> `core/audit_log.py` (§18, SQLite +
+                               fichiers, redaction a l'ecriture)
+
+### Ce qui l'etablit
+
+- `set_policy_engine` n'est **jamais appele**. `set_security_engine`, si —
+  `service_registry` y injecte `AegisSecurityAdapter`. Le seul appelant de
+  `PolicyEngine.evaluate` est `autonomous_guard`, derriere
+  `if self._policy_engine:`, donc mort. Les autres `.evaluate(` du depot
+  appartiennent a d'autres moteurs : politiques de reprise runtime,
+  `ToolPolicy` des connecteurs, disjoncteurs.
+- Les trois evenements que son `ServiceSpec` declare produire —
+  `approval.requested`, `approval.granted`, `audit.created` — comptent
+  **zero occurrence** sur le bus durable. Le bus ne porte que
+  `runtime.started` (20) et `run.turn.emitted` (5).
+- Il porte **dix regles en dur**, jamais evaluees, dont deux
+  **contredisent** la politique en vigueur : `internet_access_allowed:
+  allow` contre `network_call` qui exige « high », et
+  `system_modification_denied: deny` contre `system_config` qui demande un
+  humain — pas un refus.
+- Sa file et son journal sont **en memoire** : zero entree, rien ne
+  survit a un redemarrage. Ses dix regles sont des constantes de code
+  (`_register_builtins`) : aucune route ne les cree, ne les modifie ni ne
+  les supprime, et un redemarrage rend exactement les memes.
+- Le journal du §18, lui, porte **six entrees reelles** du 2026-08-14,
+  ecrites par les tours de chat — et **aucun lecteur**.
+
+### Le meme defaut, trois fois, sur le meme ecran
+
+Le Governance Center avait trois onglets, et les trois lisaient
+`backend/policy/` :
+
+    approbations  file en memoire sans producteur  -> file d'Aegis (SQLite)
+    regles        dix regles qu'aucun chemin        -> matrice Aegis, celle
+                  n'evalue, et qui contredisent        qu'Aegis relit a
+                  la politique en vigueur              chaque evaluation
+    audit         anneau en memoire, 0 entree       -> journal du §18
+
+Ce n'etait pas une surface manquante : c'etait un consommateur branche sur
+la mauvaise source. Ni le compteur d'orphelins ni le typage ne pouvaient
+le voir, puisque les deux surfaces existaient — et l'ecran affichait une
+politique de securite **qui ne gouvernait rien**, avec la credibilite que
+donne la forme d'une vraie donnee.
+
+### Ce que le cockpit montre desormais
+
+`GET /security/autonomy` rend la matrice entiere a cote du niveau, avec
+pour chaque categorie son **effet au niveau courant**. Servie la plutot
+que par une route neuve : c'est le meme sujet que `level` et
+`always_validated`, et la meme source — la `PermissionMatrix` qu'Aegis
+interroge. Une seconde route inviterait a une seconde lecture.
+
+L'effet est calcule par le backend, jamais recalcule a l'ecran : les deux
+divergeraient au premier changement de seuil. Une garde le confronte au
+**moteur** plutot qu'a lui-meme — pour chaque categorie et chaque niveau,
+le verdict d'`AegisEngine` doit s'accorder avec ce que l'ecran annonce.
+
+### Ce qui n'est pas fait, et pourquoi
+
+`backend/policy/` n'est **pas supprime**. Le module n'a plus aucun
+consommateur produit, mais sa suppression touche le `ServiceSpec`, le
+bootstrap, trois routeurs montes et leurs tests. C'est une passe a part, et
+une decision qui n'appartient pas a un audit : le brief demandait de
+« proposer sa suppression propre », pas de l'executer.
+
+**Proposition.** Retirer le `ServiceSpec` `policy_engine` et son
+`route_binder` ; supprimer `backend/policy/` (8 modules, 1346 lignes) ;
+retirer `governanceClient.rules`, `.evaluate` et `usePolicyRules` du
+frontend ; retirer `/policy/*` et `/approval/*` des orphelins connus.
+Aucun autre module n'importe `backend.policy` — mesure.
+
+### Les gardes, et ce qu'elles tiennent
+
+Pas « ce module ne doit pas exister ». La seule propriete qui compte est
+qu'il **ne redevienne pas une autorite**, ni par cablage ni par affichage.
+Et chaque garde a sa moitie inverse, sans quoi elle serait satisfaite par
+un depot ou plus rien ne garde : `set_policy_engine` doit rester sans
+appelant **et** Aegis doit rester injecte ; le cockpit ne doit lire aucune
+surface sans producteur **et** doit lire les trois autorites reelles.
+
+### Deux gardes absentes, trouvees par mutation
+
+La garde des trois autorites cherchait le **nom** `useAutonomy`. Un mutant
+qui remplace l'appel par un objet fige — en gardant le nom dans un cast de
+type — la laissait verte pendant que l'ecran n'interrogeait plus rien.
+Elle cherche desormais l'APPEL.
+
+Et la garde qui confronte l'effet affiche au moteur n'itere que sur les
+categories reelles : aucune du fichier actuel n'est mutante, non
+obligatoire et **sans seuil declare**, si bien que cette branche n'etait
+jamais exercee. Une categorie ajoutee demain sans
+`min_autonomy_for_auto_allow` se serait affichee « autorisee » la ou le
+moteur demande un humain. La garde exerce maintenant une categorie de
+sonde pour cette branche precise.
+
+### Preuves
+
+Neuf mutations, neuf rouges — dont « une seconde autorite cablee » et
+« plus aucune autorite ». Suite backend : 6184 passed, 3 skipped, 274
+deselected, 0 failed. `tsc` propre, 153 tests vitest. Les 206 demandes
+historiques d'Aegis ne sont pas touchees. `data/db/hermes.db` intacte.
+
 ## HOS-285 — L'approbation raccordee, la pose gouvernee (2026-09-11)
 
 G-36. **ADOPT.** La chaine complete fonctionne sur le chemin reel :

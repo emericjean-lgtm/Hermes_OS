@@ -132,6 +132,36 @@ def _matrice():
     return _aegis()._engine._matrix  # noqa: SLF001
 
 
+#: L'ordre des niveaux d'autonomie, du plus prudent au plus large. Il
+#: décide si `min_autonomy_for_auto_allow` est atteint, et c'est la même
+#: comparaison qu'`AegisEngine` fait — reproduite ici pour l'affichage, et
+#: gardée par un test qui la confronte au moteur plutôt qu'à elle-même.
+_ORDRE_AUTONOMIE = ("low", "medium", "high")
+
+
+def _effet(policy, niveau: str) -> str:
+    """Ce que cette catégorie donne au niveau courant.
+
+    Trois valeurs bornées. `humain` couvre §17.3 (jamais contournable) et
+    le cas d'un seuil non atteint : les deux appellent la même conduite —
+    demander — même si leurs raisons diffèrent, et la raison est déjà
+    lisible dans les colonnes d'à côté.
+    """
+    if policy.mandatory_validation:
+        return "humain"
+    if not policy.mutating:
+        return "autorise"
+    requis = policy.min_autonomy_for_auto_allow
+    if requis is None:
+        return "humain"
+    try:
+        return ("autorise"
+                if _ORDRE_AUTONOMIE.index(niveau) >= _ORDRE_AUTONOMIE.index(requis)
+                else "humain")
+    except ValueError:
+        return "humain"
+
+
 @router.get("/security/autonomy")
 async def get_autonomy() -> dict:
     """Le niveau en vigueur, ceux disponibles, et ce que chacun change.
@@ -157,6 +187,36 @@ async def get_autonomy() -> dict:
             nom for nom in _matrice().known_categories()
             if (policy := _matrice().get_category(nom)) and policy.mandatory_validation
         ),
+        # G-37 : la matrice ENTIÈRE, parce qu'un écran la montrait déjà —
+        # mais celle de `backend/policy/`, qui n'est appliquée nulle part.
+        # Ses dix règles recouvrent ces catégories et, sur deux d'entre
+        # elles, les **contredisent** : `internet_access_allowed: allow`
+        # contre `network_call` qui exige « high », et
+        # `system_modification_denied: deny` contre `system_config` qui
+        # demande un humain. Un opérateur lisait donc une politique qui
+        # n'était ni appliquée ni d'accord avec celle qui l'est.
+        #
+        # Servie ici plutôt que par une route neuve : c'est le même sujet
+        # que `level` et `always_validated`, et la même source — la
+        # `PermissionMatrix` qu'`AegisEngine` relit à chaque évaluation.
+        # Une seconde route inviterait à une seconde lecture.
+        "categories": [
+            {
+                "nom": nom,
+                "mutating": policy.mutating,
+                "path_based": policy.path_based,
+                "mandatory_validation": policy.mandatory_validation,
+                "min_autonomy_for_auto_allow": policy.min_autonomy_for_auto_allow,
+                # Ce que la catégorie donne AU NIVEAU COURANT. C'est la
+                # seule colonne qui réponde à la question qu'on se pose en
+                # ouvrant cet écran, et elle se déduit — donc ne s'invente
+                # pas : `mandatory_validation` l'emporte toujours ; une
+                # catégorie non mutante passe ; sinon le niveau décide.
+                "effet_courant": _effet(policy, courant),
+            }
+            for nom in sorted(_matrice().known_categories())
+            if (policy := _matrice().get_category(nom))
+        ],
     }
 
 

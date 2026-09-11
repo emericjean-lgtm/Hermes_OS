@@ -559,6 +559,32 @@ export interface ApprovalRequest {
  *  approbation est un JETON DE PASSAGE, pas un ordre de travail. Elle
  *  autorise la prochaine tentative identique, une fois, pendant quinze
  *  minutes. Approuver ne rejoue donc rien — l'appelant doit redemander. */
+/** Une entree du journal d'audit du §18 (`backend/core/audit_log.py`).
+ *
+ *  C'est le journal REEL : adosse a SQLite et a des fichiers sous
+ *  `data/logs/`, avec redaction des secrets A L'ECRITURE — « un secret
+ *  qui a atteint le disque a deja fuite ; le filtrer a l'affichage serait
+ *  du theatre ». Ecrit par les tours de chat (`api/routes/chat.py`), il
+ *  porte ce que §18 demande : qui a agi, ce qui a ete demande, quel modele
+ *  le routeur a choisi et pourquoi, ce qui a ete touche, et ce que ca a
+ *  coute.
+ *
+ *  A ne pas confondre avec `AuditEntry`, la forme de l'anneau en memoire
+ *  de `backend/policy/` — vide par construction. */
+export interface EntreeJournal {
+  id: string;
+  timestamp: string;
+  session_id: string | null;
+  agent: string | null;
+  request: string | null;
+  result: string | null;
+  routing_decision: Record<string, unknown> | null;
+  files_modified: string[] | null;
+  duration_ms: number | null;
+  tokens_used: number | null;
+  tokens_per_second: number | null;
+}
+
 export interface ApprobationAegis {
   id: string;
   action_type: string;

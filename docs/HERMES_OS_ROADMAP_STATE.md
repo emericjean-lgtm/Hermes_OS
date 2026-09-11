@@ -17,7 +17,7 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       G-14 fermé (HOS-264) — le catalogue est sondé
                       §16 🟡 (HOS-265→274) — le pont, la matrice,
                       le chat joignable et enfin interruptible
-                      §10 🟡 (HOS-274→285) — les Skills se lisent, le
+                      §10 🟡 (HOS-274→286) — les Skills se lisent, le
                       chiffre de HOS-153 était faux, la provenance est
                       mesurée (60 système / 4 générées / 1 conflit), la
                       corrélation Run ↔ Skill est ADOPT, l'observateur est
@@ -29,11 +29,9 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      769f23e (HOS-284, sonde de température) —
-                               dernier commit de code avant G-36. G-35
-                               s'est arrêté à 7e86132 ; la sonde GPU s'est
-                               intercalée entre les deux, hors périmètre
-                               Skills
+BASELINE:                      e32ce27 (G-36, HOS-285) — dernier commit
+                               de code avant G-37 (audit de
+                               `backend/policy/`)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -281,7 +279,7 @@ mentirait sur ce qu'il fait.
 | Rien ne détecte un Modelfile élargi sous une empreinte (A-20) | architectural | §6 |
 | La promotion d'un souvenir n'a aucune route HTTP (G-10) | architectural | §8 |
 | ~~Deux files d'approbation, et le cockpit regarde la morte (G-36)~~ — **fermé HOS-285** | security | §15/§23 |
-| La file de `backend/policy/` n'a aucun producteur ni consommateur (G-37) | technical debt | §15 |
+| ~~La file de `backend/policy/` n'a aucun producteur ni consommateur (G-37)~~ — **audité HOS-286, REJECT ; suppression proposée, non exécutée** | technical debt | §15 |
 | `assigned_tools` planifié et jamais invoqué (G-11) | technical debt | §7 |
 | ~~`_RegistreMissions` hydrate sur un ordre non garanti (A-19)~~ — **fermé HOS-262** | test | §3 |
 | ~~Le repli agentique défait toutes les décisions du routeur (G-12)~~ — **fermé HOS-263** | architectural | §6/§7 |

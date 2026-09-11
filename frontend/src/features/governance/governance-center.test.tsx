@@ -25,7 +25,13 @@ const etat = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/use-api", () => ({
-  usePolicyRules: () => ({ data: [], isLoading: false, isError: false }),
+  // G-37 : l'onglet Regles lit desormais la matrice Aegis, la seule
+  // politique reellement appliquee.
+  useAutonomy: () => ({
+    data: { level: "medium", levels: [], overridden: false,
+            always_validated: [], categories: [] },
+    isLoading: false, isError: false, error: null,
+  }),
   useAuditLog: () => ({ data: [], isLoading: false, isError: false }),
   useApprovals: () => ({
     data: etat.approbations,

@@ -300,7 +300,10 @@ describe("API Client Endpoints", () => {
     expect(typeof governanceClient.approvals).toBe("function");
     expect(typeof governanceClient.approve).toBe("function");
     expect(typeof governanceClient.reject).toBe("function");
-    expect(typeof governanceClient.audit).toBe("function");
+    // G-37 : `audit` lisait `/audit`, servi par un anneau EN MEMOIRE que
+    // rien n'ecrit. `journal` lit `/logs`, le journal du §18 adosse a
+    // SQLite — six entrees reelles, aucun lecteur jusqu'ici.
+    expect(typeof governanceClient.journal).toBe("function");
   });
 
   it("executionClient has lifecycle methods", async () => {

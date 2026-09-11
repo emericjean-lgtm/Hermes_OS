@@ -202,6 +202,15 @@ C'est le composant le plus solide du dépôt. Niveau : `DEMONSTRATED`.
 
 ## §3 — Checkpoints / Approval / Sandbox / Security Boundary — 🟡 PARTIAL
 
+> **G-37 (HOS-286) — `backend/policy/` n'est pas un contrôle de sécurité.**
+> L'audit J25 comptait ce module parmi l'outillage de gouvernance. Mesuré :
+> `set_policy_engine` n'est jamais appelé, aucun de ses trois événements
+> déclarés n'a jamais été émis, et deux de ses dix règles contredisent la
+> politique appliquée. Le seul contrôle de sécurité sur le chemin réel est
+> **Aegis**, et `test_autorite_de_politique.py` garde les deux moitiés :
+> que le moteur de politique ne soit pas câblé, *et* qu'Aegis le reste.
+
+
 > **Statut attendu par le cahier J25 : 🟢. Mesuré : 🟡.**
 
 **Ce qui est démontré.**
@@ -626,6 +635,19 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### Une seule autorité, et elle est nommée (HOS-286)
+
+Le pont ne touche pas à `backend/policy/`, et c'est le résultat : rien
+dans la chaîne agentique ne le traverse. L'audit le confirme par la
+mesure — aucun module hors `backend/policy/` ne l'importe, sauf le
+bootstrap qui le construit et monte ses routes.
+
+La politique que l'agent subit vient d'un seul fichier,
+`config/security.yaml`, relu par `AegisEngine` à chaque évaluation. Le
+cockpit la montre désormais telle quelle, avec l'effet de chaque
+catégorie **au niveau courant** — calculé par le backend depuis la même
+comparaison que le moteur, jamais recalculé à l'écran.
+
 ### La pose, demandée et gardée (HOS-285)
 
 Le pont porte enfin une mutation de Skill — `skills.manage` — et c'est la
@@ -793,6 +815,17 @@ réponse ne peut pas être « l'agent ».
 
 ## §9 — Mission Control / Operator Observability — 🟡 PARTIAL
 
+> **G-37 (HOS-286) — le journal d'audit du §18 a enfin un lecteur.**
+> `backend/core/audit_log.py` écrit dans SQLite *et* dans des fichiers
+> sous `data/logs/`, avec rédaction des secrets **à l'écriture** — « un
+> secret qui a atteint le disque a déjà fui ; le filtrer à l'affichage
+> serait du théâtre ». Il portait six entrées réelles depuis le
+> 2026-08-14 et personne ne les lisait : le Governance Center affichait
+> l'anneau en mémoire de `backend/policy/`, vide par construction.
+> L'onglet Audit sert désormais `/logs`, avec le modèle choisi par le
+> routeur et sa raison en infobulle.
+
+
 **Existant.** Mission Control est une **vue** stricte : `vue_operations`
 est en lecture seule, gardé par deux vérifications d'arbre syntaxique
 (n'écrit rien, n'ouvre aucun magasin). 10 routes d'opérations, Control
@@ -820,7 +853,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-285)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-286)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1652,6 +1685,13 @@ l'agent (`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas**
 sur cette installation, et aucune RPC ne l'expose. Appariement skill ↔
 tâche reste PLANNED.
 
+**G-37 (HOS-286) a confirmé l'autorité qui garde la pose.** L'audit de
+`backend/policy/` cherchait si une seconde autorité pouvait revendiquer
+l'approbation d'une Skill. Elle ne le peut pas : ses règles ne sont
+évaluées nulle part, et aucune ne mentionne l'installation. `skill_install`
+reste gardé par Aegis seul, et une garde interdit désormais de câbler
+l'autre moteur sans trancher laquelle des deux politiques s'applique.
+
 ---
 
 ## §11 — Collaboration / Agent Council / Delegation — 🟡 PARTIAL
@@ -1808,6 +1848,70 @@ relation sur de vrais événements — vérifié dans le navigateur, pas
 seulement en test. C'est la première fois de cette série qu'une capacité
 traverse §16 (le transport), §10 (la donnée) et §15 (l'écran) sans
 qu'aucun maillon ne soit `PRESENT` sans être `ACTUALLY USED`.
+
+### G-37 — l'audit de `backend/policy/` (HOS-286)
+
+**REJECT comme autorité**, et les trois responsabilités du module sont
+re-attribuées à leur propriétaire réel. Mesuré le 2026-09-11.
+
+| responsabilité | verdict | autorité réelle |
+|---|---|---|
+| évaluation de politique | **REJECT** | Aegis — `config/security.yaml` + `AegisEngine`, relu à chaque évaluation |
+| file d'approbation | **REJECT** | Aegis — `security/approvals.py` (SQLite), fermé en G-36 |
+| journal d'audit | **REJECT** | `core/audit_log.py` — §18, SQLite + fichiers, rédaction à l'écriture |
+
+#### Ce qui l'établit
+
+- `set_policy_engine` n'est **jamais appelé**. `set_security_engine`, si —
+  `service_registry` y injecte `AegisSecurityAdapter`. Le seul appelant de
+  `PolicyEngine.evaluate` est `autonomous_guard`, derrière
+  `if self._policy_engine:`, donc mort.
+- Les trois événements que son `ServiceSpec` déclare produire —
+  `approval.requested`, `approval.granted`, `audit.created` — comptent
+  **zéro occurrence** sur le bus durable.
+- Il porte **dix règles en dur**, jamais évaluées, dont deux
+  **contredisent** la politique en vigueur : `internet_access_allowed:
+  allow` contre `network_call` qui exige « high », et
+  `system_modification_denied: deny` contre `system_config` qui demande un
+  humain — pas un refus.
+- Sa file et son journal sont **en mémoire** : zéro entrée, rien ne
+  survit à un redémarrage. Ses dix règles sont des constantes de code :
+  aucune route ne les crée, ne les modifie ni ne les supprime, et un
+  redémarrage rend exactement les mêmes.
+- Le journal du §18, lui, porte **six entrées réelles** (2026-08-14),
+  écrites par les tours de chat — et **aucun lecteur**.
+
+#### Le même défaut, trois fois, sur le même écran
+
+Le Governance Center avait trois onglets, et les trois lisaient
+`backend/policy/` :
+
+    approbations  file en mémoire sans producteur  → file d'Aegis (SQLite)
+    règles        dix règles qu'aucun chemin        → matrice Aegis, celle
+                  n'évalue, et qui contredisent        qu'Aegis relit à
+                  la politique en vigueur              chaque évaluation
+    audit         anneau en mémoire, 0 entrée       → journal du §18
+
+Ce n'était pas une surface manquante : c'était un consommateur branché
+sur la mauvaise source. Ni le compteur d'orphelins ni le typage ne
+pouvaient le voir, puisque les deux surfaces existaient — et l'écran
+affichait une politique de sécurité **qui ne gouvernait rien**.
+
+#### Ce qui n'est pas fait, et pourquoi
+
+`backend/policy/` n'est **pas supprimé**. Le module n'a plus aucun
+consommateur produit, mais sa suppression touche le `ServiceSpec`, le
+bootstrap, trois routeurs montés et leurs tests — une passe à part, et
+une décision qui n'appartient pas à un audit. La proposition est écrite
+ci-dessous ; ce qui est livré ici est le diagnostic, le rebranchement des
+trois écrans, et les gardes qui empêchent qu'il redevienne une autorité.
+
+**Proposition de suppression propre (non exécutée).** Retirer le
+`ServiceSpec` `policy_engine` et son `route_binder` ; supprimer
+`backend/policy/` (8 modules, 1346 lignes) ; retirer `governanceClient.rules`,
+`.evaluate` et `usePolicyRules` du frontend ; retirer `/policy/*` et
+`/approval/*` des orphelins connus. Aucun autre module n'importe
+`backend.policy` — mesuré.
 
 **HOS-285 ferme la ligne « approbations » du tableau ci-dessus.** Elle
 n'y figurait pas, et c'est précisément ce que G-36 a trouvé : le cockpit

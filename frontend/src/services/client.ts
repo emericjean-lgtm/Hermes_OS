@@ -23,6 +23,7 @@ import type {
   PolicyRule,
   ApprovalRequest,
   ApprobationAegis,
+  EntreeJournal,
   AuditEntry,
   SystemEvent,
   ExecutionSummary,
@@ -1219,12 +1220,19 @@ export const governanceClient = {
       method: "POST",
       body: JSON.stringify({ comment }),
     }),
-  audit: (params?: Record<string, string>) => {
+  // G-37 : `audit` lisait `/audit`, servi par `backend/policy/audit_log.py`
+  // — un anneau EN MEMOIRE ecrit par `PolicyEngine.evaluate`, qui n'est
+  // jamais appele. Il rendait donc une liste vide par construction, a
+  // chaque demarrage, pendant que le journal du §18
+  // (`backend/core/audit_log.py`, SQLite + fichiers, redaction a
+  // l'ecriture) portait six entrees reelles sans aucun lecteur.
+  //
+  // Meme defaut qu'en G-36, un onglet plus loin : un consommateur branche
+  // sur la mauvaise source, que ni le compteur d'orphelins ni le typage
+  // ne voyaient, parce que les deux surfaces existaient.
+  journal: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params) : "";
-    // {entries, total} envelope. Typed as a bare array, `auditLog.slice(0, 30)`
-    // in the Governance Center threw and took the whole shell down (R-004).
-    return fetchJSON<unknown>(`/audit${qs}`)
-      .then((d) => unwrap<AuditEntry>(d, "entries"));
+    return fetchJSON<EntreeJournal[]>(`/logs${qs}`);
   },
 };
 
@@ -1466,11 +1474,31 @@ export interface SecurityStatusDTO {
  * conséquence d'un réglage de sécurité appartient au module qui l'applique,
  * pas à celui qui le dessine — sans quoi l'interface finirait par promettre
  * une permissivité que le moteur refuse. */
+/** Une categorie de la matrice Aegis — la politique REELLEMENT appliquee
+ *  (G-37). `AegisEngine` relit cette matrice a chaque evaluation.
+ *
+ *  A ne pas confondre avec `PolicyRule`, qui decrit les dix regles de
+ *  `backend/policy/` : elles ne sont evaluees nulle part
+ *  (`set_policy_engine` n'est jamais appele) et, sur deux d'entre elles,
+ *  elles CONTREDISENT celle-ci. */
+export interface CategorieAegis {
+  nom: string;
+  mutating: boolean;
+  path_based: boolean;
+  mandatory_validation: boolean;
+  min_autonomy_for_auto_allow: string | null;
+  /** Ce que la categorie donne AU NIVEAU COURANT : `humain` | `autorise`.
+   *  Deduit par le backend depuis la meme comparaison qu'Aegis fait —
+   *  jamais recalcule a l'ecran, ou les deux divergeraient. */
+  effet_courant: string;
+}
+
 export interface AutonomyDTO {
   level: string;
   levels: { name: string; effect: string }[];
   overridden: boolean;
   always_validated: string[];
+  categories?: CategorieAegis[];
 }
 
 export const securityClient = {

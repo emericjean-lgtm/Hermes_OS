@@ -52,6 +52,7 @@ import type {
   PolicyRule,
   ApprovalRequest,
   ApprobationAegis,
+  EntreeJournal,
   AuditEntry,
   ExecutionSummary,
   ExecutionStatistics,
@@ -401,6 +402,12 @@ export function useMCPServers() {
 }
 
 // ── Governance ───────────────────────────────────────
+/** @deprecated G-37 : `/policy/rules` sert les dix règles de
+ *  `backend/policy/`, qu'aucun chemin n'évalue — `set_policy_engine` n'est
+ *  jamais appelé, et deux d'entre elles CONTREDISENT la politique en
+ *  vigueur. Aucun écran ne l'appelle plus ; `useAutonomy()` sert la
+ *  matrice Aegis, la seule appliquée. Conservé le temps de la décision de
+ *  suppression de `backend/policy/` (§15, G-37), pas au-delà. */
 export function usePolicyRules() {
   return useQuery<PolicyRule[]>({ queryKey: ["policy", "rules"], queryFn: governanceClient.rules });
 }
@@ -430,10 +437,13 @@ export function useRejectAction() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
   });
 }
+/** Le journal du §18 — le seul qui porte de vraies ecritures (G-37).
+ *  Voir `governanceClient.journal` : `/audit` rendait un anneau en memoire
+ *  vide par construction. */
 export function useAuditLog(params?: Record<string, string>) {
-  return useQuery<AuditEntry[]>({
-    queryKey: ["audit", params],
-    queryFn: () => governanceClient.audit(params),
+  return useQuery<EntreeJournal[]>({
+    queryKey: ["journal", params],
+    queryFn: () => governanceClient.journal(params),
   });
 }
 
