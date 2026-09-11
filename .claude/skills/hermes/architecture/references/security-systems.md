@@ -24,14 +24,18 @@ A more elaborate, real, tested 5-stage pipeline: `PermissionManager` (explicit g
 
 **What actually is wired**: only the `trust` sub-engine (`AgentTrustEngine`). `MissionExecutor._sync_agent_released()` calls `trust_engine.record_result()` after every task, and `agents/routes.py` surfaces real trust scores. The permission/threat/isolation pipeline is live and independently callable via its own routes, but plays no role in whether a mission or task is actually allowed to run.
 
-## 3. PolicyEngine — `backend/policy/policy_engine.py` (HOS-046)
+## 3. PolicyEngine (HOS-046) — **removed**, 2026-09-11 (G-38)
 
-`RuleEvaluator` (real built-in rules — `git_merge_requires_review`, `workspace_delete_requires_approval`, `cloud_runtime_requires_review`, and others) + `ApprovalEngine` + `AuditLog` (immutable, capped). DI-wired, real `/api/v1/policy/*` + approval + audit routes.
+There used to be a third system here, `backend/policy/`. It is gone: 9 modules, its `ServiceSpec`, and its `/api/v1/policy/*` + `/approval/*` + `/audit` routes.
 
-**Has genuine callers outside its own package** — `runtime/recovery/recovery_engine.py`, `workspace/workspace_manager.py`, `ral/runtime_decision.py` — so it's not purely dormant. But `AutonomousGuard.set_policy_engine()` (the hook that would let it gate autonomous goals) is never called by the bootstrap — only `set_security_engine()` is — so PolicyEngine's own step of `AutonomousGuard.check_action()` never actually runs in production. It protects its own specific corners (workspace deletion, cloud-runtime escalation, recovery decisions), not a unified front door.
+**This section previously said it had "genuine callers outside its own package — `runtime/recovery/recovery_engine.py`, `workspace/workspace_manager.py`, `ral/runtime_decision.py`". That was wrong, and it is the exact mistake this file exists to prevent.** None of the three ever imported `backend.policy`. They have their own engines, which happen to share the name: `RecoveryPolicyEngine` (`runtime/recovery/recovery_policy.py`), `WorkspacePolicyEngine` (`workspace/workspace_policy.py`), and the HOS-016 runtime-routing policy engine. Four distinct objects called "PolicyEngine"; a reader who trusted this file would have believed the removal broke three subsystems. It broke none — measured: 344 → 338 routes, nothing else lost.
 
-**Separately, a real documented gap**: `ToolPolicy.evaluate()`'s WRITE branch is a literal no-op (`# Policy engine would check sandbox readonly status` → `pass`) — no code path currently enforces write-sandboxing platform-wide through this engine. Only Code Intelligence got a local patch for this (R-006), not a platform-wide fix.
+What it actually was: ten hard-coded rules that **nothing evaluated** (`AutonomousGuard.set_policy_engine()` was never called), an in-memory approval queue with no producer, and an in-memory audit ring that never received an entry. Two of its ten rules **contradicted** the policy actually in force — `internet_access_allowed: allow` against Aegis's `network_call` (minimum autonomy "high"), and `system_modification_denied: deny` against `system_config` (which asks a human, not a refusal). Full diagnostic: CHANGELOG HOS-286.
+
+**A real documented gap that survives it**: `ToolPolicy.evaluate()`'s WRITE branch is a literal no-op (`# Policy engine would check sandbox readonly status` → `pass`). `ToolPolicy` is a *fourth* unrelated thing, in the connector adapters — no code path enforces write-sandboxing platform-wide through it. Only Code Intelligence got a local patch (R-006).
 
 ## The net effect
 
-If you're asking "is this action actually gated," trace whether it goes through **Aegis** — that's the one universal answer. SecurityEngine and PolicyEngine are real, correctly-implemented systems protecting specific things (agent trust scoring; workspace/cloud/recovery policy rules respectively) — useful to know about, wrong to assume either is a general-purpose gate the way Aegis is.
+If you're asking "is this action actually gated," trace whether it goes through **Aegis** — that's the one universal answer, and since G-38 it is the *only* one. SecurityEngine is a real, correctly-implemented system protecting one specific thing (agent trust scoring); wrong to assume it is a general-purpose gate the way Aegis is.
+
+Aegis's policy lives in `config/security.yaml` (`action_categories`), read by `PermissionMatrix` and re-read by `AegisEngine` on **every** evaluation. The cockpit shows it under Governance → "Politique en vigueur", with each category's effect at the current autonomy level — computed by the backend from the same comparison the engine makes, never recomputed on screen.

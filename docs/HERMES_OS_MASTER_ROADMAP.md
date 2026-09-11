@@ -202,6 +202,18 @@ C'est le composant le plus solide du dépôt. Niveau : `DEMONSTRATED`.
 
 ## §3 — Checkpoints / Approval / Sandbox / Security Boundary — 🟡 PARTIAL
 
+> **G-39 (HOS-288) — le Security Center affichait une sécurité inventée.**
+> Trois tableaux écrits en dur y survivaient : quatre menaces
+> (« Unauthorized file access · agent.unknown_dev · 3 occurrences »), six
+> politiques (« tool.exec: allow (Safety First) ») et six profils
+> d'isolation. Les routes réelles rendent `[]`, `[]` et
+> `total_profiles: 0`. Pire, `useSecurityThreats()` était **déjà appelé et
+> sa donnée liée puis jetée** : le réseau montrait un appel qui réussit
+> pendant que l'écran montrait autre chose. Une passe antérieure avait
+> retiré les mocks **nommés** (`MOCK_STATUS`, `MOCK_TRUST_SCORES`) et
+> laissé les tableaux littéraux inlinés dans le JSX — on cherche `MOCK_`,
+> on ne cherche pas un tableau d'objets. Corrigé, et gardé.
+
 > **G-37 (HOS-286) — `backend/policy/` n'est pas un contrôle de sécurité.**
 > L'audit J25 comptait ce module parmi l'outillage de gouvernance. Mesuré :
 > `set_policy_engine` n'est jamais appelé, aucun de ses trois événements
@@ -635,6 +647,15 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### Ce que le pont ne porte pas (HOS-288)
+
+La vérification transversale confirme que la chaîne agentique ne traverse
+aucun reste de l'ancienne couche : zéro import, zéro requête, et les
+quatre autorités — Aegis, journal §18, Run Ledger, bus d'événements —
+répondent. `/operations` le dit lui-même, source par source :
+`approbations` ← `backend.security.approvals`, `runs` ←
+`backend.runs.registre`.
+
 ### Le module retiré, et ce que son retrait a coûté (HOS-287)
 
 Rien. C'est le résultat, et il n'était pas acquis : un module monté au
@@ -822,6 +843,11 @@ réponse ne peut pas être « l'agent ».
 ---
 
 ## §9 — Mission Control / Operator Observability — 🟡 PARTIAL
+
+> **G-39 (HOS-288) — vérifié sur le chemin réel.** L'onglet Audit du
+> Governance Center affiche « 6 entrée(s) — /api/v1/logs (journal §18) »
+> avec ses entrées réelles : agent, demande, modèle choisi par le routeur,
+> résultat, durée. Rendu observé dans le navigateur, pas seulement en test.
 
 > **G-37 (HOS-286) — le journal d'audit du §18 a enfin un lecteur.**
 > `backend/core/audit_log.py` écrit dans SQLite *et* dans des fichiers
@@ -1693,6 +1719,12 @@ l'agent (`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas**
 sur cette installation, et aucune RPC ne l'expose. Appariement skill ↔
 tâche reste PLANNED.
 
+**G-39 (HOS-288) a vérifié la chaîne après retrait.** La demande
+`skill_install` déposée en G-36 est toujours en tête de la file d'Aegis
+dans le cockpit, avec sa raison — « skill_install always requires human
+validation (§17.3) » — et ses deux boutons. Rien de la suppression de
+`backend/policy/` ne l'a touchée.
+
 **G-37 (HOS-286) a confirmé l'autorité qui garde la pose.** L'audit de
 `backend/policy/` cherchait si une seconde autorité pouvait revendiquer
 l'approbation d'une Skill. Elle ne le peut pas : ses règles ne sont
@@ -1856,6 +1888,49 @@ relation sur de vrais événements — vérifié dans le navigateur, pas
 seulement en test. C'est la première fois de cette série qu'une capacité
 traverse §16 (le transport), §10 (la donnée) et §15 (l'écran) sans
 qu'aucun maillon ne soit `PRESENT` sans être `ACTUALLY USED`.
+
+### G-39 — la vérification transversale (HOS-288)
+
+Après le retrait, ce que le dépôt porte encore, mesuré :
+
+| vérification | résultat |
+|---|---|
+| imports de `backend.policy` | **0** — les deux mentions restantes sont des commentaires qui documentent le retrait |
+| clients frontend visant une route absente | **0** — 131 chemins littéraux confrontés aux 338 routes montées |
+| entrées d'orphelins désignant une route disparue | **0** sur 118 |
+| requêtes vers `/approval`, `/audit`, `/policy/*` | **0**, observées dans le navigateur |
+| Aegis, journal §18, Run Ledger, Event Bus | les quatre répondent 200 |
+
+#### Ce que la vérification a trouvé
+
+**Trois tableaux fabriqués dans le Security Center** — voir §3. C'est la
+trouvaille de la passe, et elle n'a rien à voir avec Policy : elle a été
+trouvée en balayant les écrans pour des références Policy.
+
+**Un document de référence qui se trompait.**
+`security-systems.md` — le fichier écrit pour empêcher qu'on confonde les
+systèmes de permission — affirmait que `PolicyEngine` avait « de vrais
+appelants » dans `recovery_engine`, `workspace_manager` et
+`runtime_decision`. Aucun des trois n'importait `backend.policy` : ils ont
+leurs propres moteurs, qui portent le même nom. Quatre objets appelés
+« PolicyEngine », et le document censé les distinguer les confondait. Un
+lecteur qui lui aurait fait confiance aurait cru que G-38 cassait trois
+sous-systèmes ; il n'en a cassé aucun.
+
+Corrigés aussi : `backend-map.md` (ligne décrivant le module comme
+« live »), `POLICY_ENGINE_ARCHITECTURE.md` (124 lignes décrivant le module
+comme « the central governance authority » — supprimé), et le sous-titre
+du Governance Center, qui annonçait encore « moteur de politiques ».
+
+#### La limite de preuve, levée
+
+Depuis G-34, je rapportais que la navigation du cockpit ne répondait pas à
+l'automatisation. Diagnostiqué ici : le clic atteint bien le bouton — rien
+ne l'intercepte, la position est exacte — mais l'événement synthétique du
+panneau ne déclenche pas le gestionnaire React. Un `click()` programmatique
+bascule la vue immédiatement. **L'application n'avait rien ; c'est
+l'instrument qui ne mordait pas**, et trois passes ont porté une réserve
+qui n'avait pas lieu d'être.
 
 ### G-37 — l'audit de `backend/policy/` (HOS-286)
 

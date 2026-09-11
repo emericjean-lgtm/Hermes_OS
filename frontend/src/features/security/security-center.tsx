@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Card, Badge } from "@/components/ui/card";
-import { useSecurityStatus, useSecurityThreats } from "@/hooks/use-api";
+import { useSecurityStatus, useSecurityThreats, useSecurityPolicies } from "@/hooks/use-api";
 import {
   Shield,
   ShieldAlert,
@@ -65,8 +65,21 @@ export function SecurityCenter() {
   // useState and rendered MOCK_STATUS / MOCK_TRUST_SCORES — 42 permissions, a
   // 72.3% average trust score, four agents with invented scores — none of which
   // came from the SecurityEngine that was already serving real values (RC3 P1).
+  //
+  // G-39 : cette passe-la avait retire les mocks NOMMES et laisse trois
+  // tableaux fabriques INLINES dans le JSX — quatre menaces (« Unauthorized
+  // file access · agent.unknown_dev · 3 occurrences »), six politiques
+  // (« tool.exec: allow (Safety First) ») et six profils d'isolation. Rien
+  // de tout cela n'existait nulle part. Pire, `useSecurityThreats()` etait
+  // deja appele et sa donnee LIEE puis jetee : la vraie liste est vide, et
+  // l'ecran montrait quatre menaces detectees.
+  //
+  // Un mock nomme se trouve en cherchant `MOCK_` ; un tableau litteral
+  // dans le JSX, non. C'est pour cela que le nettoyage precedent l'a
+  // manque, et pour cela qu'une garde le cherche desormais.
   const { data: status, isLoading, isError, error } = useSecurityStatus();
   const { data: threatList } = useSecurityThreats();
+  const { data: policyList } = useSecurityPolicies();
 
   const empty: SecurityStatus = {
     permissions: { total_permissions: 0, total_policies: 0 },
@@ -76,6 +89,7 @@ export function SecurityCenter() {
   };
   const s = (status as SecurityStatus | undefined) ?? empty;
   const threats = Array.isArray(threatList) ? threatList : [];
+  const policies = Array.isArray(policyList) ? policyList : [];
   // /security/status reports trust in aggregate (counts per level); a
   // per-agent table needs /security/trust/{id} per agent, which the Center
   // has no agent list for yet. Render the aggregate rather than invent rows.
@@ -199,12 +213,16 @@ export function SecurityCenter() {
       <div className="grid grid-cols-2 gap-4 mb-6">
         <Card title="Active Threats">
           <div className="space-y-2">
-            {[
-              { type: "Unauthorized file access", level: "medium", source: "agent.unknown_dev", count: 3 },
-              { type: "Suspicious tool call (exec)", level: "medium", source: "agent.unknown_dev", count: 2 },
-              { type: "High resource usage", level: "low", source: "execution.engine", count: 4 },
-              { type: "Sandbox violation attempt", level: "high", source: "agent.tool_x", count: 1 },
-            ].map((threat, i) => (
+            {threats.length === 0 && (
+              <p className="text-[10px] text-hermes-dim p-2">
+                Aucune menace enregistrée. `ThreatDetector` n&apos;a pas de
+                producteur sur cette installation : lire « aucune détection »,
+                jamais « aucune menace ».
+              </p>
+            )}
+            {(threats as {
+              type?: string; level?: string; source?: string; count?: number;
+            }[]).map((threat, i) => (
               <div key={i} className="flex items-start gap-2 p-2 rounded-lg border border-hermes-border/50">
                 <AlertTriangle className={`w-3 h-3 mt-0.5 shrink-0 ${
                   threat.level === "high" ? "text-hermes-red" :
@@ -225,56 +243,60 @@ export function SecurityCenter() {
 
         <Card title="Permiss'ns & Policies">
           <div className="space-y-2">
-            {[
-              { resource: "tool.exec", type: "agent", action: "allow", policy: "Safety First" },
-              { resource: "agent.supervisor", type: "agent", action: "allow", policy: "Core Access" },
-              { resource: "workspace.sandbox", type: "workspace", action: "deny", policy: "Isolation" },
-              { resource: "runtime.inference", type: "runtime", action: "allow", policy: "Runtime Pool" },
-              { resource: "tool.shell_exec", type: "tool", action: "review", policy: "Escalation" },
-              { resource: "memory.knowledge_graph", type: "memory", action: "deny", policy: "Data Access" },
-            ].map((p, i) => (
-              <div key={i} className="flex items-center justify-between p-2 rounded-lg border border-hermes-border/50">
+            {policies.length === 0 && (
+              <p className="text-[10px] text-hermes-dim p-2">
+                `SecurityEngine` ne porte aucune politique sur cette
+                installation. La politique <strong>réellement appliquée</strong>
+                est la matrice d&apos;Aegis, qu&apos;`AegisEngine` relit à
+                chaque évaluation — Governance Center, onglet « Politique en
+                vigueur ».
+              </p>
+            )}
+            {policies.map((p, i) => (
+              <div key={String(p.id ?? i)} className="flex items-center justify-between p-2 rounded-lg border border-hermes-border/50">
                 <div>
-                  <div className="text-[10px] font-mono text-hermes-text">{p.resource}</div>
-                  <div className="text-[9px] text-hermes-muted">{p.policy} · {p.type}</div>
+                  <div className="text-[10px] font-mono text-hermes-text">
+                    {String(p.resource_type ?? p.name ?? "—")}
+                  </div>
+                  <div className="text-[9px] text-hermes-muted">
+                    {String(p.name ?? "—")} · {String(p.action ?? "—")}
+                  </div>
                 </div>
                 <Badge variant={
-                  p.action === "allow" ? "success" :
-                  p.action === "deny" ? "danger" : "warning"
-                } className="text-[9px]">{p.action}</Badge>
+                  p.effect === "allow" ? "success" :
+                  p.effect === "deny" ? "danger" : "warning"
+                } className="text-[9px]">{String(p.effect ?? "—")}</Badge>
               </div>
             ))}
           </div>
         </Card>
       </div>
 
-      {/* Isolation Profiles */}
+      {/* Isolation Profiles — G-39 : six profils inventes (« Default LOW »,
+          « Air Gap MAX », avec sessions, memoire et CPU) y etaient ecrits en
+          dur. `IsolationManager` en sert le COMPTE dans `/security/status`, et
+          aucune route ne les enumere : on affiche donc ce qu'on a, et on dit
+          ce qu'on n'a pas. */}
       <Card title="Isolation Profiles">
         <div className="grid grid-cols-3 gap-3">
           {[
-            { name: "Default LOW", level: "low", sessions: 2, mem: 1024, cpu: 100, net: "open" },
-            { name: "Sandbox MEDIUM", level: "medium", sessions: 1, mem: 512, cpu: 50, net: "restricted" },
-            { name: "Strict HIGH", level: "high", sessions: 0, mem: 256, cpu: 25, net: "blocked" },
-            { name: "Air Gap MAX", level: "maximum", sessions: 0, mem: 128, cpu: 10, net: "blocked" },
-            { name: "Read-Only", level: "low", sessions: 2, mem: 2048, cpu: 75, net: "open" },
-            { name: "Execution", level: "medium", sessions: 1, mem: 4096, cpu: 80, net: "restricted" },
-          ].map((p) => (
-            <div key={p.name} className="p-3 rounded-lg border border-hermes-border bg-hermes-card/50">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-mono text-hermes-text">{p.name}</span>
-                <Badge variant={p.level === "maximum" ? "danger" : p.level === "high" ? "warning" : "default"}>
-                  {p.level}
-                </Badge>
+            { label: "Profils", value: s.isolation.total_profiles },
+            { label: "Sessions actives", value: s.isolation.active_sessions },
+            { label: "Violations", value: s.isolation.total_violations },
+          ].map((c) => (
+            <div key={c.label} className="p-3 rounded-lg border border-hermes-border bg-hermes-card/50">
+              <div className="text-[9px] text-hermes-muted font-mono uppercase tracking-wider">
+                {c.label}
               </div>
-              <div className="space-y-1 text-[9px] text-hermes-muted font-mono">
-                <div>Active: {p.sessions} sessions</div>
-                <div>Memory: {p.mem}MB max</div>
-                <div>CPU: {p.cpu}% max</div>
-                <div>Network: {p.net}</div>
-              </div>
+              <div className="num text-[20px] text-hermes-text mt-1">{c.value}</div>
             </div>
           ))}
         </div>
+        <p className="pt-3 text-[10px] text-hermes-dim">
+          Aucune route n&apos;énumère les profils : `/security/status` en donne
+          le compte, pas le détail. Les afficher un par un demanderait une
+          route qui n&apos;existe pas.
+        </p>
       </Card>
     </div>
   );

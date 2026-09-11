@@ -67,6 +67,7 @@ import type {
   AlexandrieSearchResults,
   AlexandrieSyncResult,
 } from "@/types/hermes";
+import type { PolitiqueSecurite } from "@/services/client";
 
 // ── System ──────────────────────────────────────────
 export function useSystemHealth() {
@@ -556,6 +557,16 @@ export function useSecurityThreats(limit = 50) {
     queryKey: ["security", "threats", limit],
     queryFn: () => securityClient.threats(limit),
     refetchInterval: 15_000,
+  });
+}
+
+/** Les politiques de `SecurityEngine` (G-39). L'ecran les affichait en
+ *  dur — six lignes inventees, `tool.exec: allow (Safety First)` et
+ *  consorts — alors que le moteur en sert zero. */
+export function useSecurityPolicies() {
+  return useQuery<PolitiqueSecurite[]>({
+    queryKey: ["security", "policies"],
+    queryFn: securityClient.policies,
   });
 }
 

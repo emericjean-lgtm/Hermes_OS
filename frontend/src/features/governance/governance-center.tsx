@@ -115,7 +115,7 @@ export function GovernanceCenter() {
     <div className="animate-fade-in">
       <CenterHeader
         title="Governance Center"
-        subtitle="Approbation humaine, moteur de politiques et piste d'audit"
+        subtitle="Approbations Aegis, politique en vigueur et journal d'audit"
         right={
           pending.length > 0 ? (
             <Badge variant="warning">

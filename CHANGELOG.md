@@ -1,3 +1,114 @@
+## HOS-288 — La verification transversale apres Policy (2026-09-11)
+
+G-39. Le retrait de G-38 tient, et la verification a trouve autre chose.
+
+### Ce que le depot porte encore, mesure
+
+    imports de `backend.policy`                      0
+    clients frontend visant une route absente        0  (131 chemins / 338 routes)
+    entrees d'orphelins designant une route disparue 0  sur 118
+    requetes vers /approval, /audit, /policy/*       0  observees au navigateur
+    Aegis, journal §18, Run Ledger, Event Bus        200 les quatre
+
+Les deux seules mentions de `backend/policy/` en code non-test sont des
+commentaires qui **documentent** le retrait. Une reference historique n'est
+pas une reference active, et la distinction est le sujet meme de la passe.
+
+### La trouvaille : une securite inventee
+
+Le Security Center portait **trois tableaux ecrits en dur** :
+
+    quatre menaces    « Unauthorized file access · agent.unknown_dev · 3 occurrences »
+    six politiques    « tool.exec: allow (Safety First) », « workspace.sandbox: deny »
+    six profils       « Default LOW », « Air Gap MAX », avec sessions/memoire/CPU
+
+Les routes reelles rendent `[]`, `[]` et `total_profiles: 0`.
+
+Pire : `useSecurityThreats()` etait **deja appele et sa donnee liee puis
+jetee**. Le reseau montrait un appel qui reussit pendant que l'ecran
+montrait autre chose — et quatre menaces affichees avec un badge « high »
+sont indiscernables de detections.
+
+Un commentaire du fichier dit qu'une passe anterieure avait retire les
+mocks. Elle avait retire les mocks **NOMMES** (`MOCK_STATUS`,
+`MOCK_TRUST_SCORES`) et laisse les tableaux litteraux **inlines dans le
+JSX**. On cherche `MOCK_` ; on ne cherche pas un tableau d'objets. C'est
+pour cela qu'une garde les cherche desormais — et elle a demande deux
+calibrages : la premiere version attrapait les descripteurs legitimes
+(colonnes d'un tableau, onglets), la seconde se faisait tromper par
+`"agent.unknown_dev"`, qu'elle lisait comme un acces de propriete. Les
+chaines sont maintenant retirees avant de chercher une reference vivante.
+Verifie contre la version d'avant : elle attrape les trois blocs.
+
+Les trois cartes disent desormais ce qu'on sait et pourquoi : « aucune
+detection, jamais aucune menace », « la politique reellement appliquee est
+la matrice d'Aegis », « aucune route n'enumere les profils ».
+
+### Un document de reference qui se trompait
+
+`security-systems.md` — le fichier ecrit pour empecher qu'on confonde les
+systemes de permission — affirmait que `PolicyEngine` avait « de vrais
+appelants » dans `recovery_engine`, `workspace_manager` et
+`runtime_decision`. **Aucun des trois n'importait `backend.policy`.** Ils
+ont leurs propres moteurs, qui portent le meme nom : `RecoveryPolicyEngine`,
+`WorkspacePolicyEngine`, et celui de HOS-016. Quatre objets appeles
+« PolicyEngine », et le document cense les distinguer les confondait.
+
+Un lecteur qui lui aurait fait confiance aurait cru que G-38 cassait trois
+sous-systemes. Il n'en a casse aucun — 344 → 338 routes, rien d'autre perdu.
+
+Corriges aussi : `backend-map.md` (ligne decrivant le module comme
+« live »), `POLICY_ENGINE_ARCHITECTURE.md` (124 lignes ouvrant sur « The
+Policy Engine **is** the central governance authority for Hermes OS. All
+sensitive operations must pass through it » — supprime), un commentaire de
+`security.py` au present, et le sous-titre du Governance Center, qui
+annoncait encore « moteur de politiques ».
+
+### La limite de preuve des trois dernieres passes, levee
+
+Depuis G-34 je rapportais que la navigation du cockpit ne repondait pas a
+l'automatisation, et je le signalais comme non observe plutot que de le
+taire. Diagnostique ici : le clic atteint bien le bouton — position exacte,
+rien qui l'intercepte, `elementFromPoint` rend le bouton lui-meme — mais
+l'evenement synthetique du panneau ne declenche pas le gestionnaire React.
+Un `click()` programmatique bascule la vue immediatement.
+
+**L'application n'avait rien ; c'est l'instrument qui ne mordait pas.**
+Trois passes ont porte une reserve qui n'avait pas lieu d'etre, faute
+d'avoir cherche la cause plutot que constate l'effet.
+
+### Le Governance Center, vu sur le chemin reel
+
+Les trois onglets, dans le navigateur :
+
+    Approbations  207 demande(s) — /api/v1/security/approvals
+                  `skill_install` en tete, avec la raison d'Aegis
+    Regles        20 categorie(s) — niveau « high » (derogation d'execution)
+    Audit         6 entree(s) — /api/v1/logs (journal §18), avec le modele
+                  choisi par le routeur et les durees
+
+Aucune trace de l'ancien etat vide. Le Security Center corrige ne contient
+plus aucune des chaines inventees.
+
+### Ce qui reste non observe
+
+Le rendu des autres Centers : cette passe a verifie le Governance Center
+et le Security Center, pas les vingt autres. Rien n'indique un probleme
+ailleurs, et rien ne le dement non plus.
+
+### Trouvaille mineure, consignee
+
+Trois fichiers de test portent une sequence d'echappement invalide —
+`test_garde_workspace.py` (`\.`), `test_livrables_vides.py` (`\e`),
+`test_thinking_stream.py` (`\u`). Revelee par la garde qui analyse tout le
+depot. Non corrigee : hors perimetre, inscrite dans les gaps.
+
+### Preuves
+
+Suite backend : 6134 passed, 3 skipped, 273 deselected, 0 failed. `tsc`
+propre, 153 tests vitest. Sept gardes neuves. `data/db/hermes.db` intacte,
+et les 206 demandes historiques non touchees.
+
 ## HOS-287 — Le retrait de `backend/policy/` (2026-09-11)
 
 G-38. La proposition de G-37 est executee. Le module n'existe plus : neuf

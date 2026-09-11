@@ -188,7 +188,8 @@ async def get_autonomy() -> dict:
             if (policy := _matrice().get_category(nom)) and policy.mandatory_validation
         ),
         # G-37 : la matrice ENTIÈRE, parce qu'un écran la montrait déjà —
-        # mais celle de `backend/policy/`, qui n'est appliquée nulle part.
+        # mais celle de `backend/policy/` — un module qui n'était appliqué
+        # nulle part, et que G-38 a retiré.
         # Ses dix règles recouvrent ces catégories et, sur deux d'entre
         # elles, les **contredisent** : `internet_access_allowed: allow`
         # contre `network_call` qui exige « high », et

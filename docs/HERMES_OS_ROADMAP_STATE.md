@@ -29,9 +29,9 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      94d9f0a (G-37, HOS-286) — dernier commit
-                               de code avant G-38 (retrait de
-                               `backend/policy/`)
+BASELINE:                      1d0913b (G-38, HOS-287) — dernier commit
+                               de code avant G-39 (vérification
+                               transversale)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -303,6 +303,7 @@ mentirait sur ce qu'il fait.
 | Workflows utilisateur écrits dans le dépôt (A-5) | technical debt | §3 |
 | `unified_memory` sans isolation de projet | architectural | §8 |
 | Quarantaine/provenance non affichées au frontend | UX | §9 |
+| Trois fichiers de test portent une séquence d'échappement invalide (`\.`, `\e`, `\u`) | technical debt | §3 |
 | `DecisionExplainer` sans consommateur | observability | §9 |
 | `CollaborationEngine` non intégré au noyau | architectural | §11 |
 | Machinerie des skills non adoptée en pratique | future capability | §10 |

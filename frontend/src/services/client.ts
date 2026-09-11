@@ -1493,6 +1493,19 @@ export interface AutonomyDTO {
   categories?: CategorieAegis[];
 }
 
+/** Une entree de `SecurityEngine.permissions` (HOS-057), servie par
+ *  `/security/policies`. La forme suit `PermissionPolicy.to_dict()` ; tous
+ *  les champs sont optionnels parce que la liste est vide sur cette
+ *  installation et qu'aucune mesure n'a pu en fixer la forme exacte. */
+export interface PolitiqueSecurite {
+  id?: string;
+  name?: string;
+  resource_type?: string;
+  action?: string;
+  effect?: string;
+  [k: string]: unknown;
+}
+
 export const securityClient = {
   status: () => fetchJSON<SecurityStatusDTO>("/security/status"),
   autonomy: () => fetchJSON<AutonomyDTO>("/security/autonomy"),
@@ -1503,7 +1516,11 @@ export const securityClient = {
     }),
   resetAutonomy: () =>
     fetchJSON<AutonomyDTO>("/security/autonomy", { method: "DELETE" }),
-  policies: () => fetchJSON<Record<string, unknown>[]>("/security/policies"),
+  // G-39 : servi par `SecurityEngine.permissions` (HOS-057). Il rend `[]`
+  // sur cette installation — rien ne l'alimente. L'ecran l'affiche comme
+  // tel : c'est ce qu'on sait, et c'est mieux que les six lignes inventees
+  // qu'il montrait a la place.
+  policies: () => fetchJSON<PolitiqueSecurite[]>("/security/policies"),
   threats: (limit = 50) => fetchJSON<Record<string, unknown>[]>(`/security/threats?limit=${limit}`),
   events: (limit = 100) => fetchJSON<Record<string, unknown>[]>(`/security/events?limit=${limit}`),
   trust: (agentId: string) => fetchJSON<Record<string, unknown>>(`/security/trust/${agentId}`),
