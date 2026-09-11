@@ -6,6 +6,7 @@
     "haiku"
   ],
   "enableArtifact": false,
+  "outputStyle": "Concise",
   "statusLine": {
     "type": "command",
     "command": ".claude/statusline.sh"
