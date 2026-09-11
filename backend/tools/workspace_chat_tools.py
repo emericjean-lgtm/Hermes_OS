@@ -381,6 +381,15 @@ def _aegis():
     return get_agent_registry().get("aegis")
 
 
+#: Ce que rend un outil de workspace appele sans habilitation reelle.
+#: Une phrase, pas un verdict d'Aegis : aucune action n'a ete soumise.
+SANS_WORKSPACE = (
+    "Aucun workspace autorise n'est lie a cette session : il n'y a pas de "
+    "dossier sur lequel agir, et rien n'a ete lu, ecrit ni supprime. Lie un "
+    "projet actif et valide avant d'utiliser un outil de fichiers."
+)
+
+
 async def execute_workspace_tool(
     name: str, arguments: dict[str, Any], *, project_id: str, project_root: str
 ) -> str:
@@ -388,8 +397,44 @@ async def execute_workspace_tool(
     security logic lives here, matching MCP's own adapters
     (mcp_server/server.py). Every result is reported back to the model
     honestly: a denial states the real Aegis reason, a write states
-    whether it was actually verified."""
+    whether it was actually verified.
+
+    ## Le portillon d'habilitation (A-4, HOS-292)
+
+    L'appelant transmet `project_id` **et** `project_root`. Ce module ne
+    croit que le premier : la racine est re-resolue ici depuis le magasin
+    de projets, par le meme predicat unique qu'Aegis
+    (`projects.store.authorized_root`). Une racine fournie par l'appelant
+    et non confirmee par le magasin n'est jamais utilisee.
+
+    Deux raisons, toutes deux mesurees le 2026-09-11 :
+
+    * **L'offre etait gardee, l'execution ne l'etait pas.** Les schemas
+      d'outils ne sont proposes au modele que si un projet actif et valide
+      est lie (`conversation/routes._conversation_tools`). Mais rien
+      n'empechait l'execution : un modele qui emet malgre tout un appel
+      `workspace_*` atteignait cette fonction avec `project_root=""`, et
+      `resolve_in_project("", "x")` resout alors sous le **repertoire
+      courant** — la racine du depot Hermes OS, qui est dans
+      `ALLOWED_PATHS` par defaut. Le refus ne tenait qu'a un
+      `project_id` vide tombant sur « projet inconnu », donc sur une
+      *validation humaine en attente* : un accord donne par distraction
+      aurait ouvert le depot a une conversation sans projet.
+    * **Un refus doit etre un refus.** Mettre en file d'attente une action
+      qui n'a aucun workspace legitime propose a l'operateur d'autoriser
+      quelque chose qui n'aurait jamais du etre demande.
+
+    Ce portillon **n'autorise rien** : le franchir ne donne aucun droit
+    sur le disque. `file_tools` repasse par Aegis pour chaque operation,
+    exactement comme avant.
+    """
     from backend.tools import file_tools
+    from backend.projects.store import authorized_root
+
+    racine_autorisee = authorized_root(project_id)
+    if not racine_autorisee:
+        return SANS_WORKSPACE
+    project_root = racine_autorisee
 
     path_arg = str(arguments.get("path", "")).strip()
     resolved = resolve_in_project(project_root, path_arg) if path_arg else project_root

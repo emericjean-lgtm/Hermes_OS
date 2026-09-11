@@ -82,11 +82,27 @@ class TestSurLeCheminReelDesOutils:
 
     On passe par `execute_workspace_tool` lui-même — asynchrone, avec ses
     vrais arguments nommés — et on laisse `file_tools` écrire pour de vrai
-    dans un `tmp_path`. Seul Aegis est neutralisé, parce qu'il exigerait un
-    Project enregistré et validé qui n'a rien à voir avec ce qu'on mesure
-    ici. Le premier jet de ce test posait un faux `file_tools` sur le
-    module : il aurait pu passer au vert sans qu'une seule ligne du chemin
-    réel ne soit exécutée — le défaut même que HOS-121 corrige ailleurs.
+    dans le workspace. Seul le **verdict** d'Aegis est neutralisé, pour ne
+    pas faire dépendre une mesure de syntaxe du niveau d'autonomie.
+
+    Le workspace, lui, est un vrai projet enregistré et validé
+    (`workspace_autorise`). Il l'était auparavant remplacé par un simple
+    `tmp_path` et un `project_id="p"` inventé, ce qui suffisait tant que
+    valider un projet élargissait la liste blanche pour tout le monde.
+    Depuis HOS-292 l'habilitation est nominative et l'exécuteur re-résout
+    la racine depuis le magasin : un projet inventé ne donne plus rien, et
+    ces tests recevaient le refus d'habilitation à la place de la mesure
+    qu'ils croyaient prendre.
+
+    Un des quatre passait même **au vert** dans cet état — il vérifiait une
+    absence (`"ne compile pas" not in rendu`), et un message de refus ne
+    contient pas davantage cette phrase qu'une écriture réussie. Une
+    assertion négative ne distingue pas « la porte s'est tue » de « on n'a
+    jamais atteint la porte ».
+
+    Le premier jet de ce test posait un faux `file_tools` sur le module :
+    il aurait pu passer au vert sans qu'une seule ligne du chemin réel ne
+    soit exécutée — le défaut même que HOS-121 corrige ailleurs.
     """
 
     @staticmethod
@@ -108,39 +124,46 @@ class TestSurLeCheminReelDesOutils:
 
     @pytest.mark.asyncio
     async def test_workspace_write_signale_un_python_invalide(
-            self, tmp_path, monkeypatch):
-        outils = self._sans_aegis(monkeypatch, tmp_path)
+            self, workspace_autorise, monkeypatch):
+        projet, racine = workspace_autorise
+        outils = self._sans_aegis(monkeypatch, racine)
 
         rendu = await outils.execute_workspace_tool(
             "workspace_write", {"path": "m.py", "content": "def f(:\n"},
-            project_id="p", project_root=str(tmp_path))
+            project_id=projet.id, project_root=str(racine))
 
         assert "ne compile pas" in rendu, rendu
         assert "vérifié" in rendu, "l'écriture a bien eu lieu, il faut le dire"
-        assert (tmp_path / "m.py").exists(), "le fichier doit rester sur le disque"
+        assert (racine / "m.py").exists(), "le fichier doit rester sur le disque"
 
     @pytest.mark.asyncio
     async def test_workspace_write_reste_silencieux_sur_du_python_correct(
-            self, tmp_path, monkeypatch):
-        outils = self._sans_aegis(monkeypatch, tmp_path)
+            self, workspace_autorise, monkeypatch):
+        projet, racine = workspace_autorise
+        outils = self._sans_aegis(monkeypatch, racine)
 
         rendu = await outils.execute_workspace_tool(
             "workspace_write", {"path": "m.py", "content": "x = 1\n"},
-            project_id="p", project_root=str(tmp_path))
+            project_id=projet.id, project_root=str(racine))
 
         assert "ne compile pas" not in rendu, rendu
+        # L'assertion ci-dessus est une **absence** : sans celle-ci, un
+        # refus d'habilitation la satisferait aussi bien qu'un succès.
+        # C'est exactement ce qui est arrivé (HOS-292).
+        assert "vérifié" in rendu, rendu
 
     @pytest.mark.asyncio
     async def test_un_ajout_qui_casse_un_fichier_valide_est_signale(
-            self, tmp_path, monkeypatch):
+            self, workspace_autorise, monkeypatch):
         """C'est pour ce cas que l'ajout relit le fichier entier : le
         fragment ajouté est valide isolément, le fichier ne l'est plus."""
-        outils = self._sans_aegis(monkeypatch, tmp_path)
-        (tmp_path / "m.py").write_text("def f():\n    return 1\n",
-                                       encoding="utf-8")
+        projet, racine = workspace_autorise
+        outils = self._sans_aegis(monkeypatch, racine)
+        (racine / "m.py").write_text("def f():\n    return 1\n",
+                                     encoding="utf-8")
 
         rendu = await outils.execute_workspace_tool(
             "workspace_append", {"path": "m.py", "content": "  return 2\n"},
-            project_id="p", project_root=str(tmp_path))
+            project_id=projet.id, project_root=str(racine))
 
         assert "ne compile pas" in rendu, rendu

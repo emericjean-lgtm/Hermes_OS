@@ -112,27 +112,20 @@ async def _execute_web_search(name: str, arguments: dict[str, Any]) -> str:
 
 
 def _active_validated_project_root(project_id: str) -> str | None:
-    """The project's root_path, but only if it exists, is ACTIVE and its
-    validation_status is "valid" — the same three-way check
-    AegisAgent._dynamic_allowed_paths applies, repeated here so the chat
-    doesn't offer a tool it knows Aegis would just refuse (a UX
-    improvement, not a security boundary — Aegis re-checks independently
-    regardless of what this returns)."""
-    if not project_id:
-        return None
-    try:
-        from backend.projects.project_manager import ProjectStatus, ValidationStatus
-        from backend.projects.store import get_project_store
-        project = get_project_store().get(project_id)
-    except Exception:
-        return None
-    if project is None or not project.root_path:
-        return None
-    if project.status != ProjectStatus.ACTIVE.value:
-        return None
-    if project.validation_status != ValidationStatus.VALID.value:
-        return None
-    return project.root_path
+    """The project's root_path, but only if it currently authorizes one —
+    `projects.store.authorized_root`, the repo's single implementation of
+    that rule (exists + ACTIVE + validation_status="valid" + a root_path).
+
+    Used here so the chat doesn't *offer* a tool it knows Aegis would
+    refuse. That is a UX improvement, not the security boundary: Aegis
+    re-checks independently on every operation, and since HOS-292 the
+    executor re-resolves the root through the same function rather than
+    trusting what this returned (see workspace_chat_tools). The three-way
+    check used to be spelled out again here, and a third time in
+    core/bootstrap/service_registry — three copies of one security rule
+    are three chances to drift."""
+    from backend.projects.store import authorized_root
+    return authorized_root(project_id)
 
 
 #: Offered to every conversation turn — the model decides whether a given

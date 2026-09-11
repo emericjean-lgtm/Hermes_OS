@@ -254,7 +254,10 @@ function ValidationBlock({ project }: { project: ProjectDTO }) {
   );
 }
 
-function PullRequestForm({ repoPath, branch }: { repoPath: string; branch: string }) {
+function PullRequestForm(
+  { repoPath, branch, projectId }:
+  { repoPath: string; branch: string; projectId: string },
+) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -263,8 +266,11 @@ function PullRequestForm({ repoPath, branch }: { repoPath: string; branch: strin
   const submit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    pr.mutate({ repo_path: repoPath, title: title.trim(), body: body.trim(), base: "main" });
-  }, [title, body, repoPath, pr]);
+    pr.mutate({
+      repo_path: repoPath, title: title.trim(), body: body.trim(),
+      base: "main", project_id: projectId,
+    });
+  }, [title, body, repoPath, projectId, pr]);
 
   return (
     <div className="mt-2 border-t border-hermes-border/50 pt-2">
@@ -348,7 +354,7 @@ export function ProjectPanel({ sessionId }: { sessionId?: string }) {
   }, []);
 
   const project = projects?.find((p) => p.id === linkedId) ?? null;
-  const gitStatus = useGitStatus(project?.root_path);
+  const gitStatus = useGitStatus(project?.root_path, project?.id);
 
   // Keep the chat's own active_project_id in sync with the panel's local
   // selection — this is what makes workspace_* tools appear for the model
@@ -499,7 +505,9 @@ export function ProjectPanel({ sessionId }: { sessionId?: string }) {
                 )}
               </div>
               {project.root_path && !gitStatus.data.protected && (
-                <PullRequestForm repoPath={project.root_path} branch={gitStatus.data.branch} />
+                <PullRequestForm
+                  repoPath={project.root_path} branch={gitStatus.data.branch}
+                  projectId={project.id} />
               )}
             </>
           )}

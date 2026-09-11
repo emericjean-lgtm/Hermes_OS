@@ -84,6 +84,40 @@ def models_config() -> dict:
 
 
 @pytest.fixture
+def workspace_autorise(monkeypatch, tmp_path):
+    """Un projet reellement enregistre, valide et actif — et sa racine.
+
+    Partage parce que depuis HOS-292 l'habilitation est **nominative** :
+    un outil de workspace exige un `project_id` qui autorise vraiment, et
+    plus aucun test ne peut obtenir l'acces en n'en nommant aucun. Le
+    magasin de projets est isole sous `tmp_path`, donc rien n'est ecrit
+    dans `data/db/hermes.db`.
+
+    Rend `(projet, racine)`. La racine existe sur le disque : la
+    validation la sonde reellement (`project_manager.validate_project`),
+    et un dossier absent ne serait pas valide.
+    """
+    from backend.core.config import get_settings
+    from backend.projects.project_manager import ValidationStatus
+    from backend.projects.store import get_project_store
+
+    racine = tmp_path / "ws-autorise"
+    racine.mkdir()
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "projets.db"))
+    get_settings.cache_clear()
+    get_project_store.cache_clear()
+    try:
+        projet = get_project_store().create(name="ws-autorise", root_path=str(racine))
+        valide = get_project_store().validate(projet.id)
+        assert valide is not None
+        assert valide.validation_status == ValidationStatus.VALID.value
+        yield valide, racine
+    finally:
+        get_settings.cache_clear()
+        get_project_store.cache_clear()
+
+
+@pytest.fixture
 def security_config() -> dict:
     repo_root = Path(__file__).resolve().parents[2]
     with (repo_root / "config" / "security.yaml").open(encoding="utf-8") as f:

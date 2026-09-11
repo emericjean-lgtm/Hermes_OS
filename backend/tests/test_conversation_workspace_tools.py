@@ -103,18 +103,27 @@ def test_set_project_unknown_session_returns_none():
 
 @pytest.mark.asyncio
 async def test_execute_conversation_tool_read_denied_outside_project(tmp_path):
-    """No project bound (project_root="") — the adapter must not invent
-    access; it reports the real Aegis refusal, same as file_tools itself
-    would raise."""
+    """Aucun projet lie : le dispatcher du chat refuse sans toucher au
+    disque, et la raison est l'absence de workspace — pas une demande de
+    validation humaine (A-4, HOS-292).
+
+    Le chemin complet est exerce ici : `_execute_conversation_tool` est ce
+    que `respond_events` appelle reellement, et c'est **l'execution**, pas
+    l'offre de schemas, qui n'etait pas gardee.
+    """
+    from backend.tools.workspace_chat_tools import SANS_WORKSPACE
+
     result = await conv_routes._execute_conversation_tool(
         "workspace_read", {"path": "f.txt"}, project_id="", project_root="",
     )
-    assert "Refusé par Aegis" in result or "refusée" in result.lower()
+    assert result == SANS_WORKSPACE
 
 
 @pytest.mark.asyncio
-async def test_execute_conversation_tool_unknown_name_reports_unknown():
+async def test_execute_conversation_tool_unknown_name_reports_unknown(workspace_autorise):
+    projet, racine = workspace_autorise
     result = await conv_routes._execute_conversation_tool(
-        "workspace_delete_everything", {}, project_id="", project_root="",
+        "workspace_delete_everything", {},
+        project_id=projet.id, project_root=str(racine),
     )
     assert "Unknown tool" in result

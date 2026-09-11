@@ -6,9 +6,9 @@
 > Il complète `docs/HERMES_OS_MASTER_ROADMAP.md` : le document maître décrit l'architecture, l'historique et les écarts ; ce document impose l'ordre de travail.
 >
 > Dernière mise à jour : 2026-09-11
-> Dernier jalon vérifié : HOS-291 / A-3
-> Dernier commit de code vérifié : voir `git log -1` — A-3 fermé sur la
-> base `884f8b7214fbbcc3ff7b78e094f8ac771fd7c0eb` (HOS-290 / A-10)
+> Dernier jalon vérifié : HOS-292 / A-4
+> Dernier commit de code vérifié : voir `git log -1` — A-4 fermé sur la
+> base `59bd733163f6a22335a8fe4cd9fd41325b4c6b77` (HOS-291 / A-3)
 
 ## 1. Règles d'exécution
 
@@ -30,9 +30,49 @@
 
 ## 2. Situation courante
 
-**Chantier actif : #3 — A-4 habilitation Workspace / MCP**
+**Chantier actif : #4 — G-15 invalidation des probes**
 
 Statut : 🟠 **À EXÉCUTER**
+
+**#3 — A-4 habilitation Workspace / MCP : 🟢 FERMÉ le 2026-09-11
+(HOS-292).** Valider un projet élargissait la liste blanche d'Aegis pour
+**toute** action, y compris celles qui ne nommaient aucun projet. Mesuré
+sur deux projets valides, lecture de `ws-b/secret.txt` : `project_id=A`
+refusé, `project_id=None` **autorisé et le contenu rendu**. Sur la base
+réellement servie, cette union comptait **60 racines** — dont
+`Skill360 Industry` et sept dossiers sous `C:\Users\emeri`. Un
+`files_read` MCP sans `project_id` les atteignait toutes.
+
+**ADAPT** : l'habilitation devient **nominative** — la racine n'est
+accordée qu'à l'action qui nomme son projet, et seulement tant qu'il est
+actif et validé. La liste blanche statique, écrite par un humain dans la
+configuration, est inchangée. Le prédicat « ce projet autorise-t-il, en
+ce moment ? » était écrit trois fois ; il vit désormais dans
+`projects.store.authorized_root` et les trois appelants y délèguent.
+
+Deux défauts absorbés, tous deux sur le chemin d'A-4 : l'offre d'outils
+du chat était gardée mais **pas l'exécution** (un `project_root=""`
+résolvait sous la racine du dépôt, et le refus ne tenait qu'à une mise en
+file de validation humaine) ; et un `project_id` introuvable
+**court-circuitait la frontière** — le moteur n'était jamais appelé, donc
+un seul accord humain ouvrait n'importe quel chemin du disque. Le `''`
+que MCP transmet pour un argument omis tombait sur cette branche.
+
+Preuves : 19/19 sur le serveur en marche, 14/14 par un **vrai client
+MCP** streamable-HTTP, chaîne navigateur complète (enregistré →
+`unvalidated`, 403 ; validé → 200 en nommant, 403 sans), tour de chat
+réel sur un jeton écrit entre deux tours, et redémarrage en deux
+processus sans élévation implicite. **14 mutations rouges puis vertes**,
+dont une — la traversée non normalisée — qui a d'abord laissé toute la
+suite verte et a révélé que les tests de traversée résolvaient le chemin
+eux-mêmes avant de le passer.
+
+Une régression trouvée **au navigateur** et corrigée : le panneau Projet
+appelait `/git/status` sans `project_id` (403 avant, 400 après, soit la
+vraie réponse de git). Aucune suite verte ne l'aurait attrapée : l'appel
+était correct, seule son autorisation avait changé.
+
+Limites dites : G-43, G-44, A-26 (§6).
 
 **#2 — A-3 checkpoints / restauration : 🟢 FERMÉ le 2026-09-11 (HOS-291).**
 `prendre` avait un appelant — `GraphExecutor._prendre_le_filet`, sur le
@@ -70,9 +110,9 @@ comptant les connexions) : 0 requête sur `chat` et `chat_events` avec
 secret, 1 requête et réponse reçue sans secret. Cinq mutations rouges
 puis vertes. **§4 passe 🟢.**
 
-**Prochain chantier obligatoire : #3 — A-4 habilitation Workspace / MCP.**
+**Prochain chantier obligatoire : #4 — G-15 invalidation des probes.**
 
-Base de travail : HOS-291 / A-3.
+Base de travail : HOS-292 / A-4.
 
 ## 3. Ordre obligatoire des chantiers
 
@@ -80,8 +120,8 @@ Base de travail : HOS-291 / A-3.
 |---:|---|---|---|
 | 1 | ~~**A-10 — Pare-feu OpenRouter**~~ | 🟢 **FERMÉ (HOS-290)** | rempli : `sk-or-v1-*` reconnu ; refus prouvé à la socket sur `chat` et `chat_events` (0 requête) ; 7 faux positifs conservés ; 5 mutations rouges puis vertes |
 | 2 | ~~**A-3 — Checkpoints / restauration**~~ | 🟢 **FERMÉ (HOS-291)** | rempli : **ADOPT** ; `apercu` + `restaurer` appelables depuis le panneau Supervision ; Aegis seule autorité, accord humain nommant le point de reprise ; restauration prouvée au navigateur et après redémarrage ; 4 mutations rouges puis vertes. Limites dites : A-22, A-23, A-24 |
-| 3 | **A-4 — Habilitation Workspace / MCP** | 🟠 **ACTIF** | workspace actif comme frontière d'autorisation ; MCP et filesystem contraints par Project validé ; chemin UI→backend→Aegis→outil démontré |
-| 4 | **G-15 — Invalidation des probes** | 🟠 | invalidation/re-évaluation automatique lorsque poids, `num_ctx`, paramètres ou état agentique changent sous un même tag ; preuves datées et consommées |
+| 3 | ~~**A-4 — Habilitation Workspace / MCP**~~ | 🟢 **FERMÉ (HOS-292)** | rempli : **ADAPT** ; habilitation **nominative** — la racine n'est accordée qu'à l'action qui nomme son projet ; prédicat unique dans `authorized_root` ; chaîne UI→HTTP→Aegis→outil démontrée au navigateur et par un vrai client MCP ; 14 mutations rouges puis vertes. Limites dites : G-43, G-44, A-26 |
+| 4 | **G-15 — Invalidation des probes** | 🟠 **ACTIF** | invalidation/re-évaluation automatique lorsque poids, `num_ctx`, paramètres ou état agentique changent sous un même tag ; preuves datées et consommées |
 | 5 | **G-11 — `assigned_tools` réellement utilisé** | 🟠 | champ relié au vrai chemin d'exécution et démontré par allow/deny contrastés |
 | 6 | **G-10 — Promotion mémoire HTTP/UI** | 🟠 | route produit réelle ; contrôle humain nommé ; provenance/quarantaine conservées ; absence d'auto-promotion par agent |
 | 7 | **T-28 — Contrat Chat / Cowork** | 🟠 | contrat comportemental tranché et adopté avant travail produit correspondant |
@@ -106,7 +146,7 @@ Base de travail : HOS-291 / A-3.
 
 - §1 Contract & Verification : 🟢 COMPLETED
 - §2 Run Ledger & Execution Lineage : 🟢 COMPLETED
-- §3 Checkpoints / Approval / Sandbox / Security : 🟡 PARTIAL (A-2 et A-3 fermés ; restent A-5, A-17)
+- §3 Checkpoints / Approval / Sandbox / Security : 🟡 PARTIAL (A-2, A-3 et A-4 fermés ; restent A-5, A-17)
 - §4 Cloud / Providers / Quota : 🟢 COMPLETED (A-1 + A-10 fermés)
 - §5 Runtime / RAL / Model Intelligence : 🟢 COMPLETED
 - §6 Cognitive Scheduler / Resource Intelligence : 🟡 PARTIAL
@@ -128,6 +168,7 @@ Base de travail : HOS-291 / A-3.
 - A-10 / HOS-290 : format de secret OpenRouter `sk-or-v1-*` reconnu (défaut de **détection**). Les deux étaient distincts et sont fermés ; §4 est 🟢.
 - A-2 / HOS-256 : contrôles HOS-217/218 câblés sur le chemin réel.
 - A-3 / HOS-291 : la restauration d'un point de reprise est appelable, gouvernée par Aegis et démontrée au navigateur puis après redémarrage.
+- A-4 / HOS-292 : l'habilitation de workspace est **nominative** — valider un projet n'accorde sa racine qu'aux actions qui le nomment. Un prédicat unique (`authorized_root`), trois surfaces (HTTP, MCP, chat) sous la même décision.
 - §6.1 / HOS-263 : décision du routeur réellement consommée et repli borné par la preuve.
 - G-14 / HOS-264 : capacité agentique mesurée sur les six modèles du catalogue.
 - §16 / HOS-265→274 : pont Hermes Agent, matrice et capacités intégrées selon preuves ; G-23 convergence ACP↔Gateway rejetée ; G-24 interruption ACP adoptée.
@@ -153,6 +194,9 @@ Base de travail : HOS-291 / A-3.
 - A-22 : `data_migration` est `path_based: false`, donc `ALLOWED_PATHS` n'est **pas** consulté pour une restauration — le seul verrou est la validation humaine obligatoire. Mesuré HOS-291. Basculer la catégorie refuserait toute restauration d'instantané (`target_path=None` → `deny`, mesuré) : décision de politique à part entière.
 - A-23 : le **couple** fichiers + état demande deux accords distincts (empreintes `{checkpoint}` et `{snapshot}`), et les accords étant à usage unique une reprise complète en demande trois. Non atteignable aujourd'hui — le seul producteur prend `avec_etat=False`. Dit honnêtement à l'opérateur plutôt que masqué.
 - A-24 : `prune_snapshots` et `StepCounter` sans appelant de production. Le §19.3 demande un instantané tous les N pas ; `every=10` et personne ne compte. Rien ne borne la croissance : 26 instantanés pour un `keep` de 20 sur la machine réelle.
+- G-43 : un chat **lié à un projet** est servi par le harnais dès que Hermes Agent est prêt, donc ses lectures de fichiers passent par la frontière du client ACP et le hook `pre_tool_call` (HOS-141), **pas** par Aegis. Ce que HOS-292 décide sur ce chemin, c'est *quel* workspace est remis à l'agent (`authorized_root`) ; ce qu'il fait à l'intérieur relève d'une autre autorité, par construction — Hermes Agent est le cerveau et possède sa boucle d'outils. Conséquence à ne pas oublier : lier un projet est précisément ce qui bascule vers le harnais, donc la surface d'outils de chat gardée par Aegis est le **repli**, pas le cas courant.
+- G-44 : le chemin harnais n'émet que `{kind, text}` (`_repondre_par_le_harnais`), jamais `tool_calls` — donc aucun chip d'outil dans l'Assistant quand un projet est lié. Rien n'est inventé côté frontend (le chip ne s'affiche qu'à réception d'un événement réel) : c'est un trou d'observabilité, pas un faux succès.
+- A-26 : `ProjectStore.ensure_for_path` crée **et valide** un projet par objectif autonome lancé sur un chemin, et rien n'en retire jamais. Mesuré le 2026-09-11 sur la base réellement servie : 66 projets dont 60 actifs et validés, la plupart pointant vers des dossiers `pytest-of-Emeric` disparus. Sans conséquence d'accès depuis HOS-292 — une racine ne s'accorde qu'à qui la nomme — mais la table croît sans borne et le Workspace Center l'affiche.
 - A-21 : la règle `clé=valeur` de `redact` couvre `…_API_KEY` et `…_SECRET` mais **pas un nom en `…_KEY` seul** — mesuré HOS-290. Sans danger pour une clé dont la *forme* est reconnue (le cas OpenRouter), ouvert pour une clé d'une autre forme derrière un tel nom. Défaut de nommage, pas de format : hors périmètre A-10.
 - Capability assertions sans producteur : garde fiable non encore résolue car les regex confondaient affirmation et négation.
 - Secondary Center tabs : ouverture visuelle exhaustive non encore réalisée.
@@ -187,10 +231,10 @@ Lorsqu'un nouveau travail Hermes OS commence, utiliser d'abord :
 
 ## 9. Actuel
 
-**ACTIVE: A-4**
+**ACTIVE: G-15**
 
-**NEXT: G-15**
+**NEXT: G-11**
 
-*(A-10 fermé le 2026-09-11, HOS-290 ; A-3 fermé le 2026-09-11, HOS-291.)*
+*(A-10 fermé le 2026-09-11, HOS-290 ; A-3 fermé le 2026-09-11, HOS-291 ; A-4 fermé le 2026-09-11, HOS-292.)*
 
 **DO NOT JUMP AHEAD.**

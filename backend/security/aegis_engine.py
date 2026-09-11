@@ -80,14 +80,19 @@ class AegisEngine:
         this call, on top of the engine's own static ALLOWED_PATHS. This is
         how a user-registered, validated Project grants real filesystem
         access without needing a config.yaml edit — the caller
-        (AegisAgent._dynamic_allowed_paths) resolves the current set of
-        ACTIVE, validation_status="valid" Project roots fresh on every
-        call, so this engine stays DB-free and pure (a verdict is still
-        fully determined by its inputs) while the *effective* whitelist is
-        genuinely dynamic. A Project that is deleted, archived, or fails
-        validation stops appearing in that list — and therefore stops
-        granting access — the next time this is called, with nothing
-        cached here."""
+        (AegisAgent._workspace_grant) resolves, fresh on every call, the
+        root of the one Project the action names, and only while that
+        Project is ACTIVE and validation_status="valid". So this engine
+        stays DB-free and pure (a verdict is still fully determined by its
+        inputs) while the *effective* whitelist is genuinely dynamic. A
+        Project that is deleted, archived, or fails validation stops
+        granting access the next time this is called, with nothing cached
+        here.
+
+        What this list must never be is "every workspace the user has ever
+        validated" — that was the A-4 defect (see AegisAgent's docstring):
+        an action naming no project was handed the union of all of them,
+        so a direct MCP files_read reached a workspace it never named."""
         category = self._matrix.get_category(action.action_type)
 
         if category is None:
@@ -112,8 +117,9 @@ class AegisEngine:
                     verdict=Verdict.DENY,
                     reason=(
                         f"{action.target_path!r} is outside ALLOWED_PATHS and outside "
-                        "every active, validated workspace — a hard boundary, not "
-                        "negotiable by autonomy level (§17.1)."
+                        "the workspace this action names — a hard boundary, not "
+                        "negotiable by autonomy level (§17.1). A validated project "
+                        "grants its root only to actions that name it (A-4)."
                     ),
                     action_type=action.action_type,
                 )

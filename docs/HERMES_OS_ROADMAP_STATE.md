@@ -33,8 +33,8 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      884f8b7 (A-10, HOS-290) — dernier commit
-                               de code avant A-3 (HOS-291)
+BASELINE:                      59bd733 (A-3, HOS-291) — dernier commit
+                               de code avant A-4 (HOS-292)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -93,6 +93,15 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                restauration prouvée au navigateur puis
                                après redémarrage ; A-22/A-23/A-24 ouverts
                                en chemin
+                               A-4 fermé (HOS-292) — l'habilitation de
+                               workspace devient **nominative** : valider
+                               un projet n'accorde sa racine qu'aux actions
+                               qui le nomment. Avant : deux projets valides,
+                               `project_id=None` lisait le secret de l'autre ;
+                               60 racines dans l'union sur la base servie.
+                               Prédicat unique `authorized_root` (il était
+                               écrit 3 fois) ; 14 mutations rouges puis
+                               vertes ; G-43/G-44/A-26 ouverts en chemin
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -327,7 +336,10 @@ primitive, et G-11 décide d'où bâtir Cowork.
 | Le couple fichiers + état demande deux accords distincts (A-23) — empreintes `{checkpoint}` et `{snapshot}` ; non atteignable aujourd'hui, le seul producteur prend `avec_etat=False` | architectural | §3 |
 | La garde d'octets du plugin observateur rougit sur une copie de travail neuve (A-25) — mesuré HOS-291 : LF → CRLF à la sortie de git, 304 → 310 et 4795 → 4914 octets ; le contrat est juste, l'instrument est trop strict d'un cran | test | §3 |
 | `prune_snapshots` et `StepCounter` sans appelant de production (A-24) — 26 instantanés pour un `keep` de 20, et le « tous les N pas » du §19.3 n'a jamais lieu | technical debt | §3 |
-| Portée projet MCP validée mais non autorisée (A-4) | security | §8 / §10 |
+| ~~Portée projet MCP validée mais non autorisée (A-4)~~ — **fermé HOS-292** : l'habilitation est nominative, la racine ne s'accorde qu'à qui la nomme | security | §8 / §10 |
+| Un chat lié à un projet est servi par le harnais, donc ses lectures passent par la frontière ACP et le hook `pre_tool_call`, pas par Aegis (G-43) — mesuré HOS-292 | architectural | §15 / §16 |
+| Aucun chip d'outil dans l'Assistant quand un projet est lié (G-44) — le chemin harnais n'émet jamais `tool_calls` ; rien n'est inventé côté frontend | observability | §15 |
+| `ensure_for_path` crée et valide un projet par objectif autonome et n'en retire jamais (A-26) — 66 projets, 60 actifs+validés, mesuré HOS-292 | technical debt | §8 |
 | Workflows utilisateur écrits dans le dépôt (A-5) | technical debt | §3 |
 | `unified_memory` sans isolation de projet | architectural | §8 |
 | Quarantaine/provenance non affichées au frontend | UX | §9 |

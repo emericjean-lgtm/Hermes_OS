@@ -2083,9 +2083,19 @@ export interface GitWriteResultDTO {
 }
 
 export const gitClient = {
-  status: (repoPath: string) =>
-    fetchJSON<GitStatusDTO>(`/git/status?repo_path=${encodeURIComponent(repoPath)}`),
-  createPullRequest: (data: { repo_path: string; title: string; body: string; base?: string }) =>
+  // `project_id` n'est pas decoratif : depuis HOS-292 l'habilitation de
+  // workspace est **nominative**, donc un appel qui ne nomme pas le projet
+  // ne recoit que la liste blanche statique et repond 403 sur un dossier
+  // utilisateur. Mesure au navigateur le 2026-09-11 : le panneau Projet
+  // affichait « statut git indisponible » sur un workspace pourtant valide,
+  // parce que cette ligne omettait le parametre.
+  status: (repoPath: string, projectId?: string) =>
+    fetchJSON<GitStatusDTO>(
+      `/git/status?repo_path=${encodeURIComponent(repoPath)}` +
+      (projectId ? `&project_id=${encodeURIComponent(projectId)}` : "")),
+  createPullRequest: (data: {
+    repo_path: string; title: string; body: string; base?: string; project_id?: string;
+  }) =>
     fetchJSON<GitWriteResultDTO>("/git/pull-request", {
       method: "POST",
       body: JSON.stringify(data),

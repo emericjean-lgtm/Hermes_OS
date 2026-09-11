@@ -88,8 +88,28 @@ async def execute_verification_tool(
     part ailleurs. Laisser le modèle nommer le répertoire aurait rendu la
     liste blanche décorative — on ne peut pas composer la commande, mais on
     la lancerait où l'on veut.
+
+    Même portillon d'habilitation que `workspace_chat_tools` (A-4,
+    HOS-292), et pour la même raison : `repo_path` **est** le workspace,
+    donc sans workspace autorisé il n'y a pas de répertoire où lancer quoi
+    que ce soit. Sans ce contrôle, un appel avec `project_root=""` se
+    résolvait sous le répertoire courant — la racine du dépôt Hermes OS,
+    couverte par `ALLOWED_PATHS` — et une conversation sans projet lié
+    lançait un runner dans le dépôt lui-même. Les runners sont épinglés,
+    donc ce n'était pas une exécution arbitraire ; c'était quand même une
+    exécution dans un dossier que personne n'avait autorisé.
+
+    La racine est re-résolue ici depuis le magasin de projets, jamais
+    prise telle quelle chez l'appelant.
     """
     from backend.tools import verification
+    from backend.projects.store import authorized_root
+    from backend.tools.workspace_chat_tools import SANS_WORKSPACE
+
+    racine_autorisee = authorized_root(project_id)
+    if not racine_autorisee:
+        return SANS_WORKSPACE
+    project_root = racine_autorisee
 
     if name == "verification_runners":
         runners = verification.list_runners()

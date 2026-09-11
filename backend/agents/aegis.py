@@ -31,21 +31,36 @@ further for that one call, never widens it (see aegis_engine.py). Only
 existence matters for narrowing, not validation status: an unvalidated
 or even archived project's root is still a real, known boundary to
 scope an action *down* to. A project_id that doesn't resolve to any
-project at all is different — that's treated as REQUIRE_HUMAN_VALIDATION
-rather than silently skipping the restriction (don't fail open on the
-unexpected, same as an unknown action_type).
+project at all is different — the engine is still consulted first, and
+only a path it would otherwise have allowed is escalated to
+REQUIRE_HUMAN_VALIDATION rather than silently skipping the restriction
+(don't fail open on the unexpected, same as an unknown action_type). A
+DENY from the boundary stays a DENY: before HOS-292 this branch returned
+without calling the engine at all, so one human approval on a
+non-existent project opened any path on disk.
 
 Workspace/Filesystem tool layer: evaluate() also calls
-_dynamic_allowed_paths() on every invocation and passes the result as
-AegisEngine.evaluate()'s extra_allowed_paths — the root_path of every
-currently ACTIVE, validation_status="valid" Project, resolved fresh
-from ProjectStore each time (nothing cached). This is what lets a
-user-registered, validated workspace (e.g. via POST /projects then
-POST /projects/{id}/validate) actually grant filesystem access without
+_workspace_grant() on every invocation and passes the result as
+AegisEngine.evaluate()'s extra_allowed_paths — the root_path of the
+one Project **the action itself names**, and only while that Project is
+ACTIVE and validation_status="valid", resolved fresh from ProjectStore
+each time (nothing cached). This is what lets a user-registered,
+validated workspace (e.g. via POST /projects then POST
+/projects/{id}/validate) actually grant filesystem access without
 editing config/security.yaml's static ALLOWED_PATHS — the two lists
 are unioned at the point of check (aegis_engine.py's
 _is_within_whitelist), and a Project that stops being active+valid
-stops appearing in that union on the very next call.
+stops granting on the very next call.
+
+That grant is **nominative** (A-4, HOS-292), and that is the whole
+point: it was previously the union of *every* active validated
+Project, handed to every action regardless of which project the action
+named — or whether it named one at all. Two validated projects A and
+B, reading ws-b/secret.txt, measured 2026-09-11: project_id=A denied
+(narrowing worked), project_id=None allowed, with B's contents
+returned. An MCP files_read(path) with no project_id therefore read
+the workspace of a project it never named. Validation proves a folder
+exists; it never said who may touch it.
 
 advise() is the advisory pass mentioned in aegis_engine.py's module
 docstring: an LLM opinion attached to a REQUIRE_HUMAN_VALIDATION
@@ -260,37 +275,82 @@ class AegisAgent:
 
         return decision
 
-    def _dynamic_allowed_paths(self) -> list[str]:
-        """Every ACTIVE, validation_status="valid" Project's root_path —
-        together with the static ALLOWED_PATHS config, this is the real,
-        current whitelist (see AegisEngine.evaluate's extra_allowed_paths
-        and this module's docstring). Delegates to
-        projects.store.active_validated_project_roots() — the same
-        function Mission's pre-flight security gate
-        (mission/routes.py's _check_mission_security) calls, so a
-        validated workspace grants access identically whether the caller
-        is a chat session or a Mission. Fetched fresh on every call via
-        that function, never cached here."""
-        from backend.projects.store import active_validated_project_roots
-        return active_validated_project_roots()
+    def _workspace_grant(self, project_id: str | None) -> list[str]:
+        """Ce que le projet **nomme par l'action** autorise, et rien d'autre.
+
+        L'habilitation est nominative (A-4, HOS-292). Cette methode rendait
+        auparavant `active_validated_project_roots()` — l'union de *tous*
+        les projets actifs et valides — quel que soit le projet que
+        l'action nommait, y compris quand elle n'en nommait aucun. Deux
+        projets valides A et B, lecture de `ws-b/secret.txt`, mesure du
+        2026-09-11 :
+
+            project_id=A    -> deny   (le retrecissement fonctionnait)
+            project_id=None -> allow  (le contenu de B etait rendu)
+
+        Un `files_read(chemin)` MCP sans `project_id` lisait donc le
+        workspace d'un projet qu'il ne nommait pas. La liste blanche
+        statique, elle, ne bouge pas : elle est configuree par un humain
+        dans `config`, pas accordee par une validation.
+
+        Resolu a chaque appel via `projects.store.authorized_root`, le
+        predicat unique du depot ; rien n'est cache ici.
+        """
+        from backend.projects.store import authorized_root
+        racine = authorized_root(project_id)
+        return [racine] if racine else []
 
     def _resolve_decision(self, action: ActionRequest) -> AegisDecision:
-        # Widening (extra_paths) and narrowing (project_root below) are
-        # gated independently. Widening is the new capability — a
-        # Project's root only ever grants access while it is ACTIVE and
-        # validation_status="valid" (_dynamic_allowed_paths enforces
-        # that). Narrowing is the pre-existing restriction: if a caller
-        # names a project_id, its root scopes the action to that folder
-        # regardless of validation status — an unvalidated project's root
-        # is still a real, known boundary to scope *down* to, even before
-        # anyone has confirmed it grants anything on its own.
-        extra_paths = self._dynamic_allowed_paths()
-
-        if action.project_id is None:
-            return self._engine.evaluate(action, extra_allowed_paths=extra_paths)
+        # Elargissement (extra_paths) et retrecissement (project_root) sont
+        # gates independamment, mais tous deux partent desormais du *seul*
+        # projet que l'action nomme.
+        #
+        # Elargir : la racine n'est accordee que si ce projet-la est ACTIVE
+        # et validation_status="valid" (`_workspace_grant`). Une action qui
+        # ne nomme aucun projet ne porte aucune habilitation de workspace —
+        # il lui reste la liste blanche statique, qu'un humain a ecrite.
+        #
+        # Retrecir : la regle d'origine, inchangee. Si l'appelant nomme un
+        # project_id, sa racine borne l'action a ce dossier quel que soit
+        # son statut de validation — la racine d'un projet non valide reste
+        # une frontiere reelle et connue pour reduire une portee, meme
+        # avant que quiconque ait confirme qu'elle accorde quoi que ce soit.
+        #
+        # `not` et non `is None` : l'absence de projet s'ecrit de deux
+        # facons selon la surface. MCP rend `""` pour un argument omis —
+        # mesure du 2026-09-11 sur une vraie session streamable-HTTP —
+        # la ou HTTP rend `None`. Les traiter differemment faisait tomber
+        # tout appel MCP non nomme sur la branche « projet inconnu »
+        # ci-dessous, donc sur une *demande de validation humaine* au lieu
+        # d'un refus. Ne nommer aucun projet n'est pas nommer un projet
+        # inconnu : c'est n'avoir aucune habilitation de workspace.
+        if not action.project_id:
+            return self._engine.evaluate(action, extra_allowed_paths=[])
 
         project = get_project_store().get(action.project_id)
         if project is None:
+            # Un identifiant qui ne resout pas reste suspect (§17.3) — mais
+            # on interroge le moteur **d'abord**.
+            #
+            # Cette branche rendait REQUIRE_HUMAN_VALIDATION sans jamais
+            # appeler `evaluate`, donc sans que la liste blanche soit
+            # regardee. Or `_apply_human_consent` transforme un
+            # REQUIRE_HUMAN_VALIDATION approuve en ALLOW. Mesure du
+            # 2026-09-11, `ALLOWED_PATHS` reduit a un dossier :
+            #
+            #     project_id='inexistant-xyz' sur un chemin hors de toute
+            #     liste blanche -> require_human_validation
+            #     puis un seul accord humain            -> allow
+            #
+            # Un projet qui n'existe pas ouvrait donc n'importe quel
+            # chemin du disque au premier « oui ». Le commentaire de
+            # `_apply_human_consent` promettait exactement le contraire :
+            # « A DENY is never upgraded: those come from the hard
+            # boundaries ». La promesse tenait, la frontiere n'etait
+            # simplement jamais consultee.
+            base = self._engine.evaluate(action, extra_allowed_paths=[])
+            if base.verdict is Verdict.DENY:
+                return base
             return AegisDecision(
                 verdict=Verdict.REQUIRE_HUMAN_VALIDATION,
                 reason=(
@@ -300,6 +360,7 @@ class AegisAgent:
                 ),
                 action_type=action.action_type,
             )
+        extra_paths = self._workspace_grant(action.project_id)
         if not project.root_path:
             return self._engine.evaluate(action, extra_allowed_paths=extra_paths)
         return self._engine.evaluate(

@@ -26,7 +26,8 @@ below) and repository/branch fields mirroring Mission's existing three-field
 project binding (types/hermes.ts's local_path/repository/branch, HOS-068).
 Aegis (security/aegis_engine.py) treats an ACTIVE, validation_status="valid"
 Project's root_path as part of its dynamic whitelist — see
-AegisAgent._dynamic_allowed_paths() in agents/aegis.py. The four new columns
+AegisAgent._workspace_grant() in agents/aegis.py, via
+store.authorized_root(). The four new columns
 are nullable, so backend/memory/db.py's additive _add_missing_columns picks
 them up on an existing database with a plain ALTER TABLE, no migration tool
 needed (same mechanism that added memory_long.project_id before this).

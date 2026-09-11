@@ -992,10 +992,12 @@ export function useFilesystemBrowse(path: string | undefined, enabled: boolean) 
  *  (`enabled: !!repoPath`) rather than firing on an empty path, and
  *  `retry: false` because a 400 ("not a repository") is a legitimate,
  *  non-transient answer, not a flake to retry into a success. */
-export function useGitStatus(repoPath: string | null | undefined) {
+export function useGitStatus(
+  repoPath: string | null | undefined, projectId?: string | null,
+) {
   return useQuery({
-    queryKey: ["git", "status", repoPath],
-    queryFn: () => gitClient.status(repoPath as string),
+    queryKey: ["git", "status", repoPath, projectId],
+    queryFn: () => gitClient.status(repoPath as string, projectId ?? undefined),
     enabled: !!repoPath,
     retry: false,
   });

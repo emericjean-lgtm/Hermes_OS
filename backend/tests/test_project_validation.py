@@ -2,7 +2,7 @@
 claim (see project_manager.py's module docstring). Covers both the pure
 validate_project_path() probe and the persisted validate_project()/
 ProjectStore.validate() path that Aegis's dynamic whitelist actually
-reads (agents/aegis.py's _dynamic_allowed_paths)."""
+reads (agents/aegis.py's _workspace_grant, via store.authorized_root)."""
 from __future__ import annotations
 
 import pytest

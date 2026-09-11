@@ -561,10 +561,16 @@ def _check_mission_security(mission: Mission) -> Optional[dict[str, Any]]:
 
     engine = _get_aegis_engine()
     # Same dynamic whitelist AegisAgent uses for chat/MCP/file_tools
-    # (agents/aegis.py's _dynamic_allowed_paths, this repo's single real
-    # source of "which projects are currently authorized") — a Mission
-    # bound to a validated workspace must be granted access by the exact
-    # same rule a chat session bound to it would be.
+    # (projects.store's authorized_root predicate, this repo's single
+    # real source of "which projects are currently authorized") — a
+    # Mission bound to a validated workspace must be granted access by
+    # the exact same rule a chat session bound to it would be.
+    #
+    # C'est ici une **admission** — « ce dossier est-il un workspace
+    # autorise ? » — et non la portee d'une action. La portee, elle, est
+    # nominative depuis HOS-292 : chaque operation de fichier nomme son
+    # projet et ne recoit que sa racine (agents/aegis.py's
+    # _workspace_grant).
     extra_paths = active_validated_project_roots()
 
     if mission.context.local_path:

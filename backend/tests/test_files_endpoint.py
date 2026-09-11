@@ -39,12 +39,21 @@ def test_apply_denied_outside_whitelist_returns_200_with_deny_verdict(client, tm
 
 
 def test_apply_with_unknown_project_id_is_not_a_silent_allow(client, tmp_path):
-    # A project_id that doesn't resolve to a real project makes Aegis
-    # escalate to require_human_validation (see agents/aegis.py) rather
-    # than silently skipping project-level restriction — applied stays
-    # False either way (require_human_validation != allow), same as the
-    # existing outside-whitelist case, but for a different reason
-    # (verdict, not just outside-whitelist denial).
+    """Un `project_id` qui ne resout pas ne doit jamais valoir un `allow`.
+
+    Le verdict attendu ici etait `require_human_validation` : Aegis
+    escaladait sans avoir regarde le chemin. Depuis HOS-292 il consulte
+    d'abord le moteur, donc un chemin hors de `ALLOWED_PATHS` — ce que
+    `tmp_path` est — ressort en `deny`, c'est-a-dire **plus strictement**
+    qu'avant et non moins.
+
+    Ce qui a motive le changement : un REQUIRE_HUMAN_VALIDATION se
+    transforme en ALLOW des qu'un humain accorde. Mesure du 2026-09-11 —
+    un projet inexistant, un chemin hors de toute liste blanche, un seul
+    « oui », et l'acces etait donne. La suspicion reste sur un chemin
+    legitime (voir `test_projet_inconnu_et_frontiere.py`) ; elle ne sert
+    plus d'echelle par-dessus la frontiere.
+    """
     target = tmp_path / "f.txt"
     response = client.post(
         "/files/apply",
@@ -53,5 +62,5 @@ def test_apply_with_unknown_project_id_is_not_a_silent_allow(client, tmp_path):
     assert response.status_code == 200
     body = response.json()
     assert body["applied"] is False
-    assert body["verdict"] == "require_human_validation"
+    assert body["verdict"] == "deny"
     assert not target.exists()

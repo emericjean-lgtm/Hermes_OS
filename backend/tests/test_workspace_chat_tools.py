@@ -88,18 +88,47 @@ def test_workspace_tool_schemas_covers_every_file_operation():
 
 @pytest.mark.asyncio
 async def test_execute_workspace_tool_read_denied_outside_project():
-    """No project bound (project_root="") — the adapter must not invent
-    access; it reports the real Aegis refusal, same as file_tools itself
-    would raise."""
+    """Aucun projet lie — l'adaptateur refuse **avant** de toucher au
+    disque, et ne devine aucune racine.
+
+    Le refus arrivait auparavant par accident, et par un chemin plus
+    faible : `project_root=""` faisait resoudre `"f.txt"` sous le
+    **repertoire courant** (la racine du depot, couverte par
+    `ALLOWED_PATHS`), et seul un `project_id` vide tombant sur « projet
+    inconnu » sauvait la situation — en *mettant l'action en file de
+    validation humaine*. Un accord donne par distraction aurait ouvert le
+    depot Hermes OS a une conversation sans projet (A-4, HOS-292).
+
+    On exige donc le refus explicite, et surtout qu'il ne soit **pas** une
+    demande de validation : il n'y a rien a valider.
+    """
     result = await wct.execute_workspace_tool(
         "workspace_read", {"path": "f.txt"}, project_id="", project_root="",
     )
-    assert "Refusé par Aegis" in result or "refusée" in result.lower()
+    assert result == wct.SANS_WORKSPACE
+    assert "validation" not in result.lower()
 
 
 @pytest.mark.asyncio
-async def test_execute_workspace_tool_unknown_name_reports_unknown():
+async def test_execute_workspace_tool_unknown_name_reports_unknown(workspace_autorise):
+    """Le nom inconnu n'est atteint qu'une fois l'habilitation acquise.
+
+    Sans projet autorise, cet appel est refuse pour le workspace avant
+    meme qu'on regarde le nom de l'outil — ce qui est le bon ordre.
+    """
+    projet, racine = workspace_autorise
+    result = await wct.execute_workspace_tool(
+        "workspace_delete_everything", {},
+        project_id=projet.id, project_root=str(racine),
+    )
+    assert "Unknown tool" in result
+
+
+@pytest.mark.asyncio
+async def test_un_nom_inconnu_sans_workspace_est_refuse_pour_le_workspace():
+    """L'ordre des controles, affirme explicitement : l'habilitation
+    d'abord, le nom de l'outil ensuite."""
     result = await wct.execute_workspace_tool(
         "workspace_delete_everything", {}, project_id="", project_root="",
     )
-    assert "Unknown tool" in result
+    assert result == wct.SANS_WORKSPACE

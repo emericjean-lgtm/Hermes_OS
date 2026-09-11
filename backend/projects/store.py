@@ -144,6 +144,55 @@ def _est_valide(projet: Project | None) -> bool:
     return bool(projet) and projet.validation_status == ValidationStatus.VALID.value
 
 
+def _autorise(projet: Project | None) -> bool:
+    """Ce projet accorde-t-il un acces au disque *en ce moment* ?
+
+    Le predicat unique. Il etait ecrit trois fois — ici dans
+    `active_validated_project_roots`, dans
+    `conversation/routes._active_validated_project_root`, et dans
+    `core/bootstrap/service_registry._workspace_project_for` — trois
+    copies de la meme regle a trois endroits, dont deux se decrivaient
+    elles-memes comme « la meme verification, repetee ». Trois copies
+    d'une regle de securite sont trois occasions de diverger.
+    """
+    return (
+        projet is not None
+        and bool(projet.root_path)
+        and projet.status == ProjectStatus.ACTIVE.value
+        and _est_valide(projet)
+    )
+
+
+def authorized_root(project_id: str | None) -> str | None:
+    """La racine que ce projet autorise en ce moment, ou `None`.
+
+    **L'habilitation est nominative** (A-4). Avant HOS-292, la validation
+    d'un projet elargissait la liste blanche d'Aegis pour *toute* action,
+    y compris celles qui ne nommaient aucun projet : valider A et B
+    revenait a autoriser A ∪ B partout. Mesure du 2026-09-11, deux
+    projets actifs et valides, lecture de `ws-b/secret.txt` :
+
+        project_id=A    -> deny   (le retrecissement fonctionnait)
+        project_id=None -> allow  (et le contenu de B etait rendu)
+
+    Un appel MCP direct `files_read(chemin)` sans `project_id` lisait
+    donc le workspace d'un projet qu'il ne nommait pas. La validation
+    prouvait qu'un dossier *existe* ; elle n'a jamais dit *qui* peut y
+    toucher. C'est ce que veut dire « validee, non autorisee ».
+
+    Rend `None` plutot que de lever si le magasin est indisponible : une
+    habilitation manquante est sans danger, une verification qui plante
+    ne l'est pas — meme contrat que `active_validated_project_roots`.
+    """
+    if not project_id:
+        return None
+    try:
+        projet = get_project_store().get(project_id)
+    except Exception:
+        return None
+    return projet.root_path if _autorise(projet) else None
+
+
 @lru_cache
 def get_project_store() -> ProjectStore:
     return ProjectStore(get_settings().sqlite_path)
@@ -152,14 +201,19 @@ def get_project_store() -> ProjectStore:
 def active_validated_project_roots() -> list[str]:
     """Every ACTIVE, validation_status="valid" Project's root_path — the
     single real source of "which local folders has the user actually
-    authorized right now". Both AegisAgent._dynamic_allowed_paths
-    (agents/aegis.py, the Assistant chat / MCP / file_tools path) and
-    Mission's pre-flight security gate (mission/routes.py's
-    _check_mission_security) call this same function rather than each
-    resolving it independently — a Mission bound to a validated
-    workspace must be granted access by the exact same rule a chat
-    session bound to it would be, not a second, potentially-drifting
-    implementation of "is this project currently authorized".
+    authorized right now" — pour l'**admission** : « ce dossier est-il un
+    workspace autorise ? ». Son appelant est le controle de securite en
+    amont d'une Mission (mission/routes.py's _check_mission_security).
+
+    Ce n'est **pas** ce qui accorde une portee a une action. Depuis
+    HOS-292 l'habilitation est nominative : `authorized_root` ci-dessus
+    rend la racine du seul projet qu'une action nomme. Passer cette
+    liste-ci a Aegis, ce que faisait `_dynamic_allowed_paths`, revenait a
+    donner tous les workspaces a toute action — le defaut A-4.
+
+    Les deux partagent le meme predicat (`_autorise`), donc un projet est
+    admis et porte par la meme regle, jamais par deux implementations qui
+    derivent.
 
     Fails closed (empty list) rather than raising if the store is
     briefly unavailable — a missing grant is safe, a crashing security
@@ -168,7 +222,4 @@ def active_validated_project_roots() -> list[str]:
         projects = get_project_store().list(status=ProjectStatus.ACTIVE)
     except Exception:
         return []
-    return [
-        p.root_path for p in projects
-        if p.root_path and p.validation_status == ValidationStatus.VALID.value
-    ]
+    return [p.root_path for p in projects if _autorise(p)]

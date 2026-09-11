@@ -1,3 +1,153 @@
+## HOS-292 — Valider un dossier n'a jamais dit qui peut y toucher (2026-09-11)
+
+A-4. Ferme le chantier opérationnel #3.
+
+### Le défaut
+
+Enregistrer et valider un projet élargissait la liste blanche d'Aegis
+pour **toute** action, y compris celles qui ne nommaient aucun projet.
+`_dynamic_allowed_paths` rendait `active_validated_project_roots()` —
+l'union de tous les projets actifs et valides — et la passait en
+`extra_allowed_paths` à chaque appel, quel que soit le projet demandé.
+
+Mesure du 2026-09-11, deux projets synthétiques tous deux actifs et
+valides, lecture de `ws-b/secret.txt` :
+
+    project_id=A      -> deny    (le rétrécissement fonctionnait déjà)
+    project_id=None   -> allow   (et le contenu de B était rendu)
+
+Sur la base réellement servie — `%LOCALAPPDATA%\HermesOS\db\hermes.db`,
+pas celle du dépôt — cette union comptait **60 racines**, dont
+`C:\Users\emeri\Skill360 Industry` et sept dossiers directement sous
+`C:\Users\emeri`. Un `files_read(chemin)` MCP sans `project_id` les
+atteignait toutes. C'est ce que voulait dire « portée projet validée,
+non **autorisée** » : la validation prouve qu'un dossier existe et qu'on
+peut y écrire ; elle n'a jamais dit *qui* peut y toucher.
+
+La surface MCP rendait le défaut le plus grave, parce que c'est la seule
+où `project_id` est littéralement un argument que le modèle écrit.
+
+### Ce qui a été livré
+
+L'habilitation devient **nominative**. `_workspace_grant` n'accorde que
+la racine du projet que l'action nomme, et seulement tant qu'il est
+`ACTIVE` + `validation_status="valid"`. Une action qui ne nomme aucun
+projet ne porte aucune habilitation de workspace ; il lui reste la liste
+blanche statique, celle qu'un humain a écrite dans la configuration et
+que ce jalon ne touche pas.
+
+Le prédicat « ce projet autorise-t-il, en ce moment ? » était écrit
+**trois fois** — dans `store.active_validated_project_roots`, dans
+`conversation/routes._active_validated_project_root` et dans
+`service_registry._workspace_project_for`, les deux dernières se
+décrivant elles-mêmes comme « la même vérification, répétée ». Il vit
+désormais dans `projects.store.authorized_root`, et les trois y
+délèguent. Trois copies d'une règle de sécurité sont trois occasions de
+diverger.
+
+### Deux défauts absorbés en chemin
+
+**L'offre d'outils était gardée, l'exécution ne l'était pas.** Les
+schémas `workspace_*` ne sont proposés au modèle que si un projet
+autorisé est lié — mais rien n'empêchait `execute_workspace_tool` de
+s'exécuter quand même. Avec `project_root=""`, `resolve_in_project`
+résout sous le **répertoire courant**, c'est-à-dire la racine du dépôt
+Hermes OS, couverte par `ALLOWED_PATHS` par défaut. Le refus ne tenait
+qu'à un `project_id` vide tombant sur « projet inconnu », donc sur une
+*validation humaine en attente* : un accord donné par distraction aurait
+ouvert le dépôt à une conversation sans projet. Les deux exécuteurs —
+workspace et runners de vérification — re-résolvent maintenant la racine
+depuis le magasin et refusent franchement sinon. Ils n'autorisent rien :
+`file_tools` repasse par Aegis pour chaque opération.
+
+**Un `project_id` introuvable court-circuitait la frontière.**
+`_resolve_decision` rendait `REQUIRE_HUMAN_VALIDATION` **sans jamais
+appeler le moteur**, et `_apply_human_consent` transforme un
+`REQUIRE_HUMAN_VALIDATION` approuvé en `ALLOW`. Mesuré, `ALLOWED_PATHS`
+réduit à un seul dossier, cible hors de toute liste blanche :
+
+    project_id='inexistant-xyz'  -> require_human_validation
+    puis un seul accord humain    -> allow
+
+Un projet qui n'existe pas ouvrait n'importe quel chemin du disque au
+premier « oui ». Le commentaire de `_apply_human_consent` promettait
+pourtant l'inverse — « A DENY is never upgraded: those come from the
+hard boundaries » — et il disait vrai : la frontière n'était simplement
+jamais consultée, donc il n'y avait pas de DENY à ne pas relever. Le
+moteur est désormais interrogé d'abord ; un DENY reste un DENY, et la
+suspicion (§17.3) ne s'applique plus qu'à un chemin que le moteur aurait
+laissé passer.
+
+Le `''` compte double : c'est ce que **MCP** transmet pour un argument
+`project_id` omis, mesuré sur une vraie session streamable-HTTP. Tout
+appel MCP non nommé déposait donc un accord en attente au lieu d'être
+refusé — et polluait la file de validation de l'opérateur. Ne nommer
+aucun projet n'est pas nommer un projet inconnu.
+
+### Le panneau Projet, cassé puis réparé par la mesure
+
+Trouvé au navigateur, pas en relisant du code : le panneau affichait
+« statut git indisponible » sur un workspace pourtant validé.
+`gitClient.status` appelait `/git/status?repo_path=…` **sans**
+`project_id` — légitime sous l'union, refusé sous l'habilitation
+nominative. Relevé : `403 Forbidden` avant, `400 Bad Request` après,
+c'est-à-dire la vraie réponse de git sur un dossier qui n'est pas un
+dépôt. Le paramètre est passé ; `createPullRequest` avait la même forme
+et le reçoit aussi.
+
+C'est le genre de régression qu'aucune suite verte n'attrape : les deux
+appels étaient corrects, seule leur *autorisation* avait changé.
+
+### Preuves
+
+- **Serveur en marche**, chaîne produit complète (POST /projects →
+  POST /validate → GET /files, /files/content, /files/apply) : 19/19.
+  Même fichier, même instant — 200 en nommant le projet, 403 sans.
+- **Vrai client MCP** en streamable-HTTP contre `/mcp` : 14/14. Les 12
+  outils fichiers sont publiés ; `files_read` sans `project_id` refuse,
+  avec le bon `project_id` rend le contenu, avec celui d'un autre projet
+  valide refuse.
+- **Au navigateur** : workspace enregistré → `unvalidated`, les deux
+  lectures en 403 ; après « Valider ce workspace » → `valid`, 200 en
+  nommant, 403 sans. Puis un tour de chat réel sur un jeton écrit sur le
+  disque *entre deux tours* — `JETON-5B5BE8AF74EF` — rendu exactement,
+  donc la lecture est réelle et non devinée.
+- **Après redémarrage**, deux processus distincts sur le même SQLite :
+  le projet actif+valide autorise encore, celui archivé avant le
+  redémarrage n'autorise plus, et une action anonyme reste refusée —
+  aucune élévation implicite.
+- **14 mutations adversariales**, chacune rouge puis verte : union
+  restaurée, garde du chat retirée, frontière réduite à un préfixe de
+  chaîne, Aegis contourné depuis `file_tools`, outil MCP lisant le
+  disque en direct, mutation sans accord, traversée non normalisée,
+  liste statique supprimée, outils offerts sans projet, route HTTP
+  lisant en direct, projet non autorisé passé pour autorisé, projet
+  inconnu court-circuitant la frontière, `''` traité en projet inconnu,
+  DENY redevenu négociable.
+
+La mutation « traversée non normalisée » a d'abord laissé **toute** la
+suite verte : les tests de traversée existants résolvaient le chemin
+eux-mêmes avant de le passer, si bien qu'aucun n'exerçait le `.resolve()`
+d'Aegis. Or MCP et HTTP transmettent la chaîne brute de l'appelant, et
+`<racine_a>/../ws-b/secret.txt` est lexicalement « intérieur à A ». La
+garde était bonne, personne ne la tenait.
+
+### Ce que ce jalon ne prouve pas
+
+Quand un projet est lié **et** que Hermes Agent est prêt, le chat est
+servi par le harnais (ACP), pas par les outils de Hermes OS : la lecture
+est alors faite par les outils propres à l'agent, bornés par la
+frontière du client ACP et le hook `pre_tool_call` (HOS-141), **pas par
+Aegis**. Ce qui relève de HOS-292 sur ce chemin, et qui est acquis,
+c'est *quel* workspace est remis à l'agent — `authorized_root` en décide,
+avec le même prédicat que partout ailleurs. Ce qu'il fait à l'intérieur
+relève d'une autre autorité, par construction : Hermes Agent est le
+cerveau et possède sa boucle d'outils.
+
+Conséquence pratique à ne pas oublier : lier un projet est précisément
+ce qui bascule vers le harnais, donc la surface d'outils de chat gardée
+par Aegis est le **repli**, pas le cas courant.
+
 ## HOS-291 — On prenait un filet qu'on ne savait pas rendre (2026-09-11)
 
 A-3. Ferme le chantier opérationnel #2.

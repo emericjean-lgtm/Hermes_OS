@@ -237,13 +237,22 @@ async def test_tool_loop_reads_real_file_and_returns_real_content(
 
 
 @pytest.mark.asyncio
-async def test_tool_loop_reports_aegis_refusal_without_fabricating_success(
+async def test_tool_loop_reports_refusal_without_fabricating_success(
     monkeypatch, tmp_path,
 ):
-    """The workspace resolver can, in principle, hand back a path the
-    dynamic whitelist doesn't actually cover (e.g. a race with
-    archival) — the loop must relay Aegis's real refusal as the tool
-    result, never silently invent a successful read."""
+    """Le résolveur de workspace peut rendre un couple que rien n'autorise
+    — la boucle doit relayer le **vrai** refus comme résultat d'outil, et
+    ne jamais inventer une lecture réussie.
+
+    Le refus vient désormais du portillon d'habilitation et non d'Aegis
+    (HOS-292), et c'est plus fort, pas moins : l'exécuteur ne fait plus
+    confiance à la racine que le résolveur lui tend, il la re-résout
+    depuis le magasin de projets. Un `project_id` qui ne désigne aucun
+    projet — le cas monté ici — n'atteint donc plus le disque du tout.
+
+    Ce que le test garde intact, et qui est son sujet : le résultat rendu
+    au modèle est le refus réel, pas un contenu fabriqué.
+    """
     from backend.core.agent_registry import get_agent_registry
     from backend.core.config import get_settings
     from backend.projects.store import get_project_store
@@ -271,7 +280,63 @@ async def test_tool_loop_reports_aegis_refusal_without_fabricating_success(
     )
     outcome = executor.execute(_FakeTask(mission_id="m-2", assigned_runtime="ollama"))
 
-    assert "Refusé par Aegis" in outcome.result or "refusé" in outcome.result.lower()
+    from backend.tools.workspace_chat_tools import SANS_WORKSPACE
+
+    assert SANS_WORKSPACE in outcome.result
+    # Et surtout : rien n'a été lu. Le faux client renvoie le résultat
+    # d'outil tel quel dans sa réponse, donc un contenu fabriqué s'y
+    # verrait.
+    assert "Real agent instructions." not in outcome.result
+
+    get_settings.cache_clear()
+    get_project_store.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_refuses_when_the_project_is_archived_mid_flight(
+    monkeypatch, tmp_path,
+):
+    """La course avec l'archivage, montée pour de vrai.
+
+    C'est le scénario que nommait l'ancien test sans l'exercer : un projet
+    réellement enregistré et validé, dont l'habilitation tombe **avant**
+    que la tâche ne s'exécute. Le résolveur tend encore son couple —
+    l'exécuteur, lui, redemande au magasin et refuse.
+    """
+    from backend.core.agent_registry import get_agent_registry
+    from backend.core.config import get_settings
+    from backend.projects.store import get_project_store
+    from backend.tools.workspace_chat_tools import SANS_WORKSPACE
+
+    get_agent_registry()
+
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("ALLOWED_PATHS", str(tmp_path / "_unrelated"))
+    (tmp_path / "_unrelated").mkdir()
+    get_settings.cache_clear()
+    get_project_store.cache_clear()
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "AGENTS.md").write_text("Real agent instructions.")
+    project = get_project_store().create(name="ws", root_path=str(workspace))
+    get_project_store().validate(project.id)
+
+    # L'habilitation tombe ici, le résolveur l'ignore.
+    get_project_store().update(project.id, status="archived")
+
+    _FakeOllamaClientForToolLoop.instances.clear()
+    monkeypatch.setattr(
+        "backend.connectors.ollama_client.OllamaClient", _FakeOllamaClientForToolLoop,
+    )
+
+    executor = RealTaskExecutor(
+        workspace_project_for=lambda task: (project.id, str(workspace)),
+    )
+    outcome = executor.execute(_FakeTask(mission_id="m-3", assigned_runtime="ollama"))
+
+    assert SANS_WORKSPACE in outcome.result
+    assert "Real agent instructions." not in outcome.result
 
     get_settings.cache_clear()
     get_project_store.cache_clear()

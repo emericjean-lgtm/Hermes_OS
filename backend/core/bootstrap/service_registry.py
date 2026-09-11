@@ -579,12 +579,13 @@ def _workspace_project_for(task: Any) -> Optional[tuple[str, str]]:
     """Workspace/Filesystem tool layer: resolves task.mission_id's Mission
     -> context.project_id -> an ACTIVE, validation_status="valid" Project
     -> (project_id, root_path), or None (no real filesystem tools for
-    this task — prior behavior, unchanged). Same three-way check
-    AegisAgent._dynamic_allowed_paths applies via
-    projects.store.active_validated_project_roots, repeated here so a
-    task isn't offered tools Aegis would just refuse — a UX choice, not
-    the security boundary; file_tools re-checks independently regardless
-    of what this returns."""
+    this task — prior behavior, unchanged). Delegates to
+    projects.store.authorized_root, the repo's single implementation of
+    "does this project grant disk access right now", so a task isn't
+    offered tools Aegis would just refuse — a UX choice, not the security
+    boundary; file_tools re-checks independently regardless of what this
+    returns. The rule used to be spelled out here in full, and again in
+    conversation/routes.py (HOS-292)."""
     mission_id = getattr(task, "mission_id", "") or ""
     if not mission_id:
         return None
@@ -598,19 +599,11 @@ def _workspace_project_for(task: Any) -> Optional[tuple[str, str]]:
     project_id = mission.context.project_id
     if not project_id:
         return None
-    try:
-        from backend.projects.project_manager import ProjectStatus, ValidationStatus
-        from backend.projects.store import get_project_store
-        project = get_project_store().get(project_id)
-    except Exception:
+    from backend.projects.store import authorized_root
+    root_path = authorized_root(project_id)
+    if not root_path:
         return None
-    if project is None or not project.root_path:
-        return None
-    if project.status != ProjectStatus.ACTIVE.value:
-        return None
-    if project.validation_status != ValidationStatus.VALID.value:
-        return None
-    return (project_id, project.root_path)
+    return (project_id, root_path)
 
 
 def _mission_brief_for(task: Any) -> Optional[str]:

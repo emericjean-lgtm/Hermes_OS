@@ -1,6 +1,6 @@
 """Mission -> Project (authorized workspace) binding — the real link
 between a Mission's context.project_id and Aegis's dynamic whitelist
-(agents/aegis.py's _dynamic_allowed_paths / projects/store.py's
+(agents/aegis.py's _workspace_grant / projects/store.py's
 active_validated_project_roots), which RealTaskExecutor's workspace
 tool-calling (execution/task_executor.py) resolves through
 mission/routes.py's get_mission_by_id()."""

@@ -4,7 +4,7 @@ Three things this file exists to prove, all in one place because they are
 the actual point of the whole layer:
 
 1. A validated Project's root_path really does widen Aegis's whitelist
-   (agents/aegis.py's _dynamic_allowed_paths + aegis_engine.py's
+   (agents/aegis.py's _workspace_grant + aegis_engine.py's
    extra_allowed_paths) — the mechanism that lets a user register
    C:\\Users\\emeri\\Skill360 Industry without editing config/security.yaml.
 2. That grant is genuinely dynamic: archiving, invalidating, or deleting
@@ -68,6 +68,23 @@ def _make_workspace(tmp_path, name="ws"):
     return root
 
 
+def _workspace_autorise(tmp_path, name="ws"):
+    """Un workspace reel, enregistre, valide — et le projet qui l'autorise.
+
+    Rend le couple parce que depuis HOS-292 l'habilitation est
+    **nominative** : une action doit nommer le projet dont elle veut la
+    racine. Les appels de ce fichier passaient auparavant `project_id=None`
+    et recevaient quand meme l'acces, puisque la liste blanche d'Aegis
+    etait l'union de *tous* les projets valides. Ils prouvaient donc « un
+    projet valide quelque part ouvre ce dossier » la ou il fallait prouver
+    « ce projet-ci ouvre son dossier ».
+    """
+    root = _make_workspace(tmp_path, name)
+    projet = get_project_store().create(name=name, root_path=str(root))
+    get_project_store().validate(projet.id)
+    return projet, root
+
+
 # ── 1. Dynamic whitelist widening ───────────────────────────────────
 
 
@@ -92,7 +109,7 @@ def test_validated_project_root_grants_access_outside_static_whitelist(aegis_age
 
     decision = aegis_agent.evaluate(ActionRequest(
         action_type="file_read", description="read", target_path=str(root / "f.txt"),
-        requesting_agent="test",
+        requesting_agent="test", project_id=project.id,
     ))
     assert decision.verdict is Verdict.ALLOW
 
@@ -114,12 +131,10 @@ def test_sibling_directory_not_covered_by_a_different_validated_project(aegis_ag
 
 
 def test_archiving_project_revokes_access_on_next_call(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     action = ActionRequest(
         action_type="file_read", description="read", target_path=str(root / "f.txt"),
-        requesting_agent="test",
+        requesting_agent="test", project_id=project.id,
     )
     assert aegis_agent.evaluate(action).verdict is Verdict.ALLOW
 
@@ -129,18 +144,18 @@ def test_archiving_project_revokes_access_on_next_call(aegis_agent, tmp_path):
 
 
 def test_deleting_project_revokes_access_on_next_call(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     action = ActionRequest(
         action_type="file_read", description="read", target_path=str(root / "f.txt"),
-        requesting_agent="test",
+        requesting_agent="test", project_id=project.id,
     )
     assert aegis_agent.evaluate(action).verdict is Verdict.ALLOW
 
     get_project_store().delete(project.id)
 
-    assert aegis_agent.evaluate(action).verdict is Verdict.DENY
+    # Le projet n'existe plus : « inconnu » n'est pas « autorise ». Aegis
+    # le traite en suspect (validation humaine) plutot qu'en acces libre.
+    assert aegis_agent.evaluate(action).verdict is not Verdict.ALLOW
 
 
 def test_invalidating_root_path_change_revokes_access_until_revalidated(aegis_agent, tmp_path):
@@ -150,7 +165,7 @@ def test_invalidating_root_path_change_revokes_access_until_revalidated(aegis_ag
     get_project_store().validate(project.id)
     action = ActionRequest(
         action_type="file_read", description="read", target_path=str(root / "f.txt"),
-        requesting_agent="test",
+        requesting_agent="test", project_id=project.id,
     )
     assert aegis_agent.evaluate(action).verdict is Verdict.ALLOW
 
@@ -203,27 +218,27 @@ def test_project_scoping_still_narrows_regardless_of_validation_status(aegis_age
     "..\\escape.txt",
 ])
 def test_relative_escape_from_validated_workspace_is_denied(aegis_agent, tmp_path, escape):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
 
+    # Le projet est **nomme** : la racine est donc reellement accordee, et
+    # c'est bien l'evasion qui est refusee. Sans `project_id` ce test
+    # passerait desormais parce que rien n'est accorde a une action
+    # anonyme — il ne prouverait plus rien sur la traversee (HOS-292).
     target = str((root / escape).resolve())
     decision = aegis_agent.evaluate(ActionRequest(
         action_type="file_read", description="read", target_path=target,
-        requesting_agent="test",
+        requesting_agent="test", project_id=project.id,
     ))
     assert decision.verdict is Verdict.DENY
 
 
 def test_absolute_path_outside_any_workspace_is_denied(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
 
     outside = tmp_path / "_static_whitelist_only" / ".." / "totally-elsewhere"
     decision = aegis_agent.evaluate(ActionRequest(
         action_type="file_read", description="read", target_path=str(outside),
-        requesting_agent="test",
+        requesting_agent="test", project_id=project.id,
     ))
     assert decision.verdict is Verdict.DENY
 
@@ -237,11 +252,10 @@ def test_exists_denied_outside_whitelist_raises(aegis_agent, tmp_path):
 
 
 def test_mkdir_creates_and_verifies(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
 
-    result = file_tools.create_directory(aegis_agent, str(root / "sub" / "nested"))
+    result = file_tools.create_directory(
+        aegis_agent, str(root / "sub" / "nested"), project_id=project.id)
     assert result.success is True
     assert result.verified is True
     assert (root / "sub" / "nested").is_dir()
@@ -256,13 +270,13 @@ def test_mkdir_denied_outside_whitelist_does_not_create(aegis_agent, tmp_path):
 
 
 def test_append_creates_new_file_and_verifies(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     target = root / "log.txt"
 
-    r1 = file_tools.append(aegis_agent, str(target), "line1\n")
-    r2 = file_tools.append(aegis_agent, str(target), "line2\n")
+    r1 = file_tools.append(
+        aegis_agent, str(target), "line1\n", project_id=project.id)
+    r2 = file_tools.append(
+        aegis_agent, str(target), "line2\n", project_id=project.id)
 
     assert r1.verified is True
     assert r2.verified is True
@@ -270,14 +284,12 @@ def test_append_creates_new_file_and_verifies(aegis_agent, tmp_path):
 
 
 def test_copy_duplicates_content_and_verifies(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     src = root / "a.txt"
     src.write_bytes(b"payload")
     dst = root / "b.txt"
 
-    result = file_tools.copy(aegis_agent, str(src), str(dst))
+    result = file_tools.copy(aegis_agent, str(src), str(dst), project_id=project.id)
 
     assert result.success is True
     assert result.verified is True
@@ -286,23 +298,19 @@ def test_copy_duplicates_content_and_verifies(aegis_agent, tmp_path):
 
 
 def test_copy_denied_when_destination_outside_whitelist(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     src = root / "a.txt"
     src.write_text("payload")
     dst = tmp_path / "elsewhere" / "b.txt"
 
-    result = file_tools.copy(aegis_agent, str(src), str(dst))
+    result = file_tools.copy(aegis_agent, str(src), str(dst), project_id=project.id)
 
     assert result.success is False
     assert not dst.exists()
 
 
 def test_move_first_attempt_always_requires_human_validation(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     src = root / "a.txt"
     src.write_bytes(b"payload")
     dst = root / "moved.txt"
@@ -310,7 +318,8 @@ def test_move_first_attempt_always_requires_human_validation(aegis_agent, tmp_pa
     # file_move is mandatory_validation: true (config/security.yaml) — a
     # move makes the source disappear, same risk shape as delete, so it
     # can never auto-allow regardless of autonomy level.
-    first = file_tools.move(aegis_agent, str(src), str(dst))
+    first = file_tools.move(
+        aegis_agent, str(src), str(dst), project_id=project.id)
     assert first.success is False
     assert first.verdict == "require_human_validation"
     assert src.exists()
@@ -333,14 +342,13 @@ def test_move_after_human_approval_relocates_and_verifies(aegis_agent, tmp_path)
     than walked through hop by hop."""
     from backend.security import approvals
 
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     src = root / "a.txt"
     src.write_bytes(b"payload")
     dst = root / "moved.txt"
 
-    first = file_tools.move(aegis_agent, str(src), str(dst))
+    first = file_tools.move(
+        aegis_agent, str(src), str(dst), project_id=project.id)
     assert first.success is False  # only source's request exists yet
 
     with aegis_agent._session_factory() as session:  # noqa: SLF001 - test-only introspection
@@ -357,7 +365,8 @@ def test_move_after_human_approval_relocates_and_verifies(aegis_agent, tmp_path)
         for entry in approvals.list_approvals(session, status="pending"):
             approvals.decide(session, entry.id, approved=True)
 
-    second = file_tools.move(aegis_agent, str(src), str(dst))
+    second = file_tools.move(
+        aegis_agent, str(src), str(dst), project_id=project.id)
     assert second.success is True
     assert second.verified is True
     assert not src.exists()
@@ -365,14 +374,12 @@ def test_move_after_human_approval_relocates_and_verifies(aegis_agent, tmp_path)
 
 
 def test_delete_first_attempt_always_requires_human_validation(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     target = root / "a.txt"
     target.write_text("payload")
 
     # file_delete is mandatory_validation: true — same shape as move.
-    result = file_tools.delete(aegis_agent, str(target))
+    result = file_tools.delete(aegis_agent, str(target), project_id=project.id)
     assert result.success is False
     assert result.verdict == "require_human_validation"
     assert target.exists()
@@ -381,48 +388,42 @@ def test_delete_first_attempt_always_requires_human_validation(aegis_agent, tmp_
 def test_delete_after_human_approval_removes_and_verifies(aegis_agent, tmp_path):
     from backend.security import approvals
 
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     target = root / "a.txt"
     target.write_text("payload")
 
-    first = file_tools.delete(aegis_agent, str(target))
+    first = file_tools.delete(aegis_agent, str(target), project_id=project.id)
     assert first.success is False
 
     with aegis_agent._session_factory() as session:  # noqa: SLF001 - test-only introspection
         for entry in approvals.list_approvals(session, status="pending"):
             approvals.decide(session, entry.id, approved=True)
 
-    second = file_tools.delete(aegis_agent, str(target))
+    second = file_tools.delete(aegis_agent, str(target), project_id=project.id)
     assert second.success is True
     assert second.verified is True
     assert not target.exists()
 
 
 def test_search_finds_matching_files_readonly(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     (root / "a.py").write_text("")
     (root / "b.txt").write_text("")
     (root / "sub").mkdir()
     (root / "sub" / "c.py").write_text("")
 
-    results = file_tools.search(aegis_agent, str(root), "**/*.py")
+    results = file_tools.search(aegis_agent, str(root), "**/*.py", project_id=project.id)
 
     assert len(results) == 2
     assert all(r.endswith(".py") for r in results)
 
 
 def test_stat_reports_real_size_and_kind(aegis_agent, tmp_path):
-    root = _make_workspace(tmp_path)
-    project = get_project_store().create(name="ws", root_path=str(root))
-    get_project_store().validate(project.id)
+    project, root = _workspace_autorise(tmp_path)
     target = root / "a.txt"
     target.write_text("12345")
 
-    info = file_tools.stat(aegis_agent, str(target))
+    info = file_tools.stat(aegis_agent, str(target), project_id=project.id)
 
     assert info["is_file"] is True
     assert info["is_dir"] is False
