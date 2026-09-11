@@ -34,6 +34,7 @@ import {
   filesystemBrowseClient,
   gitClient,
   operationsClient,
+  checkpointsClient,
 } from "@/services/client";
 import type { ParametresRendu, ToolHealthSummary } from "@/services/client";
 import type {
@@ -1253,6 +1254,38 @@ export function useOperationsContrat(run: string | null) {
     queryKey: ["operations", "contrat", run],
     queryFn: () => operationsClient.contrat(run as string),
     enabled: Boolean(run),
+  });
+}
+
+/** L'aperçu d'un point de reprise — ce que la restauration ferait.
+ *
+ *  `enabled` sur l'identifiant : l'aperçu ne part que lorsqu'un point de
+ *  reprise est réellement ouvert. Il ne mute rien, c'est tout l'intérêt
+ *  du contrat §14.1 — montrer la différence avant de l'appliquer. */
+export function useApercuCheckpoint(identifiant: string | null) {
+  return useQuery({
+    queryKey: ["checkpoints", identifiant, "apercu"],
+    queryFn: () => checkpointsClient.apercu(identifiant as string),
+    enabled: Boolean(identifiant),
+  });
+}
+
+/** Demander la restauration.
+ *
+ *  Invalide l'aperçu **et** la vue d'opérations au retour : après une
+ *  restauration le workspace a changé, donc l'aperçu affiché décrit un
+ *  écart qui n'existe plus. Le laisser à l'écran ferait proposer une
+ *  seconde restauration identique. */
+export function useRestaurerCheckpoint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ identifiant, projectId }: {
+      identifiant: string; projectId?: string;
+    }) => checkpointsClient.restaurer(identifiant, projectId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["checkpoints"] });
+      qc.invalidateQueries({ queryKey: ["operations"] });
+    },
   });
 }
 

@@ -2242,6 +2242,44 @@ export interface CheckpointWire {
   avec_etat: boolean;
 }
 
+/** Ce qu'une restauration ferait, ou vient de faire (HOS-291).
+ *
+ *  Les trois listes restent **séparées**, jamais fondues dans un
+ *  compteur : `a_supprimer` est la seule des trois qui détruise du
+ *  travail, et c'est celle que l'opérateur doit voir avant de décider. */
+export interface ApercuCheckpointWire {
+  checkpoint: string;
+  workspace: string;
+  a_restaurer: string[];
+  a_recreer: string[];
+  a_supprimer: string[];
+  vide: boolean;
+  resume: string;
+  applique: boolean;
+}
+
+/** Le résultat d'une demande de restauration.
+ *
+ *  `restaure: false` avec `accord_a_decider: true` n'est **pas** une
+ *  panne : `data_migration` est en validation obligatoire, donc le
+ *  premier appel dépose une demande d'accord dans la file d'Aegis et
+ *  attend qu'un humain la décide. Afficher « refusé » ici ferait cesser
+ *  d'essayer au moment précis où le geste attendu est d'aller décider. */
+export interface RestaurationWire {
+  restaure: boolean;
+  checkpoint: string;
+  workspace?: string;
+  verdict: string;
+  motif: string;
+  accord_a_decider: boolean;
+  a_restaurer: string[];
+  a_recreer: string[];
+  a_supprimer: string[];
+  etat_repris: boolean;
+  etat_non_repris: string;
+  resume?: string;
+}
+
 export interface FournisseurEtatWire {
   fournisseur: string;
   etat: string;
@@ -2344,4 +2382,22 @@ export const operationsClient = {
   approbations: () => fetchJSON<Bloc<ApprobationsWire>>("/operations/approbations"),
   installation: () => fetchJSON<Bloc<InstallationWire>>("/operations/installation"),
   controlRooms: () => fetchJSON<Bloc<ControlRoomWire[]>>("/operations/agents"),
+};
+
+/** La moitié restauration des points de reprise (A-3, HOS-291).
+ *
+ *  Séparée d'`operationsClient` parce que le backend l'est : les routes
+ *  d'`/operations` sont en lecture seule par contrat — une vue qui écrit
+ *  devient un second chemin vers l'état — et la mutation vit sur son
+ *  propre routeur. */
+export const checkpointsClient = {
+  apercu: (identifiant: string) =>
+    fetchJSON<ApercuCheckpointWire>(
+      `/checkpoints/${encodeURIComponent(identifiant)}/apercu`),
+  restaurer: (identifiant: string, projectId?: string) =>
+    fetchJSON<RestaurationWire>(
+      `/checkpoints/${encodeURIComponent(identifiant)}/restaurer`, {
+        method: "POST",
+        body: JSON.stringify({ project_id: projectId ?? null }),
+      }),
 };

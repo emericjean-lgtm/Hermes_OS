@@ -65,6 +65,7 @@ class _Aegis:
 
     def evaluate(self, request):
         self.seen.append(request.action_type)
+        self.derniere = request
         outer = self
 
         class _Decision:
@@ -298,3 +299,45 @@ def test_a_zero_interval_disables_automatic_snapshots(snapshots):
 
     assert all(counter.step() is None for _ in range(20))
     assert snapshots.list_snapshots() == []
+
+
+# ── l'accord humain nomme l'instantané (HOS-291) ─────────────────────
+
+
+def test_the_approval_names_the_exact_snapshot(snapshots, store):
+    """`data_migration` is mandatory_validation, so the verdict always
+    starts as require_human_validation and an approval is queued. That
+    approval is matched back by *fingerprint*, and since HOS-224 the
+    fingerprint ignores the description: it keeps `action_type`, the
+    canonical path and the **discriminants** only.
+
+    With no discriminant and no target_path, every snapshot restore in
+    the system shares one fingerprint — measured. A human saying yes to
+    "restore this morning's snapshot" would equally authorise restoring
+    one from six months ago, and neither the queue nor the audit trail
+    would show the difference.
+    """
+    from backend.security.approvals import fingerprint_for
+
+    store("une tâche")
+    un = snapshots.create_snapshot(reason="ce matin")
+    time.sleep(1.1)  # l'identifiant porte les secondes
+    deux = snapshots.create_snapshot(reason="il y a six mois")
+
+    aegis = _Aegis()
+    snapshots.restore_snapshot(aegis, un.id)
+    requete_un = aegis.derniere
+    snapshots.restore_snapshot(aegis, deux.id)
+    requete_deux = aegis.derniere
+
+    assert dict(requete_un.discriminants).get("snapshot") == un.id
+    assert dict(requete_deux.discriminants).get("snapshot") == deux.id
+
+    assert fingerprint_for(
+        requete_un.action_type, requete_un.target_path,
+        discriminants=dict(requete_un.discriminants),
+    ) != fingerprint_for(
+        requete_deux.action_type, requete_deux.target_path,
+        discriminants=dict(requete_deux.discriminants),
+    ), ("two snapshots share an approval fingerprint: the yes given for "
+        "one authorises restoring the other")

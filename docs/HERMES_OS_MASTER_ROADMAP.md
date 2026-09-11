@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | §1 | Contract & Verification | 🟢 | aucune | Hermes OS |
 | §2 | Run Ledger & Execution Lineage | 🟢 | aucune | Hermes OS |
-| §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | ~~A-2~~ fermé · **fermer A-3** | Hermes OS |
+| §3 | Checkpoints / Approval / Sandbox / Security | **🟡** | ~~A-2~~ ~~A-3~~ fermés · restent A-5, A-17 | Hermes OS |
 | §4 | Cloud / Providers / Quota | **🟢** | ~~A-1~~ fermé · ~~A-10~~ fermé (HOS-290) | Hermes OS |
 | §5 | Runtime / RAL / Model Intelligence | 🟢 | aucune | Hermes OS |
 | §6 | Cognitive Scheduler / Resource Intelligence | 🟡 | §6.1 🟢 · §6.2 · A-15 · R-3/R-4 · R-6 · A-18 fermés · **§6.6 non ouverte** | AIOS ; Hermes Agent |
@@ -250,7 +250,7 @@ le second lanceur avant qu'on déclare la protection active.
 | Défaut | Mesure |
 |---|---|
 | **A-2** `security/derive_workspace.py` (J3) et `security/surveillance_flux.py` (J4) | **0 référence** hors module pour `relever`, `a_derive`, `LigneDeBase`, `SurveillanceFlux`, `fabriquer_canary`, `environnement_avec_canary` |
-| **A-3** points de reprise | `checkpoint.prendre` : 1 appelant · `checkpoint.restaurer` : **0** · aucune route (`/operations/checkpoints` est en `GET`) · aucun script |
+| ~~**A-3** points de reprise~~ — **fermé HOS-291** | relevé avant : `prendre` 1 appelant · `restaurer` **0** · aucune route. Après : `GET /checkpoints/{id}/apercu` et `POST /checkpoints/{id}/restaurer`, appelés par le panneau « Points de reprise » de Supervision ; prouvé au navigateur puis dans un second processus |
 | **A-5** workflows utilisateur | `save_workflow()` écrit dans `./data/workflows` (dépôt, suivi par git), hors `preserve_set()` et hors sauvegarde |
 
 A-2 est le plus grave : deux contrôles **déclarés faits au ROADMAP**
@@ -260,6 +260,13 @@ absence, parce qu'on compte dessus.
 **Prochaine action.** Câbler les deux contrôles, ou retirer le ✅. Les
 deux sont acceptables ; le silence ne l'est pas. Puis décider du sort de
 la restauration des points de reprise : l'exposer, ou cesser d'en prendre.
+
+**Les deux sont faits.** A-2 est fermé le 2026-09-04 (HOS-256), A-3 le
+2026-09-11 (HOS-291) — **exposer**, pas cesser d'en prendre : l'appelant
+naturel existait déjà. Ce qui retient encore §3 en 🟡 est A-5 (workflows
+utilisateur écrits dans le dépôt) et A-17 (le test de sous-système réel
+dépasse le délai de garde de 60 s), plus les trois limites mesurées en
+fermant A-3 : A-22, A-23 et A-24.
 
 ---
 
@@ -1876,7 +1883,7 @@ des capacités **livrées, testées, et sans consommateur produit** :
 | Explication de décision (`DecisionExplainer`) | 3 routes montées | **0 appel** | `CALLED` = non (A-8) |
 | Quarantaine / provenance mémoire | 4 champs exposés | **0 affichage** | `ACTUALLY USED` = non (G-3) |
 | Promotion d'un souvenir | 4 niveaux, testé | **aucune route HTTP** | `PRESENT` (G-10) |
-| Points de reprise | `prendre` appelé | `restaurer` **0 appelant** | `CALLED` = non (A-3) |
+| Points de reprise | `prendre` appelé | aperçu + restauration branchés (HOS-291) | `DEMONSTRATED` (A-3 fermé) |
 | Cycle de vie des skills | 9 routes, **aucune création** | liste seule | `PRESENT` (G-5) |
 | `assigned_tools` d'une tâche | planifié, jamais invoqué | — | décoratif (G-11) |
 
@@ -2213,9 +2220,12 @@ interruption et **reprise**, fork/branche.
 Ce qui existe : objectifs, chronologie, rapport, annulation. Ce qui
 manque, et c'est structurel :
 
-- **la reprise n'existe pas** — `checkpoint.restaurer` a zéro appelant et
-  aucune route (**A-3**). Un Cowork qui propose « reprendre » sans
-  restauration mentirait sur son bouton ;
+- ~~**la reprise n'existe pas**~~ — **levé le 2026-09-11 (HOS-291)** :
+  `apercu` et `restaurer` sont appelables depuis Supervision, gouvernés
+  par Aegis et démontrés. Un Cowork qui propose « reprendre » ne
+  mentirait plus — à une réserve près, qu'il devra porter : la
+  restauration est en **deux temps** (accord humain obligatoire), donc un
+  bouton qui prétendrait reprendre en un clic mentirait à son tour ;
 - **fork/branche** n'a pas de primitive. `Registre.reprendre()` donne une
   lignée de tentatives, pas une branche de conversation. Créer l'une à
   partir de l'autre serait reconstruire un objet plausible — la famille de
@@ -2231,7 +2241,8 @@ suppose donc de résoudre G-11 ; le bâtir sur le chemin de conversation
 hérite d'outils qui marchent déjà. C'est une question de §15.1, et elle
 n'est pas tranchée.
 
-**Dépend de** : A-3 (§3), §7 (orchestration), et de la décision T-28.
+**Dépend de** : ~~A-3~~ (fermé HOS-291), §7 (orchestration), G-11, et de
+la décision T-28.
 
 #### §15.5 — Explainability & resource visibility — 🟠 réalisable, et le meilleur rapport
 
@@ -2333,7 +2344,10 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | ~~A-1~~ | **security** | ~~Deux chemins envoient un prompt cloud sans pare-feu~~ — **fermé HOS-255** | §4 | garde dans `OpenRouterClient`, liste blanche structurelle, 3 mutations |
 | ~~**A-10**~~ | **security** | ~~Le pare-feu ignore `sk-or-v1-…`, le format de clé d'OpenRouter~~ — **fermé HOS-290** | §4 | était : `sk-…` → refusé, `sk-or-v1-…` → autorisé aux 8 placements. Motif élargi dans `audit_log`, prouvé à la socket : 0 requête émise |
 | ~~A-2~~ | **security** | ~~HOS-217/218 livrés, testés, 0 appelant~~ — **fermé HOS-256** | §3 | câblés sur les coutures existantes, 6 mutations, garde structurelle des lanceurs |
-| A-3 | **functional** | Points de reprise pris, jamais restaurables | §3 | `prendre` 1 appelant, `restaurer` 0, aucune route |
+| ~~A-3~~ | **functional** | ~~Points de reprise pris, jamais restaurables~~ — **fermé HOS-291** | §3 | relevé : `prendre` 1 appelant, `restaurer` 0, aucune route. Fermé par un chemin opérateur réel, gouverné par Aegis |
+| A-22 | **security** | `ALLOWED_PATHS` n'est pas consulté pour une restauration | §3 | `data_migration` est `path_based: false` (mesuré HOS-291) ; le seul verrou est la validation humaine. Basculer la catégorie refuserait toute restauration d'instantané (`target_path=None` → `deny`) |
+| A-23 | **architectural** | Le couple fichiers + état demande deux accords | §3 | empreintes `{checkpoint}` et `{snapshot}` distinctes ; non atteignable aujourd'hui, le seul producteur prend `avec_etat=False` |
+| A-24 | **technical debt** | `prune_snapshots` et `StepCounter` sans appelant | §3 | 26 instantanés pour un `keep` de 20 ; le « tous les N pas » du §19.3 n'a jamais lieu |
 | ~~A-19~~ | **test** | ~~`_RegistreMissions` hydrate sur un ordre non garanti~~ — **fermé HOS-262** | §3 | `ORDER BY cree_le DESC, rowid DESC` ; 0/20 → 5/20 avant, 25/25 après |
 | A-4 | **security** | Portée projet MCP validée, non **autorisée** | §8/§10 | `_projet_resolu` vérifie l'existence seule ; le `project_id` vient du texte du modèle |
 | A-5 | **technical debt** | Workflows utilisateur écrits dans le dépôt | §3 | `save_workflow()` → `./data/workflows`, hors `preserve_set()` |
@@ -2444,7 +2458,7 @@ des passes ne sont pas reconstituées.
 | T-23 | 2026-09-04 | A-1 — replis cloud hors pare-feu | **ADAPT** | le goulet prétendait être seul et ne l'était pas ; le router était impossible sans perdre le streaming | garde dans le client, autorité inchangée | HOS-255 | 🟢 appliqué |
 | **T-27** | — | A-10 — motifs de détection du pare-feu | **tranché ADAPT (HOS-290)** | il ignorait le format de clé de son propre fournisseur | motif élargi **dans le scanner existant**, segments de fournisseur bornés, plancher d'entropie de 16 conservé : 7 textes légitimes vérifiés non bloquants | §4 | 🟢 fermé |
 | T-24 | 2026-09-04 | A-2 — contrôles de sécurité non câblés | **ADOPT** | les deux invariants étaient réels *et* non couverts par ailleurs | câblés sur les coutures existantes, aucune politique nouvelle | HOS-256 | 🟢 appliqué |
-| **T-25** | — | A-3 — restauration des points de reprise | **ouvert** | on prend ce qu'on ne sait pas rendre | exposer ou cesser de prendre | §3 | 🟠 à décider |
+| **T-25** | 2026-09-11 | A-3 — restauration des points de reprise | **ADOPT (HOS-291)** | on prenait ce qu'on ne savait pas rendre, et le filet était *visible* — donc on comptait dessus | exposer : l'appelant naturel existait déjà (panneau « Points de reprise »), aucune couche nouvelle, Aegis inchangé. Aperçu non destructif, accord humain nommant le point de reprise, restauration prouvée au navigateur puis après redémarrage | §3 | 🟢 appliqué |
 | **T-26** | — | A-4 — habilitation de portée projet | **ouvert** | l'isolation repose sur la bonne foi du modèle | modèle d'habilitation à définir | §8 | 🟠 à décider |
 | **T-28** | — | §15.1 — Chat et Cowork : deux surfaces ou deux modes ? | **ouvert** | les deux partagent déjà le Run Ledger et le bus ; les séparer ferait deux histoires pour une exécution | trancher **avant** toute ligne de §15 | §15 | 🟠 à décider |
 | T-22 | 2026-09-05 | §6.1 — autorité d'ordonnancement | **ADAPT** | l'architecture existante suffisait : deux routeurs sur deux chemins disjoints, `ResourceManager` fournissant le plafond. Aucun ordonnanceur n'était requis | retirer la troisième estimation de capacité, laisser les autorités en place | HOS-262 | 🟢 appliqué |

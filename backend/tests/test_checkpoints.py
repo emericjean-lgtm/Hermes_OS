@@ -469,3 +469,110 @@ def test_l_absence_de_filet_est_dite(dossier):
 
     assert "mission.sans_filet" in BASELINE_TOPICS
     assert "mission.checkpoint" in BASELINE_TOPICS
+
+
+# ═══ L'accord humain nomme le point de reprise (HOS-291) ═════════════
+#
+# `data_migration` est `mandatory_validation` dans `config/security.yaml` :
+# le moteur rend donc toujours REQUIRE_HUMAN_VALIDATION, et c'est
+# `AegisAgent._apply_human_consent` qui transforme un accord déjà donné en
+# ALLOW. Cet accord est retrouvé par **empreinte**, et l'empreinte ignore
+# la description depuis HOS-224 : elle ne retient que `action_type`, le
+# chemin canonique et les **discriminants**.
+#
+# Sans discriminant, deux points de reprise du même workspace ont la même
+# empreinte. Mesuré avant correctif, les deux empreintes étaient
+# identiques — donc un « oui » donné pour revenir cinq minutes en arrière
+# autorisait aussi de revenir trois semaines en arrière.
+
+
+def test_l_accord_porte_sur_un_point_de_reprise_precis(dossier):
+    """Un « oui » pour ce point-ci n'autorise pas de revenir six mois.
+
+    C'est exactement le défaut que HOS-224 a corrigé pour `git_tools` —
+    « une approbation pour *Commit on feature/x* n'autorise pas *Commit
+    sur main* » — reproduit ici parce que la restauration ne passait
+    aucun discriminant.
+    """
+    from backend.security.approvals import fingerprint_for
+
+    un = cp.prendre(str(dossier), motif="avant la mission", avec_etat=False)
+    deux = cp.prendre(str(dossier), motif="trois semaines plus tôt",
+                      avec_etat=False)
+
+    aegis = _Aegis()
+    cp.restaurer(aegis, un.identifiant)
+    requete_un = aegis.derniere
+    cp.restaurer(aegis, deux.identifiant)
+    requete_deux = aegis.derniere
+
+    assert dict(requete_un.discriminants).get("checkpoint") == un.identifiant
+    assert dict(requete_deux.discriminants).get("checkpoint") == deux.identifiant
+
+    empreinte_un = fingerprint_for(
+        requete_un.action_type, requete_un.target_path,
+        discriminants=dict(requete_un.discriminants))
+    empreinte_deux = fingerprint_for(
+        requete_deux.action_type, requete_deux.target_path,
+        discriminants=dict(requete_deux.discriminants))
+    assert empreinte_un != empreinte_deux, (
+        "deux points de reprise du même workspace partagent une empreinte : "
+        "l'accord donné pour l'un autorise la restauration de l'autre")
+
+
+def test_le_verdict_du_refus_est_porte_par_l_exception(dossier):
+    """« Refusé » et « en attente d'un humain » ne sont pas la même chose.
+
+    `data_migration` rend toujours REQUIRE_HUMAN_VALIDATION au premier
+    passage : l'appelant produit doit pouvoir dire « un accord a été
+    déposé, allez le décider » plutôt que « refusé ».
+    """
+    point = cp.prendre(str(dossier), avec_etat=False)
+    with pytest.raises(cp.CheckpointImpossible) as capture:
+        cp.restaurer(_Aegis(verdict=Verdict.REQUIRE_HUMAN_VALIDATION,
+                            reason="attend un humain"), point.identifiant)
+    assert capture.value.verdict == "require_human_validation"
+    assert capture.value.motif == "attend un humain"
+
+
+def test_un_etat_refuse_n_est_pas_annonce_repris(dossier, base):
+    """`restore_snapshot` **rend** un refus, il ne le lève pas (HOS-291).
+
+    C'est écrit dans son contrat — « Returns a result object on refusal
+    rather than raising, matching file_tools.propose_write » — et
+    `_restaurer_l_etat` ne lisait pas ce retour : tout appel qui ne levait
+    pas était compté comme repris.
+
+    Mesuré sur le chemin réel, et c'est ainsi qu'on l'a trouvé : la moitié
+    fichiers restaurée, l'accord de la moitié état **en attente** dans la
+    file d'Aegis, et la réponse annonçant `etat_repris: true`. La tâche
+    était restée `done` alors que l'instantané la portait à `todo`.
+
+    Un faux succès sur une restauration est le pire endroit possible pour
+    en avoir un : l'opérateur croit être revenu en arrière et repart de
+    l'état cassé.
+    """
+    from backend.core import snapshot_manager
+
+    point = cp.prendre(str(dossier), motif="le couple", avec_etat=True)
+    assert point.instantane
+
+    class _RefusDeLEtat:
+        """Aegis autorise les fichiers, refuse l'état — le cas réel : deux
+        empreintes distinctes, donc deux accords distincts."""
+
+        def evaluate(self, requete):
+            discriminants = dict(requete.discriminants)
+            if "snapshot" in discriminants:
+                return _Decision(Verdict.REQUIRE_HUMAN_VALIDATION,
+                                 "accord de l'état pas encore décidé")
+            return _Decision(Verdict.ALLOW, "ok")
+
+    (dossier / "a.txt").write_text("saccage", encoding="utf-8")
+    reprise = cp.restaurer(_RefusDeLEtat(), point.identifiant)
+
+    assert reprise.applique is True
+    assert (dossier / "a.txt").read_text(encoding="utf-8") == "version 1"
+    assert reprise.etat_repris is False, (
+        "l'état a été annoncé repris alors qu'Aegis l'avait refusé")
+    assert "accord" in reprise.etat_non_repris.lower(), reprise.etat_non_repris

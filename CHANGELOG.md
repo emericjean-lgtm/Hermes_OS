@@ -1,3 +1,118 @@
+## HOS-291 — On prenait un filet qu'on ne savait pas rendre (2026-09-11)
+
+A-3. Ferme le chantier opérationnel #2.
+
+### Le défaut
+
+`GraphExecutor._prendre_le_filet` pose un point de reprise avant que
+**toute** mission touche au disque. Le Center « Supervision » les
+affiche. Et `restaurer()` avait, depuis HOS-223, **zéro appelant** :
+
+    checkpoint.prendre     1 appelant  (graph_executor)
+    checkpoint.lister      2 appelants (vue_operations, sante)
+    checkpoint.apercu      0
+    checkpoint.restaurer   0     ← A-3
+    checkpoint.supprimer   0
+    route de restauration  aucune ; `/operations/checkpoints` est en GET
+
+C'est la forme la plus coûteuse de capacité fantôme : elle n'est pas
+absente, elle est **visible**. Un opérateur qui lit « 4 points de
+reprise » en conclut qu'il peut annuler, et découvre le contraire au
+moment où il en a besoin.
+
+### Ce qui a été livré
+
+La lecture reste où elle était. `routes/operations.py` est en lecture
+seule **par contrat** — deux gardes le tiennent, et son en-tête dit
+pourquoi : une vue qui écrit devient un second chemin vers l'état. La
+mutation vit donc sur son propre routeur, `routes/checkpoints.py`, comme
+`routes/snapshots.py` le fait déjà pour la moitié « état » :
+
+    GET  /api/v1/checkpoints/{id}/apercu      ne mute rien
+    POST /api/v1/checkpoints/{id}/restaurer   passe par Aegis
+
+Le panneau « Points de reprise » du Center Supervision déplie l'aperçu et
+porte le bouton. Il est là et pas ailleurs parce que c'est là que les
+points de reprise sont listés : un bouton « revenir » sur un autre écran
+que celui qui montre **à quoi** revenir se choisirait à l'aveugle.
+
+### La restauration est en deux temps, et c'est le contrat
+
+`data_migration` est `mandatory_validation` dans `config/security.yaml`.
+Le premier appel ne restaure donc **jamais** : Aegis dépose un accord
+dans la file que le Security Center sert déjà, et l'opérateur le décide.
+Un refus rend `200` avec `restaure: false` et son verdict — réserver un
+`4xx` ferait lire une gouvernance qui fonctionne comme une panne.
+
+Mesuré au navigateur, chaîne complète : clic → HTTP → Aegis → accord en
+attente, **workspace inchangé** → décision humaine → second clic →
+`src/app.py` réécrit, `LISEZMOI.md` recréé, `src/genere_apres.py`
+supprimé, accord passé à `used`. Puis un **second processus** (PID
+distinct) relit le workspace restauré, retrouve le point de reprise, et
+ne trouve aucun accord réutilisable.
+
+### Trois défauts trouvés en chemin, sur le chemin même d'A-3
+
+**Un accord n'identifiait pas son point de reprise.** L'empreinte
+d'approbation ignore la description depuis HOS-224 : elle ne retient que
+`action_type`, le chemin canonique et les **discriminants**. Ni
+`checkpoint.restaurer` ni `snapshot_manager.restore_snapshot` n'en
+passait. Mesuré :
+
+    checkpoint A (« il y a 5 min »)   28460aea9e6e…
+    checkpoint B (« il y a 3 sem. »)  28460aea9e6e…   même empreinte
+    snapshot de ce matin              c388eae7bd12…
+    snapshot d'il y a six mois        c388eae7bd12…   même empreinte
+
+Un « oui » pour revenir cinq minutes en arrière autorisait donc de
+revenir trois semaines en arrière — sur un geste qui détruit tout ce qui
+a été fait depuis. C'est exactement le défaut que HOS-224 avait corrigé
+pour `git_tools` (« une approbation pour *Commit on feature/x* n'autorise
+pas *Commit on main* »), reproduit ici faute de discriminant. Les deux
+appelants en portent un.
+
+**Un état refusé était annoncé repris.** `restore_snapshot` *rend* un
+refus, il ne le lève pas — c'est écrit dans son contrat. Et
+`_restaurer_l_etat` ne lisait pas ce retour : tout appel qui ne levait pas
+comptait comme repris. Trouvé sur le chemin réel, pas en relisant du
+code : les fichiers étaient revenus, l'accord de la moitié état était
+**encore en attente dans la file**, la réponse annonçait
+`etat_repris: true`, et la tâche était restée `done` là où l'instantané
+la portait à `todo`. Un faux succès sur une restauration est le pire
+endroit possible pour en avoir un — l'opérateur croit être revenu en
+arrière et repart de l'état cassé.
+
+**Une copie abîmée rendait une 500.** `repli_fichiers` vérifie les
+empreintes avant d'écrire quoi que ce soit, et lève `RepliCorrompu` : la
+protection était bonne, sa traduction manquait. Un point de reprise
+inutilisable rend maintenant `409`, et rien n'a été écrit.
+
+### Une sonde corrigée avant le code
+
+La première sonde de cette passe affirmait qu'un workspace hors
+`ALLOWED_PATHS` produirait un `DENY` dur. **Faux, et c'est la sonde qui
+avait tort** : `data_migration` est `path_based: false`, donc la liste
+blanche n'est jamais consultée pour cette catégorie. Le contrôle réel est
+*entièrement* la validation humaine obligatoire. Enregistré comme **A-22**
+plutôt que corrigé : basculer la catégorie en `path_based` refuserait du
+même coup **toute** restauration d'instantané, qui passe
+`target_path=None` — mesuré `deny`. C'est une décision de politique, pas
+un effet de bord d'A-3.
+
+### Portée réelle, et ce qui reste ouvert
+
+Le seul producteur de points de reprise prend `avec_etat=False` : **aucun
+point de reprise de production ne porte d'instantané**. La moitié
+fichiers — la seule qui existe aujourd'hui — est donc close de bout en
+bout. Le couple, lui, demande deux accords distincts (deux empreintes),
+ce qui est mesuré, dit honnêtement à l'opérateur, et enregistré en
+**A-23** au lieu d'être masqué.
+
+**A-24** : `prune_snapshots` et `StepCounter` n'ont aucun appelant de
+production. Le §19.3 demande un instantané tous les N pas ; `every` vaut
+10 et personne ne compte. Rien ne borne la croissance : 26 instantanés
+sur la machine réelle pour un `keep` de 20.
+
 ## HOS-290 — Le pare-feu ne voyait pas la clé de son propre fournisseur (2026-09-11)
 
 A-10. Ferme §4.

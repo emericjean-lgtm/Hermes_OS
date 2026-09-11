@@ -33,9 +33,8 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      82374d1 (G-39, HOS-288) — dernier commit
-                               de code avant G-40 (audit ciblé des
-                               Centers non observés)
+BASELINE:                      884f8b7 (A-10, HOS-290) — dernier commit
+                               de code avant A-3 (HOS-291)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -86,6 +85,14 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                G-24 fermé (HOS-273) — interruption ACP
                                réelle (217 s → 17 s) ; deux faux contrôles
                                déjà livrés corrigés ; G-25 ouvert
+                               A-10 fermé (HOS-290) — le pare-feu voit
+                               enfin la clé de son propre fournisseur
+                               A-3 fermé (HOS-291) — on savait prendre un
+                               filet, on sait le rendre : aperçu, accord
+                               Aegis nommant le point de reprise,
+                               restauration prouvée au navigateur puis
+                               après redémarrage ; A-22/A-23/A-24 ouverts
+                               en chemin
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -236,7 +243,14 @@ ou moins :
 3. ~~**A-18**~~ — **fermé le 2026-09-05 (HOS-261)**. L'empreinte dépend
    du contexte servi ; le catalogue porte désormais deux chiffres, et
    l'admission retient le pire cas du tag.
-4. **A-16** — trouvé en fermant A-15 : sur Linux sans `rocm-smi`, aucune
+4. ~~**A-3**~~ — **fermé le 2026-09-11 (HOS-291)**. `prendre` avait un
+   appelant sur le chemin de toute mission, `restaurer` en avait zéro.
+   **ADOPT** : l'appelant naturel existait déjà — le panneau « Points de
+   reprise » de Supervision — donc rien n'a été inventé. Aegis reste
+   l'autorité, l'accord nomme désormais son point de reprise (les
+   empreintes étaient identiques, mesuré), et un état refusé n'est plus
+   annoncé repris.
+5. **A-16** — trouvé en fermant A-15 : sur Linux sans `rocm-smi`, aucune
    sonde d'occupation ne répond et l'admission ne contraint rien.
    `/sys/class/drm/card*/device/mem_info_vram_used` a la bonne
    sémantique ; rien ici ne permet de l'exercer, et une sonde non
@@ -266,9 +280,12 @@ et affichée nulle part (G-3), et §6 vient de rendre la ressource honnête.
 Tout y est monté, testé, et sans consommateur — meilleur rapport
 valeur/coût du dépôt, et aucune dépendance ouverte.
 
-§15.4 (Cowork) est à l'inverse **bloqué** : `checkpoint.restaurer` n'a
-aucun appelant (A-3), et un bouton « reprendre » sans restauration
-mentirait sur ce qu'il fait.
+§15.4 (Cowork) était **bloqué** sur A-3 : `checkpoint.restaurer` n'avait
+aucun appelant, et un bouton « reprendre » sans restauration mentirait
+sur ce qu'il fait. **A-3 est fermé le 2026-09-11 (HOS-291)** — la
+restauration est appelable, gouvernée par Aegis et démontrée. Le blocage
+qui reste sur §15.4 est donc l'autre : fork/branche n'a toujours aucune
+primitive, et G-11 décide d'où bâtir Cowork.
 
 ---
 
@@ -305,7 +322,10 @@ mentirait sur ce qu'il fait.
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
-| Points de reprise pris et jamais restaurables (A-3) | functional | §3 |
+| ~~Points de reprise pris et jamais restaurables (A-3)~~ — **fermé HOS-291** | functional | §3 |
+| `ALLOWED_PATHS` n'est pas consulté pour une restauration (A-22) — `data_migration` est `path_based: false` ; le seul verrou est la validation humaine. Basculer la catégorie refuserait toute restauration d'instantané (`target_path=None` → `deny`, mesuré HOS-291) | security | §3 |
+| Le couple fichiers + état demande deux accords distincts (A-23) — empreintes `{checkpoint}` et `{snapshot}` ; non atteignable aujourd'hui, le seul producteur prend `avec_etat=False` | architectural | §3 |
+| `prune_snapshots` et `StepCounter` sans appelant de production (A-24) — 26 instantanés pour un `keep` de 20, et le « tous les N pas » du §19.3 n'a jamais lieu | technical debt | §3 |
 | Portée projet MCP validée mais non autorisée (A-4) | security | §8 / §10 |
 | Workflows utilisateur écrits dans le dépôt (A-5) | technical debt | §3 |
 | `unified_memory` sans isolation de projet | architectural | §8 |

@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import { Cause, OperationsCenter } from "./operations-center";
 
@@ -20,6 +20,15 @@ import { Cause, OperationsCenter } from "./operations-center";
 const apercu = vi.hoisted(() => ({ valeur: {} as Record<string, unknown> }));
 
 const salles = vi.hoisted(() => ({ valeur: undefined as unknown }));
+
+/** L'aperçu d'un point de reprise et le résultat d'une restauration
+ *  (HOS-291). Simulés comme le reste : ces gardes portent sur ce que la
+ *  vue **dit** d'un refus et d'une suppression, pas sur le transport. */
+const apercuPoint = vi.hoisted(() => ({ valeur: undefined as unknown }));
+const restauration = vi.hoisted(() => ({
+  valeur: undefined as unknown,
+  appels: [] as unknown[],
+}));
 
 vi.mock("@/hooks/use-api", () => ({
   useOperationsApercu: () => ({
@@ -39,6 +48,19 @@ vi.mock("@/hooks/use-api", () => ({
   // croire à un affichage qu'on ne mesure pas.
   useOperationsLignee: () => ({ data: undefined }),
   useOperationsContrat: () => ({ data: undefined }),
+  useApercuCheckpoint: () => ({
+    data: apercuPoint.valeur,
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useRestaurerCheckpoint: () => ({
+    data: restauration.valeur,
+    isPending: false,
+    isError: false,
+    error: null,
+    mutate: (args: unknown) => restauration.appels.push(args),
+  }),
 }));
 
 vi.mock("@/hooks/use-store", () => ({
@@ -275,5 +297,108 @@ describe("les Control Rooms ne fabriquent aucun taux", () => {
       />,
     );
     expect(screen.getByText(/inconnu du superviseur/)).toBeTruthy();
+  });
+});
+
+
+// ═══ Revenir en arrière, et ce que l'écran en dit (A-3, HOS-291) ═════
+
+describe("les points de reprise", () => {
+  const POINT = {
+    identifiant: "3e9bc4d387ec",
+    workspace: "C:/ws/projet",
+    motif: "avant la mission : refonte",
+    mission: "m-1",
+    run: "",
+    mecanisme: "fichiers",
+    fichiers: 2,
+    cree_le: "2026-09-11T18:00:00Z",
+    avec_etat: false,
+  };
+
+  function monter(etat: Record<string, unknown> = {}) {
+    apercu.valeur = { ...VIDE, points_de_reprise: bloc([POINT], "backend.checkpoints") };
+    apercuPoint.valeur = etat.apercu;
+    restauration.valeur = etat.restauration;
+    restauration.appels = [];
+    return render(<OperationsCenter />);
+  }
+
+  it("déplie l'aperçu et met en avant ce qui sera détruit", async () => {
+    monter({
+      apercu: {
+        checkpoint: POINT.identifiant,
+        workspace: POINT.workspace,
+        a_restaurer: ["src/app.py"],
+        a_recreer: ["LISEZMOI.md"],
+        a_supprimer: ["src/genere_apres.py"],
+        vide: false,
+        resume: "1 à réécrire, 1 à recréer, **1 à supprimer**",
+        applique: false,
+      },
+    });
+
+    fireEvent.click(screen.getByText(/avant la mission/));
+
+    // La liste destructive est nommée à part, jamais fondue dans un
+    // compteur : c'est la seule des trois qui détruise du travail.
+    // Deux endroits le disent — le résumé et le badge d'alarme — et
+    // c'est voulu : le compte destructif ne doit pas dépendre d'un seul
+    // élément qu'un remaniement pourrait retirer sans qu'on le voie.
+    expect(screen.getAllByText(/1 à supprimer/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/src\/genere_apres\.py/)).toBeInTheDocument();
+  });
+
+  it("dit « accord à décider », pas « refusé », quand Aegis attend un humain", () => {
+    monter({
+      apercu: {
+        checkpoint: POINT.identifiant, workspace: POINT.workspace,
+        a_restaurer: ["src/app.py"], a_recreer: [], a_supprimer: [],
+        vide: false, resume: "1 à réécrire", applique: false,
+      },
+      restauration: {
+        restaure: false, checkpoint: POINT.identifiant,
+        verdict: "require_human_validation",
+        motif: "data_migration always requires human validation",
+        accord_a_decider: true,
+        a_restaurer: [], a_recreer: [], a_supprimer: [],
+        etat_repris: false, etat_non_repris: "",
+      },
+    });
+
+    fireEvent.click(screen.getByText(/avant la mission/));
+
+    // Le défaut que cette garde empêche : afficher « échec » sur une
+    // gouvernance qui fonctionne. L'opérateur conclurait que la
+    // restauration est cassée au moment précis où elle marche, et
+    // cesserait d'essayer au lieu d'aller décider l'accord.
+    expect(screen.getByText(/Accord à décider/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Refusé/)).not.toBeInTheDocument();
+  });
+
+  it("ne tait pas un état de mission non repris", () => {
+    monter({
+      apercu: {
+        checkpoint: POINT.identifiant, workspace: POINT.workspace,
+        a_restaurer: ["src/app.py"], a_recreer: [], a_supprimer: [],
+        vide: false, resume: "1 à réécrire", applique: false,
+      },
+      restauration: {
+        restaure: true, checkpoint: POINT.identifiant, workspace: POINT.workspace,
+        verdict: "allow", motif: "", accord_a_decider: false,
+        a_restaurer: ["src/app.py"], a_recreer: [], a_supprimer: [],
+        etat_repris: false,
+        etat_non_repris: "restauration de l'état refusée : un accord distinct a été déposé",
+        resume: "1 à réécrire",
+      },
+    });
+
+    fireEvent.click(screen.getByText(/avant la mission/));
+
+    // Un point de reprise sans son état ne ramène que la moitié
+    // (HOS-223). Un succès partiel silencieux ferait repartir d'un état
+    // que l'opérateur croit revenu.
+    expect(screen.getByText(/Restauré/)).toBeInTheDocument();
+    expect(screen.getByText(/état non repris/)).toBeInTheDocument();
   });
 });

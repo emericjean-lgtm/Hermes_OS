@@ -244,6 +244,16 @@ def restore_snapshot(aegis, snapshot_id: str, *, project_id: str | None = None) 
             description=f"Restore application state from snapshot {snapshot_id}",
             requesting_agent="snapshot_manager",
             project_id=project_id,
+            # **The snapshot is part of the action's identity** (HOS-291).
+            # `data_migration` is mandatory_validation, so the verdict is
+            # always require_human_validation first and a human approval is
+            # queued; that approval is matched back by fingerprint, and
+            # since HOS-224 the fingerprint ignores the description. With
+            # no discriminant and no target_path every restore in the
+            # system hashed to the same value — measured — so a yes given
+            # for this morning's snapshot equally authorised one from six
+            # months ago. Same defect HOS-224 fixed for git_tools.
+            discriminants=(("snapshot", snapshot_id),),
         )
     )
     if decision.verdict is not Verdict.ALLOW:

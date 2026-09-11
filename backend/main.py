@@ -34,6 +34,7 @@ from fastapi.responses import JSONResponse
 from backend.api.routes import (
     bridge,
     chat,
+    checkpoints,
     classify,
     documents,
     evolution,
@@ -91,6 +92,11 @@ _LEGACY_ROUTERS = (
     # sur une surface non servie est l'orphelin le plus couteux, et c'est
     # exactement ce que la ligne au-dessus raconte.
     bridge,
+    # HOS-291 : la moitie restauration des points de reprise (A-3). La
+    # lecture reste sur `operations`, qui est en lecture seule par
+    # contrat ; la mutation vit a part, comme `snapshots` pour la moitie
+    # etat de la meme capacite.
+    checkpoints,
 )
 
 

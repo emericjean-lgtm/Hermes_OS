@@ -73,7 +73,24 @@ class CheckpointImpossible(RuntimeError):
 
     Un point de reprise qu'on croit avoir et qui n'existe pas est pire
     que pas de point de reprise : il autorise le geste risqué.
+
+    **Porte le verdict quand la cause est une décision d'Aegis** (HOS-291).
+    « Refusé » et « en attente d'un humain » ne sont pas la même chose :
+    `data_migration` est `mandatory_validation`, donc le premier passage
+    rend toujours `require_human_validation` et dépose une demande
+    d'accord. Un appelant produit qui ne lit qu'un message d'erreur
+    afficherait « refusé » là où la bonne phrase est « allez décider
+    l'accord » — et l'opérateur conclurait que la restauration est
+    cassée.
     """
+
+    def __init__(self, message: str, *, verdict: str = "",
+                 motif: str = "") -> None:
+        super().__init__(message)
+        #: La valeur du `Verdict` d'Aegis, quand c'est lui qui a tranché.
+        self.verdict = verdict
+        #: La raison rendue par Aegis, telle quelle.
+        self.motif = motif
 
 
 class CheckpointIntrouvable(KeyError):
@@ -301,10 +318,20 @@ def restaurer(aegis: Any, identifiant: str, *,
                      f"reprise {identifiant} ({point.motif or 'sans motif'})"),
         target_path=point.workspace, requesting_agent="hermes",
         project_id=project_id,
+        # **Le point de reprise est dans l'identité de l'action** (HOS-291).
+        # L'empreinte d'approbation ignore la description depuis HOS-224 :
+        # elle ne retient que `action_type`, le chemin canonique et les
+        # discriminants. Sans celui-ci, tous les points de reprise d'un
+        # même workspace partagent une empreinte — mesuré — et le « oui »
+        # donné pour revenir cinq minutes en arrière autorise de revenir
+        # trois semaines en arrière. C'est le défaut que HOS-224 a corrigé
+        # pour `git_tools`, reproduit ici faute de discriminant.
+        discriminants=(("checkpoint", identifiant),),
     ))
     if decision.verdict is not Verdict.ALLOW:
         raise CheckpointImpossible(
-            f"restauration refusée : {decision.reason}")
+            f"restauration refusée : {decision.reason}",
+            verdict=decision.verdict.value, motif=decision.reason)
 
     if point.mecanisme == "git":
         if not git_ref.existe(point.workspace, point.commit):
@@ -312,8 +339,25 @@ def restaurer(aegis: Any, identifiant: str, *,
                 f"le commit {point.commit[:12]} n'est plus dans le dépôt")
         ecart = git_ref.restaurer(point.workspace, point.commit)
     else:
-        ecart = repli_fichiers.restaurer(point.workspace,
-                                         _dossier(point.identifiant))
+        try:
+            ecart = repli_fichiers.restaurer(point.workspace,
+                                             _dossier(point.identifiant))
+        except repli_fichiers.RepliCorrompu as exc:
+            # Une copie abîmée est un point de reprise **inutilisable**,
+            # pas une panne du serveur (HOS-291). Sans cette traduction,
+            # l'appelant produit recevait une 500 et une pile : l'issue la
+            # moins lisible pour quelqu'un qui cherche justement à sortir
+            # d'un mauvais état.
+            #
+            # Rien n'a été écrit : `repli_fichiers.restaurer` vérifie les
+            # empreintes **avant** la première copie, précisément pour ne
+            # pas laisser un troisième état. L'accord humain, lui, a été
+            # consommé — il faudra en redemander un. C'est le sens sûr :
+            # un accord consommé de trop coûte un clic, un accord
+            # re-utilisable coûterait une restauration non décidée.
+            raise CheckpointImpossible(
+                f"point de reprise {point.identifiant} inutilisable : {exc}"
+            ) from exc
 
     etat_repris, motif = _restaurer_l_etat(aegis, point, project_id)
     return Restauration(
@@ -337,13 +381,46 @@ def _restaurer_l_etat(aegis: Any, point: Checkpoint,
     try:
         from backend.core import snapshot_manager
 
-        snapshot_manager.restore_snapshot(aegis, point.instantane,
-                                          project_id=project_id)
-        return True, ""
+        resultat = snapshot_manager.restore_snapshot(
+            aegis, point.instantane, project_id=project_id)
     except Exception as exc:
         logger.warning("état de mission non repris pour %s", point.identifiant,
                        exc_info=True)
         return False, str(exc)
+
+    # **Le retour se lit** (HOS-291). `restore_snapshot` rend un refus, il
+    # ne le lève pas — c'est écrit dans son contrat, au même titre que
+    # `file_tools.propose_write`. Cette fonction ne lisait pas ce retour et
+    # comptait comme repris tout appel qui ne levait pas.
+    #
+    # Ce n'était pas théorique : les deux moitiés portent des empreintes
+    # d'approbation **distinctes** — `{"checkpoint": …}` ici,
+    # `{"snapshot": …}` là-bas — donc l'accord donné pour le point de
+    # reprise ne couvre pas son instantané. Mesuré sur le chemin réel :
+    # fichiers revenus, accord de l'état encore en attente dans la file, et
+    # `etat_repris: true` rendu à l'opérateur pendant que la tâche restait
+    # `done` au lieu de repasser `todo`.
+    if not resultat.restored:
+        logger.info("état de mission refusé pour %s : %s (%s)",
+                    point.identifiant, resultat.verdict, resultat.reason)
+        motif = (f"restauration de l'état refusée ({resultat.verdict}) : "
+                 f"{resultat.reason}")
+        if resultat.verdict == "require_human_validation":
+            # Aegis vient de déposer un second accord, pour l'instantané.
+            # Le dire, et dire le coût exact : un accord est à **usage
+            # unique**, donc celui du point de reprise vient d'être
+            # consommé par la moitié fichiers. Une reprise complète demande
+            # donc de décider le nouvel accord **et** d'en redemander un
+            # pour le point de reprise. Le taire enverrait l'opérateur
+            # décider un accord puis se heurter à un refus qu'il ne
+            # comprendrait pas.
+            motif += (" — un accord distinct a été déposé pour l'instantané "
+                      f"{point.instantane}. Les accords étant à usage "
+                      "unique, relancer la restauration complète demande "
+                      "de décider celui-ci **et** un nouvel accord pour le "
+                      "point de reprise lui-même")
+        return False, motif
+    return True, ""
 
 
 # ── Supprimer ────────────────────────────────────────────────────────

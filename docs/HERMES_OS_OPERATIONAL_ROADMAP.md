@@ -6,9 +6,9 @@
 > Il complète `docs/HERMES_OS_MASTER_ROADMAP.md` : le document maître décrit l'architecture, l'historique et les écarts ; ce document impose l'ordre de travail.
 >
 > Dernière mise à jour : 2026-09-11
-> Dernier jalon vérifié : HOS-290 / A-10
-> Dernier commit de code vérifié : voir `git log -1` — A-10 fermé sur la
-> base `25ddb52a3c117199a085caaf42428dc4cdad656e`
+> Dernier jalon vérifié : HOS-291 / A-3
+> Dernier commit de code vérifié : voir `git log -1` — A-3 fermé sur la
+> base `884f8b7214fbbcc3ff7b78e094f8ac771fd7c0eb` (HOS-290 / A-10)
 
 ## 1. Règles d'exécution
 
@@ -30,9 +30,32 @@
 
 ## 2. Situation courante
 
-**Chantier actif : #2 — A-3 checkpoints / restauration**
+**Chantier actif : #3 — A-4 habilitation Workspace / MCP**
 
 Statut : 🟠 **À EXÉCUTER**
+
+**#2 — A-3 checkpoints / restauration : 🟢 FERMÉ le 2026-09-11 (HOS-291).**
+`prendre` avait un appelant — `GraphExecutor._prendre_le_filet`, sur le
+chemin de **toute** mission — et `restaurer` en avait zéro : aucune route,
+aucun outil MCP, aucun script. Le dépôt prenait un filet par mission, les
+affichait, et ne savait y revenir par aucun chemin.
+
+**ADOPT**, pas reclassification : un appelant naturel existait déjà — le
+panneau « Points de reprise » du Center Supervision — donc rien n'a été
+inventé pour obtenir du vert. La lecture reste sur `routes/operations.py`,
+en lecture seule par contrat ; la mutation vit sur `routes/checkpoints.py`,
+symétrique de `routes/snapshots.py`. Aegis reste l'unique autorité :
+`data_migration` étant `mandatory_validation`, le premier appel ne
+restaure **jamais** et dépose un accord.
+
+Preuve au navigateur, chaîne complète : clic → HTTP → Aegis → accord en
+attente **workspace inchangé** → décision humaine → second clic →
+fichiers réécrits/recréés/supprimés conformes à l'aperçu → accord `used`.
+Puis un **second processus** relit l'état restauré. Trois défauts absorbés
+en chemin, tous sur le chemin d'A-3 : l'accord n'identifiait pas son point
+de reprise (empreintes identiques, mesuré), un état refusé était annoncé
+repris (faux succès), une copie abîmée rendait une 500. Quatre mutations
+rouges puis vertes.
 
 **#1 — A-10 pare-feu OpenRouter : 🟢 FERMÉ le 2026-09-11 (HOS-290).**
 Le motif `\bsk-[A-Za-z0-9]{16,}\b` excluait `-` de sa classe et ne pouvait
@@ -47,17 +70,17 @@ comptant les connexions) : 0 requête sur `chat` et `chat_events` avec
 secret, 1 requête et réponse reçue sans secret. Cinq mutations rouges
 puis vertes. **§4 passe 🟢.**
 
-**Prochain chantier obligatoire : #2 — A-3 checkpoints / restauration.**
+**Prochain chantier obligatoire : #3 — A-4 habilitation Workspace / MCP.**
 
-Base de travail : HOS-290 / A-10.
+Base de travail : HOS-291 / A-3.
 
 ## 3. Ordre obligatoire des chantiers
 
 | # | Chantier | Statut opérationnel | Condition de clôture |
 |---:|---|---|---|
 | 1 | ~~**A-10 — Pare-feu OpenRouter**~~ | 🟢 **FERMÉ (HOS-290)** | rempli : `sk-or-v1-*` reconnu ; refus prouvé à la socket sur `chat` et `chat_events` (0 requête) ; 7 faux positifs conservés ; 5 mutations rouges puis vertes |
-| 2 | **A-3 — Checkpoints / restauration** | 🟠 **ACTIF** | décision explicite sur restauration ; si conservée, chemin restore réellement appelable, persistant et testé ; sinon capacité reclassée sans faux contrat |
-| 3 | **A-4 — Habilitation Workspace / MCP** | 🔴🟠 NEXT | workspace actif comme frontière d'autorisation ; MCP et filesystem contraints par Project validé ; chemin UI→backend→Aegis→outil démontré |
+| 2 | ~~**A-3 — Checkpoints / restauration**~~ | 🟢 **FERMÉ (HOS-291)** | rempli : **ADOPT** ; `apercu` + `restaurer` appelables depuis le panneau Supervision ; Aegis seule autorité, accord humain nommant le point de reprise ; restauration prouvée au navigateur et après redémarrage ; 4 mutations rouges puis vertes. Limites dites : A-22, A-23, A-24 |
+| 3 | **A-4 — Habilitation Workspace / MCP** | 🟠 **ACTIF** | workspace actif comme frontière d'autorisation ; MCP et filesystem contraints par Project validé ; chemin UI→backend→Aegis→outil démontré |
 | 4 | **G-15 — Invalidation des probes** | 🟠 | invalidation/re-évaluation automatique lorsque poids, `num_ctx`, paramètres ou état agentique changent sous un même tag ; preuves datées et consommées |
 | 5 | **G-11 — `assigned_tools` réellement utilisé** | 🟠 | champ relié au vrai chemin d'exécution et démontré par allow/deny contrastés |
 | 6 | **G-10 — Promotion mémoire HTTP/UI** | 🟠 | route produit réelle ; contrôle humain nommé ; provenance/quarantaine conservées ; absence d'auto-promotion par agent |
@@ -83,7 +106,7 @@ Base de travail : HOS-290 / A-10.
 
 - §1 Contract & Verification : 🟢 COMPLETED
 - §2 Run Ledger & Execution Lineage : 🟢 COMPLETED
-- §3 Checkpoints / Approval / Sandbox / Security : 🟡 PARTIAL
+- §3 Checkpoints / Approval / Sandbox / Security : 🟡 PARTIAL (A-2 et A-3 fermés ; restent A-5, A-17)
 - §4 Cloud / Providers / Quota : 🟢 COMPLETED (A-1 + A-10 fermés)
 - §5 Runtime / RAL / Model Intelligence : 🟢 COMPLETED
 - §6 Cognitive Scheduler / Resource Intelligence : 🟡 PARTIAL
@@ -104,6 +127,7 @@ Base de travail : HOS-290 / A-10.
 - A-1 / HOS-255 : pare-feu cloud inévitable (défaut de **routage**).
 - A-10 / HOS-290 : format de secret OpenRouter `sk-or-v1-*` reconnu (défaut de **détection**). Les deux étaient distincts et sont fermés ; §4 est 🟢.
 - A-2 / HOS-256 : contrôles HOS-217/218 câblés sur le chemin réel.
+- A-3 / HOS-291 : la restauration d'un point de reprise est appelable, gouvernée par Aegis et démontrée au navigateur puis après redémarrage.
 - §6.1 / HOS-263 : décision du routeur réellement consommée et repli borné par la preuve.
 - G-14 / HOS-264 : capacité agentique mesurée sur les six modèles du catalogue.
 - §16 / HOS-265→274 : pont Hermes Agent, matrice et capacités intégrées selon preuves ; G-23 convergence ACP↔Gateway rejetée ; G-24 interruption ACP adoptée.
@@ -125,6 +149,9 @@ Base de travail : HOS-290 / A-10.
 - G-21 : mémoire Hermes Agent non exposée via RPC.
 - G-25 : steering différé, car ACP n'offre pas d'injection dans le tour actif.
 - G-41 : trou documentaire HOS-112→189, volontairement non reconstruit rétrospectivement.
+- A-22 : `data_migration` est `path_based: false`, donc `ALLOWED_PATHS` n'est **pas** consulté pour une restauration — le seul verrou est la validation humaine obligatoire. Mesuré HOS-291. Basculer la catégorie refuserait toute restauration d'instantané (`target_path=None` → `deny`, mesuré) : décision de politique à part entière.
+- A-23 : le **couple** fichiers + état demande deux accords distincts (empreintes `{checkpoint}` et `{snapshot}`), et les accords étant à usage unique une reprise complète en demande trois. Non atteignable aujourd'hui — le seul producteur prend `avec_etat=False`. Dit honnêtement à l'opérateur plutôt que masqué.
+- A-24 : `prune_snapshots` et `StepCounter` sans appelant de production. Le §19.3 demande un instantané tous les N pas ; `every=10` et personne ne compte. Rien ne borne la croissance : 26 instantanés pour un `keep` de 20 sur la machine réelle.
 - A-21 : la règle `clé=valeur` de `redact` couvre `…_API_KEY` et `…_SECRET` mais **pas un nom en `…_KEY` seul** — mesuré HOS-290. Sans danger pour une clé dont la *forme* est reconnue (le cas OpenRouter), ouvert pour une clé d'une autre forme derrière un tel nom. Défaut de nommage, pas de format : hors périmètre A-10.
 - Capability assertions sans producteur : garde fiable non encore résolue car les regex confondaient affirmation et négation.
 - Secondary Center tabs : ouverture visuelle exhaustive non encore réalisée.
@@ -159,10 +186,10 @@ Lorsqu'un nouveau travail Hermes OS commence, utiliser d'abord :
 
 ## 9. Actuel
 
-**ACTIVE: A-3**
+**ACTIVE: A-4**
 
-**NEXT: A-4**
+**NEXT: G-15**
 
-*(A-10 fermé le 2026-09-11, HOS-290.)*
+*(A-10 fermé le 2026-09-11, HOS-290 ; A-3 fermé le 2026-09-11, HOS-291.)*
 
 **DO NOT JUMP AHEAD.**

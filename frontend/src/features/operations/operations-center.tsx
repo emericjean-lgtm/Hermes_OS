@@ -32,12 +32,27 @@
  *
  * ## Ce qu'elle ne fait pas
  *
- * Aucune écriture, aucune décision. Mission Control est une **vue** du
- * runtime, jamais une seconde autorité : pas d'Aegis bis, pas de moteur
- * d'approbation bis, aucun appel de fournisseur. Le flux d'événements
- * vient de `useCockpitStore`, alimenté par l'unique souscription
+ * Aucune décision. Mission Control est une **vue** du runtime, jamais
+ * une seconde autorité : pas d'Aegis bis, pas de moteur d'approbation
+ * bis, aucun appel de fournisseur. Le flux d'événements vient de
+ * `useCockpitStore`, alimenté par l'unique souscription
  * `FluxEvenements` — surtout pas d'une seconde socket, défaut que
  * HOS-182 a déjà eu à corriger.
+ *
+ * **Amendement HOS-291.** Cette page a dit « aucune écriture » jusqu'au
+ * 2026-09-11, et c'était vrai. Elle porte désormais **un** geste
+ * mutant : demander la restauration d'un point de reprise (A-3). Il est
+ * ici et pas ailleurs parce que c'est ici que les points de reprise sont
+ * listés — un bouton « revenir » sur un autre écran que celui qui montre
+ * à quoi revenir se choisirait à l'aveugle.
+ *
+ * La règle n'est pas affaiblie pour autant, parce qu'elle portait sur
+ * l'**autorité**, pas sur le verbe HTTP : cette page ne décide rien. Elle
+ * relaie une demande à Aegis, qui rend `require_human_validation` au
+ * premier passage et dépose un accord à décider dans le Security Center.
+ * Le contrat en lecture seule du **backend** (`routes/operations.py` et
+ * ses deux gardes) est, lui, intact : la mutation vit sur son propre
+ * routeur, `routes/checkpoints.py`.
  */
 
 import { useMemo, useState } from "react";
@@ -50,14 +65,17 @@ import {
 } from "@/components/center-scaffold";
 import { Badge, Card } from "@/components/ui/card";
 import {
+  useApercuCheckpoint,
   useControlRooms,
   useOperationsApercu,
   useOperationsContrat,
   useOperationsLignee,
+  useRestaurerCheckpoint,
 } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
 import type {
   Bloc,
+  CheckpointWire,
   ContratWire,
   ControleWire,
   ControlRoomWire,
@@ -93,6 +111,131 @@ function ZeroMesure({ quoi }: { quoi: string }) {
       Aucun {quoi}.{" "}
       <span className="text-hermes-muted/60">Mesuré, pas supposé.</span>
     </p>
+  );
+}
+
+/** Un point de reprise, et le seul chemin pour y revenir (A-3, HOS-291).
+ *
+ *  ## Pourquoi deux gestes et non un
+ *
+ *  Déplier calcule un **aperçu** : ce que la restauration réécrirait,
+ *  recréerait et **supprimerait**. Il ne mute rien. C'est le contrat
+ *  §14.1 — montrer la différence avant de l'appliquer — et c'est aussi
+ *  ce qui rend le second geste décidable : « 3 à supprimer » n'est pas
+ *  la même information que « restaurer ».
+ *
+ *  Les trois listes restent séparées à l'écran comme elles le sont sur
+ *  le fil. Fondues dans « 12 fichiers touchés », la seule des trois qui
+ *  détruise du travail disparaîtrait.
+ *
+ *  ## Un refus n'est pas une panne
+ *
+ *  `data_migration` est en validation obligatoire à tous les niveaux
+ *  d'autonomie (§17.3). Le premier appel rend donc
+ *  `require_human_validation` et dépose un accord dans la file d'Aegis :
+ *  c'est l'issue **attendue**, et l'écran doit dire « allez décider »,
+ *  pas « échec ». Afficher une erreur rouge ici ferait conclure que la
+ *  restauration est cassée au moment précis où elle fonctionne. */
+function PointDeReprise({
+  point,
+  ouvert,
+  onOuvrir,
+}: {
+  point: CheckpointWire;
+  ouvert: boolean;
+  onOuvrir: () => void;
+}) {
+  const apercu = useApercuCheckpoint(ouvert ? point.identifiant : null);
+  const restauration = useRestaurerCheckpoint();
+  const resultat = restauration.data;
+
+  return (
+    <div className="border-b border-hermes-border pb-1">
+      <button
+        type="button"
+        onClick={onOuvrir}
+        className="w-full text-left"
+        aria-expanded={ouvert}
+      >
+        <div className="flex items-center gap-2">
+          <Badge variant={point.mecanisme === "git" ? "info" : "default"}>
+            {point.mecanisme}
+          </Badge>
+          <span className="num text-hermes-muted">
+            {point.identifiant.slice(0, 8)}
+          </span>
+          {/* Sans état de mission, il ne ramène que la moitié
+              (HOS-223) — le dire évite de compter dessus. */}
+          {!point.avec_etat && <Badge variant="warning">fichiers seuls</Badge>}
+        </div>
+        <p className="truncate text-hermes-muted/80">{point.motif || "—"}</p>
+      </button>
+
+      {ouvert && (
+        <div className="mt-2 space-y-2 border-l border-hermes-border pl-2">
+          {apercu.isLoading && (
+            <p className="text-hermes-muted/70">aperçu en cours…</p>
+          )}
+          {apercu.isError && (
+            <p className="text-hermes-alarm">
+              aperçu impossible : {(apercu.error as Error)?.message}
+            </p>
+          )}
+          {apercu.data && (
+            <div className="space-y-1">
+              <p className="text-hermes-muted">{apercu.data.resume}</p>
+              {apercu.data.a_supprimer.length > 0 && (
+                <div>
+                  <Badge variant="danger">
+                    {apercu.data.a_supprimer.length} à supprimer
+                  </Badge>
+                  <p className="mt-1 truncate text-hermes-muted/70">
+                    {apercu.data.a_supprimer.slice(0, 5).join(", ")}
+                  </p>
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={restauration.isPending}
+                onClick={() =>
+                  restauration.mutate({ identifiant: point.identifiant })
+                }
+                className="border border-hermes-alarm/45 bg-hermes-alarm/[0.09]
+                  px-2 py-1 text-[10px] uppercase tracking-[0.11em]
+                  text-hermes-alarm disabled:opacity-50"
+              >
+                {restauration.isPending ? "…" : "Restaurer"}
+              </button>
+            </div>
+          )}
+
+          {resultat && !resultat.restaure && (
+            <p className="text-hermes-gold">
+              {resultat.accord_a_decider
+                ? "Accord à décider : Aegis a déposé une demande dans le Security Center. Décidez-la, puis relancez."
+                : `Refusé : ${resultat.motif}`}
+            </p>
+          )}
+          {resultat?.restaure && (
+            <p className="text-hermes-arc">
+              Restauré — {resultat.resume}
+              {/* Le couple : dire ce qui n'a pas été repris, plutôt que
+                  de rendre un succès partiel silencieux (HOS-223). */}
+              {!resultat.etat_repris && resultat.etat_non_repris && (
+                <span className="text-hermes-gold">
+                  {" "}· état non repris : {resultat.etat_non_repris}
+                </span>
+              )}
+            </p>
+          )}
+          {restauration.isError && (
+            <p className="text-hermes-alarm">
+              {(restauration.error as Error)?.message}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -371,6 +514,10 @@ export function OperationsCenter() {
   // Le run déplié. `null` = aucun : la vue ne devine pas ce que
   // l'opérateur veut voir.
   const [runOuvert, setRunOuvert] = useState<string | null>(null);
+  /** Un seul point de reprise déplié à la fois : l'aperçu ne part que
+   *  pour celui-là, et deux aperçus côte à côte inviteraient à comparer
+   *  des écarts calculés à des instants différents. */
+  const [pointOuvert, setPointOuvert] = useState<string | null>(null);
 
   // Le flux vient du store, alimenté par l'unique souscription
   // `FluxEvenements`. Ouvrir une seconde socket ici donnerait deux vues
@@ -660,24 +807,15 @@ export function OperationsCenter() {
             {(liste) => (
               <div className="space-y-2 text-xs">
                 {liste.slice(0, 8).map((p) => (
-                  <div key={p.identifiant} className="border-b border-hermes-border pb-1">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={p.mecanisme === "git" ? "info" : "default"}>
-                        {p.mecanisme}
-                      </Badge>
-                      <span className="num text-hermes-muted">
-                        {p.identifiant.slice(0, 8)}
-                      </span>
-                      {/* Sans état de mission, il ne ramène que la moitié
-                          (HOS-223) — le dire évite de compter dessus. */}
-                      {!p.avec_etat && (
-                        <Badge variant="warning">fichiers seuls</Badge>
-                      )}
-                    </div>
-                    <p className="truncate text-hermes-muted/80">
-                      {p.motif || "—"}
-                    </p>
-                  </div>
+                  <PointDeReprise
+                    key={p.identifiant}
+                    point={p}
+                    ouvert={pointOuvert === p.identifiant}
+                    onOuvrir={() =>
+                      setPointOuvert((actuel) =>
+                        actuel === p.identifiant ? null : p.identifiant)
+                    }
+                  />
                 ))}
               </div>
             )}
