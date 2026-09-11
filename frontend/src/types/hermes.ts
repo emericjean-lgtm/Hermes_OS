@@ -546,6 +546,43 @@ export interface ApprovalRequest {
   metadata?: Record<string, unknown>;
 }
 
+/** Une demande d'accord humain dans la file d'AEGIS — celle qui garde les
+ *  actions reelles (G-36, HOS-285).
+ *
+ *  A ne pas confondre avec `ApprovalRequest`, qui decrit la file de
+ *  `backend/policy/` (HOS-046) : un dictionnaire en memoire dont
+ *  `set_policy_engine` n'est jamais appele, donc sans aucun producteur.
+ *  Le cockpit lisait celle-la et affichait « file d'approbation vide »
+ *  pendant que des demandes reelles attendaient ailleurs.
+ *
+ *  Semantique d'Aegis, et elle change ce que l'ecran doit dire : une
+ *  approbation est un JETON DE PASSAGE, pas un ordre de travail. Elle
+ *  autorise la prochaine tentative identique, une fois, pendant quinze
+ *  minutes. Approuver ne rejoue donc rien — l'appelant doit redemander. */
+export interface ApprobationAegis {
+  id: string;
+  action_type: string;
+  description: string;
+  target_path: string | null;
+  requesting_agent: string;
+  reason: string;
+  /** Minuscules, cote Aegis : `pending` | `approved` | `refused` | `used`.
+   *  `used` = l'approbation a ete consommee par la tentative suivante. */
+  status: string;
+  task_id: string | null;
+  project_id: string | null;
+  created_at: string;
+  decided_at: string | null;
+  expires_at: string | null;
+  portee: string;
+  portee_racine: string | null;
+  usages_restants: number | null;
+  discriminants: string | null;
+  /** Une demande expiree n'autorise plus rien. L'afficher comme « en
+   *  attente » ferait croire qu'une decision est encore utile. */
+  expired: boolean;
+}
+
 export interface AuditEntry {
   id: string;
   operation: string;

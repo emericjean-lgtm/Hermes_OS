@@ -162,6 +162,22 @@ MUTATIONS_CONNUES: dict[str, str] = {
     # retire aucune — verifie par diff le 2026-09-09, liste blanche MCP
     # intacte. Desactiver reste reversible par la meme methode.
     "tools.configure": "hermes-agent:config.yaml",
+    # Poser une Skill ecrit sous `<HERMES_HOME>/skills/` : le dossier de la
+    # competence, une entree dans `.hub/lock.json`, une ligne dans
+    # `.hub/audit.log`.
+    #
+    # G-26 l'avait refusee, et sa raison etait exacte : « install n'ecrit
+    # pas de facon verifiable ». G-35 a mesure que c'est le COMPTE RENDU
+    # qui n'est pas verifiable — `do_install` est annote `-> None` et rend
+    # `None` sur tous ses chemins — pendant que l'ecriture, elle, se
+    # verifie a l'octet par l'empreinte du verrou. Ce qui manquait encore
+    # etait l'approbateur ; G-36 le branche sur Aegis.
+    #
+    # Additive au sens qui compte : rien n'est perdu. Une pose ajoute un
+    # dossier et des lignes, elle n'en retire aucune, et le runtime refuse
+    # de lui-meme de reposer une competence deja presente sans `--force`,
+    # que Hermes OS ne transmet jamais.
+    "skills.manage": "hermes-agent:skills/",
 }
 
 

@@ -51,6 +51,7 @@ import type {
   ToolExecution,
   PolicyRule,
   ApprovalRequest,
+  ApprobationAegis,
   AuditEntry,
   ExecutionSummary,
   ExecutionStatistics,
@@ -403,20 +404,29 @@ export function useMCPServers() {
 export function usePolicyRules() {
   return useQuery<PolicyRule[]>({ queryKey: ["policy", "rules"], queryFn: governanceClient.rules });
 }
+/** La file d'AEGIS — celle qui garde les actions reelles (G-36).
+ *  Voir `ApprobationAegis` : le cockpit lisait la file de `backend/policy/`,
+ *  qui n'a aucun producteur, et annoncait « vide » par construction. */
 export function useApprovals() {
-  return useQuery<ApprovalRequest[]>({ queryKey: ["approvals"], queryFn: governanceClient.approvals });
+  return useQuery<ApprobationAegis[]>({
+    queryKey: ["approbations-aegis"],
+    queryFn: governanceClient.approvals,
+    // Court : une approbation expire en quinze minutes, et une file
+    // perimee a l'ecran vaut une file vide.
+    refetchInterval: 15_000,
+  });
 }
 export function useApproveAction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, comment }: { id: string; comment?: string }) => governanceClient.approve(id, comment),
+    mutationFn: ({ id }: { id: string }) => governanceClient.approve(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
   });
 }
 export function useRejectAction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, comment }: { id: string; comment?: string }) => governanceClient.reject(id, comment),
+    mutationFn: ({ id }: { id: string }) => governanceClient.reject(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
   });
 }

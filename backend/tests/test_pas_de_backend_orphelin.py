@@ -143,8 +143,24 @@ ORPHELINS_CONNUS: frozenset = frozenset({
     "/runtime/simulation/{simulation_id}",
     "/runtimes/types",
     "/runtimes/{name}/select",
-    "/security/approvals",
-    "/security/approvals/{approval_id}",
+    # G-36 : ces deux-la QUITTENT la dette — le cockpit lit enfin la file
+    # d'Aegis, celle qui garde les actions reelles.
+    #
+    # Et `/approval/*` y entre a leur place, ce qui est le seul ajout que
+    # cette liste ait recu depuis sa creation. La raison est mesuree, pas
+    # invoquee : la file de `backend/policy/` est un dictionnaire EN
+    # MEMOIRE dont `set_policy_engine` n'est jamais appele. Elle n'a donc
+    # aucun producteur, et le cockpit qui la lisait annoncait « file
+    # d'approbation vide » par construction, pendant qu'Aegis accumulait
+    # 206 demandes du 2026-08-10 au 2026-09-02 que personne ne pouvait
+    # voir. Lui retirer son appelant n'est pas l'abandonner : c'est cesser
+    # d'afficher une file qui ne decrit rien.
+    #
+    # Les supprimer serait une decision distincte : `backend/policy/` sert
+    # aussi les regles et le journal d'audit, que le cockpit lit vraiment.
+    "/approval",
+    "/approval/{approval_id}/approve",
+    "/approval/{approval_id}/reject",
     "/security/check",
     "/security/evaluate",
     "/security/permissions/grant",

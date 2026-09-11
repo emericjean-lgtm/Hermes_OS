@@ -1,3 +1,154 @@
+## HOS-285 — L'approbation raccordee, la pose gouvernee (2026-09-11)
+
+G-36. **ADOPT.** La chaine complete fonctionne sur le chemin reel :
+demande -> approbation Aegis -> decision humaine -> autorisation ou refus
+-> pose reelle -> provenance et audit -> resultat visible.
+
+### Laquelle des deux files, et pourquoi
+
+G-35 avait trouve deux files d'approbation sans trancher. Mesure du
+2026-09-11 :
+
+                          Aegis                    Policy (HOS-046)
+    stockage              SQLite                   dict EN MEMOIRE
+    producteur reel       AegisAgent, sur le       aucun —
+                          chemin de requete        `set_policy_engine`
+                                                   n'est jamais appele
+    survit au redemarrage oui                      non
+    lu par le cockpit     NON                      oui
+
+Elles ne font pas la meme chose et **ne sont pas fusionnees** : la premiere
+est un jeton de passage (une fois, quinze minutes, empreinte exacte), la
+seconde une demande de workflow (multi-approbateurs, delegation). Mais une
+seule est branchee, et c'est elle qui garde les actions reelles.
+
+La preuve de l'ecart tient en une mesure : la file d'Aegis portait **206
+demandes `pending` du 2026-08-10 au 2026-09-02** qu'aucun ecran ne pouvait
+montrer, pendant que le Dashboard affichait « File d'approbation vide ».
+Un mois de decisions en attente, invisibles — non pas parce qu'une surface
+manquait, mais parce que le cockpit en lisait une autre.
+
+C'est le cas le plus net de la serie : ni le compteur d'orphelins ni le
+typage ne pouvaient le voir, puisque les deux surfaces existaient.
+
+### Le contrat d'Aegis impose l'enchainement
+
+« Approving here does **not** replay the action » : une approbation
+autorise LA PROCHAINE TENTATIVE IDENTIQUE, une fois.
+
+    1. demande       -> REQUIRE_HUMAN_VALIDATION, rien n'est pose
+    2. l'humain decide dans le cockpit
+    3. on redemande  -> l'approbation est consommee, et seulement la
+                        quelque chose s'ecrit
+
+Ce n'est pas un detour d'implementation : une file qui rejouerait des
+actions stockees aurait besoin d'un repartiteur capable de tout
+reexecuter, ce qu'une barriere de securite ne doit pas posseder.
+
+### Les huit preuves, mesurees
+
+Foyer de substitution pour le disque des Skills ; Aegis, sa file SQLite,
+le vrai gateway lance par le pont, le scanner de l'agent et le disque sont
+reels.
+
+    1. demande                  -> approbation_requise, disque VIDE
+    2. visible dans la file d'Aegis (`skill_install`)
+    3. refus utilisateur        -> approbation_requise, disque VIDE
+    4. accord puis nouvel essai -> posee, `docker` conforme,
+                                   sha256:916f3198efaa5a18 des deux cotes
+    5. provenance               -> source=skills.sh confiance=community
+                                   verdict=safe ; audit : INSTALL docker
+    6. cockpit                  -> « Install skill ... · skill_install ·
+                                   hermes-os.cockpit » en tete du Dashboard
+    7. processus NEUF           -> pose ET decisions retrouvees ;
+                                   l'accord est passe a `used`
+    8a. conflit (deja posee)    -> sans_effet, disque inchange
+    8b. danger, nom libre       -> bloquee_par_le_scanner, disque VIDE,
+                                   audit : BLOCKED docker 25_findings
+
+**L'approbation humaine n'est pas un contournement du scanner** : Aegis
+autorise la DEMANDE, le scanner de l'agent garde la POSE.
+
+Le 8b l'a d'abord cache. La competence dangereuse s'appelle aussi
+`docker`, et sur un foyer ou ce nom etait pris `do_install` sort sur
+« deja installee » AVANT d'atteindre le scanner : on mesurait un conflit
+en croyant mesurer une securite. Refait sur un foyer neuf, le blocage est
+la, avec ses 25 findings.
+
+### Le resultat vient du disque
+
+`skills.manage install` rend `{"installed": true}` dans tous les cas —
+`do_install` est annote `-> None` et rend `None` sur chacun de ses
+chemins, succes compris. Le verdict rendu est donc tire d'un **diff du
+disque** pris de part et d'autre de la demande : une clef neuve dans le
+verrou dont le dossier verifie son empreinte, une ligne `BLOCKED` neuve,
+ou rien. Il n'est deduit ni de l'identifiant demande, ni d'un nom calcule,
+ni d'un booleen.
+
+### Ce que la politique dit, et ou
+
+`skill_install` entre dans `config/security.yaml` avec
+`mandatory_validation: true` — jamais auto-autorise, quel que soit
+`autonomy_level`. La raison est mesuree et non invoquee : G-35 a montre
+que le scanner de l'agent laisse passer un verdict `dangerous` quand la
+source est `builtin`, et `actual-setup` est posee avec cinq findings
+critiques dont un `env_exfil_curl`. Une seconde barriere, humaine, est
+exactement ce que §17.3 appelle.
+
+`path_based: false` : la cible est un identifiant de hub, pas un chemin.
+La marquer `path_based` la ferait refuser faute de `target_path`, avant
+meme d'atteindre l'humain. Ce qui distingue deux demandes est porte par le
+discriminant `identifiant` — sans lui, approuver la pose d'une Skill
+autoriserait celle d'une autre (HOS-224).
+
+### Trois contrats perimes, et une garde qui grandissait toute seule
+
+G-26 interdisait toute mutation de Skill, pour une raison exacte —
+« install n'ecrit pas de facon verifiable ». G-35 a corrige le diagnostic :
+c'est le COMPTE RENDU qui ne vaut rien. Les trois gardes sont rescopees
+plus etroitement qu'avant : un seul module a le droit de demander, il doit
+passer par Aegis, `MUTATIONS_CONNUES` doit nommer ce que la methode ecrit,
+et une route mutante doit deleguer a ce module.
+
+Et une quatrieme a rougi sans defaut :
+`test_le_catalogue_ne_pretend_pas_dire_ce_qui_est_installe` decoupait le
+fichier **jusqu'a la fin**, si bien que tout composant ajoute plus bas y
+entrait. La surface de demande, definie apres, faisait rougir le catalogue
+pour un `skillsClient` qui n'etait pas le sien. Une garde bornee par la fin
+du fichier grandit toute seule ; celle-ci s'arrete desormais au composant
+suivant.
+
+Deux consequences honnetes de la passe, traitees plutot que contournees :
+le contrat de mutation de G-23 admet un troisieme MAGASIN (`skills/`, a
+cote de `state.db` et `config.yaml`) sans changer de semantique — il est
+stocke, il survit au redemarrage, il ne vise aucun tour vivant ; et
+`/approval/*` entre dans les orphelins connus, seul ajout que cette liste
+ait recu, parce que retirer l'appelant d'une file sans producteur n'est
+pas l'abandonner, c'est cesser d'afficher une file qui ne decrit rien.
+Supprimer `backend/policy/` serait une decision distincte : il sert aussi
+les regles et le journal d'audit, que le cockpit lit vraiment. **G-37**.
+
+### Deux gardes absentes, trouvees par mutation
+
+Les deux portaient sur ce que le brief nomme « un frontend affichant une
+decision qui n'est pas celle reellement appliquee ».
+
+Inverser le booleen de `governanceClient.approve` — « Approuver » envoie
+un refus — ne rougissait rien. Aucun test d'ecran ne peut l'attraper : il
+simule justement le client. La garde porte donc sur le client lui-meme.
+
+Et l'ecran de gouvernance pouvait lister les demandes deja decidees comme
+« en attente », ce qui ferait redemander une decision qu'Aegis ne
+reprendrait pas — une approbation consommee passe a `used`.
+
+### Preuves
+
+Treize mutations, treize rouges. Suite backend : 6174 passed, 3 skipped,
+274 deselected, 0 failed. `tsc` propre, 153 tests vitest dont 4 neufs sur
+l'ecran de gouvernance. `data/db/hermes.db` intacte ; l'installation reelle
+de l'agent n'est pas touchee — les competences de mesure vivent sous un
+`HERMES_HOME` de substitution relie au code reel par une jonction.
+
 ## HOS-284 — La temperature du GPU, mesuree (2026-09-10)
 
 Le champ existait depuis HOS-035. `allocation_policy` refusait une

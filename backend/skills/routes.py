@@ -298,6 +298,29 @@ async def gouvernance_du_cycle_de_vie(
     return gouvernance.vue(limite)
 
 
+@router.post("/installer")
+async def installer_une_competence(payload: dict = Body(...)) -> dict:
+    """Demander la pose d'une Skill, sous l'autorite d'Aegis (G-36, HOS-285).
+
+    Cette route n'installe rien elle-meme et ne contourne rien. Elle
+    soumet l'action a Aegis, transmet au runtime seulement si Aegis
+    autorise, puis rend ce que le DISQUE dit — jamais le `installed: true`
+    que `skills.manage` rend dans tous les cas, y compris apres un blocage
+    du scanner (mesure G-35).
+
+    Le premier appel sur une competence non approuvee rend
+    `approbation_requise` et n'ecrit rien : la demande part dans la file
+    d'Aegis, ou un humain decide. Une approbation d'Aegis autorise **la
+    prochaine tentative identique**, une fois — le second appel la
+    consomme. Ce n'est pas un detour : une file qui rejouerait des actions
+    stockees aurait besoin d'un repartiteur capable de tout reexecuter, ce
+    qu'une barriere de securite ne doit pas posseder.
+    """
+    from backend.skills import installation
+
+    return installation.installer(str(payload.get("identifiant") or ""))
+
+
 @router.get("/cache")
 async def get_cache() -> dict:
     return handle_get_cache()

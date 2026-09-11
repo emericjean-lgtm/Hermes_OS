@@ -67,8 +67,15 @@ export function GovernanceCenter() {
     return JSON.stringify(e).toLowerCase().includes(search.toLowerCase());
   });
 
+  // G-36 : la file lue est celle d'AEGIS — SQLite, alimentee sur le chemin
+  // de requete reel. Celle de `backend/policy/` etait un dictionnaire en
+  // memoire sans producteur : cet ecran annoncait « aucune approbation en
+  // attente » par construction, quoi qu'il arrive.
+  //
+  // Une demande expiree est ecartee : Aegis ne la consommera plus, et la
+  // laisser ici ferait croire qu'une decision sert encore a quelque chose.
   const pending = (approvals.data ?? []).filter(
-    (a) => String(a.status).toUpperCase() === "PENDING",
+    (a) => String(a.status).toLowerCase() === "pending" && !a.expired,
   );
 
   const decide = (id: string, verb: "approve" | "reject") => {
@@ -136,7 +143,10 @@ export function GovernanceCenter() {
       {tab === "approvals" && (
         <AsyncPanel
           title="Approbations en attente"
-          subtitle={`${pending.length} demande(s) — /api/v1/approval`}
+          subtitle={
+            `${pending.length} demande(s) — /api/v1/security/approvals ` +
+            `(file d'Aegis, un accord vaut pour une seule tentative)`
+          }
           isLoading={approvals.isLoading}
           isError={approvals.isError}
           error={approvals.error}
@@ -153,30 +163,40 @@ export function GovernanceCenter() {
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1">
+                    {/* Le type d'action EST la gravite ici : Aegis la tire
+                        de `config/security.yaml`, ou `skill_install` est
+                        `mandatory_validation`. Une priorite inventee a
+                        l'ecran serait une affirmation que la donnee ne
+                        porte pas. */}
                     <Badge
                       variant={
-                        req.priority === "CRITICAL" ? "danger"
-                        : req.priority === "HIGH" ? "warning"
+                        req.action_type.startsWith("skill_") ? "warning"
+                        : req.action_type.includes("delete")
+                          || req.action_type.includes("critical") ? "danger"
                         : "default"
                       }
                     >
-                      {req.priority}
+                      {req.action_type}
                     </Badge>
                     <span className="text-[12px] font-medium text-hermes-text font-mono truncate">
-                      {req.operation || "—"}
+                      {req.description || "—"}
                     </span>
                   </div>
                   <div className="text-[10px] text-hermes-dim font-mono">
-                    par {req.requested_by || "?"}
+                    demandee par {req.requesting_agent || "?"}
                     {req.created_at && ` · ${new Date(req.created_at).toLocaleString()}`}
                     {req.expires_at &&
                       ` · expire ${new Date(req.expires_at).toLocaleTimeString()}`}
                   </div>
-                  {req.metadata && Object.keys(req.metadata).length > 0 && (
-                    <pre className="text-[10px] text-hermes-muted mt-1.5 overflow-x-auto
-                      bg-hermes-bg-deep/60 rounded p-2 border border-hermes-border/40">
-                      {JSON.stringify(req.metadata, null, 2)}
-                    </pre>
+                  {req.reason && (
+                    <div className="text-[10px] text-hermes-muted mt-1">
+                      {req.reason}
+                    </div>
+                  )}
+                  {req.target_path && (
+                    <div className="num text-[10px] text-hermes-glacier mt-1 truncate">
+                      {req.target_path}
+                    </div>
                   )}
                 </div>
                 <div className="flex gap-1.5 shrink-0">

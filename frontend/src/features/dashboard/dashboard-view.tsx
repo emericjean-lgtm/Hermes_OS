@@ -48,7 +48,12 @@ export function DashboardView() {
   const failedMissions = missions?.filter((m) => m.status === "FAILED").length ?? 0;
   const activeAgents =
     agents?.filter((a) => a.status === "BUSY" || a.status === "STARTING").length ?? 0;
-  const pending = approvals?.filter((a) => a.status === "PENDING") ?? [];
+  // G-36 : ce filtre cherchait `"PENDING"` majuscule dans la file de
+  // `backend/policy/`. Aegis ecrit `pending` en minuscules, et une
+  // demande EXPIREE n'autorise plus rien — la montrer comme « en attente »
+  // ferait croire qu'une decision est encore utile.
+  const pending =
+    approvals?.filter((a) => a.status === "pending" && !a.expired) ?? [];
 
   const subsystems = Object.entries(health?.subsystems ?? {});
   const healthy = subsystems.filter(([, s]) => s.status === "HEALTHY").length;
@@ -254,10 +259,10 @@ export function DashboardView() {
                     <span className="mt-[3px] h-1.5 w-1.5 shrink-0 bg-hermes-glacier" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-[11.5px] text-hermes-text truncate">
-                        {a.operation}
+                        {a.description}
                       </span>
                       <span className="block num text-[9.5px] text-hermes-dim truncate mt-0.5">
-                        {a.requested_by} · {a.priority}
+                        {a.action_type} · {a.requesting_agent}
                       </span>
                     </span>
                     <ArrowUpRight

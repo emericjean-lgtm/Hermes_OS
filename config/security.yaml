@@ -169,6 +169,26 @@ action_categories:
     mandatory_validation: false
     min_autonomy_for_auto_allow: medium
 
+  # ── Skills (HOS-285) ──
+  # Poser une Skill fait entrer du code tiers dans l'agent, qui l'executera
+  # ensuite comme les siennes. `mandatory_validation: true` — jamais
+  # auto-autorise, quel que soit `autonomy_level` — pour une raison mesuree
+  # en G-35 et non par prudence de principe : le scanner de l'agent laisse
+  # passer un verdict `dangerous` quand la source est `builtin`.
+  # `actual-setup` a ete posee avec cinq findings critiques, dont un
+  # `env_exfil_curl`, et la politique de l'agent l'autorisait. Une seconde
+  # barriere, humaine, est exactement ce que §17.3 appelle.
+  #
+  # `path_based: false` : la cible est un identifiant de hub
+  # (`official/devops/actual-setup`), pas un chemin de fichier. La marquer
+  # `path_based` la ferait refuser faute de `target_path`, et la liste
+  # blanche de chemins ne dit rien d'un identifiant distant. Ce qui
+  # distingue deux demandes est porte par les discriminants (HOS-224).
+  skill_install:
+    mutating: true
+    path_based: false
+    mandatory_validation: true
+
   # ── Missions (HOS-068) ──
   # Same policy shape and reasoning as autonomous_goal_execute above,
   # applied to /missions/{id}/start instead — the two entry points share

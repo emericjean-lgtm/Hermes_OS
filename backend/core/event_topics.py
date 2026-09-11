@@ -118,6 +118,14 @@ SUBSYSTEM_TOPICS: frozenset[str] = frozenset({
     "bridge.mutation.demandee",
     "bridge.mutation.appliquee",
     "bridge.mutation.refusee",
+    # Pose d'une Skill (G-36) : la demande, l'attente d'approbation, et le
+    # resultat VERIFIE sur le disque — jamais le `installed: true` de la
+    # RPC. Le recit de ce que Hermes OS a demande lui appartient ; ce qui
+    # a ete ecrit appartient a l'agent et se relit chez lui.
+    "skills.installation.demandee",
+    "skills.installation.en_attente",
+    "skills.installation.refusee",
+    "skills.installation.resultat",
     # alexandrie
     "alexandrie.circuit.opened",
     "alexandrie.document.created",

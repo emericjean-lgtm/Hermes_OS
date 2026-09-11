@@ -112,8 +112,16 @@ def test_le_contrat_de_mutation_reste_sur_de_l_etat_stocke():
     les trois mutations existantes marchent : elles n'ont jamais vise le
     vivant.
     """
+    # `skills/` s'ajoute en G-36 : le dossier des competences, son verrou
+    # et son journal d'audit. C'est un troisieme MAGASIN, pas une
+    # troisieme semantique — il est stocke, il survit au redemarrage
+    # (mesure du 2026-09-11 : la pose et les decisions sont retrouvees par
+    # un processus neuf), et il ne vise aucun tour vivant. La ligne de
+    # partage que G-23 etablit ne bouge pas ; c'est la liste qui etait
+    # trop etroite d'un magasin.
+    MAGASINS_STOCKES = ("state.db", "config.yaml", "skills/")
     for methode, etat in MUTATIONS_CONNUES.items():
         assert etat.startswith("hermes-agent:"), (methode, etat)
-        assert etat.split(":", 1)[1] in ("state.db", "config.yaml"), (
+        assert etat.split(":", 1)[1] in MAGASINS_STOCKES, (
             f"`{methode}` ecrit {etat} : le contrat ne porte que sur de "
             "l'etat stocke, jamais sur un tour vivant.")

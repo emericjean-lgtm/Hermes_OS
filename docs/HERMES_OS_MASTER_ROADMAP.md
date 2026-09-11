@@ -626,6 +626,19 @@ sur le disque, et une seconde lecture par RPC aurait fabriqué la vérité
 concurrente que cette passe est allée fermer. Une surface négociable qu'on
 choisit de ne pas offrir est aussi un résultat.
 
+### La pose, demandée et gardée (HOS-285)
+
+Le pont porte enfin une mutation de Skill — `skills.manage` — et c'est la
+quatrième de `MUTATIONS_CONNUES`. G-26 l'avait refusée pour une raison
+exacte (« install n'écrit pas de façon vérifiable ») que G-35 a corrigée
+par la mesure : c'est le *compte rendu* qui ne vaut rien, l'écriture se
+vérifie à l'octet.
+
+Elle ajoute aussi un troisième magasin au contrat de G-23 — `skills/`, à
+côté de `state.db` et `config.yaml`. Un magasin, pas une sémantique : il
+est stocké, il survit au redémarrage, et il ne vise aucun tour vivant. La
+ligne de partage entre l'état stocké et le tour vivant ne bouge pas.
+
 ### Le dossier de l'agent, enfin lu (HOS-283)
 
 Quatrième lecture du disque de l'agent — après les compétences (HOS-274),
@@ -807,7 +820,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-283)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-285)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1556,10 +1569,88 @@ l'agent — « le producteur existe, l'approbateur est injoignable » — un
 étage plus haut, et cette fois chez nous. **G-36** : rendre la file
 d'approbation vivante joignable depuis le cockpit.
 
+### G-36 — l'approbation raccordée, la pose gouvernée (HOS-285)
+
+**ADOPT.** La chaîne complète fonctionne sur le chemin réel : demande →
+approbation Aegis → décision humaine → autorisation ou refus → pose
+réelle → provenance et audit → résultat visible.
+
+#### Laquelle des deux files, et pourquoi
+
+G-35 avait trouvé deux files d'approbation sans trancher. Mesuré le
+2026-09-11 :
+
+| | Aegis (`/security/approvals`) | Policy (`backend/policy/`) |
+|---|---|---|
+| stockage | SQLite `PendingApproval` | dict **en mémoire** |
+| producteur réel | `AegisAgent`, sur le chemin de requête | **aucun** — `set_policy_engine` n'est jamais appelé |
+| survit au redémarrage | oui | non |
+| lu par le cockpit | **non** | oui |
+
+Elles ne font pas la même chose, et **elles ne sont pas fusionnées** : la
+première est un jeton de passage (une fois, quinze minutes, empreinte
+exacte), la seconde une demande de workflow (multi-approbateurs,
+délégation). Mais une seule est branchée, et c'est elle qui garde les
+actions réelles. L'approbation d'une pose de Skill lui revient.
+
+La preuve de l'écart tient en une mesure : la file d'Aegis portait **206
+demandes `pending` du 2026-08-10 au 2026-09-02** qu'aucun écran ne pouvait
+montrer, pendant que le Dashboard affichait « File d'approbation vide ».
+
+#### Le contrat d'Aegis impose l'enchaînement
+
+« Approving here does **not** replay the action » : une approbation
+autorise **la prochaine tentative identique**, une fois. Donc :
+
+    1. demande       → REQUIRE_HUMAN_VALIDATION, rien n'est posé
+    2. l'humain décide dans le cockpit
+    3. on redemande  → l'approbation est consommée, et seulement là
+                       quelque chose s'écrit
+
+Ce n'est pas un détour d'implémentation : une file qui rejouerait des
+actions stockées aurait besoin d'un répartiteur capable de tout
+réexécuter, ce qu'une barrière de sécurité ne doit pas posséder.
+
+#### Les huit preuves, mesurées
+
+Foyer de substitution pour le disque des Skills ; Aegis, sa file SQLite,
+le vrai gateway lancé par le pont, le scanner de l'agent et le disque sont
+réels.
+
+    1. demande                  → approbation_requise, disque VIDE
+    2. visible dans la file d'Aegis (`skill_install`)
+    3. refus utilisateur        → approbation_requise, disque VIDE
+    4. accord puis nouvel essai → posée, `docker` conforme,
+                                  sha256:916f3198efaa5a18 des deux côtés
+    5. provenance               → source=skills.sh confiance=community
+                                  verdict=safe ; audit : INSTALL docker
+    6. cockpit                  → « Install skill … · skill_install ·
+                                  hermes-os.cockpit » en tête du Dashboard
+    7. processus NEUF           → pose ET décisions retrouvées ;
+                                  l'accord est passé à `used`
+    8a. conflit (déjà posée)    → sans_effet, disque inchangé
+    8b. danger, nom libre       → bloquée_par_le_scanner, disque VIDE,
+                                  audit : BLOCKED docker 25_findings
+
+**L'approbation humaine n'est pas un contournement du scanner** : Aegis
+autorise la *demande*, le scanner de l'agent garde la *pose*. 8b l'a
+d'abord caché — la compétence dangereuse s'appelle aussi `docker`, et sur
+un foyer où ce nom était pris `do_install` sort sur « déjà installée »
+**avant** d'atteindre le scanner. On mesurait un conflit en croyant
+mesurer une sécurité.
+
+#### Le résultat vient du disque
+
+`skills.manage install` rend `{"installed": true}` dans tous les cas. Le
+verdict rendu est tiré d'un **diff du disque** pris de part et d'autre de
+la demande : une clé neuve dans le verrou dont le dossier vérifie son
+empreinte, une ligne `BLOCKED` neuve, ou rien. Il n'est déduit ni de
+l'identifiant, ni d'un nom calculé, ni d'un booléen.
+
 **Ce que §10 attend encore.** Le versioning et le rollback : le ledger de
 l'agent (`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas**
 sur cette installation, et aucune RPC ne l'expose. Appariement skill ↔
-tâche reste PLANNED. Le déclenchement d'une installation attend G-36.
+tâche reste PLANNED.
 
 ---
 
@@ -1717,6 +1808,18 @@ relation sur de vrais événements — vérifié dans le navigateur, pas
 seulement en test. C'est la première fois de cette série qu'une capacité
 traverse §16 (le transport), §10 (la donnée) et §15 (l'écran) sans
 qu'aucun maillon ne soit `PRESENT` sans être `ACTUALLY USED`.
+
+**HOS-285 ferme la ligne « approbations » du tableau ci-dessus.** Elle
+n'y figurait pas, et c'est précisément ce que G-36 a trouvé : le cockpit
+affichait une file d'approbation **qui n'a aucun producteur**, donc vide
+par construction, pendant que la file vivante d'Aegis accumulait 206
+demandes invisibles. Les trois hooks (`useApprovals`, `useApproveAction`,
+`useRejectAction`) lisent désormais `/security/approvals`.
+
+C'est le cas le plus net de la série : non pas une capacité `PRESENT` sans
+consommateur, mais un consommateur branché sur la **mauvaise** source —
+une classe de défaut que ni le compteur d'orphelins ni le typage ne
+voyaient, parce que les deux surfaces existaient.
 
 **HOS-283 ajoute la gouvernance, et corrige la ligne du tableau
 ci-dessus.** « Cycle de vie des skills : 9 routes, aucune création, liste

@@ -351,10 +351,19 @@ def test_aucune_route_de_skill_ne_mute_toujours():
             if verbe in ("post", "put", "patch", "delete"):
                 chemin = (deco.args[0].value if deco.args
                           and isinstance(deco.args[0], ast.Constant) else "")
-                if "gouvernance" in str(chemin) or "install" in str(chemin):
+                if "gouvernance" in str(chemin):
                     fautives.append(f"{verbe.upper()} {chemin}")
+                elif "install" in str(chemin):
+                    # **Rescopee par G-36.** Le declenchement etait DEFER
+                    # faute d'approbateur joignable ; il l'est desormais.
+                    # Ce qui reste garde : la route delegue au module qui
+                    # passe par Aegis, elle n'installe pas elle-meme.
+                    appels = {getattr(c.func, "attr", None)
+                              for c in ast.walk(noeud) if isinstance(c, ast.Call)}
+                    if "installer" not in appels:
+                        fautives.append(f"{verbe.upper()} {chemin}")
     assert not fautives, (
-        "une route declenche une operation de cycle de vie : " +
+        "une route de cycle de vie n'est pas gardee par Aegis : " +
         ", ".join(fautives))
 
 

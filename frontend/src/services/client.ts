@@ -22,6 +22,7 @@ import type {
   MCPServer,
   PolicyRule,
   ApprovalRequest,
+  ApprobationAegis,
   AuditEntry,
   SystemEvent,
   ExecutionSummary,
@@ -1057,6 +1058,30 @@ export interface SkillPosee {
   findings: Record<string, number>;
 }
 
+/** Le resultat d'une demande de pose, tel que le DISQUE le dit (G-36).
+ *
+ *  `skills.manage install` rend `{"installed": true}` dans tous les cas,
+ *  y compris apres un blocage du scanner : rien de ce qui suit ne vient de
+ *  cette reponse. `posee` exige une clef neuve dans le verrou dont le
+ *  dossier verifie son empreinte ; `sans_effet` couvre ce que l'agent ne
+ *  garde pas — nom introuvable, deja posee sans `--force`. */
+export type StatutInstallation =
+  | "posee"
+  | "bloquee_par_le_scanner"
+  | "sans_effet"
+  | "approbation_requise"
+  | "refusee"
+  | "indisponible";
+
+export interface ResultatInstallation {
+  statut: StatutInstallation;
+  raison?: string;
+  skill?: string;
+  verifiee?: SkillPosee;
+  journal?: string[];
+  action_type?: string;
+}
+
 export interface GouvernanceSkills {
   /** Distingue « l'agent n'a jamais rien pose par le hub » de « Hermes OS
    *  n'a pas su lire son dossier ». Un ecran vide dirait sinon la meme
@@ -1082,6 +1107,11 @@ export const skillsClient = {
   observations: () =>
     fetchJSON<ObservationsSkills>("/skills/observations"),
   gouvernance: () => fetchJSON<GouvernanceSkills>("/skills/gouvernance"),
+  installer: (identifiant: string) =>
+    fetchJSON<ResultatInstallation>("/skills/installer", {
+      method: "POST",
+      body: JSON.stringify({ identifiant }),
+    }),
   select: (data: { task_description: string; domain?: string }) =>
     fetchJSON<unknown>("/skills/select", {
       method: "POST",
@@ -1166,13 +1196,25 @@ export const governanceClient = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  approvals: () => fetchJSON<unknown>("/approval").then((d) => unwrap<ApprovalRequest>(d, "approvals")),
-  approve: (id: string, comment?: string) =>
-    fetchJSON<ApprovalRequest>(`/approval/${id}/approve`, {
+  // G-36 : `approvals`/`approve`/`reject` pointaient sur `/approval`, la
+  // file de `backend/policy/` — un dictionnaire en memoire SANS PRODUCTEUR
+  // (`set_policy_engine` n'est jamais appele, mesure du 2026-09-11). Le
+  // cockpit affichait donc « file d'approbation vide » pendant qu'Aegis
+  // accumulait des demandes reelles que personne ne pouvait decider.
+  // Elles pointent desormais sur la file d'Aegis, qui est SQLite, qui
+  // survit au redemarrage, et qui garde les actions.
+  approvals: () => fetchJSON<ApprobationAegis[]>("/security/approvals"),
+  approve: (id: string) =>
+    fetchJSON<ApprobationAegis>(`/security/approvals/${id}`, {
       method: "POST",
-      body: JSON.stringify({ comment }),
+      body: JSON.stringify({ approved: true }),
     }),
-  reject: (id: string, comment?: string) =>
+  reject: (id: string) =>
+    fetchJSON<ApprobationAegis>(`/security/approvals/${id}`, {
+      method: "POST",
+      body: JSON.stringify({ approved: false }),
+    }),
+  _approvalPolitiqueRetiree: (id: string, comment?: string) =>
     fetchJSON<ApprovalRequest>(`/approval/${id}/reject`, {
       method: "POST",
       body: JSON.stringify({ comment }),

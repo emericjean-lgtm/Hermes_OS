@@ -174,20 +174,23 @@ def _litteraux(chemin: Path) -> set:
             and id(n) not in docs}
 
 
-def test_aucun_module_hermes_os_ne_demande_une_mutation_de_skill():
-    """`skills.manage install` rend `{"installed": true}` sans regarder ce
-    que `do_install` a fait — mesure : un nom inexistant rend `true`, et
-    le meme `true` sort quand le scanner de securite a bloque la pose.
+def test_un_seul_module_demande_une_mutation_de_skill():
+    """**Rescopee par G-36.** Elle interdisait toute demande de mutation,
+    parce qu'`install` rend `{"installed": true}` sans regarder ce que
+    `do_install` a fait. La mesure de G-35 a precise le defaut : c'est le
+    COMPTE RENDU qui est faux, pas l'ecriture — celle-ci se verifie a
+    l'octet par l'empreinte du verrou. G-36 branche l'approbateur.
 
-    Les six autres actions n'existent pas (`4017`). Le seul geste qu'un
-    appelant pourrait poser ici est donc soit un faux succes, soit une
-    erreur — jamais une mutation. La garde tient la ligne pour la passe
-    suivante, quand la tentation de « juste cabler un bouton » reviendra.
+    Ce qui la remplace est plus etroit et plus utile : un seul module a le
+    droit de demander, `backend/skills/installation.py`, et lui seul passe
+    par Aegis. Une seconde voie contournerait la barriere sans que rien ne
+    le dise — et les six autres actions n'existent toujours pas (`4017`).
 
     Sa portee : les modules qui nomment `skills.manage` litteralement. Un
     appelant qui composerait la methode a l'execution y echapperait — mais
     il echapperait aussi a toute lecture humaine, et ce n'est pas la forme
     que prend l'erreur qu'on veut empecher."""
+    AUTORISE = "backend\\skills\\installation.py"
     coupables = []
     for module in (RACINE / "backend").rglob("*.py"):
         if "tests" in module.parts:
@@ -195,21 +198,38 @@ def test_aucun_module_hermes_os_ne_demande_une_mutation_de_skill():
         source = module.read_text(encoding="utf-8", errors="replace")
         if "skills.manage" not in source:
             continue
+        relatif = str(module.relative_to(RACINE))
         litteraux = _litteraux(module)
         for action in MUTATIONS_REFUSEES:
-            if action in litteraux:
-                coupables.append(f"{module.relative_to(RACINE)} -> {action}")
+            if action in litteraux and relatif != AUTORISE:
+                coupables.append(f"{relatif} -> {action}")
     assert not coupables, (
-        "un appelant demande une mutation de Skill : " + ", ".join(coupables))
+        "un module autre que `skills/installation.py` demande une mutation "
+        "de Skill, donc sans passer par Aegis : " + ", ".join(coupables))
+
+    # Et le module autorise DOIT passer par Aegis : sans cette moitie, la
+    # garde ci-dessus se satisferait d'un module qui installe directement.
+    source = (RACINE / "backend" / "skills"
+              / "installation.py").read_text(encoding="utf-8")
+    assert "_aegis()" in source and "Verdict.ALLOW" in source, (
+        "le module autorise ne soumet pas son action a Aegis")
 
 
-def test_le_pont_ne_declare_aucune_mutation_de_skill():
-    """`MUTATIONS_CONNUES` dit quel fichier de l'agent une methode change.
-    Aucune methode `skills.*` n'y a sa place : `install` n'ecrit pas de
-    facon verifiable, et les autres n'existent pas."""
+def test_le_pont_declare_la_pose_et_dit_ce_qu_elle_ecrit():
+    """**Rescopee par G-36.** Elle disait « aucune methode `skills.*` n'y a
+    sa place », et sa raison — « install n'ecrit pas de facon verifiable »
+    — a ete corrigee par la mesure : l'ecriture se verifie a l'octet, c'est
+    le compte rendu qui ne vaut rien.
+
+    Ce qui reste garde est ce que `MUTATIONS_CONNUES` sert a dire : QUEL
+    fichier de l'agent une methode change. Une entree qui ne le nommerait
+    pas ne serait qu'une autorisation."""
     from backend.bridge.hermes_agent_bridge import MUTATIONS_CONNUES
 
-    assert not [m for m in MUTATIONS_CONNUES if m.startswith("skills.")]
+    skills = [m for m in MUTATIONS_CONNUES if m.startswith("skills.")]
+    assert skills == ["skills.manage"], skills
+    assert "hermes-agent:" in MUTATIONS_CONNUES["skills.manage"]
+    assert "skills" in MUTATIONS_CONNUES["skills.manage"]
 
 
 def test_aucune_route_n_offre_une_mutation_de_skill():
@@ -234,18 +254,34 @@ def test_aucune_route_n_offre_une_mutation_de_skill():
                       if deco.args and isinstance(deco.args[0], ast.Constant)
                       else "")
             if "skills" in str(chemin) and verbe != "get":
-                fautives.append(f"{verbe.upper()} {chemin}")
+                appels = {getattr(c.func, "attr", None)
+                          for c in ast.walk(noeud) if isinstance(c, ast.Call)}
+                if "installer" not in appels:
+                    fautives.append(f"{verbe.upper()} {chemin}")
     assert not fautives, (
-        "une route mute les Skills : " + ", ".join(fautives) +
-        " — or le runtime n'offre aucune mutation verifiable")
+        "une route mute les Skills sans passer par "
+        "`installation.installer`, donc sans Aegis : " + ", ".join(fautives))
+
+
+def _corps_de(source: str, nom: str) -> str:
+    """Le corps d'un composant, borne au SUIVANT.
+
+    Ces deux gardes decoupaient jusqu'a la fin du fichier : tout composant
+    ajoute plus bas y entrait. G-36 l'a paye — la surface de demande
+    d'installation, definie apres, faisait rougir le catalogue pour un
+    `skillsClient` qui n'etait pas le sien. Une garde bornee par la fin du
+    fichier grandit toute seule.
+    """
+    debut = source.index(f"function {nom}(")
+    suite = source.find("\nfunction ", debut + 1)
+    return source[debut:suite if suite > 0 else len(source)]
 
 
 def test_le_cockpit_dit_pourquoi_il_n_installe_pas():
     """Une capacite absente sans explication se lit comme un oubli, et la
     passe suivante la « repare » en cablant `install`. L'ecran porte donc
     la raison, pas seulement le silence."""
-    source = CENTER.read_text(encoding="utf-8")
-    corps = source[source.index("function OngletCatalogue()"):]
+    corps = _corps_de(CENTER.read_text(encoding="utf-8"), "OngletCatalogue")
     assert "Consultation seule" in corps
     assert "sans vérifier" in corps, (
         "l'ecran tait pourquoi l'installation n'est pas offerte")
@@ -256,8 +292,7 @@ def test_le_catalogue_ne_pretend_pas_dire_ce_qui_est_installe():
     les deux laisserait croire qu'une entree du catalogue est posee. Les
     deux onglets ont donc deux sources, et le catalogue n'appelle pas
     celle du disque."""
-    source = CENTER.read_text(encoding="utf-8")
-    corps = source[source.index("function OngletCatalogue()"):]
+    corps = _corps_de(CENTER.read_text(encoding="utf-8"), "OngletCatalogue")
     assert "skillsClient" not in corps, (
         "le catalogue lit la source du disque : deux populations melangees")
 

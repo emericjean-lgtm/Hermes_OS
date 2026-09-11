@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles, FolderTree, Search, ChevronLeft, ChevronRight, GitBranch, Unlink,
   ShieldCheck, ShieldAlert, FileWarning,
@@ -14,6 +14,7 @@ import {
   skillsClient, type AgentSkills, type SkillProvenance,
   type ObservationsSkills, type MutationObservee, type RaisonSansRun,
   type GouvernanceSkills, type SkillPosee, type EtatPosee,
+  type ResultatInstallation, type StatutInstallation,
 } from "@/services/client";
 import {
   useSkillsCatalogue, useSkillsRecherche, useSkillDetail,
@@ -440,9 +441,11 @@ function OngletCatalogue() {
       }
     >
       <p className="pb-3 text-[11px] text-hermes-dim">
-        Consultation seule. Installer depuis le cockpit n'est pas offert :
-        le runtime répond « installé » sans vérifier, y compris quand son
-        scanner de sécurité a bloqué la pose.
+        Consultation seule. Le runtime répond « installé » sans vérifier,
+        y compris quand son scanner a bloqué la pose : un bouton ici ferait
+        passer un refus de sécurité pour une réussite. La pose se demande
+        par identifiant dans l'onglet Gouvernance, sous l'autorité d'Aegis,
+        et son résultat y est vérifié sur le disque.
       </p>
       <div className="space-y-1.5">
         {elements.map((e, i) => {
@@ -859,6 +862,7 @@ function OngletGouvernance({
       isLoading={requete.isLoading}
       isError={requete.isError}
       error={requete.error}
+      action={<DemandeDInstallation />}
       isEmpty={posees.length === 0 && operations.length === 0}
       emptyLabel={
         d && !d.dossier_lisible
@@ -975,6 +979,109 @@ function OngletGouvernance({
         </p>
       )}
     </AsyncPanel>
+  );
+}
+
+/**
+ * Demander la pose d'une Skill — sous l'autorite d'Aegis (G-36, HOS-285).
+ *
+ * Ce bouton n'installe rien. Il soumet l'action a Aegis, qui la met en
+ * attente d'un accord humain : `skill_install` est declare
+ * `mandatory_validation` dans `config/security.yaml`, donc jamais
+ * auto-autorise, quel que soit le niveau d'autonomie.
+ *
+ * Le second appel, apres accord, consomme l'approbation — une fois. Ce
+ * n'est pas un detour d'implementation : une file qui rejouerait des
+ * actions stockees aurait besoin d'un repartiteur capable de tout
+ * reexecuter, ce qu'une barriere de securite ne doit pas posseder.
+ *
+ * Et le statut affiche vient du DISQUE. `skills.manage install` rend
+ * `installed: true` dans tous les cas, y compris apres un blocage du
+ * scanner : le montrer serait exactement le faux succes que cette serie
+ * de passes demonte depuis G-26.
+ */
+function DemandeDInstallation() {
+  const [identifiant, setIdentifiant] = useState("");
+  const qc = useQueryClient();
+  const demande = useMutation({
+    mutationFn: (id: string) => skillsClient.installer(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["skills", "gouvernance"] });
+      qc.invalidateQueries({ queryKey: ["approbations-aegis"] });
+    },
+  });
+  const r = demande.data;
+
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <input
+          value={identifiant}
+          onChange={(e) => setIdentifiant(e.target.value)}
+          placeholder="official/devops/actual-setup"
+          className="num text-[10.5px] bg-hermes-bg-deep/60 border border-hermes-border/60
+            clip-corner-sm px-2 py-1 w-[250px] text-hermes-text
+            placeholder:text-hermes-dim focus:outline-none focus:border-hermes-sodium/50"
+        />
+        <button
+          type="button"
+          disabled={!identifiant.trim() || demande.isPending}
+          onClick={() => demande.mutate(identifiant.trim())}
+          className="num text-[10px] uppercase tracking-[0.11em] px-2 py-1 border
+            clip-corner-sm text-hermes-sodium border-hermes-sodium/45
+            bg-hermes-sodium/[0.09] disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {demande.isPending ? "\u2026" : "Demander la pose"}
+        </button>
+      </div>
+      {demande.isError && (
+        <span className="text-[10px] text-hermes-red">
+          {String((demande.error as Error)?.message ?? "echec de la demande")}
+        </span>
+      )}
+      {r && <ResultatDeDemande r={r} />}
+    </div>
+  );
+}
+
+/** Les six issues bornees, traduites et jamais paraphrasees. */
+function ResultatDeDemande({ r }: { r: ResultatInstallation }) {
+  const table: Record<
+    StatutInstallation,
+    { texte: string; ton: "success" | "warning" | "danger" | "info"; aide: string }
+  > = {
+    posee: {
+      texte: "posee et verifiee", ton: "success",
+      aide: "empreinte du disque egale a celle du verrou",
+    },
+    approbation_requise: {
+      texte: "approbation requise", ton: "warning",
+      aide: "rien n'a ete ecrit — decidez dans Gouvernance, puis redemandez",
+    },
+    bloquee_par_le_scanner: {
+      texte: "bloquee par le scanner", ton: "danger",
+      aide: "l'accord humain autorise la demande, pas la pose",
+    },
+    sans_effet: {
+      texte: "sans effet", ton: "warning",
+      aide: "rien n'a ete ecrit : nom introuvable, ou deja posee",
+    },
+    refusee: { texte: "refusee", ton: "danger", aide: "refus d'Aegis" },
+    indisponible: {
+      texte: "indisponible", ton: "danger",
+      aide: "le runtime ou Aegis n'a pas repondu",
+    },
+  };
+  const l = table[r.statut] ?? {
+    texte: r.statut, ton: "warning" as const, aide: "",
+  };
+  return (
+    <span className="flex items-center gap-1.5" title={r.raison ?? l.aide}>
+      <Badge variant={l.ton}>{l.texte}</Badge>
+      <span className="text-[10px] text-hermes-dim max-w-[280px] truncate">
+        {r.skill ? `${r.skill} \u00b7 ${l.aide}` : l.aide}
+      </span>
+    </span>
   );
 }
 
