@@ -165,16 +165,35 @@ def save_result(result: AgenticProbeResult) -> None:
     """Accumulate one trial into the model's running record.
 
     Accumulates rather than overwrites, because one trial is not a verdict:
-    the rate across trials is what measured_success_for reads.
+    the rate across trials is what measured_success_for reads. But it
+    accumulates onto the *current* fingerprint only (G-15): if the stored
+    entry was measured under a different digest/num_ctx than what Ollama
+    serves for this tag right now, the old trials answer for a model that
+    no longer exists under this name, and folding a fresh trial into them
+    would report a rate no single model ever produced. The entry resets
+    instead — same policy `hermes_agent_bridge.NegociationRuntime` applies
+    to its own cache, one line up the same problem: a result is only ever
+    combined with results measured under the same observed state.
+
+    If the fingerprint cannot be read (Ollama unreachable, tag unknown to
+    it), the entry accumulates as before: a probe just ran successfully
+    against this exact model, so a lookup failure here is an Ollama/network
+    hiccup, not evidence of a change, and must not discard real trials.
     """
     try:
         path = _probe_store_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         results = load_results()
         entry = results.get(result.model) or {"trials": 0, "successes": 0, "runs": []}
+        fingerprint = current_fingerprint(result.model)
+        if fingerprint is not None and entry.get("fingerprint") not in (None, fingerprint):
+            entry = {"trials": 0, "successes": 0, "runs": []}
+        if fingerprint is not None:
+            entry["fingerprint"] = fingerprint
         entry["trials"] = int(entry.get("trials", 0)) + 1
         entry["successes"] = int(entry.get("successes", 0)) + (1 if result.success else 0)
         entry["success_rate"] = entry["successes"] / entry["trials"]
+        entry["measured_at"] = time.time()
         entry["runs"] = (entry.get("runs") or [])[-9:] + [result.as_dict()]
         results[result.model] = entry
         path.write_text(json.dumps(results, indent=2), encoding="utf-8")
@@ -188,6 +207,57 @@ def save_result(result: AgenticProbeResult) -> None:
 #: or none in 305s. Not 1-in-N either, which would let a single lucky run
 #: promote an unreliable model. A majority is the honest middle.
 _MIN_SUCCESS_RATE = 0.6
+
+_NUM_CTX_RE = re.compile(r"^num_ctx\s+(\d+)", re.MULTILINE)
+
+
+def current_fingerprint(model: str) -> Optional[dict]:
+    """What Ollama serves for `model` right now: its weights and num_ctx (G-15).
+
+    A verdict in the store answers for *the model that was probed*, not for
+    whatever now answers to the same tag. Two things can change that under
+    an unchanged name: ``ollama pull``/``ollama create`` replacing the
+    weights, or a Modelfile edit changing ``PARAMETER num_ctx`` — exactly
+    the two conditions CLAUDE.md and the roadmap name for G-15. Both are
+    read from Ollama itself rather than assumed:
+
+    - ``digest`` comes from ``/api/tags`` — a content hash Ollama computes
+      for the blob backing the tag, so identical weights always produce the
+      same value and different weights never collide by chance.
+    - ``num_ctx`` is parsed off the Modelfile text ``/api/show`` returns
+      under ``parameters`` — the same value ``ollama show --modelfile``
+      would print, not a guess from the catalogue.
+
+    Returns None when the tag is absent from the catalogue or Ollama does
+    not answer. Callers must treat that as "cannot verify freshness", never
+    as "unchanged" — see measured_success_for and save_result, which both
+    fail open (trust the stored verdict) rather than fail closed on a
+    lookup they cannot perform. That is deliberate: the one production
+    caller (service_registry._agentic_capable_cached) already required a
+    successful /api/show for this exact model before it ever asks, so in
+    practice this lookup fails only when a caller with no such guarantee
+    (a test, a script) asks about a tag Ollama does not know.
+    """
+    try:
+        import httpx
+
+        from backend.core.config import get_settings
+
+        base = get_settings().ollama_api_url.rstrip("/")
+        with httpx.Client(timeout=10.0) as client:
+            tags = client.get(f"{base}/api/tags").json().get("models") or []
+            digest = next(
+                (str(entry.get("digest")) for entry in tags
+                 if entry.get("name") == model or entry.get("model") == model),
+                None,
+            )
+            if digest is None:
+                return None
+            show = client.post(f"{base}/api/show", json={"model": model}).json()
+    except Exception:
+        return None
+    match = _NUM_CTX_RE.search(str(show.get("parameters") or ""))
+    return {"digest": digest, "num_ctx": int(match.group(1)) if match else None}
 
 
 def _same_model_aliases(model: str) -> tuple[str, ...]:
@@ -204,16 +274,29 @@ def _same_model_aliases(model: str) -> tuple[str, ...]:
 
 
 def measured_success_for(model: str) -> Optional[bool]:
-    """What real runs said about this model, or None if never probed.
+    """What real runs said about this model, or None if never probed —
+    or if probed under a model that no longer answers to this tag (G-15).
 
     Feeds ``ModelProfile.measured_agentic_success``, which outranks both the
     declaration and the size heuristic. A single trial is deliberately not
     treated as an answer: the first measurements taken on this deployment
     flipped both ways between runs, and a routing decision built on one
     sample is how a narrator gets promoted to mission brain.
+
+    Before trusting a stored verdict, this checks it was measured under the
+    weights and num_ctx Ollama serves for this tag *right now*. Nothing
+    else in the store can drift out from under it that way: the trial
+    counts are internal bookkeeping, and the structural signals
+    (declares_tools, served_context, cpu_offload_bytes) already get re-read
+    live on every call by ``_agentic_capable_cached`` — they were never
+    stale, which is why the roadmap named specifically the weights and
+    num_ctx as the gap. A mismatch answers None, the same as "never
+    probed": a verdict for a model that no longer exists under this tag is
+    not evidence about the model that does.
     """
     results = load_results()
     entry = results.get(model)
+    matched_key = model
     if entry is None:
         # "devstral" and "devstral:latest" are one model to Ollama, so a
         # measurement of either answers for the other. Matching on the bare
@@ -224,6 +307,7 @@ def measured_success_for(model: str) -> Optional[bool]:
         for candidate in _same_model_aliases(model):
             if candidate in results:
                 entry = results[candidate]
+                matched_key = candidate
                 break
     if entry is None:
         return None
@@ -233,6 +317,16 @@ def measured_success_for(model: str) -> Optional[bool]:
     successes = entry.get("successes", 0)
     if trials < 2:
         return None  # one sample is noise, not a measurement
+
+    stored_fingerprint = entry.get("fingerprint")
+    if stored_fingerprint is not None:
+        current = current_fingerprint(matched_key)
+        # None means "cannot verify" (Ollama unreachable, tag now unknown to
+        # it), not "unchanged" — fail open onto the stored verdict rather
+        # than manufacture a false negative out of a lookup failure.
+        if current is not None and current != stored_fingerprint:
+            return None
+
     return (successes / trials) >= _MIN_SUCCESS_RATE
 
 

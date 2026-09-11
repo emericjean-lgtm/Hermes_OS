@@ -33,8 +33,8 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      59bd733 (A-3, HOS-291) — dernier commit
-                               de code avant A-4 (HOS-292)
+BASELINE:                      f75e36d (A-4, HOS-292) — dernier commit
+                               de code avant G-15 (HOS-293)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -102,6 +102,16 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                Prédicat unique `authorized_root` (il était
                                écrit 3 fois) ; 14 mutations rouges puis
                                vertes ; G-43/G-44/A-26 ouverts en chemin
+                               G-15 fermé (HOS-293) — un verdict agentique
+                               porte désormais l'empreinte (digest +
+                               num_ctx) mesurée avec lui ; revérifiée à
+                               chaque lecture, elle rend `None` — non
+                               prouvé, pas prouvé faux — quand `ollama
+                               pull` ou un Modelfile édité change ce qui
+                               répond sous le même tag ; 15 mutations
+                               rouges puis vertes, chaîne bout en bout
+                               jusqu'à `_agentic_model` et redémarrage
+                               inter-processus démontrés
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -233,6 +243,26 @@ bloqués par des dettes qui vivent ailleurs (A-3 pour la reprise, A-4 pour
 les artefacts, G-10 pour le contrôle mémoire). Le contrat §15.1 (T-28)
 doit être tranché avant toute ligne de produit.
 
+**G-15 est fermé le 2026-09-12 (HOS-293).** `agentic_probe.py` indexait un
+verdict sur le seul tag du modèle : un `ollama pull` remplaçant les poids
+sous ce tag, ou un Modelfile édité pour servir un autre `num_ctx`,
+laissaient le verdict stocké en place, sans que rien ne le signale,
+jusqu'au prédicat de production et à la décision du routeur. Chaque
+entrée du magasin porte désormais l'**empreinte** — `digest` (`/api/tags`,
+un hash de contenu) et `num_ctx` (parsé du Modelfile que `/api/show`
+renvoie) — mesurée avec elle. `measured_success_for` la revérifie à
+chaque lecture contre ce qu'Ollama sert maintenant ; un écart rend `None`,
+non prouvé plutôt que la valeur périmée (même distinction à trois états
+que T-29). `save_result` applique la même règle en écriture : une
+empreinte différente de celle stockée repart d'une série à zéro plutôt que
+de mélanger des essais mesurés sur deux modèles distincts. Une empreinte
+introuvable échoue **ouvert** — elle ne fabrique pas un faux échec à
+partir d'une panne réseau. Même remède que celui que
+`hermes_agent_bridge.NegociationRuntime` applique déjà à son propre
+cache, appliqué au second magasin qui en avait besoin. 15 mutations
+rouges puis vertes, chaîne bout en bout démontrée jusqu'à
+`RealTaskExecutor._agentic_model`, et redémarrage inter-processus vérifié.
+
 ---
 
 ## NEXT_ACTION
@@ -317,7 +347,7 @@ primitive, et G-11 décide d'où bâtir Cowork.
 | ~~`_RegistreMissions` hydrate sur un ordre non garanti (A-19)~~ — **fermé HOS-262** | test | §3 |
 | ~~Le repli agentique défait toutes les décisions du routeur (G-12)~~ — **fermé HOS-263** | architectural | §6/§7 |
 | ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue (G-14)~~ — **fermé HOS-264** | architectural | §7 |
-| Un verdict agentique est une mesure datée que rien ne réévalue (G-15) | observability | §6/§7 |
+| ~~Un verdict agentique est une mesure datée que rien ne réévalue (G-15)~~ — **fermé HOS-293** | observability | §6/§7 |
 | 120 routes `/api/v1` sur 306 sans appelant frontend (G-16) | technical debt | §15/§16 |
 | Le pont négocie 12 surfaces qu'aucun service n'expose (G-17) | architectural | §16 |
 | ~~L'autorité sur l'état de l'agent n'est pas tranchée (G-18)~~ — **fermé HOS-267** | architectural | §16 |

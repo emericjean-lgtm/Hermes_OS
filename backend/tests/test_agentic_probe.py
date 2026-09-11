@@ -154,6 +154,154 @@ def test_a_stale_lock_does_not_wedge_the_probe(monkeypatch, tmp_path):
         pass  # must not raise
 
 
+def test_current_fingerprint_none_when_model_absent_from_catalogue(monkeypatch):
+    """No matching entry on /api/tags: cannot verify freshness, and this
+    must not be confused with an error worth crashing on."""
+    import httpx
+
+    class _Reponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"models": []}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, *a, **k):
+            return _Reponse()
+
+    monkeypatch.setattr(httpx, "Client", _Client)
+    assert agentic_probe.current_fingerprint("nowhere") is None
+
+
+def test_current_fingerprint_none_when_ollama_unreachable(monkeypatch):
+    import httpx
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, *a, **k):
+            raise ConnectionError("refused")
+
+    monkeypatch.setattr(httpx, "Client", _Client)
+    assert agentic_probe.current_fingerprint("m") is None
+
+
+def _empreinte(monkeypatch, valeur):
+    monkeypatch.setattr(agentic_probe, "current_fingerprint", lambda _m: valeur)
+
+
+def test_verdict_valid_without_a_fingerprint_change(store, monkeypatch):
+    """A. Same fingerprint at measurement and at read time: the verdict
+    stands, checked on every read rather than assumed."""
+    _empreinte(monkeypatch, {"digest": "d1", "num_ctx": 131072})
+    for _ in range(3):
+        save_result(_result(success=True))
+
+    assert measured_success_for("m") is True
+
+
+def test_weight_change_invalidates_the_verdict(store, monkeypatch):
+    """B. `ollama pull` under the same tag: a verdict measured against the
+    old weights must not answer for the new ones."""
+    _empreinte(monkeypatch, {"digest": "poids-v1", "num_ctx": 131072})
+    for _ in range(3):
+        save_result(_result(success=True))
+    assert measured_success_for("m") is True
+
+    _empreinte(monkeypatch, {"digest": "poids-v2", "num_ctx": 131072})
+    assert measured_success_for("m") is None
+
+
+def test_num_ctx_change_invalidates_the_verdict(store, monkeypatch):
+    """B (variant). Same weights, a Modelfile edit changing what context is
+    served — the other condition CLAUDE.md and the roadmap name for G-15."""
+    _empreinte(monkeypatch, {"digest": "d1", "num_ctx": 131072})
+    for _ in range(3):
+        save_result(_result(success=True))
+    assert measured_success_for("m") is True
+
+    _empreinte(monkeypatch, {"digest": "d1", "num_ctx": 8192})
+    assert measured_success_for("m") is None
+
+
+def test_returning_to_an_identical_fingerprint_keeps_the_verdict(store, monkeypatch):
+    """C. A real change reverted to a bit-identical state, with no probe
+    saved while it was different, is indistinguishable from never having
+    changed — the contract is the fingerprint, not a generation counter
+    this store does not keep."""
+    _empreinte(monkeypatch, {"digest": "d1", "num_ctx": 131072})
+    for _ in range(3):
+        save_result(_result(success=True))
+    assert measured_success_for("m") is True
+
+    _empreinte(monkeypatch, {"digest": "d2", "num_ctx": 131072})
+    assert measured_success_for("m") is None
+
+    _empreinte(monkeypatch, {"digest": "d1", "num_ctx": 131072})
+    assert measured_success_for("m") is True
+
+
+def test_a_stale_series_is_not_blended_into_a_fresh_one(store, monkeypatch):
+    """D. 3 successes under the old fingerprint plus 1 failure under the
+    new one must never read as 3/4 (75%, above threshold) — the old series
+    answers for a model that no longer exists under this tag."""
+    _empreinte(monkeypatch, {"digest": "d1", "num_ctx": 131072})
+    for _ in range(3):
+        save_result(_result(success=True))
+
+    _empreinte(monkeypatch, {"digest": "d2", "num_ctx": 131072})
+    save_result(_result(success=False))
+
+    entry = json.loads(store.read_text(encoding="utf-8"))["m"]
+    assert entry["trials"] == 1, "the 3 old trials must have been discarded"
+    assert entry["successes"] == 0
+    assert entry["fingerprint"] == {"digest": "d2", "num_ctx": 131072}
+
+
+def test_an_unverifiable_fingerprint_fails_open(store, monkeypatch):
+    """Ollama unreachable or the tag gone from its catalogue is 'cannot
+    verify', never 'changed' — failing closed here would turn a network
+    hiccup into a fabricated capability regression."""
+    _empreinte(monkeypatch, {"digest": "d1", "num_ctx": 131072})
+    for _ in range(3):
+        save_result(_result(success=True))
+
+    _empreinte(monkeypatch, None)
+    assert measured_success_for("m") is True
+
+
+def test_legacy_entries_without_a_stored_fingerprint_are_not_retroactively_invalidated(
+    store, monkeypatch,
+):
+    """Entries written before G-15 carry no `fingerprint` key. They must
+    keep answering exactly as they did — this feature only starts
+    verifying freshness for verdicts it recorded a fingerprint for."""
+    store.parent.mkdir(parents=True, exist_ok=True)
+    store.write_text(json.dumps({"m": {"trials": 3, "successes": 3,
+                                       "success_rate": 1.0, "runs": []}}),
+                     encoding="utf-8")
+    _empreinte(monkeypatch, {"digest": "peu-importe", "num_ctx": 131072})
+
+    assert measured_success_for("m") is True
+
+
 def test_a_broken_store_never_breaks_the_caller(monkeypatch, tmp_path):
     """This feeds model routing; losing a diagnostic must not fail a task."""
     monkeypatch.setattr(

@@ -1,3 +1,114 @@
+## HOS-293 — Un verdict agentique est une mesure datée (2026-09-12)
+
+G-15. Ferme le chantier opérationnel #4.
+
+### Le défaut
+
+`agentic_probe.py` mesure si un modèle sait piloter la boucle d'outils de
+Hermes Agent et persiste le verdict sous `db/agentic_probe_results.json`,
+indexé par le seul **tag** du modèle (`measured_success_for(model)`).
+Rien dans cette clé ne dépend de ce que le tag désigne réellement.
+
+Deux événements changent cela sans changer le tag :
+
+- `ollama pull`/`ollama create` remplaçant les poids sous le même nom ;
+- un Modelfile édité pour servir un autre `num_ctx`.
+
+Dans les deux cas, mesuré sur le magasin réel : le verdict stocké reste en
+place, `measured_success_for` continue de répondre `True` pour un modèle
+qui n'est plus celui qui a été sondé, et ce `True` atteint sans obstacle
+le prédicat de production
+(`service_registry._agentic_capable_for`/`_agentic_capable_cached`) puis
+la décision du routeur (`RealTaskExecutor._agentic_model`, T-29/HOS-263) —
+qui garde alors un modèle choisi sur une preuve qui n'en est plus une.
+
+Le même défaut de principe existait déjà et avait été fermé une fois,
+ailleurs : `hermes_agent_bridge.NegociationRuntime` met en cache la
+négociation de capacités du pont sous l'**empreinte du runtime** (version
++ commit de l'agent installé), justement pour qu'une mise à jour la périme
+d'elle-même. Le magasin de sondes n'avait jamais reçu le même traitement.
+
+### Ce qui a été livré
+
+Chaque entrée du magasin porte désormais une **empreinte** mesurée avec
+elle :
+
+- `digest` — lu sur `/api/tags`, un hash de contenu que le pull remplace
+  quand les poids changent, et qui ne dépend jamais d'une horloge ;
+- `num_ctx` — parsé dans le texte `parameters` que `/api/show` renvoie
+  (`PARAMETER num_ctx …` du Modelfile), la même valeur qu'`ollama show
+  --modelfile` afficherait.
+
+`measured_success_for` la revérifie à **chaque lecture** contre ce
+qu'Ollama sert maintenant pour ce tag : un écart rend `None` — non prouvé,
+et non pas prouvé faux, la distinction à trois états que T-29 avait déjà
+posée pour un motif voisin — plutôt que la valeur périmée. `save_result`
+applique la même règle en écriture : si l'empreinte stockée diffère de
+celle mesurée maintenant, la série repart à zéro avant d'accumuler le
+nouvel essai, pour ne jamais faire état d'un taux de succès qu'aucun
+modèle unique n'a produit. Une empreinte introuvable (Ollama injoignable,
+tag absent de son catalogue) échoue **ouvert** — traitée comme « ne peut
+pas être vérifiée », jamais comme « a changé » — parce que le seul
+appelant réel a déjà réussi un `/api/show` sur exactement ce modèle avant
+de poser la question ; un échec de vérification à ce stade est un aléa
+réseau, pas une preuve.
+
+Aucun TTL introduit : l'invalidation suit un changement d'état réel
+(poids, `num_ctx`), jamais une horloge — la distinction que CLAUDE.md fait
+explicitement pour ce chantier. Un aller-retour vers une empreinte
+bit-identique, sans sonde enregistrée pendant l'écart, redevient
+indiscernable d'un état qui n'a jamais changé : c'est le contrat choisi
+(l'empreinte fait foi, pas un compteur de générations que ce magasin ne
+tient pas), documenté dans le code plutôt que supposé.
+
+### Preuves
+
+Chemin réel démontré de bout en bout, pas seulement au niveau du module :
+un modèle mesuré capable (`True`) dont les poids changent sous le même
+tag redevient `None` au prédicat de production
+(`service_registry._agentic_capable_for`), et `RealTaskExecutor._agentic_model`
+substitue alors le repli — mesuré capable entre-temps sous sa propre
+empreinte — là où l'ancien code aurait conservé la décision sur la foi
+d'un verdict périmé (`backend/tests/test_preuve_agentique.py::test_le_repli_ne_defait_plus_une_decision_sur_une_preuve_perimee`).
+
+Redémarrage inter-processus : trois interprètes Python distincts
+partageant `HERMES_DATA_DIR` — l'un mesure sous une empreinte, le second
+lit après un changement de poids simulé et obtient `None`, le troisième
+remesure sous la nouvelle empreinte et obtient un verdict qui ne mélange
+pas l'ancienne série
+(`test_linvalidation_dempreinte_survit_au_redemarrage`).
+
+15 tests neufs entre `backend/tests/test_agentic_probe.py` et
+`backend/tests/test_preuve_agentique.py`, chacun rouge sur le code
+d'avant cette passe puis vert après — vérifié explicitement par un
+`git stash` du seul fichier corrigé. Aucun test existant modifié dans son
+intention ; l'aide `_ollama_bouchonne` a gagné un paramètre optionnel
+(`model`/`digest`/`num_ctx`) qui, laissé à sa valeur par défaut, reproduit
+exactement le comportement précédent pour les 14 tests qui ne le
+demandent pas.
+
+Suite complète : voir le rapport de fin de chantier. `data/db/hermes.db`
+et toute donnée utilisateur inchangées ; aucune autorité de sécurité
+touchée ; aucun réseau réel appelé en test (Ollama, quand il répond dans
+cet environnement, ne connaît aucun des tags synthétiques utilisés).
+
+### Limites dites
+
+- Aucune route HTTP, aucun outil MCP n'exposent ce magasin : les seuls
+  consommateurs réels sont `service_registry._agentic_capable_cached`
+  (le chemin de mission) et `scripts/sonder_modeles.py` (l'écriture). Il
+  n'y avait rien d'autre à démontrer sur ces deux surfaces-là.
+- `current_fingerprint` ajoute jusqu'à deux appels HTTP à Ollama par
+  vérification ; `_agentic_capable_cached` en fait déjà un pour les
+  capacités déclarées. Les trois ne sont pas fusionnés — un gain de
+  performance mineur, hors périmètre de G-15, qui porte sur la justesse
+  de l'invalidation et non sur son coût.
+- Les entrées écrites avant cette passe ne portent aucune empreinte et
+  restent donc dignes de confiance sans contrôle jusqu'à leur prochaine
+  écriture — une migration explicite plutôt qu'une invalidation générale
+  rétroactive, qui aurait effacé silencieusement tout le catalogue déjà
+  sondé par G-14.
+
 ## HOS-292 — Valider un dossier n'a jamais dit qui peut y toucher (2026-09-11)
 
 A-4. Ferme le chantier opérationnel #3.

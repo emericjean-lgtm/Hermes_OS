@@ -5,10 +5,10 @@
 >
 > Il complète `docs/HERMES_OS_MASTER_ROADMAP.md` : le document maître décrit l'architecture, l'historique et les écarts ; ce document impose l'ordre de travail.
 >
-> Dernière mise à jour : 2026-09-11
-> Dernier jalon vérifié : HOS-292 / A-4
-> Dernier commit de code vérifié : voir `git log -1` — A-4 fermé sur la
-> base `59bd733163f6a22335a8fe4cd9fd41325b4c6b77` (HOS-291 / A-3)
+> Dernière mise à jour : 2026-09-12
+> Dernier jalon vérifié : HOS-293 / G-15
+> Dernier commit de code vérifié : voir `git log -1` — G-15 fermé sur la
+> base `f75e36d0eee03d4910cbf68ef1a30f8f628e3982` (HOS-292 / A-4)
 
 ## 1. Règles d'exécution
 
@@ -30,9 +30,45 @@
 
 ## 2. Situation courante
 
-**Chantier actif : #4 — G-15 invalidation des probes**
+**Chantier actif : #5 — G-11 `assigned_tools` réellement utilisé**
 
 Statut : 🟠 **À EXÉCUTER**
+
+**#4 — G-15 invalidation des probes : 🟢 FERMÉ le 2026-09-12 (HOS-293).**
+Le magasin de `agentic_probe.py` (`db/agentic_probe_results.json`) indexait
+un verdict sur le seul tag du modèle. Mesuré : `ollama pull` remplaçant
+les poids sous un tag inchangé, ou un Modelfile édité pour servir un autre
+`num_ctx`, laissaient le verdict stocké en place — `measured_success_for`
+continuait de répondre `True` pour un modèle qui n'était plus celui sondé,
+jusqu'au prédicat de production (`service_registry._agentic_capable_for`)
+et à la décision du routeur (`RealTaskExecutor._agentic_model`).
+
+**Correction** : chaque entrée du magasin porte désormais l'**empreinte**
+mesurée avec elle — `digest` (`/api/tags`, un hash de contenu, jamais une
+horloge) et `num_ctx` (parsé du Modelfile que `/api/show` renvoie).
+`measured_success_for` la revérifie à **chaque lecture** contre ce
+qu'Ollama sert maintenant pour ce tag ; un écart rend `None` — non prouvé,
+pas prouvé négatif (T-29) — plutôt que la valeur perimée. `save_result`
+applique la même règle en écriture : une empreinte différente de celle
+stockée repart d'une série à zéro, pour ne jamais mélanger des essais
+mesurés sur deux modèles distincts dans le même compteur. Une empreinte
+introuvable (Ollama injoignable, tag disparu de son catalogue) échoue
+**ouvert** — elle ne fabrique pas un faux échec à partir d'une panne
+réseau ; le seul appelant réel a de toute façon déjà réussi un `/api/show`
+sur ce modèle avant de poser la question. Aucune horloge, aucun TTL :
+l'invalidation suit un changement d'état réel, comme
+`hermes_agent_bridge.NegociationRuntime` le fait déjà pour le pont — le
+même remède, appliqué au second magasin qui en avait besoin.
+
+Preuves : 15 tests neufs (`test_agentic_probe.py`, `test_preuve_agentique.py`),
+rouges sur le code d'avant-passe puis verts après, dont un aller-retour
+inter-processus (`HERMES_DATA_DIR` partagé, trois interprètes distincts)
+qui mesure, invalide après un changement de poids simulé, puis remesure
+sous la nouvelle empreinte sans mélanger l'ancienne série — et une chaîne
+bout en bout sur le chemin réel : verdict `True` → poids changés sous le
+même tag → `_agentic_capable_for` rend `None` → le repli, mesuré capable
+entre-temps sous sa propre empreinte, l'emporte dans `_agentic_model`
+(T-29). Suite complète : voir rapport HOS-293.
 
 **#3 — A-4 habilitation Workspace / MCP : 🟢 FERMÉ le 2026-09-11
 (HOS-292).** Valider un projet élargissait la liste blanche d'Aegis pour
@@ -110,9 +146,9 @@ comptant les connexions) : 0 requête sur `chat` et `chat_events` avec
 secret, 1 requête et réponse reçue sans secret. Cinq mutations rouges
 puis vertes. **§4 passe 🟢.**
 
-**Prochain chantier obligatoire : #4 — G-15 invalidation des probes.**
+**Prochain chantier obligatoire : #5 — G-11 `assigned_tools` réellement utilisé.**
 
-Base de travail : HOS-292 / A-4.
+Base de travail : HOS-293 / G-15.
 
 ## 3. Ordre obligatoire des chantiers
 
@@ -121,8 +157,8 @@ Base de travail : HOS-292 / A-4.
 | 1 | ~~**A-10 — Pare-feu OpenRouter**~~ | 🟢 **FERMÉ (HOS-290)** | rempli : `sk-or-v1-*` reconnu ; refus prouvé à la socket sur `chat` et `chat_events` (0 requête) ; 7 faux positifs conservés ; 5 mutations rouges puis vertes |
 | 2 | ~~**A-3 — Checkpoints / restauration**~~ | 🟢 **FERMÉ (HOS-291)** | rempli : **ADOPT** ; `apercu` + `restaurer` appelables depuis le panneau Supervision ; Aegis seule autorité, accord humain nommant le point de reprise ; restauration prouvée au navigateur et après redémarrage ; 4 mutations rouges puis vertes. Limites dites : A-22, A-23, A-24 |
 | 3 | ~~**A-4 — Habilitation Workspace / MCP**~~ | 🟢 **FERMÉ (HOS-292)** | rempli : **ADAPT** ; habilitation **nominative** — la racine n'est accordée qu'à l'action qui nomme son projet ; prédicat unique dans `authorized_root` ; chaîne UI→HTTP→Aegis→outil démontrée au navigateur et par un vrai client MCP ; 14 mutations rouges puis vertes. Limites dites : G-43, G-44, A-26 |
-| 4 | **G-15 — Invalidation des probes** | 🟠 **ACTIF** | invalidation/re-évaluation automatique lorsque poids, `num_ctx`, paramètres ou état agentique changent sous un même tag ; preuves datées et consommées |
-| 5 | **G-11 — `assigned_tools` réellement utilisé** | 🟠 | champ relié au vrai chemin d'exécution et démontré par allow/deny contrastés |
+| 4 | ~~**G-15 — Invalidation des probes**~~ | 🟢 **FERMÉ (HOS-293)** | rempli : chaque verdict porte l'empreinte (digest `/api/tags` + `num_ctx` du Modelfile) mesurée avec lui ; `measured_success_for` la revérifie à chaque lecture, `save_result` repart d'une série neuve sur un écart ; None (non prouvé) remplace un verdict périmé jusqu'au prédicat et à `_agentic_model` ; 15 mutations rouges puis vertes, chaîne bout en bout et redémarrage inter-processus démontrés |
+| 5 | **G-11 — `assigned_tools` réellement utilisé** | 🟠 **ACTIF** | champ relié au vrai chemin d'exécution et démontré par allow/deny contrastés |
 | 6 | **G-10 — Promotion mémoire HTTP/UI** | 🟠 | route produit réelle ; contrôle humain nommé ; provenance/quarantaine conservées ; absence d'auto-promotion par agent |
 | 7 | **T-28 — Contrat Chat / Cowork** | 🟠 | contrat comportemental tranché et adopté avant travail produit correspondant |
 | 8 | **§15.5 — Explainability + Resources + Proofs** | 🟠 | décisions, provenance, coûts/ressources et preuves réellement visibles dans l'Assistant sur données réelles |
@@ -171,6 +207,7 @@ Base de travail : HOS-292 / A-4.
 - A-4 / HOS-292 : l'habilitation de workspace est **nominative** — valider un projet n'accorde sa racine qu'aux actions qui le nomment. Un prédicat unique (`authorized_root`), trois surfaces (HTTP, MCP, chat) sous la même décision.
 - §6.1 / HOS-263 : décision du routeur réellement consommée et repli borné par la preuve.
 - G-14 / HOS-264 : capacité agentique mesurée sur les six modèles du catalogue.
+- G-15 / HOS-293 : un verdict agentique porte l'empreinte (digest + `num_ctx`) sous laquelle il a été mesuré, revérifiée à chaque lecture — un `ollama pull` ou un `num_ctx` de Modelfile changé sous le même tag ne laisse plus un verdict périmé en place.
 - §16 / HOS-265→274 : pont Hermes Agent, matrice et capacités intégrées selon preuves ; G-23 convergence ACP↔Gateway rejetée ; G-24 interruption ACP adoptée.
 - §10 / HOS-274→286 : population, provenance, corrélation Run↔Skill, observateur, gouvernance et installation Aegis démontrés ; versioning/rollback restent ouverts.
 - G-39 / HOS-288 : faux tableaux du Security Center corrigés ; Aegis réaffirmé comme autorité.
@@ -181,8 +218,7 @@ Base de travail : HOS-292 / A-4.
 - G-13 : deux dimensions de score encore inertes.
 - A-16 : probe d'occupation Linux `rocm-smi` non exercée.
 - A-17 : test de sous-système réel encore >60 s.
-- A-20 : détection d'un Modelfile étendu sous fingerprint déclaré.
-- G-15 : invalidation des probes.
+- A-20 : détection d'un Modelfile étendu sous fingerprint déclaré (distinct de G-15 : celui-ci porte sur l'empreinte VRAM déclarée en §6.2, pas sur le verdict agentique).
 - G-2 : isolation mémoire par projet.
 - G-10 : promotion mémoire HTTP/UI.
 - G-11 : `assigned_tools` non consommé.
@@ -231,10 +267,10 @@ Lorsqu'un nouveau travail Hermes OS commence, utiliser d'abord :
 
 ## 9. Actuel
 
-**ACTIVE: G-15**
+**ACTIVE: G-11**
 
-**NEXT: G-11**
+**NEXT: G-10**
 
-*(A-10 fermé le 2026-09-11, HOS-290 ; A-3 fermé le 2026-09-11, HOS-291 ; A-4 fermé le 2026-09-11, HOS-292.)*
+*(A-10 fermé le 2026-09-11, HOS-290 ; A-3 fermé le 2026-09-11, HOS-291 ; A-4 fermé le 2026-09-11, HOS-292 ; G-15 fermé le 2026-09-12, HOS-293.)*
 
 **DO NOT JUMP AHEAD.**

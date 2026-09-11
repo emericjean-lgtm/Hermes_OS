@@ -498,8 +498,12 @@ un écrasement silencieux de la décision :
   nommait pas le répertoire de travail alors que la production le nomme, si
   bien qu'un modèle qui écrivait le bon fichier au mauvais endroit était
   noté en échec. Sixième défaut de mesure du catalogue, sixième faux échec.
-  Reste **G-15** : un verdict est une mesure datée, que rien ne réévalue
-  quand les poids, le `num_ctx` d'un Modelfile ou l'agent changent.
+  ~~Restait **G-15**~~ — **fermé le 2026-09-12 (HOS-293)** : un verdict
+  était une mesure datée que rien ne réévaluait quand les poids ou le
+  `num_ctx` d'un Modelfile changeaient sous le même tag. Le magasin porte
+  désormais l'empreinte (digest + `num_ctx`) mesurée avec chaque verdict,
+  et `measured_success_for` la revérifie à chaque lecture avant de faire
+  confiance à la mesure stockée.
 
 ### §6.2 — Ordonnancement conscient des ressources
 VRAM, RAM, CPU, fenêtre de contexte, coût, latence, disponibilité,
@@ -2371,7 +2375,7 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | G-11 | **technical debt** | `assigned_tools` d'une tâche est planifié et **jamais invoqué** | §7 | `task_executor.py:31` le documente ; l'agent a ses propres outils, la sélection du planificateur est décorative |
 | ~~**G-12**~~ | ~~architectural~~ | ~~Le repli agentique défait **toutes** les décisions du routeur~~ — **fermé HOS-263** | §6/§7 | mesuré : 0 sur 5 avant, **5 sur 5** après ; un repli ne défait plus une décision sans porter une preuve qu'elle n'a pas |
 | ~~**G-14**~~ | ~~architectural~~ | ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue~~ — **fermé HOS-264** | §7 | 18 essais réels, 6 modèles, 6/6 prouvés ; chaîne magasin → prédicat → modèle engagé mesurée sur le vrai bootstrap. La sonde mesurait la convention de chemin et non le modèle : corrigée sur la formulation même de la production |
-| **G-15** | **observability** | Un verdict agentique est une mesure datée que rien ne réévalue | §6/§7 | le magasin ne porte ni date de mesure exploitée, ni empreinte des poids ou du `num_ctx` servi : remplacer un modèle sous le même tag laisse son verdict en place sans que rien ne le signale. **Le pont (§16) applique la solution** : son cache est indexé sur l'empreinte du runtime |
+| ~~**G-15**~~ | ~~observability~~ | ~~Un verdict agentique est une mesure datée que rien ne réévalue~~ — **fermé HOS-293** | §6/§7 | même remède que le pont (§16) : le magasin indexe désormais chaque verdict sur l'empreinte (digest `/api/tags` + `num_ctx` du Modelfile) mesurée au moment de la sonde, et `measured_success_for` la revérifie à chaque lecture — un `ollama pull` ou un `num_ctx` édité sous le même tag rend le verdict `None` (non prouvé), jusqu'au prédicat de production et à `_agentic_model` |
 | **G-16** | **technical debt** | 120 routes `/api/v1` sur 306 n'ont aucun appelant frontend | §15/§16 | mesuré le 2026-09-07, instrument corrigé deux fois ; gelé comme dette dans `test_pas_de_backend_orphelin.py`, qui interdit désormais d'en ajouter |
 | **G-17** | **architectural** | Le pont négocie 12 surfaces qu'aucun service n'expose | §16 | **réduit de 17 à 12 par HOS-266** : sessions, tools, profiles, delegation et cron ont désormais route, client et UI. Restent chat/streaming, steering, approvals, skills, learning, MCP, browser, projects, config, insights |
 | ~~**G-18**~~ | ~~architectural~~ | ~~L'autorité sur l'état de l'agent n'est pas tranchée~~ — **fermé HOS-267** | §16 | contrat établi par la mesure : l'agent est seul autorité sur `state.db`, Hermes OS demande et trace sa demande dans son propre bus. Une mutation additive intégrée de bout en bout, deux gardes structurelles, 10 mutations rouges |

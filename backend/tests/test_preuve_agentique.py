@@ -139,6 +139,63 @@ def test_le_verdict_survit_au_redemarrage_du_processus(tmp_path):
     assert b.stdout.strip() == "True", b.stdout
 
 
+def _script_empreinte(digest, num_ctx):
+    """Remplace `current_fingerprint` sans httpx ni pytest, pour un
+    sous-processus autonome (`python -c ...`)."""
+    return (
+        "from backend.model_intelligence import agentic_probe\n"
+        "agentic_probe.current_fingerprint = "
+        "lambda _m: {'digest': %r, 'num_ctx': %r}\n"
+    ) % (digest, num_ctx)
+
+
+def test_linvalidation_dempreinte_survit_au_redemarrage(tmp_path):
+    """G. La persistance ne suffit pas si l'invalidation, elle, ne
+    traverse pas le redemarrage : trois interpretes distincts — un qui
+    mesure sous une empreinte, un second qui lit apres un changement de
+    poids simule, un troisieme qui remesure sous la nouvelle empreinte et
+    doit obtenir un verdict frais, pas melange a l'ancien."""
+    env = {**dict(__import__("os").environ), "HERMES_DATA_DIR": str(tmp_path)}
+
+    mesurer_v1 = (
+        "import sys; sys.path.insert(0, r'%s')\n" % RACINE
+        + _script_empreinte("poids-v1", 131072)
+        + "from backend.model_intelligence.agentic_probe import "
+          "AgenticProbeResult, save_result\n"
+          "for _ in range(3):\n"
+          "    save_result(AgenticProbeResult('mdl-restart', True, 2, 1.0, True))\n"
+    )
+    lire_apres_changement = (
+        "import sys; sys.path.insert(0, r'%s')\n" % RACINE
+        + _script_empreinte("poids-v2", 131072)
+        + "from backend.model_intelligence.agentic_probe import measured_success_for\n"
+          "print(measured_success_for('mdl-restart'))\n"
+    )
+    remesurer_v2 = (
+        "import sys; sys.path.insert(0, r'%s')\n" % RACINE
+        + _script_empreinte("poids-v2", 131072)
+        + "from backend.model_intelligence.agentic_probe import "
+          "AgenticProbeResult, save_result, measured_success_for\n"
+          "save_result(AgenticProbeResult('mdl-restart', False, 0, 1.0, False))\n"
+          "save_result(AgenticProbeResult('mdl-restart', False, 0, 1.0, False))\n"
+          "print(measured_success_for('mdl-restart'))\n"
+    )
+
+    a = subprocess.run([sys.executable, "-c", mesurer_v1], env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert a.returncode == 0, a.stderr
+
+    b = subprocess.run([sys.executable, "-c", lire_apres_changement], env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert b.returncode == 0, b.stderr
+    assert b.stdout.strip() == "None", b.stdout
+
+    c = subprocess.run([sys.executable, "-c", remesurer_v2], env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert c.returncode == 0, c.stderr
+    assert c.stdout.strip() == "False", c.stdout  # 2/2 sous v2, pas 2/5 melange a v1
+
+
 def test_le_magasin_vit_sous_un_dossier_preserve(monkeypatch, tmp_path):
     """`preserve_set()` enumere des **dossiers**. Un magasin pose ailleurs
     serait efface par la premiere mise a jour — la perte que T-29 corrigeait
@@ -182,18 +239,29 @@ def test_un_modele_jamais_sonde_reste_sans_preuve(magasin):
 # ── 4. Du magasin jusqu'a la decision ─────────────────────────────────
 
 def _ollama_bouchonne(monkeypatch, capabilities=("tools", "completion"),
-                      params="9.0B"):
-    """Repond a `/api/show` sans Ollama, et sans modele resident."""
+                      params="9.0B", *, model=None, digest="digest-1",
+                      num_ctx=131072):
+    """Repond a `/api/show` et `/api/tags` sans Ollama, et sans modele resident.
+
+    `model`/`digest`/`num_ctx` pilotent l'empreinte que `current_fingerprint`
+    (G-15) lira sur `/api/tags` + `/api/show`. Par defaut `model=None` : la
+    liste de `/api/tags` ne nomme aucun modele, donc aucune requete ne
+    trouve de correspondance et `current_fingerprint` rend toujours `None`
+    — l'empreinte est alors invisible, comme avant G-15, pour les tests qui
+    ne s'y interessent pas. La passer explicitement est ce qui active le
+    controle de fraicheur dans les tests qui le ciblent.
+    """
     import httpx
 
     class _Reponse:
+        def __init__(self, payload):
+            self._payload = payload
+
         def raise_for_status(self):
             pass
 
         def json(self):
-            return {"capabilities": list(capabilities),
-                    "details": {"parameter_size": params},
-                    "model_info": {"x.context_length": 131072}}
+            return self._payload
 
     class _Client:
         def __init__(self, *a, **k):
@@ -205,8 +273,19 @@ def _ollama_bouchonne(monkeypatch, capabilities=("tools", "completion"),
         def __exit__(self, *a):
             return False
 
-        def post(self, *a, **k):
-            return _Reponse()
+        def get(self, url, *a, **k):
+            assert url.endswith("/api/tags")
+            entries = [{"name": model, "model": model, "digest": digest}] if model else []
+            return _Reponse({"models": entries})
+
+        def post(self, url, *a, **k):
+            assert url.endswith("/api/show")
+            return _Reponse({
+                "capabilities": list(capabilities),
+                "details": {"parameter_size": params},
+                "model_info": {"x.context_length": 131072},
+                "parameters": f"num_ctx {num_ctx}\ntemperature 1",
+            })
 
     monkeypatch.setattr(httpx, "Client", _Client)
     monkeypatch.setattr(sr, "_runtime_footprint_for", lambda _m: (None, None))
@@ -267,3 +346,187 @@ def test_la_decision_du_routeur_survit_a_un_modele_prouve(magasin, monkeypatch):
     executeur._agentic_capable_for = sr._agentic_capable_for  # noqa: SLF001
     assert executeur._agentic_model(  # noqa: SLF001
         "choisi-par-le-routeur", "code_generation") == "choisi-par-le-routeur"
+
+
+# ── 5. G-15 : un verdict est une mesure datee, jusqu'au predicat ──────
+#
+# La chaine que 1-4 gardent (sonde -> magasin -> predicat -> decision)
+# supposait que la sonde repondait toujours pour le meme modele. Mesure le
+# 2026-09-06 en fermant G-14 : ce n'est pas garanti — `ollama pull` sous le
+# meme tag change les poids, un Modelfile edite change `num_ctx`, et rien
+# dans le magasin ne le disait. Ces tests repetent 1-4 avec un changement
+# d'empreinte entre la mesure et la lecture : le predicat doit refuser de
+# statuer plutot que de rendre un verdict perime.
+
+def test_un_verdict_valide_le_reste_sans_changement(magasin, monkeypatch):
+    """A. Rien ne bouge : le verdict mesure reste utilisable, empreinte
+    verifiee a chaque lecture."""
+    _ollama_bouchonne(monkeypatch, model="stable", digest="d1", num_ctx=131072)
+    for _ in range(3):
+        ap.save_result(_essai("stable", succes=True))
+    assert ap.measured_success_for("stable") is True
+    assert sr._agentic_capable_for("stable") is True  # noqa: SLF001
+
+
+def test_un_changement_de_poids_perime_le_verdict_jusquau_predicat(magasin, monkeypatch):
+    """B. `ollama pull` remplace les poids sous le meme tag : le verdict
+    mesure avant ne repond plus pour ce qui tourne maintenant, et le
+    predicat de production doit le refleter — pas seulement la fonction
+    interne du module."""
+    _ollama_bouchonne(monkeypatch, model="repave", digest="poids-v1", num_ctx=131072)
+    for _ in range(3):
+        ap.save_result(_essai("repave", succes=True))
+    assert ap.measured_success_for("repave") is True
+    assert sr._agentic_capable_for("repave") is True  # noqa: SLF001
+
+    sr._agentic_capable_cached.cache_clear()  # noqa: SLF001 - un redemarrage
+    _ollama_bouchonne(monkeypatch, model="repave", digest="poids-v2", num_ctx=131072)
+
+    # None, pas False : ce n'est pas une preuve negative, c'est l'absence
+    # de preuve pour le modele qui repond desormais a ce tag (T-29).
+    assert ap.measured_success_for("repave") is None
+    assert sr._agentic_capable_for("repave") is None  # noqa: SLF001
+
+
+def test_un_changement_de_num_ctx_perime_le_verdict(magasin, monkeypatch):
+    """B (variante). Un Modelfile edite pour servir un autre `num_ctx` est
+    l'autre condition que le roadmap nomme explicitement pour G-15 — memes
+    poids, portee agentique differente."""
+    _ollama_bouchonne(monkeypatch, model="ctx-modifie", digest="meme-poids", num_ctx=131072)
+    for _ in range(3):
+        ap.save_result(_essai("ctx-modifie", succes=True))
+    assert ap.measured_success_for("ctx-modifie") is True
+
+    _ollama_bouchonne(monkeypatch, model="ctx-modifie", digest="meme-poids", num_ctx=8192)
+    assert ap.measured_success_for("ctx-modifie") is None
+
+
+def test_un_retour_a_une_empreinte_identique_ne_perd_pas_la_preuve(magasin, monkeypatch):
+    """C. Un etat different revenu a une apparence identique : si aucune
+    sonde n'a ete enregistree pendant l'ecart, l'empreinte redevient
+    exactement celle qui a ete mesuree, et rien ne distingue ce cas d'un
+    etat qui n'a jamais bouge — le contrat porte sur les poids et le
+    num_ctx, pas sur un compteur de generations qui n'existe pas ici."""
+    _ollama_bouchonne(monkeypatch, model="va-et-vient", digest="d1", num_ctx=131072)
+    for _ in range(3):
+        ap.save_result(_essai("va-et-vient", succes=True))
+    assert ap.measured_success_for("va-et-vient") is True
+
+    _ollama_bouchonne(monkeypatch, model="va-et-vient", digest="d2", num_ctx=131072)
+    assert ap.measured_success_for("va-et-vient") is None  # perime pendant l'ecart
+
+    _ollama_bouchonne(monkeypatch, model="va-et-vient", digest="d1", num_ctx=131072)
+    assert ap.measured_success_for("va-et-vient") is True  # redevenu identique
+
+
+def test_une_preuve_perimee_ne_se_reutilise_pas_pour_une_nouvelle_serie(magasin,
+                                                                        monkeypatch):
+    """D. Une sonde qui ecrit apres le changement ne doit pas mélanger ses
+    essais a ceux d'un autre modele : 3 succes sous l'ancienne empreinte
+    plus 1 echec sous la nouvelle ne doivent jamais donner 3/4 (75 %,
+    au-dessus du seuil) — l'ancienne serie repond pour un modele qui n'est
+    plus celui qu'on sonde."""
+    _ollama_bouchonne(monkeypatch, model="serie", digest="d1", num_ctx=131072)
+    for _ in range(3):
+        ap.save_result(_essai("serie", succes=True))
+
+    _ollama_bouchonne(monkeypatch, model="serie", digest="d2", num_ctx=131072)
+    ap.save_result(_essai("serie", succes=False))
+
+    entree = json.loads(magasin.read_text(encoding="utf-8"))["serie"]
+    assert entree["trials"] == 1, "l'ancienne serie (3 essais) doit avoir ete purgee"
+    assert entree["successes"] == 0
+    assert entree["fingerprint"] == {"digest": "d2", "num_ctx": 131072}
+
+
+def test_une_empreinte_illisible_ne_perime_pas_par_defaut(magasin, monkeypatch):
+    """L'absence de mesure de fraicheur (Ollama injoignable, tag disparu de
+    son catalogue) n'est pas un changement : le predicat continue de servir
+    le dernier verdict connu plutot que de fabriquer un faux echec a partir
+    d'une panne reseau — le seul appelant de production
+    (`_agentic_capable_cached`) a deja garanti un `/api/show` reussi pour
+    exactement ce modele avant de demander un verdict."""
+    _ollama_bouchonne(monkeypatch, model="mesure", digest="d1", num_ctx=131072)
+    for _ in range(3):
+        ap.save_result(_essai("mesure", succes=True))
+
+    monkeypatch.setattr(ap, "current_fingerprint", lambda _m: None)
+    assert ap.measured_success_for("mesure") is True
+
+
+def test_le_repli_ne_defait_plus_une_decision_sur_une_preuve_perimee(magasin, monkeypatch):
+    """Chemin reel complet : `_agentic_model` choisissait `primaire` parce
+    qu'il etait prouve capable. Ses poids changent sous le meme tag ; le
+    repli, lui, vient d'etre prouve capable pour de bon. Avant G-15, le
+    verdict perime de `primaire` restait `True` et la decision ne bougeait
+    jamais. Apres, `primaire` redevient non-prouve et la regle T-29 (« on
+    ne defait une decision que si le repli porte une preuve que le choix
+    n'a pas ») joue enfin : le repli, mieux prouve, l'emporte.
+    """
+    import httpx
+
+    from backend.execution.task_executor import RealTaskExecutor
+
+    empreintes = {"primaire": {"digest": "vieux-poids", "num_ctx": 131072},
+                  "repli-prouve": {"digest": "d-repli", "num_ctx": 131072}}
+
+    class _Reponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._payload
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, *a, **k):
+            return _Reponse({"models": [
+                {"name": nom, "model": nom, "digest": fp["digest"]}
+                for nom, fp in empreintes.items()
+            ]})
+
+        def post(self, url, *a, json=None, **k):
+            modele = (json or {}).get("model")
+            num_ctx = empreintes.get(modele, {}).get("num_ctx", 131072)
+            return _Reponse({
+                "capabilities": ["tools", "completion"],
+                "details": {"parameter_size": "9.0B"},
+                "model_info": {"x.context_length": 131072},
+                "parameters": f"num_ctx {num_ctx}",
+            })
+
+    monkeypatch.setattr(httpx, "Client", _Client)
+    monkeypatch.setattr(sr, "_runtime_footprint_for", lambda _m: (None, None))
+
+    for _ in range(3):
+        ap.save_result(_essai("primaire", succes=True))
+    sr._agentic_capable_cached.cache_clear()  # noqa: SLF001
+    assert sr._agentic_capable_for("primaire") is True  # noqa: SLF001
+
+    # Les poids de `primaire` changent sous le meme tag ; `repli-prouve`
+    # vient d'etre mesure capable, pour de bon, sous sa propre empreinte.
+    empreintes["primaire"] = {"digest": "nouveaux-poids", "num_ctx": 131072}
+    sr._agentic_capable_cached.cache_clear()  # noqa: SLF001
+    for _ in range(3):
+        ap.save_result(_essai("repli-prouve", succes=True))
+    sr._agentic_capable_cached.cache_clear()  # noqa: SLF001
+
+    assert sr._agentic_capable_for("primaire") is None  # noqa: SLF001 - plus une preuve
+    assert sr._agentic_capable_for("repli-prouve") is True  # noqa: SLF001
+
+    executeur = object.__new__(RealTaskExecutor)
+    executeur._fallback_model = "repli-prouve"  # noqa: SLF001
+    executeur._agentic_capable_for = sr._agentic_capable_for  # noqa: SLF001
+    assert executeur._agentic_model(  # noqa: SLF001
+        "primaire", "code_generation") == "repli-prouve"
