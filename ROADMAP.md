@@ -67,13 +67,34 @@ que l'installation n'a pas été rejouée sur une machine nue.
 
 | Métrique | Valeur | Mesuré le |
 |---|---|---|
-| Jalons HOS livrés | HOS-000 → HOS-111 | 2026-08-15 |
-| Tests collectés | **4 112** | 2026-08-15 |
-| — boucle courte (`pytest`) | 3 839 | |
-| — intégration réelle (`pytest -m lent`) | 273 | |
-| Modules Python | 669 (~112 300 lignes) | 2026-08-15 |
-| Frontend `src/` | 64 fichiers (~15 400 lignes), 22 features | 2026-08-15 |
+| Jalons HOS livrés | HOS-000 → **HOS-289** | 2026-09-11 |
+| Tests collectés | **6 466** | 2026-09-11 |
+| — boucle courte (`pytest`) | 6 193 (6 190 verts, 3 ignorés) | 2026-09-11 |
+| — intégration réelle (`pytest -m lent`) | 273 | 2026-09-11 |
+| Modules Python | 770 (~162 800 lignes) | 2026-09-11 |
+| Frontend `src/` | 93 fichiers (~27 300 lignes), 26 features | 2026-09-11 |
 | Modèles au catalogue, tous axes mesurés | 10 | 2026-08-14 |
+
+**Ce tableau était arrêté au 2026-08-15 — HOS-111, 4 112 tests — pendant
+178 numéros de jalon.** C'est la troisième fois que ce fichier décroche, et
+les deux notes ci-dessous racontent les deux précédentes. La cause est
+toujours la même : il n'est pas sur le chemin d'une passe de roadmap, qui
+commence par `docs/HERMES_OS_ROADMAP_STATE.md`. Les chiffres ci-dessus sont
+mesurés le 2026-09-11 sur l'arbre de HOS-289.
+
+**Et la remise à jour a trouvé un trou plus gênant que le tableau.** En
+vérifiant où lire le détail des jalons absents d'ici, mesuré le
+2026-09-11 : les entrées de premier niveau de `CHANGELOG.md` vont de
+**HOS-190 à HOS-289** (90 entrées). Entre HOS-112 et HOS-189, **66 des 78
+numéros ne sont cités nulle part** — ni ici, ni dans le CHANGELOG, ni sous
+`docs/`. L'historique git, lui, en porte 71 dans cette plage (HOS-114 à
+HOS-118 par exemple, cités par des commits et par aucun document). Ces
+jalons ont donc bien eu lieu, et **c'est le suivi qui les a perdus**, pas
+le travail qui manque.
+
+Rien n'est reconstruit ici : réécrire 66 entrées après coup produirait un
+récit, pas un relevé. Le fait est consigné pour ce qu'il est, et
+`git log --all --grep HOS-1` reste la seule source pour cette période.
 
 **Correction par rapport à l'édition précédente :** elle annonçait 796
 tests backend et 2 497 dans `tests/`, pour un total de 3 358. Le chiffre

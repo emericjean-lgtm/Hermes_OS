@@ -168,7 +168,7 @@ export function SystemCenter({ imbrique = false }: { imbrique?: boolean }) {
       <div className="grid grid-cols-4 gap-3 mb-6">
         {[
           { label: "Score de santé", value: `${health.healthy_score}%`, desc: `${health.checks_passed}/${health.total_components}`, color: "text-hermes-green" },
-          { label: "Composants", value: health.total_components, desc: "10 catégories", color: "text-hermes-blue" },
+          { label: "Composants", value: health.total_components, desc: `${CATEGORY_META.length} catégories`, color: "text-hermes-blue" },
           { label: "Avertissements", value: health.warnings.length, desc: health.degraded.length > 0 ? `${health.degraded.length} dégradé(s)` : "Aucun", color: health.warnings.length > 0 ? "text-hermes-amber" : "text-hermes-muted" },
           { label: "% Sains", value: `${Math.round(health.checks_passed / Math.max(health.total_components, 1) * 100)}%`, desc: "Opérationnel", color: "text-hermes-green" },
         ].map((stat) => (
@@ -205,12 +205,19 @@ export function SystemCenter({ imbrique = false }: { imbrique?: boolean }) {
       <Card title="Graphe de dépendances" className="mb-6">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <div className="text-xs text-hermes-muted font-mono mb-2">Ordre topologique</div>
+            {/* Description d'architecture, pas une mesure : cet ordre ne
+                change pas a l'execution et ne pretend rien observer. Il est
+                conserve a ce titre — mais il nommait `Policy Engine`, retire
+                en G-38, et une description perimee se lit comme une mesure
+                fausse. */}
+            <div className="text-xs text-hermes-muted font-mono mb-2">
+              Ordre topologique <span className="text-hermes-dim">(description, non mesuré)</span>
+            </div>
             {[
               { id: "core", label: "Core (Event Hub, Integration)", level: 0 },
               { id: "runtime", label: "Runtime (EventBus, Resource, Orchestrator)", level: 1 },
               { id: "memory", label: "Memory (Unified, Knowledge Graph)", level: 1 },
-              { id: "policy", label: "Policy Engine", level: 1 },
+              { id: "security", label: "Aegis (sécurité, approbations)", level: 1 },
               { id: "workspace", label: "Workspace Manager", level: 2 },
               { id: "mission", label: "Mission (Graph, Planner)", level: 2 },
               { id: "agents", label: "Agent (Supervisor, Collaboration)", level: 2 },
@@ -240,11 +247,25 @@ export function SystemCenter({ imbrique = false }: { imbrique?: boolean }) {
                 </div>
               ))
             )}
+            {/* G-40 : trois lignes affirmaient ici « aucune dépendance
+                cyclique détectée », « 25 composants dans l'ordre
+                topologique » et « 42 arêtes de dépendance suivies ».
+                `/system/health` rend `status`, `services`, `by_status`,
+                `unhealthy`, `silent` et `detail` — ni arête, ni ordre, ni
+                détection de cycle. Les deux compteurs n'avaient aucune
+                source (la liste ci-contre en montrait onze, pas 25) et la
+                troisième ligne affirmait une capacité qui n'existe pas :
+                rien n'analyse le graphe de dépendances. */}
             <div className="text-xs text-hermes-muted font-mono mt-3 mb-1">Statistiques de dépendances</div>
-            <div className="space-y-1 text-[10px] text-hermes-muted font-mono">
-              <div>Aucune dépendance cyclique détectée</div>
-              <div>25 composants dans l&apos;ordre topologique</div>
-              <div>42 arêtes de dépendance suivies</div>
+            <div className="space-y-1 text-[10px] text-hermes-muted">
+              <div className="font-mono">
+                {keys.length} sous-système(s) enregistré(s) dans la racine de composition
+              </div>
+              <div className="text-hermes-dim">
+                Aucune analyse du graphe de dépendances n&apos;est exposée :
+                le graphe existe à la construction, mais aucune route n&apos;en
+                publie les arêtes ni ne signale les cycles.
+              </div>
             </div>
           </div>
         </div>
@@ -256,37 +277,41 @@ export function SystemCenter({ imbrique = false }: { imbrique?: boolean }) {
           <table className="w-full text-left">
             <thead>
               <tr className="text-[10px] text-hermes-muted font-mono uppercase border-b border-hermes-border">
-                <th className="pb-2 pr-4">Composant</th>
-                <th className="pb-2 pr-4">Catégorie</th>
+                {/* Trois colonnes, parce que la charge utile en porte trois.
+                    « Catégorie » et « Latence » ont disparu avec les douze
+                    lignes inventées : `/system/health` ne rend ni l'une ni
+                    l'autre par sous-système. Un en-tête sans cellule décale
+                    tout ce qui suit. */}
+                <th className="pb-2 pr-4">Sous-système</th>
                 <th className="pb-2 pr-4">Statut</th>
-                <th className="pb-2 pr-4">Latence</th>
-                <th className="pb-2 pr-4">Événements</th>
+                <th className="pb-2 pr-4">Raison</th>
               </tr>
             </thead>
             <tbody>
-              {[
-                { id: "core.event_hub", name: "Core Event Hub", cat: "system", status: "healthy" as const, latency: 1.5, events: 15 },
-                { id: "core.integration", name: "Integration Manager", cat: "system", status: "healthy" as const, latency: 1.0, events: 3 },
-                { id: "runtime.event_bus", name: "Runtime Event Bus", cat: "runtime", status: "healthy" as const, latency: 2.0, events: 12 },
-                { id: "runtime.orchestrator", name: "Runtime Orchestrator", cat: "runtime", status: "healthy" as const, latency: 8.1, events: 6 },
-                { id: "runtime.ktransformers", name: "KTransformers", cat: "runtime", status: "degraded" as const, latency: 25.0, events: 5 },
-                { id: "agent.supervisor", name: "Agent Supervisor", cat: "agent", status: "healthy" as const, latency: 3.0, events: 8 },
-                { id: "memory.unified", name: "Unified Memory", cat: "memory", status: "healthy" as const, latency: 5.2, events: 7 },
-                { id: "mission.planner", name: "Mission Planner", cat: "mission", status: "healthy" as const, latency: 7.0, events: 6 },
-                { id: "execution.engine", name: "Execution Engine", cat: "execution", status: "healthy" as const, latency: 6.7, events: 10 },
-                { id: "tools.mcp_platform", name: "MCP Tools Platform", cat: "tools", status: "healthy" as const, latency: 10.5, events: 6 },
-                { id: "policy.engine", name: "Policy Engine", cat: "policy", status: "healthy" as const, latency: 2.3, events: 5 },
-                { id: "workspace.manager", name: "Workspace Manager", cat: "workspace", status: "healthy" as const, latency: 4.0, events: 4 },
-              ].map((comp) => (
-                <tr key={comp.id} className="border-b border-hermes-border/30 hover:bg-hermes-card/30">
+              {/* G-40 : douze lignes etaient ecrites ici en dur, avec des
+                  latences (« 1.5 ms »), des compteurs d'evenements et des
+                  etats « healthy » — tous inventes, et l'une d'elles
+                  nommait `policy.engine`, retire depuis. Le meme fichier
+                  porte pourtant un commentaire disant qu'une passe
+                  anterieure avait derive les compteurs du registre vivant :
+                  elle avait corrige les CONSTANTES NOMMEES et laisse le
+                  tableau inline.
+
+                  `/system/health` rend `detail` — chaque sous-systeme, son
+                  etat et la raison quand il est inconnu. Il ne rend NI
+                  latence NI compteur par sous-systeme : ces deux colonnes
+                  n'avaient aucune source, et elles ne sont plus la. */}
+              {Object.entries(live?.detail ?? {}).map(([id, d]) => (
+                <tr key={id} className="border-b border-hermes-border/30 hover:bg-hermes-card/30">
                   <td className="py-2 pr-4">
-                    <span className="text-xs font-mono text-hermes-text">{comp.name}</span>
-                    <span className="text-[9px] text-hermes-muted block">{comp.id}</span>
+                    <span className="text-xs font-mono text-hermes-text">{id}</span>
                   </td>
-                  <td className="py-2 pr-4 text-[10px] text-hermes-muted font-mono">{comp.cat}</td>
-                  <td className="py-2 pr-4">{componentStatus(comp.status)}</td>
-                  <td className="py-2 pr-4 text-xs font-mono text-hermes-text">{comp.latency}ms</td>
-                  <td className="py-2 pr-4 text-xs font-mono text-hermes-text">{comp.events}</td>
+                  <td className="py-2 pr-4">{componentStatus(d.status)}</td>
+                  <td className="py-2 pr-4">
+                    <span className="text-[10px] text-hermes-muted">
+                      {d.detail ?? "\u2014"}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -294,8 +319,10 @@ export function SystemCenter({ imbrique = false }: { imbrique?: boolean }) {
         </div>
       </Card>
 
-      {/* Architecture Diagram Placeholder */}
-      <Card title="Architecture système">
+      {/* Architecture Diagram Placeholder — description des couches, pas une
+          mesure. Conservee a ce titre (G-40) : elle ne pretend observer
+          aucun etat, et son titre le dit. */}
+      <Card title="Architecture système (description)">
         <div className="grid grid-cols-3 gap-3 text-center">
           {[
             { layer: "Core", items: "Event Hub · Integration · Config", color: "bg-hermes-amber/10 border-hermes-amber/30 text-hermes-amber" },
@@ -303,7 +330,7 @@ export function SystemCenter({ imbrique = false }: { imbrique?: boolean }) {
             { layer: "Mission", items: "Graph · Planner · Execution", color: "bg-hermes-green/10 border-hermes-green/30 text-hermes-green" },
             { layer: "Agents", items: "Supervisor · Collaboration · KC · OMP · CI", color: "bg-hermes-purple/10 border-hermes-purple/30 text-hermes-purple" },
             { layer: "Memory", items: "Unified Memory · Knowledge Graph", color: "bg-hermes-pink/10 border-hermes-pink/30 text-hermes-pink" },
-            { layer: "Tools & Policy", items: "MCP · Skills · Policy · Workspace", color: "bg-hermes-amber/10 border-hermes-amber/30 text-hermes-amber" },
+            { layer: "Tools & Gouvernance", items: "MCP · Skills · Aegis · Workspace", color: "bg-hermes-amber/10 border-hermes-amber/30 text-hermes-amber" },
           ].map((item) => (
             <div key={item.layer} className={`p-3 rounded-lg border ${item.color}`}>
               <div className="text-xs font-mono font-bold">{item.layer}</div>

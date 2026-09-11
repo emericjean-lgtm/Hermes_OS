@@ -28,7 +28,11 @@ export function SystemCenterMerged() {
     <div className="animate-fade-in">
       <CenterHeader
         title="System Center"
-        subtitle="Santé des sous-systèmes, inventaire des composants et graphe de dépendances"
+        // G-40 : le sous-titre annonçait « et graphe de dépendances ».
+        // Aucune route ne le publie — `/system/health` rend l'état par
+        // sous-système, pas les arêtes. Un sous-titre est la première
+        // promesse d'un écran ; celle-là n'était pas tenue plus bas.
+        subtitle="Santé des sous-systèmes et inventaire des composants"
         right={
           <CenterTabs<Vue>
             tabs={[

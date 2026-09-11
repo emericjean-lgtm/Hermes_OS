@@ -557,6 +557,16 @@ Aegis, workspace, provenance, `ResourceManager`, l'admission VRAM,
 `AdaptiveRouter` et le RAL ; le pont rapporte et relaie. Une garde sur
 l'arbre syntaxique le lui interdit.
 
+> **G-40 (HOS-289) — la surface MCP, comptée.** Le Tools Center oppose les
+> outils **déclarés**, qui ne s'exécutent pas (`POST /tools/execute` répond
+> « No executor registered »), aux **outils MCP**, que Hermes Agent appelle
+> vraiment. Ce contraste portait « 71 outils » ; `_ALL_TOOLS` en compte
+> **81** — 12 fichiers, 10 studio, 9 git, 7 mémoire, 7 workflows, 6
+> projets, 6 compétences, 5 tâches, le reste sur instantanés, approbations,
+> vérification et évolution. Le détail par famille était resté exact ; seul
+> le total avait dérivé quand les dix outils Studio sont arrivés. Une garde
+> tient désormais le chiffre au serveur : il ne peut plus bouger seul.
+
 **Runtime.** Hermes Agent v0.20.0 → **v0.21.0** (`693641aa8b`). Le tag
 `v0.21.0` n'existe pas — l'amont étiquette en CalVer ; c'est `origin/main`
 qui déclare cette version. 31 918 commits, avance rapide propre, état
@@ -843,6 +853,22 @@ réponse ne peut pas être « l'agent ».
 ---
 
 ## §9 — Mission Control / Operator Observability — 🟡 PARTIAL
+
+> **G-40 (HOS-289) — les vingt-deux Centers ont été ouverts.** Aucun
+> n'avait jamais été regardé dans un navigateur. Tous rendent, aucun en
+> état d'erreur ; **304 requêtes API observées, aucun 404, aucun 5xx**, et
+> aucune vers `/approval`, `/audit` ou `/policy/*`. Deux écrans
+> présentaient des données inventées comme mesurées : le System Center
+> (douze composants avec latences, dont `policy.engine` supprimé en G-38 ;
+> puis « 25 composants », « 42 arêtes de dépendance suivies », « aucune
+> dépendance cyclique détectée » — `health()` ne rend ni arête, ni ordre,
+> ni cycle) et l'Evolution Center (quatre motifs à « 12x, 85 %, +22 % »,
+> quand `/evolution/patterns` rend 404). Le Tools Center annonçait
+> « 71 outils » MCP là où `_ALL_TOOLS` en compte **81** — un chiffre juste
+> le jour où il fut écrit. **Limite de couverture** : chaque Center a été
+> ouvert sur sa vue par défaut, et la classe « affirmation de capacité sans
+> producteur » n'a pas de garde — aucune regex ne sépare une affirmation
+> d'une négation sans se tromper, ce que la tentative a prouvé.
 
 > **G-39 (HOS-288) — vérifié sur le chemin réel.** L'onglet Audit du
 > Governance Center affiche « 6 entrée(s) — /api/v1/logs (journal §18) »
@@ -1805,6 +1831,19 @@ attend.
 > déclare pas faite parce que son endpoint existe. §0 s'applique
 > intégralement : `PRESENT` n'est pas `CALLED`, et une route montée que
 > personne n'appelle est le défaut le plus fréquent de ce dépôt.
+
+> **G-40 (HOS-289) — le corollaire, et il est pire.** Une route jamais
+> appelée laisse un écran vide, donc visible. Un écran **rempli de
+> littéraux** ne laisse rien voir du tout. Trois passes ont trouvé le même
+> demi-nettoyage : les mocks **nommés** retirés, les tableaux littéraux
+> laissés en ligne dans le JSX, et un commentaire affirmant que le ménage
+> était fait. On cherche `MOCK_` ; on ne cherche pas un tableau d'objets.
+> Une garde le cherche désormais sur les 26 Centers, et le discriminant
+> tient sans liste blanche : **une donnée inventée n'a que des littéraux,
+> un descripteur de présentation référence quelque chose**. Vérifiée par
+> onze mutations, dont deux ont d'abord trouvé vert — l'exemption
+> « description » se prenait avec un mot, et le corpus pouvait s'effondrer
+> en silence.
 
 ### Pourquoi cette section existe, mesuré
 

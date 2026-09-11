@@ -47,9 +47,11 @@ export function ToolsCenter() {
           </p>
           <p className="mt-2 max-w-[110ch] text-[12px] leading-relaxed text-hermes-muted">
             L&apos;exécution réelle passe ailleurs : Hermes Agent appelle les
-            <span className="num text-hermes-sodium"> 71 outils </span>
-            du serveur MCP — 12 de fichiers, 9 de git, 7 de mémoire, 7 de workflows,
-            6 de projets, 6 de compétences, 2 de vérification — et ceux-là fonctionnent.
+            <span className="num text-hermes-sodium"> 81 outils </span>
+            du serveur MCP — 12 de fichiers, 10 de studio, 9 de git, 7 de mémoire,
+            7 de workflows, 6 de projets, 6 de compétences, 5 de tâches, et le
+            reste réparti sur les instantanés, les approbations, la vérification
+            et l&apos;évolution — et ceux-là fonctionnent.
             C&apos;est cette surface qui compte pour une mission.
           </p>
         </div>

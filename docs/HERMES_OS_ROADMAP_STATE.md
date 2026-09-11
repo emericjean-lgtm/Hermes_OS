@@ -25,13 +25,17 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
                       est VÉRIFIÉ à l'octet, et la pose est GOUVERNÉE :
                       demande → approbation Aegis → décision → pose
                       vérifiée. Restent versioning et rollback
+                      §9/§15 🟡 (HOS-288→289) — les 22
+                      Centers ont enfin été ouverts : 304 requêtes,
+                      aucun 404 ; 2 écrans inventaient des mesures,
+                      et le chiffre MCP avait dérivé (71 → 81)
 
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      1d0913b (G-38, HOS-287) — dernier commit
-                               de code avant G-39 (vérification
-                               transversale)
+BASELINE:                      82374d1 (G-39, HOS-288) — dernier commit
+                               de code avant G-40 (audit ciblé des
+                               Centers non observés)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -305,6 +309,8 @@ mentirait sur ce qu'il fait.
 | Quarantaine/provenance non affichées au frontend | UX | §9 |
 | Trois fichiers de test portent une séquence d'échappement invalide (`\.`, `\e`, `\u`) | technical debt | §3 |
 | `DecisionExplainer` sans consommateur | observability | §9 |
+| Une affirmation de capacité sans producteur n'a aucune garde (G-40) — mesuré HOS-289 : aucune regex ne sépare l'affirmation de la négation | observability | §9/§15 |
+| 66 numéros de jalon sur 78 entre HOS-112 et HOS-189 ne sont cités par aucun document (G-41) — mesuré HOS-289 ; git en porte 71, donc le travail a eu lieu et c'est le suivi qui l'a perdu | technical debt | — |
 | `CollaborationEngine` non intégré au noyau | architectural | §11 |
 | Machinerie des skills non adoptée en pratique | future capability | §10 |
 | Complétude outils/capacités génériques (HOS-049) | technical debt | §12 |

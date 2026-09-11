@@ -255,23 +255,19 @@ export function EvolutionCenter() {
 
       {/* Patterns & Reports */}
       <div className="grid grid-cols-2 gap-4">
+        {/* G-40 : quatre « patterns » etaient ecrits ici en dur — « 12x,
+            success 85%, +22% » — des statistiques d'optimisation presentees
+            comme mesurees. Aucune route ne les sert : `/evolution/patterns`
+            rend 404. Le moteur expose `/evolution/status`, dont les
+            compteurs sont deja affiches plus haut, et `/evolution/reports`,
+            rendu dans la carte d'a cote — celle-la sur de vraies donnees. */}
         <Card title="Optimization Patterns">
-          <div className="space-y-2">
-            {[
-              { pattern: "High latency → Runtime optimization", freq: 12, rate: 0.85, gain: 22 },
-              { pattern: "Low skill usage → Unload skills", freq: 8, rate: 0.92, gain: 14 },
-              { pattern: "Low model score → Switch model", freq: 5, rate: 0.70, gain: 28 },
-              { pattern: "High repeat rate → Workflow opt", freq: 4, rate: 0.75, gain: 16 },
-            ].map((pt, i) => (
-              <div key={i} className="flex items-center justify-between p-2 rounded-lg border border-hermes-border/50">
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-mono text-hermes-text truncate">{pt.pattern}</div>
-                  <div className="text-[9px] text-hermes-muted">{pt.freq}x · success {(pt.rate * 100).toFixed(0)}%</div>
-                </div>
-                <span className="text-[10px] font-mono text-hermes-green ml-2">+{pt.gain}%</span>
-              </div>
-            ))}
-          </div>
+          <p className="text-[10px] text-hermes-dim p-2">
+            Aucune route ne sert de motifs d&apos;optimisation agrégés. Le
+            moteur d&apos;évolution compte les propositions par statut
+            (ci-dessus) et publie ses rapports (ci-contre) ; il ne dérive pas
+            de fréquence ni de gain moyen par motif.
+          </p>
         </Card>
 
         <Card title="Recent Reports">

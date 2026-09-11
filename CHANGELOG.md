@@ -1,3 +1,186 @@
+## HOS-289 — Les vingt Centers jamais ouverts (2026-09-11)
+
+G-40. Vingt-deux Centers n'avaient jamais ete regardes. Plutot que vingt-deux
+audits indistincts, un instrument : chercher la signature du defaut deja
+trouve deux fois, puis n'ouvrir que ce qu'il designe.
+
+### L'instrument, calibre avant d'etre cru
+
+La signature de HOS-288 : **un tableau d'objets pose dans le JSX et rendu par
+`.map()`, dont toutes les valeurs sont des litteraux**. Un descripteur de
+presentation — colonnes, onglets, tuiles — *reference* quelque chose ; une
+donnee inventee ne reference rien.
+
+Calibre sur le Security Center d'avant G-39, ou il retrouve les trois blocs
+connus. Sans ce calibrage il n'aurait rien prouve. Resultat sur 26 fichiers :
+
+    system-center.tsx        risque 9   3 blocs litteraux
+    evolution-center.tsx     risque 3   1 bloc litteral
+    les 24 autres                       0
+
+### Ce que le premier instrument voyait
+
+**System Center** — douze lignes de composants ecrites en dur, avec des
+latences (« 1.5 ms »), des compteurs d'evenements et des etats « healthy ».
+L'une d'elles nommait `policy.engine`, supprime en G-38. Le fichier portait
+pourtant un commentaire affirmant qu'une passe anterieure avait derive les
+compteurs du registre vivant : elle avait corrige les constantes **nommees**
+et laisse le tableau inline. Le meme demi-nettoyage qu'au Security Center.
+
+`/system/health` rend `detail` — chaque sous-systeme, son etat, la raison
+quand il est inconnu. Ni latence ni compteur par sous-systeme : ces deux
+colonnes n'avaient aucune source. Le tableau rend desormais la charge utile
+reelle, 34 sous-systemes, vus dans le navigateur.
+
+**Evolution Center** — quatre « patterns d'optimisation » : « 12x, succes
+85 %, +22 % ». `/evolution/patterns` rend 404 ; rien n'agrege de motif. La
+carte explique maintenant l'absence au lieu de la combler.
+
+Deux blocs litteraux du System Center ont ete **conserves** : l'ordre
+topologique et les couches d'architecture decrivent une structure, pas un
+etat. La regle du brief tient dans les deux sens — ne pas supprimer une
+donnee statique sans avoir determine si elle est legitimement descriptive.
+Ils sont declares comme tels, et de-perimes au passage (`Policy Engine` y
+figurait encore).
+
+### Ce que le premier instrument NE voyait pas
+
+Un compteur n'a pas besoin d'un tableau pour etre invente. Le detecteur ne
+lisait que les `.map()` ; trois lignes de prose lui echappaient, dans le
+System Center :
+
+    Aucune dependance cyclique detectee
+    25 composants dans l'ordre topologique
+    42 aretes de dependance suivies
+
+`ServiceHealthProbe.health()` rend `status`, `services`, `by_status`,
+`unhealthy`, `silent`, `detail`. **Ni arete, ni ordre, ni detection de
+cycle.** Les deux compteurs n'avaient aucun producteur — la liste juste a
+cote en montrait onze, pas 25 — et la troisieme ligne garantissait une
+analyse qui n'existe pas. Le sous-titre du Center promettait la meme chose :
+« et graphe de dependances ».
+
+Un second passage, sur la prose cette fois, a rapporte neuf lignes. Six
+etaient legitimes et le rester : la narration VRAM du Studio cite une mesure
+reelle, son « releve toutes les 2 s » correspond a `refetchInterval: 2000`,
+et une ligne d'`operations-center` etait un commentaire. Une ne l'etait pas.
+
+### Un nombre qui avait cesse d'etre vrai
+
+Le Tools Center oppose les outils **declares**, qui ne s'executent pas, aux
+outils MCP, qui s'executent. Le contraste portait un chiffre : « 71 outils ».
+`_ALL_TOOLS` en compte **81**. Le detail par famille — 12 fichiers, 9 git,
+7 memoire — etait exact ; seul le total avait derive, dix outils Studio plus
+tard, affiche avec la meme assurance que le reste. Une garde tient desormais
+le lien au serveur : le chiffre ne peut plus bouger seul.
+
+### Les gardes, et ce que les mutations ont appris
+
+Onze mutations, onze rouges. Deux ont d'abord trouve **vert** :
+
+- **l'exemption se prenait avec un mot.** Un bloc declare « description »
+  etait exempte sans autre examen : poser `{/* description */}` au-dessus
+  des quatre patterns inventes suffisait a les faire passer. L'exemption
+  exige maintenant aussi que **tout nombre du bloc reste hors du rendu** —
+  un descriptif decrit une structure, ses valeurs sont des chaines, et le
+  seul nombre qu'il porte legitimement alimente une mise en page. Un nombre
+  qui atteint le texte, ou qui ne sert a rien, est une quantite.
+- **la garde pouvait etre videe sans bruit.** Une garde parametree sur un
+  corpus vide est verte. Le corpus se decouvre par un motif de nom : un
+  renommage, et elle s'applique a trois fichiers en silence. Un plancher
+  rend cet effondrement bruyant.
+
+Une troisieme garde a du etre **retrecie apres avoir signale mon propre
+texte**. Elle cherchait les mots « arete », « cyclique », « ordre
+topologique » dans l'ecran, et a rejete la phrase qui *nie* la capacite —
+« aucune route n'en publie les aretes ni ne signale les cycles ». Un mot ne
+dit pas si la phrase affirme ou dement ; un nombre colle au mot, si. La
+garde ne porte plus que sur le chiffre.
+
+### Ce qui a ete ouvert dans le navigateur
+
+Les vingt-deux Centers du rail, un par un, via le `click()` programmatique
+diagnostique en G-39. Tous rendent, aucun en etat d'erreur. Sur 304 requetes
+API observees : **aucun 404, aucun 5xx**, et aucune vers `/approval`,
+`/audit` ou `/policy/*` — le retrait de G-38 tient aussi sur le chemin reel.
+Les trois corrections verifiees a l'ecran : 34 sous-systemes reels avec
+leurs vraies raisons, l'absence de motifs expliquee, « 81 outils ».
+
+### Ce qui reste non observe
+
+- **Les onglets secondaires.** Chaque Center a ete ouvert sur sa vue par
+  defaut ; les Centers a onglets (System, Governance, Skills) n'ont eu que
+  le premier, sauf System dont l'onglet « Composants » portait la
+  correction.
+- **La classe « affirmation de capacite sans producteur » n'a pas de
+  garde.** Le cas trouve ici est corrige et son chiffre tenu, mais aucune
+  regex ne separe une affirmation d'une negation sans se tromper — la
+  tentative l'a prouve sur mon propre texte. Une garde qui se trompe la
+  ferait desactiver ; l'absence est inscrite plutot que maquillee.
+- **Les ecrans a etat vide.** Beaucoup de Centers rendent peu parce que le
+  systeme est au repos. Un ecran qui affiche correctement zero ligne est
+  indiscernable, a l'oeil, d'un ecran qui n'affiche rien — seules les
+  requetes observees le departagent, et elles l'ont fait ici.
+
+### Les documents de suivi, remis a jour — et ce qu'ils montraient
+
+Meme demarche appliquee au suivi lui-meme : non pas « quel document est
+vieux », mais **quel document affirme quelque chose de faux**.
+
+- **`ROADMAP.md`** — son tableau de mesures etait arrete au 2026-08-15 :
+  « HOS-000 → HOS-111, 4 112 tests, 669 modules, 22 features ». Reel au
+  2026-09-11 : **HOS-289, 6 466 tests collectes, 770 modules, 26
+  features**. 178 numeros de jalon hors du tableau. Le fichier porte deja
+  deux notes racontant ses deux decrochages precedents ; c'est le
+  troisieme, avec la meme cause — il n'est pas sur le chemin d'une passe
+  de roadmap, qui commence par l'etat.
+
+### Le trou de suivi, trouve en remettant le suivi a jour
+
+J'avais d'abord ecrit dans `ROADMAP.md` que le detail des jalons manquants
+se lisait dans ce CHANGELOG, « qui, lui, n'a jamais decroche ». **C'etait
+faux, et l'ecrire aurait mis dans un document de suivi exactement le genre
+d'affirmation que cette passe traque dans les ecrans.** Mesure :
+
+    entrees `## HOS-` de CHANGELOG.md        HOS-190 → HOS-289  (90)
+    numeros HOS-112 → HOS-189 cites nulle part      66 sur 78
+    numeros de cette plage portes par git           71
+
+HOS-114 a HOS-118, par exemple, sont nommes par des commits et par aucun
+document. **Ces jalons ont eu lieu ; c'est le suivi qui les a perdus.**
+
+Rien n'a ete reconstruit : reecrire 66 entrees apres coup produirait un
+recit, pas un releve. Le fait est consigne, et `git log --all --grep
+HOS-1` reste la seule source pour cette periode.
+- **`timeline.md`** — sa courbe de suite s'arretait a « 3703 (079) ». Le
+  saut a 6190 est en grande partie **un artefact de mesure, pas une
+  croissance** : jusqu'a HOS-111, `pytest.ini` n'executait que 1 190 des
+  4 112 tests collectes. Une courbe lue a travers cette frontiere flatte.
+  Le flake recurrent qu'il signale n'est pas apparu au relevé du
+  2026-09-11 — ce qui est **une execution verte, pas une correction**.
+- **`frontend-map.md`** — quatre affirmations demeneies par le code depuis.
+  La plus nette : « the expand/collapse sidebar is gone entirely; there is
+  no collapsed state anymore », alors que le rail porte une epingle
+  (`railPinned`, `--rail-w-expanded`). Aussi : 22 Centers (25 montes),
+  « 82/82 passing, 5 fichiers de test » (153 sur 13), et la lecture de
+  sante du 2026-08-10.
+- **`backend-map.md`** — « ~62 real tool functions » pour le serveur MCP.
+  **Le meme chiffre qui avait derive dans le Tools Center**, dans un autre
+  document, trouve en verifiant celui-ci. 81. L'ecran est desormais tenu
+  par une garde ; **le document ne l'est pas**, et il le dit.
+
+`docs/frontend-backlog.md` a ete laisse tel quel : c'est un releve date du
+2026-08-13, revu le 08-15, qui renvoie explicitement la suite a
+`ROADMAP.md` §C. Un instantane date n'est pas perime, il est situe.
+
+### Preuves
+
+**6190 passed, 3 skipped, 273 deselected, 0 failed** (7 min 18 s) sur
+l'arbre final ; G-39 en comptait 6134, et les 56 de plus sont exactement
+la garde neuve. `tsc` propre, 153 tests vitest. Onze mutations verifiees
+une a une, base et etat restaure a zero rouge. `data/db/hermes.db` intacte
+(mtime 2026-09-02), les 207 demandes historiques non touchees, aucune
+autorite backend creee.
 ## HOS-288 — La verification transversale apres Policy (2026-09-11)
 
 G-39. Le retrait de G-38 tient, et la verification a trouve autre chose.
