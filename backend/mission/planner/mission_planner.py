@@ -16,6 +16,7 @@ from backend.mission.mission_models import (
     MissionEdge,
     MissionNode,
     MissionPriority,
+    MissionStatus,
     MissionType,
 )
 from backend.mission.planner.complexity_estimator import ComplexityEstimator
@@ -253,7 +254,17 @@ class MissionPlanner:
         if self._graph_executor:
             issues = self._graph_executor.build_graph(mission, nodes, edges)
             if issues:
-                mission.status = result.mission_id  # will have issues
+                # HOS-301 (§7): this used to write `result.mission_id` (a
+                # string, always "" at this point — see the propagation
+                # note below) into `mission.status`, an enum field. Every
+                # reader downstream calls `mission.status.value`
+                # (mission/routes.py, planner/routes.py, graph_serializer.py)
+                # and a plain str has no `.value`, so a mission whose DAG
+                # genuinely failed validation (a cycle, a dangling edge —
+                # see mission_graph.py's remaining checks) crashed the
+                # response instead of reporting FAILED.
+                mission.status = MissionStatus.FAILED
+                mission.metadata["graph_issues"] = issues
 
         # `Mission.mission_id` already got a real id from its own
         # default_factory at construction — this used to be overwritten by

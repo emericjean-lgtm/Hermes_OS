@@ -837,12 +837,41 @@ quarantaine, gardée par test. `MultiAgentSupervisor` existe mais opère sur
 un concept de mission distinct (`MissionInstance`), non relié au `Mission`
 du DAG : **deux vocabulaires « mission » coexistent** et c'est un piège
 documenté (une route `/missions/{id}/cancel` par concept, une seule
-montée).
+montée). Ni l'un ni l'autre n'est un défaut de ce chantier : la façade
+`MissionControlService`/`MultiAgentSupervisor` n'a aucune surface HTTP
+montée (HOS-072, docstring de `mission_control.py`), et
+`CollaborationEngine` (délégation, consensus, review — §7.4/§7.7) est réel
+et monté sur `/api/v1/collaboration/*` mais jamais consulté par le DAG réel
+(HOS-070, docstring de `collaboration_engine.py`) — les deux sont déjà
+qualifiés, mesurés, et documentés comme dette acceptée plutôt que rupture
+cachée.
+
+**HOS-301 (2026-09-12) — audit de décision + un défaut fermé.** La
+rupture réellement démontrée vivait dans la construction du DAG
+(§7.1/§7.2), pas dans le supervisor ni la collaboration : le planificateur
+(`DependencyBuilder`, `ValidationEngine`) déclare deux fois qu'une tâche
+sans dépendance et sans dépendant est une branche parallèle valide,
+`MissionGraph.validate_graph` la rejetait comme « nœud orphelin » dès
+qu'une autre arête existait dans la mission, et `MissionPlanner.
+build_mission` n'avait alors aucun endroit correct où poser ce refus —
+`mission.status = result.mission_id` corrompait le champ d'énumération et
+faisait planter `mission.status.value` chez tout appelant. Une chaîne
+séquentielle plus une tâche parallèle indépendante — le cas ordinaire de
+§7.2 — ne pouvait donc pas devenir une Mission exécutable. Fermé :
+`MissionGraph.validate_graph` ne traite plus l'orphelin comme une erreur
+(cycles et arêtes invalides inchangés), `build_mission` marque
+`MissionStatus.FAILED` + `metadata["graph_issues"]` sur un vrai défaut de
+graphe, et `POST /planner/results/{id}/build` expose `graph_issues`.
+Preuve : `backend/tests/test_orphan_node_is_not_an_error.py` (5 tests,
+mutation testing sur les deux corrections), suite complète verte
+(6320 passed). §7 reste 🟠 PLANNED — ce lot ferme une rupture ponctuelle,
+pas la section.
 
 **Dette d'entrée.** Le modèle de propriété des processus (J-passe 7.1) est
 défini mais immature : `absence d'enregistrement ≠ propriété utilisateur`
 tient, mais aucune identité de processus n'est **persistée** par Hermes OS
-— elle ne vit que dans la ligne de commande de l'enfant.
+— elle ne vit que dans la ligne de commande de l'enfant. Non traité par
+HOS-301 (hors périmètre du lot choisi).
 
 **Sources.** Hermes Agent (subagents, délégation, parallélisation, appel
 d'outils programmatique) ; OpenHands (séparation agent/serveur, skills &

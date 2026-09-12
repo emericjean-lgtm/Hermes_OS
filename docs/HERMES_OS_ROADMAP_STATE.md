@@ -8,22 +8,43 @@
 > la roadmap maître, lequel exige des preuves mesurées.
 
 ```
-CURRENT_SECTION:      Chantier #9 — Assistant UX / Workspace / Mission UX
-                      (docs/HERMES_OS_OPERATIONAL_ROADMAP.md, table §3)
-CURRENT_SUBSECTION:   G-44 fermé (HOS-300) — chip d'outil réel dans
-                      l'Assistant quand un projet est lié
-CURRENT_STATUS:       🟢 Chantier #9 fermé (HOS-300) — le harnais ACP ne
-                      traduisait que `reponse`/`pensee` ; un appel d'outil
-                      réel (lecture/écriture de fichier) disparaissait
-                      entièrement dès qu'un projet était lié, précisément
-                      le cas où l'agent touche vraiment des fichiers.
-                      Diagnostic des trois surfaces (Assistant/Workspace/
-                      Mission) n'a trouvé aucune autre rupture aussi
-                      concrète et démontrable ; Mission Center et Workspace
-                      Center reflètent déjà des champs réels. G-43 non
-                      concerné et reste exact (frontière ACP, pas Aegis).
-                      §15.5 (HOS-299) reste le dernier chantier fermé avant
-                      celui-ci ; §6.1 🟢 — la décision du routeur atteint
+CURRENT_SECTION:      Chantier #10 — §7 Advanced Agent Orchestration
+                      (docs/HERMES_OS_MASTER_ROADMAP.md, §7)
+CURRENT_SUBSECTION:   Audit de décision + HOS-301 fermé — un nœud
+                      indépendant (branche parallèle, §7.2) ne pouvait
+                      pas devenir une Mission exécutable
+CURRENT_STATUS:       🟠 §7 reste PLANNED — HOS-301 ferme une rupture
+                      ponctuelle dans la construction du DAG, pas la
+                      section. Audit de décision sur le chemin réel
+                      d'orchestration : Context Relay (§7.3) réel et
+                      correct, laissé intact ; MultiAgentSupervisor/
+                      MissionInstance (façade sans surface HTTP, HOS-072)
+                      et CollaborationEngine (réel, monté, jamais consulté
+                      par le DAG, HOS-070) déjà qualifiés comme dette
+                      acceptée, non touchés. Le défaut réel : le
+                      planificateur (DependencyBuilder, ValidationEngine)
+                      déclare deux fois qu'une tâche sans dépendance est
+                      une branche parallèle valide ; MissionGraph.
+                      validate_graph la rejetait comme « orphelin » dès
+                      qu'une autre arête existait ; MissionPlanner.
+                      build_mission corrompait mission.status (une chaîne
+                      dans un champ d'énumération) au lieu de marquer
+                      FAILED, faisant planter mission.status.value chez
+                      tout appelant. Fermé : orphelin accepté (cycles/
+                      arêtes invalides inchangés), FAILED + graph_issues
+                      matérialisés et exposés par la route de build.
+                      Preuve : backend/tests/test_orphan_node_is_not_an_
+                      error.py (5 tests, mutation testing). Suite
+                      complète verte (6320 passed, 3 skipped). Dette
+                      d'entrée non traitée (hors périmètre du lot) :
+                      identité de processus non persistée (J-passe 7.1).
+                      Chantier #9 (HOS-300) reste le dernier chantier
+                      fermé avant celui-ci — un appel d'outil réel
+                      (lecture/écriture de fichier) n'atteignait jamais
+                      l'écran dès qu'un projet était lié à l'Assistant ;
+                      G-43 non concerné et reste exact (frontière ACP, pas
+                      Aegis). §15.5 (HOS-299) avant lui ; §6.1 🟢 — la
+                      décision du routeur atteint
                       l'exécution ; §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
@@ -46,8 +67,8 @@ CURRENT_STATUS:       🟢 Chantier #9 fermé (HOS-300) — le harnais ACP ne
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      d1e6f13 (HOS-299) — dernier commit avant
-                               l'ouverture du chantier #9 (HOS-300)
+BASELINE:                      ad34d5a (HOS-300) — dernier commit avant
+                               l'ouverture du chantier #10 (HOS-301)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud

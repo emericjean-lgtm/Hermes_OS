@@ -72,16 +72,18 @@ class MissionGraph:
         if self._detect_cycles(mission):
             issues.append("Graph contains cycles — must be a DAG")
 
-        # Orphan nodes (no edges)
-        if mission.edges:
-            in_edges = {e.target_id for e in mission.edges}
-            out_edges = {e.source_id for e in mission.edges}
-            for node in mission.nodes:
-                nid = node.node_id
-                if nid not in in_edges and nid not in out_edges:
-                    # Single-node mission is valid
-                    if len(mission.nodes) > 1:
-                        issues.append(f"Orphan node '{nid}' ({node.title}) — no edges")
+        # HOS-301 (§7): a node with no edges is not an error here. The
+        # planning layer already made this call — twice, independently —
+        # and both times decided a task with no dependencies and no
+        # dependents is a legitimate parallel root, not a mistake:
+        # `DependencyBuilder.detect_inconsistencies` documents it in code
+        # ("orphans are fine — they're root tasks") and
+        # `ValidationEngine._check_orphans` only ever warns. A second,
+        # stricter check here silently overruled that authority for the
+        # ordinary case of a sequential chain plus one independent parallel
+        # task — MissionPlanner.build_mission() then had nowhere correct to
+        # put the rejection and corrupted `mission.status` trying. See
+        # backend/tests/test_orphan_node_is_not_an_error.py.
 
         if not issues:
             mission.status = MissionStatus.VALIDATED

@@ -1,3 +1,82 @@
+## HOS-301 — #10 §7 Advanced Agent Orchestration : deux autorités contredisaient une tâche parallèle légitime (2026-09-12)
+
+Chantier #10 — §7 Advanced Agent Orchestration. Audit de décision sur le
+chemin réel d'orchestration : Context Relay (§7.3) est réel et correct,
+laissé intact ; `MultiAgentSupervisor`/`MissionInstance`
+(`backend/agent/supervisor.py`) et `MissionControlService` restent une
+façade sans surface HTTP montée, déjà qualifiée par HOS-072, non touchée ;
+`CollaborationEngine` (§7.4/7.7) reste réel mais jamais consulté par le
+DAG réel, déjà qualifié par HOS-070, non touché — aucun des deux n'est le
+défaut de ce lot, et aucun n'a été fusionné ni réécrit. La rupture réelle
+vivait dans la construction du DAG lui-même (§7.1/§7.2), sur le chemin
+`MissionPlanner.build_mission` → `GraphExecutor.build_graph` →
+`MissionGraph.validate_graph`, appelé par `POST
+/planner/results/{id}/build`.
+
+### Le défaut
+
+`DependencyBuilder.detect_inconsistencies` et `ValidationEngine` — les
+deux autorités de planification — déclarent explicitement qu'une tâche
+sans dépendance et dont rien ne dépend est valide : c'est exactement une
+branche parallèle indépendante (§7.2), pas une erreur. `MissionGraph.
+validate_graph`, invoqué plus tard sur le même DAG, prenait une décision
+contraire sur la même donnée : dès qu'une mission portait au moins une
+autre arête, un nœud sans arête devenait une erreur bloquante. Un plan
+tout à fait ordinaire — une chaîne séquentielle plus une tâche
+indépendante — passait donc la validation du planificateur puis échouait
+à la construction du graphe. `MissionPlanner.build_mission` n'avait de
+plus aucun endroit correct où poser ce refus :
+`mission.status = result.mission_id` écrivait une chaîne dans le champ
+d'énumération `MissionStatus`, et le premier appelant lisant
+`mission.status.value` — tous les routers de mission, `graph_serializer`
+— levait `AttributeError` au lieu de rapporter un échec.
+
+Mesuré en reproduisant le chemin réel (`backend/tests/
+test_orphan_node_is_not_an_error.py`) : une mission « implémenter →
+tester (séquentiel) + rédiger un README (parallèle) » plante à la
+construction alors qu'aucune des deux autorités de planification ne l'a
+jugée invalide.
+
+### La correction
+
+Une seule autorité conservée pour cette décision — celle du
+planificateur, déjà posée deux fois indépendamment — et une
+matérialisation correcte du désaccord quand un vrai défaut structurel
+existe (cycle, arête vers un nœud absent — inchangés) :
+
+- `backend/mission/mission_graph.py` : retrait de la vérification
+  d'orphelin dans `validate_graph`, qui contredisait silencieusement la
+  politique déjà établie en amont. La détection de cycles et des arêtes
+  invalides reste inchangée.
+- `backend/mission/planner/mission_planner.py` : `build_mission` pose
+  désormais `mission.status = MissionStatus.FAILED` et
+  `mission.metadata["graph_issues"]` quand `build_graph` rapporte un
+  vrai défaut, au lieu d'écrire une chaîne dans un champ d'énumération.
+- `backend/mission/planner/routes.py` : `POST
+  /planner/results/{id}/build` expose `graph_issues` dans sa réponse —
+  la décision devient observable par l'appelant plutôt que muette ou
+  crashante.
+
+### Vérification
+
+`backend/tests/test_orphan_node_is_not_an_error.py` (5 tests) : nœud
+orphelin accepté, cycle et arête absente toujours détectés (non-
+régression), le planificateur et le graphe s'accordent de bout en bout,
+un vrai défaut de graphe marque bien `FAILED` avec les `issues`
+préservées. Mutation testing : chaque correction retirée individuellement
+fait échouer exactement les tests qui l'affirment (`git stash` ciblé),
+rien d'autre. Suite complète (`pytest -q`, sans argument de chemin,
+`testpaths` du dépôt) : 6320 passed, 3 skipped, 0 failed. `npx tsc
+--noEmit` : aucune erreur (aucun fichier frontend touché).
+
+§7 reste 🟠 PLANNED : ce lot ferme une rupture ponctuelle dans la
+construction du DAG (§7.1/§7.2), pas l'ensemble de la section. §7.5
+(isolation) et §7.7 (Council/arbitrage) n'ont aucune implémentation à
+auditer — rien à mesurer, pas un défaut. §7.4/§7.6/§7.7 restent limités
+par le gap déjà documenté (HOS-070) : `CollaborationEngine` existe et
+fonctionne mais rien dans le DAG réel ne l'appelle — un chantier
+séparé, matériellement plus large que celui-ci.
+
 ## HOS-300 — #9 Assistant UX : un appel d'outil réel n'atteignait jamais l'écran dès qu'un projet était lié (2026-09-12)
 
 Chantier #9 — Assistant UX / Workspace / Mission UX. Diagnostic sur les

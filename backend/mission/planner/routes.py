@@ -98,6 +98,7 @@ async def build_mission(result_id: str, payload: dict = Body({})):
         "status": mission.status.value,
         "nodes": mission.total_nodes(),
         "edges": len(mission.edges),
+        "graph_issues": mission.metadata.get("graph_issues", []),
     }
 
 
