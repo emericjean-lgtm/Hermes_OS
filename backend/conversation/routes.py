@@ -404,8 +404,14 @@ async def _repondre_par_le_harnais(
             async for morceau in flux:
                 if morceau.kind == "content":
                     recu.append(morceau.text)
-                yield json.dumps({"kind": morceau.kind, "text": morceau.text},
-                                 ensure_ascii=False) + "\n"
+                payload_out: dict[str, Any] = {"kind": morceau.kind, "text": morceau.text}
+                # Meme contrat que le chemin direct (lignes ~628-630) : un
+                # appel d'outil reel (G-43/G-44) porte des donnees
+                # structurees qu'aucun client ne peut reconstruire depuis
+                # `text` seul.
+                if morceau.tool_calls:
+                    payload_out["tool_calls"] = morceau.tool_calls
+                yield json.dumps(payload_out, ensure_ascii=False) + "\n"
         except Exception as exc:  # coupure en cours : on garde ce qui est arrivé
             logger.warning("flux de conversation par le harnais interrompu",
                            exc_info=True)

@@ -86,6 +86,43 @@ class TestLeFlux:
         assert verdict.abouti is True
         assert verdict.jetons_entree == 42
 
+    def test_un_appel_d_outil_reel_traverse_le_pont(self, monkeypatch):
+        """G-43/G-44 : le harnais ne traduisait que `reponse`/`pensee` —
+        un appel d'outil réel (l'agent lit/écrit un fichier via ACP) n'avait
+        aucune traduction et disparaissait donc entièrement dès qu'un
+        projet était lié, précisément quand l'agent touche vraiment des
+        fichiers. Même contrat NDJSON que le chemin direct :
+        `tool_calls`/`tool_result` (voir `conversation-stream.ts`)."""
+        from backend.ral.adapters.hermes_agent_acp import Tour
+
+        outils_debut = [{"id": "tc-1", "function": {"name": "workspace_read",
+                                                     "arguments": {"path": "a.txt"}}}]
+        outils_fin = [{"name": "workspace_read", "arguments": {"path": "a.txt"},
+                      "result": "contenu"}]
+
+        class _Registre:
+            async def tour(self, cle, workspace, texte, *, amorce="",
+                           modele="", delai=0, au_fil_de_l_eau=None):
+                au_fil_de_l_eau("outil_debut", "", outils_debut)
+                au_fil_de_l_eau("outil_fin", "", outils_fin)
+                au_fil_de_l_eau("reponse", "voila")
+                return Tour(texte="voila", stop="end_turn")
+
+        import backend.ral.adapters.sessions_de_mission as sess
+
+        monkeypatch.setattr(sess, "registre", lambda: _Registre())
+
+        async def scenario():
+            flux, _ = await harnais.repondre(
+                "lis a.txt", project_id="p-1", project_root="/ws")
+            return [(m.kind, m.text, m.tool_calls) async for m in flux]
+
+        morceaux = asyncio.run(scenario())
+
+        assert morceaux[0] == ("tool_calls", "", outils_debut)
+        assert morceaux[1] == ("tool_result", "", outils_fin)
+        assert morceaux[2] == ("content", "voila", None)
+
     def test_un_tour_vide_devient_une_erreur_pas_une_reponse(self, monkeypatch):
         """Rendre le silence ferait passer une session en panne pour un
         modèle laconique — « ni un échec sur parole », mais pas un succès
@@ -128,6 +165,61 @@ class TestLeFlux:
 
         assert morceaux[0][0] == "error"
         assert "tube ferme" in verdict.erreur
+
+
+class TestLeContratNDJSONDeLaRoute:
+    """`backend/conversation/routes.py:_repondre_par_le_harnais` doit
+    serialiser exactement le meme contrat que le chemin direct
+    (`_body`, lignes ~617-631) : sans quoi le front (deja cable pour
+    `tool_calls`/`tool_result`, `conversation-stream.ts`) ne recevrait
+    jamais rien a afficher des qu'un projet est lie (G-43/G-44)."""
+
+    def test_un_appel_d_outil_atteint_le_json_ndjson(self, monkeypatch, tmp_path):
+        import json
+
+        from backend.conversation import routes
+        from backend.conversation.conversation_manager import ConversationManager
+        from backend.conversation.conversation_store import SqliteConversationStore
+        from backend.memory.db import init_db, make_engine, make_session_factory
+        from backend.ral.adapters.hermes_agent_acp import Tour
+
+        outils_debut = [{"id": "tc-1", "function": {"name": "workspace_read",
+                                                     "arguments": {"path": "a.txt"}}}]
+        outils_fin = [{"name": "workspace_read", "arguments": {"path": "a.txt"},
+                      "result": "contenu"}]
+
+        class _Registre:
+            async def tour(self, cle, workspace, texte, *, amorce="",
+                           modele="", delai=0, au_fil_de_l_eau=None):
+                au_fil_de_l_eau("outil_debut", "", outils_debut)
+                au_fil_de_l_eau("outil_fin", "", outils_fin)
+                au_fil_de_l_eau("reponse", "voila")
+                return Tour(texte="voila", stop="end_turn")
+
+        import backend.ral.adapters.sessions_de_mission as sess
+
+        monkeypatch.setattr(sess, "registre", lambda: _Registre())
+
+        engine = make_engine(str(tmp_path / "conv.db"))
+        init_db(engine)
+        mgr = ConversationManager(store=SqliteConversationStore(make_session_factory(engine)))
+        session_id, model_messages, intent = mgr.begin_stream("", "lis a.txt")
+
+        async def scenario():
+            reponse = await routes._repondre_par_le_harnais(
+                mgr, session_id, "lis a.txt", intent, model_messages,
+                project_id="p-1", project_root=str(tmp_path))
+            return [json.loads(ligne)
+                   async for ligne in reponse.body_iterator]
+
+        lignes = asyncio.run(scenario())
+
+        outil_debut_recu = next(l for l in lignes if l["kind"] == "tool_calls")
+        outil_fin_recu = next(l for l in lignes if l["kind"] == "tool_result")
+        assert outil_debut_recu["tool_calls"] == outils_debut
+        assert outil_fin_recu["tool_calls"] == outils_fin
+        contenu = next(l for l in lignes if l["kind"] == "content")
+        assert "tool_calls" not in contenu
 
 
 class TestLaFenetreAnnoncee:

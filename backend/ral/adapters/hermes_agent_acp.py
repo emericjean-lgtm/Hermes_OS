@@ -140,6 +140,52 @@ class Tour:
         return self.stop == "end_turn" and bool(self.texte.strip())
 
 
+def _arguments_outil(maj: dict) -> dict:
+    """Les arguments d'un appel d'outil, sans jamais en inventer.
+
+    `rawInput` est la source directe quand l'agent la fournit
+    (`build_tool_start`, `hermes-agent/acp_adapter/tools.py`, ne la remplit
+    que pour un outil inconnu de son catalogue d'affichage). À défaut, le
+    seul autre champ structuré est `locations` — les chemins que l'appel
+    touche, ce qui reste la donnée la plus utile à montrer pour un outil
+    poli (lecture/écriture de fichier).
+    """
+    brut = maj.get("rawInput")
+    if isinstance(brut, dict):
+        return brut
+    chemins = [bloc.get("path") for bloc in (maj.get("locations") or [])
+               if isinstance(bloc, dict) and bloc.get("path")]
+    return {"path": chemins[0]} if chemins else {}
+
+
+def _resultat_outil(maj: dict) -> str:
+    """Le résultat d'un outil terminé, en texte, à partir de ce que la
+    complétion porte réellement — jamais une reconstruction.
+
+    `content` est le rendu que l'agent a choisi (texte, diff, terminal) ;
+    `rawOutput` ne l'accompagne que pour un outil sans rendu dédié
+    (`build_tool_complete`). Une chaîne vide quand ni l'un ni l'autre ne
+    porte rien est un résultat honnête, pas une absence de mesure.
+    """
+    morceaux: list[str] = []
+    for bloc in (maj.get("content") or []):
+        if not isinstance(bloc, dict):
+            continue
+        genre_bloc = bloc.get("type")
+        if genre_bloc == "content":
+            interieur = bloc.get("content") or {}
+            if isinstance(interieur, dict) and interieur.get("text"):
+                morceaux.append(str(interieur["text"]))
+        elif genre_bloc == "diff":
+            morceaux.append(f"{bloc.get('path', '')} modifié")
+        elif genre_bloc == "terminal":
+            morceaux.append(f"terminal {bloc.get('terminalId', '')}")
+    if morceaux:
+        return "\n".join(morceaux)
+    brut = maj.get("rawOutput")
+    return str(brut) if brut is not None else ""
+
+
 def _surveiller(session: "SessionAgent", texte: str) -> None:
     """Faire passer un morceau de sortie devant la surveillance (HOS-218).
 
@@ -198,6 +244,12 @@ class SessionAgent:
     #: pour l'appelant : une reprise garde le contexte, une recreation non.
     reprise: bool = False
     _lecteur: Any = None
+    #: Nom/arguments d'un appel d'outil ACP en cours, par `toolCallId` —
+    #: peuple a `tool_call`, consomme a `tool_call_update` (G-43/G-44).
+    #: `build_tool_complete` (hermes-agent/acp_adapter/tools.py) ne repete
+    #: ni le titre ni les arguments a la completion : sans ce cache, un
+    #: outil termine sans nom a montrer.
+    appels_outils_en_cours: dict = field(default_factory=dict)
 
     def derniers_signes(self, n: int = 4) -> str:
         """Ce que l'agent disait juste avant de se taire."""
@@ -458,8 +510,10 @@ class HermesAgentACP:
                    au_fil_de_l_eau: Any = None, turn_id: str = "") -> Tour:
         """Un tour, dans le contexte accumulé.
 
-        `au_fil_de_l_eau(genre, fragment)` est appelé pour chaque morceau
-        reçu, `genre` valant `"reponse"` ou `"pensee"`. Sans lui, le tour
+        `au_fil_de_l_eau(genre, fragment, outils)` est appelé pour chaque
+        morceau reçu, `genre` valant `"reponse"`, `"pensee"`,
+        `"outil_debut"` ou `"outil_fin"` (G-43/G-44) — `outils` porte alors
+        la liste structurée, `fragment` restant vide. Sans lui, le tour
         n'est rendu qu'à la fin — acceptable pour une tâche de mission,
         pas pour une conversation, où l'attente muette d'une minute est
         indiscernable d'une panne.
@@ -655,10 +709,11 @@ class HermesAgentACP:
             # le résultat JSON-RPC ne porte que stopReason et usage.
             collecte.append(recu)
             if au_fil_de_l_eau is not None:
-                genre, fragment = self.morceau(recu)
-                if genre and fragment:
+                genre, fragment, outils = self.morceau(
+                    recu, session.appels_outils_en_cours)
+                if genre and (fragment or outils):
                     try:
-                        au_fil_de_l_eau(genre, fragment)
+                        au_fil_de_l_eau(genre, fragment, outils)
                     except Exception:  # noqa: BLE001 - un observateur ne
                         # casse pas le tour qu'il observe : le client peut
                         # avoir raccroché, le travail lui continue.
@@ -956,27 +1011,72 @@ class HermesAgentACP:
         return self.lire(reponse, collecte)
 
     @staticmethod
-    def morceau(notification: dict) -> tuple[str, str]:
-        """Ce qu'une notification porte : `(genre, texte)`.
+    def morceau(notification: dict,
+                appels: Optional[dict] = None) -> tuple[str, str, Optional[list]]:
+        """Ce qu'une notification porte : `(genre, texte, outils)`.
 
         Partagé par le flux au fil de l'eau et par l'assemblage final, pour
         qu'ils ne puissent pas diverger. Les avoir écrits deux fois aurait
         laissé le direct montrer autre chose que ce que la conversation
         garde — et c'est le direct que l'utilisateur croit.
 
-        `genre` vaut `"reponse"`, `"pensee"`, ou `""` pour tout le reste :
-        une session émet aussi des mises à jour d'outils et de plan, qui ne
-        sont ni l'une ni l'autre.
+        `genre` vaut `"reponse"`, `"pensee"`, `"outil_debut"`/`"outil_fin"`
+        pour un appel d'outil réel démarré/terminé (G-43/G-44 : le harnais
+        ne les traduisait jamais, donc l'Assistant ne montrait aucun chip
+        d'outil dès qu'un projet était lié), ou `""` pour tout le reste — le
+        plan et les mises à jour intermédiaires (`in_progress`) n'ont
+        aujourd'hui aucun consommateur.
+
+        `appels` corrèle un `tool_call_update` terminal à son `tool_call` de
+        départ : ACP ne répète ni le titre ni les arguments à la complétion
+        (`build_tool_complete`, `hermes-agent/acp_adapter/tools.py`), donc
+        sans ce cache un outil terminerait sans nom. `None` désactive la
+        traduction plutôt que de risquer un cache partagé entre deux tours
+        qui ne devraient pas se voir — c'est le cas de `lire()`, qui
+        assemble `Tour.texte`/`Tour.pensee` et n'a besoin ni de l'un ni de
+        l'autre.
         """
         maj = (notification.get("params") or {}).get("update") or {}
         contenu = maj.get("content") or {}
         fragment = contenu.get("text", "") if isinstance(contenu, dict) else ""
         genre = maj.get("sessionUpdate")
         if genre == "agent_message_chunk":
-            return "reponse", fragment
+            return "reponse", fragment, None
         if genre == "agent_thought_chunk":
-            return "pensee", fragment
-        return "", ""
+            return "pensee", fragment, None
+        if appels is None:
+            return "", "", None
+        if genre == "tool_call":
+            identifiant = maj.get("toolCallId") or ""
+            if not identifiant:
+                return "", "", None
+            nom = maj.get("title") or maj.get("kind") or "tool"
+            arguments = _arguments_outil(maj)
+            appels[identifiant] = {"name": nom, "arguments": arguments}
+            return "outil_debut", "", [{
+                "id": identifiant,
+                "function": {"name": nom, "arguments": arguments},
+            }]
+        if genre == "tool_call_update":
+            statut = maj.get("status")
+            if statut not in ("completed", "failed"):
+                # `pending`/`in_progress` : rien de nouveau à montrer, le
+                # chip existe déjà depuis `tool_call`.
+                return "", "", None
+            identifiant = maj.get("toolCallId") or ""
+            depart = appels.pop(identifiant, None)
+            if depart is None:
+                # Fin sans début connu (notification perdue, ou cache d'un
+                # tour précédent) : rien à corriger, rien à inventer non
+                # plus — un chip nommé "tool" reste plus honnête qu'aucun
+                # chip.
+                depart = {"name": maj.get("title") or maj.get("kind") or "tool",
+                          "arguments": _arguments_outil(maj)}
+            return "outil_fin", "", [{
+                "name": depart["name"], "arguments": depart["arguments"],
+                "result": _resultat_outil(maj),
+            }]
+        return "", "", None
 
     @staticmethod
     def lire(reponse: dict, notifications: list) -> Tour:
@@ -992,7 +1092,7 @@ class HermesAgentACP:
         morceaux: list[str] = []
         pensees: list[str] = []
         for notification in notifications:
-            genre, fragment = HermesAgentACP.morceau(notification)
+            genre, fragment, _outils = HermesAgentACP.morceau(notification)
             if genre == "reponse":
                 morceaux.append(fragment)
             elif genre == "pensee":

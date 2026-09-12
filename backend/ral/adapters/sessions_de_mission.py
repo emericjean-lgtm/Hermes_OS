@@ -387,8 +387,8 @@ class SessionsDeMission:
         `amorce` n'est envoyée qu'au **premier** tour : c'est le contexte de
         mission, que l'agent conserve ensuite lui-même.
 
-        `au_fil_de_l_eau(genre, fragment)` reçoit chaque morceau au moment
-        où il arrive. Une tâche de mission n'en a pas besoin ; une
+        `au_fil_de_l_eau(genre, fragment, outils)` reçoit chaque morceau au
+        moment où il arrive. Une tâche de mission n'en a pas besoin ; une
         conversation si, où une minute d'attente muette ne se distingue pas
         d'une panne.
 

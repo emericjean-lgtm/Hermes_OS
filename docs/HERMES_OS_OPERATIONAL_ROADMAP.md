@@ -6,9 +6,9 @@
 > Il complète `docs/HERMES_OS_MASTER_ROADMAP.md` : le document maître décrit l'architecture, l'historique et les écarts ; ce document impose l'ordre de travail.
 >
 > Dernière mise à jour : 2026-09-12
-> Dernier jalon vérifié : HOS-293 / G-15
-> Dernier commit de code vérifié : voir `git log -1` — G-15 fermé sur la
-> base `f75e36d0eee03d4910cbf68ef1a30f8f628e3982` (HOS-292 / A-4)
+> Dernier jalon vérifié : HOS-300 / G-44 (chantier #9)
+> Dernier commit de code vérifié : voir `git log -1` — chantier #9 fermé
+> sur la base `d1e6f1339ab60d8849707a4d9d0fb80486e61889` (HOS-299)
 
 ## 1. Règles d'exécution
 
@@ -30,9 +30,57 @@
 
 ## 2. Situation courante
 
-**Chantier actif : #5 — G-11 `assigned_tools` réellement utilisé**
+**Chantier fermé : #9 — Assistant UX / Workspace / Mission UX (HOS-300)**
 
-Statut : 🟠 **À EXÉCUTER**
+**Chantiers #5 à #8, fermés depuis la dernière mise à jour de ce
+document (détail complet : `docs/HERMES_OS_ROADMAP_STATE.md`) :**
+
+- **#5 — G-11** fermé (HOS-294) : `TaskExecution.tools_used` vient des
+  outils réellement invoqués (`tools_invoked`), plus jamais de la
+  recommandation `assigned_tools` jamais appelée.
+- **#6 — G-10** fermé (HOS-296) : **ADOPT** — `POST /memory/{id}/promote`
+  existait déjà, sans appelant frontend ; panneau Quarantaine ajouté au
+  Memory Center, promotion vérifiée persistée après redémarrage.
+- **#7 — T-28** tranché (HOS-297) : **OPTION B** — Chat et Cowork sont
+  deux contrats produit distincts sur une infrastructure partagée, pas
+  deux modes d'une même exécution.
+- **#8 — §15.5** livré en deux lots (HOS-298, HOS-299) : routage d'un run
+  et comptabilité physique branchés dans l'Operations Center ; le
+  tri-état `measured` de `VerificationReport` cesse de se recompresser
+  en faux succès côté Mission Center. A-8/`DecisionExplainer` et G-3
+  hors de ces Centers restent ouverts.
+
+**#9 — Assistant UX / Workspace / Mission UX : 🟢 FERMÉ le 2026-09-12
+(HOS-300).** Diagnostic des trois surfaces (Assistant/Chat, Workspace,
+Mission Center) : aucune rupture aussi concrète et démontrable que G-44,
+déjà nommée, n'a été trouvée ailleurs — confirmée toujours vraie par
+lecture directe du code avant correction. Le harnais ACP (HOS-141) ne
+traduisait que `agent_message_chunk`/`agent_thought_chunk` ; les
+notifications `tool_call`/`tool_call_update` que l'agent émet à chaque
+lecture/écriture réelle étaient lues puis jetées sans traduction, si
+bien qu'un projet lié — le cas où l'agent touche vraiment des fichiers —
+faisait disparaître tout chip d'outil de l'Assistant, alors que le
+chemin direct les affiche depuis longtemps.
+
+**Correction** : `hermes_agent_acp.py:morceau()` traduit désormais
+`tool_call`/`tool_call_update` (statut terminal), corrélés par un cache
+posé par session (`SessionAgent.appels_outils_en_cours` — l'agent ne
+répète pas le nom/les arguments à la complétion) ; `harnais.py` porte la
+charge structurée déjà déclarée sur `Morceau.tool_calls` (jamais remplie
+avant) ; `routes.py` sérialise `tool_calls` sur le fil exactement comme
+le chemin direct. Aucune route neuve, aucun changement frontend, aucun
+contournement d'Aegis. **G-43 n'est pas concerné et reste exact** : la
+frontière réelle pour les écritures de l'agent via ACP reste
+`_hors_workspace`/`_touche_un_protege`, pas Aegis.
+
+Preuves : 7 tests neufs (`test_acp_protocole.py`,
+`test_chat_par_le_harnais.py`), mutation rouge→vert sur `_GENRES`, suite
+complète inchangée par ailleurs (6315 passed, 3 skipped, 273 deselected).
+Démontré en runtime réel : projet scratch lié à une conversation, tour
+demandant de lire puis remplacer un fichier — chips `READ: NOTE.TXT` puis
+`WRITE: NOTE.TXT` affichés en direct, fichier vérifié modifié sur disque
+après coup (« ancien contenu » → « chantier9-ok »), artefacts scratch
+supprimés ensuite. Détail : `CHANGELOG.md` HOS-300.
 
 **#4 — G-15 invalidation des probes : 🟢 FERMÉ le 2026-09-12 (HOS-293).**
 Le magasin de `agentic_probe.py` (`db/agentic_probe_results.json`) indexait
@@ -146,9 +194,9 @@ comptant les connexions) : 0 requête sur `chat` et `chat_events` avec
 secret, 1 requête et réponse reçue sans secret. Cinq mutations rouges
 puis vertes. **§4 passe 🟢.**
 
-**Prochain chantier obligatoire : #5 — G-11 `assigned_tools` réellement utilisé.**
+**Prochain chantier obligatoire : #10 — §7 Advanced Agent Orchestration.**
 
-Base de travail : HOS-293 / G-15.
+Base de travail : HOS-300 / chantier #9.
 
 ## 3. Ordre obligatoire des chantiers
 
@@ -158,12 +206,12 @@ Base de travail : HOS-293 / G-15.
 | 2 | ~~**A-3 — Checkpoints / restauration**~~ | 🟢 **FERMÉ (HOS-291)** | rempli : **ADOPT** ; `apercu` + `restaurer` appelables depuis le panneau Supervision ; Aegis seule autorité, accord humain nommant le point de reprise ; restauration prouvée au navigateur et après redémarrage ; 4 mutations rouges puis vertes. Limites dites : A-22, A-23, A-24 |
 | 3 | ~~**A-4 — Habilitation Workspace / MCP**~~ | 🟢 **FERMÉ (HOS-292)** | rempli : **ADAPT** ; habilitation **nominative** — la racine n'est accordée qu'à l'action qui nomme son projet ; prédicat unique dans `authorized_root` ; chaîne UI→HTTP→Aegis→outil démontrée au navigateur et par un vrai client MCP ; 14 mutations rouges puis vertes. Limites dites : G-43, G-44, A-26 |
 | 4 | ~~**G-15 — Invalidation des probes**~~ | 🟢 **FERMÉ (HOS-293)** | rempli : chaque verdict porte l'empreinte (digest `/api/tags` + `num_ctx` du Modelfile) mesurée avec lui ; `measured_success_for` la revérifie à chaque lecture, `save_result` repart d'une série neuve sur un écart ; None (non prouvé) remplace un verdict périmé jusqu'au prédicat et à `_agentic_model` ; 15 mutations rouges puis vertes, chaîne bout en bout et redémarrage inter-processus démontrés |
-| 5 | **G-11 — `assigned_tools` réellement utilisé** | 🟠 **ACTIF** | champ relié au vrai chemin d'exécution et démontré par allow/deny contrastés |
-| 6 | **G-10 — Promotion mémoire HTTP/UI** | 🟠 | route produit réelle ; contrôle humain nommé ; provenance/quarantaine conservées ; absence d'auto-promotion par agent |
-| 7 | **T-28 — Contrat Chat / Cowork** | 🟠 | contrat comportemental tranché et adopté avant travail produit correspondant |
-| 8 | **§15.5 — Explainability + Resources + Proofs** | 🟠 | décisions, provenance, coûts/ressources et preuves réellement visibles dans l'Assistant sur données réelles |
-| 9 | **Assistant UX / Workspace / Mission UX** | 🟠 | consolidation produit end-to-end ; Workspace, sessions, artefacts et missions cohérents avec les contrats précédents |
-| 10 | **§7 — Advanced Agent Orchestration** | 🟠 | sous-agents/délégation/supervision et cycle de vie réels, avec ownership persistant et isolation claire |
+| 5 | ~~**G-11 — `assigned_tools` réellement utilisé**~~ | 🟢 **FERMÉ (HOS-294)** | rempli : `TaskExecution.tools_used` vient de `tools_invoked`, réellement observé par `_run_tool_loop` — jamais repêché depuis `assigned_tools` ; 6 tests neufs, mutation vérifiée |
+| 6 | ~~**G-10 — Promotion mémoire HTTP/UI**~~ | 🟢 **FERMÉ (HOS-296)** | rempli : **ADOPT** ; `POST /memory/{id}/promote` existait déjà (HOS-250) — panneau Quarantaine ajouté au Memory Center, promotion vérifiée persistée après redémarrage |
+| 7 | ~~**T-28 — Contrat Chat / Cowork**~~ | 🟢 **TRANCHÉ (HOS-297)** | rempli : **OPTION B** — Chat et Cowork sont deux contrats produit distincts sur une infrastructure partagée (registre de session ACP, base SQLite), pas deux modes d'une même exécution |
+| 8 | ~~**§15.5 — Explainability + Resources + Proofs**~~ | 🟢 **LIVRÉ (HOS-298, HOS-299)** | rempli : routage d'un run et comptabilité physique branchés dans l'Operations Center (HOS-298) ; le tri-état `measured` de `VerificationReport` cesse de se recompresser en faux succès (HOS-299). A-8/`DecisionExplainer` et G-3 hors de ces Centers restent ouverts, non traités par ces lots |
+| 9 | ~~**Assistant UX / Workspace / Mission UX**~~ | 🟢 **FERMÉ (HOS-300)** | rempli : G-44 — le harnais ACP traduit désormais `tool_call`/`tool_call_update` (corrélés par session), même contrat NDJSON que le chemin direct ; 7 tests neufs, mutation rouge→vert, démontré en runtime (chips READ/WRITE réels, fichier vérifié modifié sur disque). G-43 non concerné, reste exact |
+| 10 | **§7 — Advanced Agent Orchestration** | 🟠 **ACTIF** | sous-agents/délégation/supervision et cycle de vie réels, avec ownership persistant et isolation claire |
 | 11 | **§11 — Collaboration / Council** | 🟠 | coordination spécialisée, supervision, budget dérivé de la Mission ; Council/MoA seulement si producteur/consommateur réels |
 | 12 | **§10 — Skills lifecycle** | 🟡 | versioning, rollback, création/édition/suppression, hot reload et gouvernance démontrés |
 | 13 | **§8 — Learning avancé / isolation mémoire** | 🟡 | expérience→connaissance→procédure→skill, provenance, isolation par projet, confiance et rollback |
@@ -212,6 +260,11 @@ Base de travail : HOS-293 / G-15.
 - §10 / HOS-274→286 : population, provenance, corrélation Run↔Skill, observateur, gouvernance et installation Aegis démontrés ; versioning/rollback restent ouverts.
 - G-39 / HOS-288 : faux tableaux du Security Center corrigés ; Aegis réaffirmé comme autorité.
 - G-40 / HOS-289 : 22 Centers ouverts dans le navigateur, 304 requêtes, aucun 404/5xx ; System/Evolution/Tools corrigés ; métriques documentaires recalées.
+- G-11 / HOS-294 : `TaskExecution.tools_used` vient des outils réellement invoqués, jamais de la recommandation `assigned_tools`.
+- G-10 / HOS-296 : promotion mémoire appelable depuis un panneau Quarantaine réel, persistée après redémarrage.
+- T-28 / HOS-297 : Chat et Cowork sont deux contrats produit distincts sur une infrastructure partagée (OPTION B).
+- §15.5 / HOS-298, HOS-299 : routage et comptabilité physique d'un run visibles à l'Operations Center ; le tri-état `measured` de `VerificationReport` ne se recompresse plus en faux succès.
+- G-44 / HOS-300 : le harnais ACP traduit `tool_call`/`tool_call_update` en `tool_calls`/`tool_result`, corrélés par session — un chip d'outil réel s'affiche dans l'Assistant dès qu'un projet est lié, démontré en runtime. G-43 non concerné, reste exact.
 
 ## 6. Gaps connus à ne pas confondre avec le chantier actif
 
@@ -220,9 +273,6 @@ Base de travail : HOS-293 / G-15.
 - A-17 : test de sous-système réel encore >60 s.
 - A-20 : détection d'un Modelfile étendu sous fingerprint déclaré (distinct de G-15 : celui-ci porte sur l'empreinte VRAM déclarée en §6.2, pas sur le verdict agentique).
 - G-2 : isolation mémoire par projet.
-- G-10 : promotion mémoire HTTP/UI.
-- G-11 : `assigned_tools` non consommé.
-- T-28 : contrat Chat/Cowork.
 - G-21 : mémoire Hermes Agent non exposée via RPC.
 - G-25 : steering différé, car ACP n'offre pas d'injection dans le tour actif.
 - G-41 : trou documentaire HOS-112→189, volontairement non reconstruit rétrospectivement.
@@ -231,7 +281,7 @@ Base de travail : HOS-293 / G-15.
 - A-23 : le **couple** fichiers + état demande deux accords distincts (empreintes `{checkpoint}` et `{snapshot}`), et les accords étant à usage unique une reprise complète en demande trois. Non atteignable aujourd'hui — le seul producteur prend `avec_etat=False`. Dit honnêtement à l'opérateur plutôt que masqué.
 - A-24 : `prune_snapshots` et `StepCounter` sans appelant de production. Le §19.3 demande un instantané tous les N pas ; `every=10` et personne ne compte. Rien ne borne la croissance : 26 instantanés pour un `keep` de 20 sur la machine réelle.
 - G-43 : un chat **lié à un projet** est servi par le harnais dès que Hermes Agent est prêt, donc ses lectures de fichiers passent par la frontière du client ACP et le hook `pre_tool_call` (HOS-141), **pas** par Aegis. Ce que HOS-292 décide sur ce chemin, c'est *quel* workspace est remis à l'agent (`authorized_root`) ; ce qu'il fait à l'intérieur relève d'une autre autorité, par construction — Hermes Agent est le cerveau et possède sa boucle d'outils. Conséquence à ne pas oublier : lier un projet est précisément ce qui bascule vers le harnais, donc la surface d'outils de chat gardée par Aegis est le **repli**, pas le cas courant.
-- G-44 : le chemin harnais n'émet que `{kind, text}` (`_repondre_par_le_harnais`), jamais `tool_calls` — donc aucun chip d'outil dans l'Assistant quand un projet est lié. Rien n'est inventé côté frontend (le chip ne s'affiche qu'à réception d'un événement réel) : c'est un trou d'observabilité, pas un faux succès.
+- ~~G-44~~ : **fermé HOS-300** (chantier #9) — le harnais traduit désormais `tool_call`/`tool_call_update` en `tool_calls`/`tool_result`, même contrat que le chemin direct.
 - A-26 : `ProjectStore.ensure_for_path` crée **et valide** un projet par objectif autonome lancé sur un chemin, et rien n'en retire jamais. Mesuré le 2026-09-11 sur la base réellement servie : 66 projets dont 60 actifs et validés, la plupart pointant vers des dossiers `pytest-of-Emeric` disparus. Sans conséquence d'accès depuis HOS-292 — une racine ne s'accorde qu'à qui la nomme — mais la table croît sans borne et le Workspace Center l'affiche.
 - A-21 : la règle `clé=valeur` de `redact` couvre `…_API_KEY` et `…_SECRET` mais **pas un nom en `…_KEY` seul** — mesuré HOS-290. Sans danger pour une clé dont la *forme* est reconnue (le cas OpenRouter), ouvert pour une clé d'une autre forme derrière un tel nom. Défaut de nommage, pas de format : hors périmètre A-10.
 - Capability assertions sans producteur : garde fiable non encore résolue car les regex confondaient affirmation et négation.
@@ -267,10 +317,12 @@ Lorsqu'un nouveau travail Hermes OS commence, utiliser d'abord :
 
 ## 9. Actuel
 
-**ACTIVE: G-11**
+**ACTIVE: #10 — §7 Advanced Agent Orchestration**
 
-**NEXT: G-10**
+**NEXT: #11 — §11 Collaboration / Council**
 
-*(A-10 fermé le 2026-09-11, HOS-290 ; A-3 fermé le 2026-09-11, HOS-291 ; A-4 fermé le 2026-09-11, HOS-292 ; G-15 fermé le 2026-09-12, HOS-293.)*
+*(G-11 fermé HOS-294 ; G-10 fermé HOS-296 ; T-28 tranché HOS-297 ; §15.5
+livré HOS-298/HOS-299 ; #9 — Assistant UX / Workspace / Mission UX (G-44)
+fermé le 2026-09-12, HOS-300.)*
 
 **DO NOT JUMP AHEAD.**

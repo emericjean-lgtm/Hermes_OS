@@ -1893,6 +1893,7 @@ des capacités **livrées, testées, et sans consommateur produit** :
 | Points de reprise | `prendre` appelé | aperçu + restauration branchés (HOS-291) | `DEMONSTRATED` (A-3 fermé) |
 | Cycle de vie des skills | 9 routes, **aucune création** | liste seule | `PRESENT` (G-5) |
 | `assigned_tools` d'une tâche | planifié, jamais invoqué | — | décoratif, rapport corrigé (G-11 fermé HOS-294) |
+| Chip d'outil réel dans l'Assistant, projet lié (G-44) | contrat NDJSON `tool_calls`/`tool_result` déjà servi côté chemin direct | `ToolCallBlock` déjà câblé, jamais alimenté côté harnais | `DEMONSTRATED` (chantier #9, HOS-300) — chips READ/WRITE affichés en direct, fichier vérifié modifié sur disque |
 
 §15 n'invente donc pas un produit : elle **branche celui qui est déjà
 construit**, et nomme ce qui manque réellement.
@@ -2482,7 +2483,7 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | ~~A-19~~ | **test** | ~~`_RegistreMissions` hydrate sur un ordre non garanti~~ — **fermé HOS-262** | §3 | `ORDER BY cree_le DESC, rowid DESC` ; 0/20 → 5/20 avant, 25/25 après |
 | ~~A-4~~ | **security** | ~~Portée projet MCP validée, non **autorisée**~~ — **fermé HOS-292** | §8/§10 | relevé : deux projets valides, `project_id=A` sur un chemin de B refusé, `project_id=None` **autorisé et le contenu rendu** ; 60 racines dans l'union sur la base réellement servie. Habilitation rendue **nominative** ; prédicat unique `authorized_root` ; 14 mutations |
 | G-43 | **architectural** | Un chat lié à un projet est servi par le harnais : ses lectures passent par la frontière ACP et le hook `pre_tool_call`, **pas** par Aegis | §15/§16 | mesuré HOS-292 : aucun `chat servi en direct` journalisé, tour servi par ACP. HOS-292 décide *quel* workspace est remis à l'agent (`authorized_root`) ; l'intérieur relève de la boucle d'outils de l'agent, par construction |
-| G-44 | **observability** | Aucun chip d'outil dans l'Assistant quand un projet est lié | §15 | `_repondre_par_le_harnais` n'émet que `{kind, text}`, jamais `tool_calls`. Rien n'est inventé côté frontend : trou d'observabilité, pas faux succès |
+| ~~G-44~~ | **observability** | ~~Aucun chip d'outil dans l'Assistant quand un projet est lié~~ — **fermé HOS-300** | §15 | `hermes_agent_acp.py:morceau()` traduit désormais `tool_call`/`tool_call_update` (corrélés par un cache par session) ; `harnais.py`/`routes.py` portent `tool_calls`/`tool_result` sur le même contrat NDJSON que le chemin direct. 7 tests neufs, mutation rouge→vert, démontré en runtime (chips READ/WRITE réels, fichier vérifié modifié sur disque) |
 | A-26 | **technical debt** | `ensure_for_path` crée et valide un projet par objectif autonome, sans jamais en retirer | §8 | mesuré HOS-292 sur la base servie : 66 projets, 60 actifs+validés, la plupart vers des dossiers `pytest-of-Emeric` disparus. Sans conséquence d'accès depuis HOS-292 |
 | A-5 | **technical debt** | Workflows utilisateur écrits dans le dépôt | §3 | `save_workflow()` → `./data/workflows`, hors `preserve_set()` |
 | A-6 | **technical debt** | `runtimesClient` pointe vers des routes inexistantes et n'est pas consommé | §9 | `/runtimes/health` absent des 423 routes |

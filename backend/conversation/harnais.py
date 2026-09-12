@@ -42,8 +42,9 @@ from typing import Any, AsyncIterator, Optional
 logger = logging.getLogger("hermes_os.conversation.harnais")
 
 #: Ce que la route lit d'un morceau. Même forme que les événements de
-#: `respond_events` — `kind` et `text` —, pour que le corps de la réponse
-#: n'ait pas à savoir d'où vient ce qu'il sérialise.
+#: `respond_events` — `kind`/`text`, et `tool_calls` pour un appel d'outil
+#: réel (G-43/G-44) —, pour que le corps de la réponse n'ait pas à savoir
+#: d'où vient ce qu'il sérialise.
 @dataclass
 class Morceau:
     kind: str
@@ -70,15 +71,27 @@ class Verdict:
 #: `reponse`/`pensee` cote ACP contre `content`/`thinking` cote NDJSON. La
 #: table est ici plutot qu'en ligne pour que les deux vocabulaires se lisent
 #: cote a cote : ce sont deux protocoles differents, pas un renommage.
-_GENRES = {"reponse": "content", "pensee": "thinking"}
+#:
+#: `outil_debut`/`outil_fin` (G-43/G-44) portent le meme contrat NDJSON que
+#: le chemin direct (`tool_calls`/`tool_result`, `routes.py:_body`) : un
+#: appel d'outil reel, demarre puis termine par l'agent via ACP, n'avait
+#: jusqu'ici aucune traduction et disparaissait donc entierement des l'agent
+#: passait par le harnais — c'est-a-dire des qu'un projet etait lie, le cas
+#: ou l'agent touche vraiment des fichiers.
+_GENRES = {"reponse": "content", "pensee": "thinking",
+           "outil_debut": "tool_calls", "outil_fin": "tool_result"}
 
 
 @dataclass
 class _Pont:
     file: asyncio.Queue = field(default_factory=asyncio.Queue)
 
-    def emettre(self, genre: str, fragment: str) -> None:
+    def emettre(self, genre: str, fragment: str, outils: Any = None) -> None:
         """Appelé depuis la lecture du flux ACP, dans la même boucle.
+
+        `outils` porte la charge structurée d'un événement `outil_debut`/
+        `outil_fin` (liste de tool_calls/tool_results, même forme que le
+        chemin direct) — `None` pour `reponse`/`pensee`, qui n'en ont pas.
 
         `put_nowait` direct, et c'est une correction : une première version
         passait par `call_soon_threadsafe` « au cas où » la lecture migrerait
@@ -93,7 +106,7 @@ class _Pont:
         """
         kind = _GENRES.get(genre)
         if kind:
-            self.file.put_nowait(Morceau(kind=kind, text=fragment))
+            self.file.put_nowait(Morceau(kind=kind, text=fragment, tool_calls=outils))
 
 
 def disponible(project_root: str) -> tuple[bool, str]:

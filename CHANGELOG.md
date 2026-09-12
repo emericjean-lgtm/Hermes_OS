@@ -1,3 +1,79 @@
+## HOS-300 — #9 Assistant UX : un appel d'outil réel n'atteignait jamais l'écran dès qu'un projet était lié (2026-09-12)
+
+Chantier #9 — Assistant UX / Workspace / Mission UX. Diagnostic sur les
+trois surfaces (Assistant/Chat, Workspace, Mission Center) : Mission
+Center et Workspace Center reflètent déjà des champs réels
+(`VerificationReport`, `ProjectDTO.validation_status`), sans rupture
+trouvée. La rupture réelle et corrigeable vivait dans l'Assistant, sur le
+chemin par défaut de ce chantier — projet lié → autorisation réelle →
+action réellement effectuée → représentation UI fidèle — exactement
+G-44, confirmée toujours vraie par lecture directe du code avant toute
+correction.
+
+### Le défaut
+
+`conversation-center.tsx` sait rendre un chip d'outil (`ToolCallBlock`) et
+le contrat NDJSON (`conversation-stream.ts`) porte déjà les événements
+`tool_calls`/`tool_result` — exercé chaque jour par le chemin direct
+(sans projet lié, `web_search`). Mais dès qu'un projet est lié, le chat
+bascule sur le harnais ACP (HOS-141) pour profiter des outils réels de
+l'agent — et `harnais.py`/`hermes_agent_acp.py` ne traduisaient que
+`agent_message_chunk`/`agent_thought_chunk` (`_GENRES`, `morceau()`).
+Les notifications ACP `tool_call`/`tool_call_update` — que l'agent émet
+bel et bien à chaque lecture/écriture réelle — étaient lues par la même
+boucle et jetées sans traduction. Résultat mesuré en runtime avant
+correction : un tour où l'agent lit puis écrit un fichier réel
+n'affichait ni l'un ni l'autre, alors que le fichier changeait vraiment
+sur le disque. Le cas le plus courant et le plus sensible — un projet
+lié, l'agent touchant vraiment des fichiers — était aussi celui où
+l'opérateur ne voyait rien.
+
+### La correction
+
+Aucune nouvelle autorité, aucun contournement d'Aegis, aucun changement
+frontend : le contrat NDJSON existait déjà et n'avait besoin que d'être
+alimenté.
+
+- `hermes_agent_acp.py` : `morceau()` traduit désormais aussi `tool_call`
+  (→ `outil_debut`) et `tool_call_update` à statut terminal (→
+  `outil_fin`), avec un cache par session (`SessionAgent.appels_outils_en_cours`)
+  qui corrèle le nom/les arguments posés au démarrage à la complétion —
+  `build_tool_complete` côté agent (`hermes-agent/acp_adapter/tools.py`)
+  ne les répète pas.
+- `harnais.py` : `_GENRES` gagne `outil_debut`→`tool_calls` et
+  `outil_fin`→`tool_result` ; `_Pont.emettre`/`Morceau` portent la charge
+  structurée déjà déclarée (`tool_calls: Any = None`, jamais remplie
+  avant ce correctif).
+- `routes.py` (`_repondre_par_le_harnais._corps`) sérialise `tool_calls`
+  sur le fil exactement comme le chemin direct (`_body`) — même contrat,
+  zéro branche neuve côté client.
+
+### Preuves
+
+7 tests neufs (`test_acp_protocole.py`, `test_chat_par_le_harnais.py`) :
+traduction et corrélation du cache, statut intermédiaire ignoré, fin sans
+début connu restant honnête plutôt que muette, désactivation quand
+`lire()` ne fournit pas de cache, bout en bout par `_echanger`, et le
+contrat NDJSON exact produit par `_repondre_par_le_harnais` (comparé
+champ à champ au chemin direct). Mutation : `_GENRES` vidé de ses deux
+nouvelles entrées fait rougir exactement les deux tests qui les
+exercent ; restauré, tout repasse vert.
+
+Démontré en runtime réel, pas seulement en test : projet scratch lié à
+une conversation, message demandant de lire puis remplacer le contenu
+d'un fichier. Chips `READ: NOTE.TXT` puis `WRITE: NOTE.TXT` affichés en
+direct dans l'Assistant pendant le tour — chose impossible avant ce
+correctif sur ce chemin — et fichier vérifié sur disque après coup :
+contenu passé de « ancien contenu » à « chantier9-ok », conforme à ce que
+l'agent avait annoncé. Projet et dossier scratch supprimés après la
+démonstration.
+
+G-43 n'est pas concerné et reste exact : la frontière de sécurité pour
+les écritures de l'agent via ACP reste `_hors_workspace`/
+`_touche_un_protege` (le hook `pre_tool_call` du client ACP), pas Aegis —
+ce chantier ne change ni ne prétend changer cette frontière, seulement ce
+que l'opérateur voit de ce qui s'est passé de son côté.
+
 ## HOS-299 — §15.5 lot 2 : la preuve d'exécution atteignait déjà l'écran, et s'y faisait effacer par son propre absence de mesure (2026-09-12)
 
 §15.5 (Explainability / Resource visibility / Proofs), lot 2. Continuation

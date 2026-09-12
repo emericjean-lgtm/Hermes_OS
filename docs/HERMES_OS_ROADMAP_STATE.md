@@ -8,16 +8,23 @@
 > la roadmap maître, lequel exige des preuves mesurées.
 
 ```
-CURRENT_SECTION:      §15 — Frontend ↔ Backend Product Parity / Hermes Assistant
-CURRENT_SUBSECTION:   §15.5 — Explainability / Resource visibility / Proofs
-                      lot 2 livré (HOS-299) ; §6.1 🟢 — la décision
-                      du routeur atteint l'exécution
-CURRENT_STATUS:       🟡 §15.5 lot 2 (HOS-299) — Execution proofs
-                      atteignait déjà Mission Center depuis HOS-174/177 ;
-                      le vrai défaut était un tri-état (`measured`)
-                      recompressé en faux succès côté écran, corrigé.
-                      Restent A-8/`DecisionExplainer`, G-3 hors Operations
-                      et Mission Center. §6.1 fermée · §6.2 livré (HOS-257)
+CURRENT_SECTION:      Chantier #9 — Assistant UX / Workspace / Mission UX
+                      (docs/HERMES_OS_OPERATIONAL_ROADMAP.md, table §3)
+CURRENT_SUBSECTION:   G-44 fermé (HOS-300) — chip d'outil réel dans
+                      l'Assistant quand un projet est lié
+CURRENT_STATUS:       🟢 Chantier #9 fermé (HOS-300) — le harnais ACP ne
+                      traduisait que `reponse`/`pensee` ; un appel d'outil
+                      réel (lecture/écriture de fichier) disparaissait
+                      entièrement dès qu'un projet était lié, précisément
+                      le cas où l'agent touche vraiment des fichiers.
+                      Diagnostic des trois surfaces (Assistant/Workspace/
+                      Mission) n'a trouvé aucune autre rupture aussi
+                      concrète et démontrable ; Mission Center et Workspace
+                      Center reflètent déjà des champs réels. G-43 non
+                      concerné et reste exact (frontière ACP, pas Aegis).
+                      §15.5 (HOS-299) reste le dernier chantier fermé avant
+                      celui-ci ; §6.1 🟢 — la décision du routeur atteint
+                      l'exécution ; §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
@@ -39,8 +46,8 @@ CURRENT_STATUS:       🟡 §15.5 lot 2 (HOS-299) — Execution proofs
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      b830c55 (HOS-298) — dernier commit
-                               avant l'ouverture du lot 2 de §15.5 (HOS-299)
+BASELINE:                      d1e6f13 (HOS-299) — dernier commit avant
+                               l'ouverture du chantier #9 (HOS-300)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -217,6 +224,15 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                via hermes-agent et l'affiche confirmé ; une
                                mission sans workspace affiche l'absence de
                                mesure au lieu du faux succès
+                               Chantier #9 fermé (HOS-300) — G-44 : le
+                               harnais ACP ne traduisait que
+                               `reponse`/`pensee` ; `tool_call`/
+                               `tool_call_update` traduits, corrélés par
+                               un cache par session, même contrat NDJSON
+                               que le chemin direct. Démontré en runtime :
+                               chips READ/WRITE affichés en direct pour un
+                               projet lié, fichier vérifié modifié sur
+                               disque. G-43 non concerné, reste exact
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -474,6 +490,50 @@ primitive, et l'asymétrie que G-11 décrivait décide toujours d'où bâtir
 Cowork (voir HOS-294 ci-dessous : G-11 est fermé, l'asymétrie qu'il
 décrivait ne l'est pas).
 
+**Chantier #9 — Assistant UX / Workspace / Mission UX — fermé le
+2026-09-12 (HOS-300).** Diagnostic des trois surfaces désigné par
+`docs/HERMES_OS_OPERATIONAL_ROADMAP.md` (table §3, ligne 9) : Mission
+Center (rendu de `VerificationReport`, reprise de mission atomique côté
+backend et UI) et Workspace Center (`ProjectDTO.validation_status`
+affiché sans copie parallèle) n'ont montré aucune rupture aussi concrète
+que celle déjà nommée par G-44 sur l'Assistant, confirmée toujours vraie
+par lecture directe du code avant toute correction. Le chemin par défaut
+du chantier — projet lié → autorisation réelle → action réellement
+effectuée → représentation UI fidèle — y menait directement.
+
+Le harnais ACP (HOS-141) ne traduisait que les notifications
+`agent_message_chunk`/`agent_thought_chunk` (`_GENRES`, `harnais.py` et
+`hermes_agent_acp.py:morceau()`) ; les notifications `tool_call`/
+`tool_call_update` que l'agent émet à chaque lecture/écriture réelle
+étaient lues par la même boucle et jetées sans traduction. Un tour où
+l'agent touchait vraiment un fichier via ACP n'affichait donc **aucun**
+chip d'outil dans l'Assistant, alors que le chemin direct (sans projet
+lié) les affiche depuis longtemps — le contrat NDJSON (`tool_calls`/
+`tool_result`) et le rendu frontend (`ToolCallBlock`) existaient déjà et
+n'avaient besoin que d'être alimentés côté harnais.
+
+Correction : `morceau()` traduit désormais `tool_call`/`tool_call_update`
+(statut terminal), corrélés par un cache posé par session
+(`SessionAgent.appels_outils_en_cours`) puisque l'agent ne répète pas le
+nom/les arguments à la complétion ; `harnais.py` porte la charge
+structurée déjà déclarée (`Morceau.tool_calls`, jamais remplie avant ce
+correctif) ; `routes.py` sérialise `tool_calls` sur le fil exactement
+comme le chemin direct. Aucune route neuve, aucun changement frontend,
+aucun contournement d'Aegis — G-43 (la frontière réelle pour les
+écritures ACP est `_hors_workspace`/`_touche_un_protege`, pas Aegis)
+n'est pas concerné et reste exact.
+
+7 tests neufs, mutation rouge→vert sur `_GENRES`, suite complète
+(6315 passed, 3 skipped, 273 deselected — inchangés). Démontré en
+runtime réel : projet scratch lié à une conversation, tour demandant de
+lire puis remplacer un fichier — chips `READ: NOTE.TXT` puis
+`WRITE: NOTE.TXT` affichés en direct, fichier vérifié modifié sur disque
+après coup (« ancien contenu » → « chantier9-ok »), projet et dossier
+scratch supprimés ensuite. Détail : `CHANGELOG.md` HOS-300.
+
+**Prochain chantier obligatoire : #10 — §7 Advanced Agent Orchestration**
+(`docs/HERMES_OS_OPERATIONAL_ROADMAP.md`, table §3, ligne 10).
+
 ---
 
 ## OPEN_CRITICAL_ARCHITECTURAL_GAPS
@@ -517,7 +577,7 @@ décrivait ne l'est pas).
 | `prune_snapshots` et `StepCounter` sans appelant de production (A-24) — 26 instantanés pour un `keep` de 20, et le « tous les N pas » du §19.3 n'a jamais lieu | technical debt | §3 |
 | ~~Portée projet MCP validée mais non autorisée (A-4)~~ — **fermé HOS-292** : l'habilitation est nominative, la racine ne s'accorde qu'à qui la nomme | security | §8 / §10 |
 | Un chat lié à un projet est servi par le harnais, donc ses lectures passent par la frontière ACP et le hook `pre_tool_call`, pas par Aegis (G-43) — mesuré HOS-292 | architectural | §15 / §16 |
-| Aucun chip d'outil dans l'Assistant quand un projet est lié (G-44) — le chemin harnais n'émet jamais `tool_calls` ; rien n'est inventé côté frontend | observability | §15 |
+| ~~Aucun chip d'outil dans l'Assistant quand un projet est lié (G-44)~~ — **fermé HOS-300** : `tool_call`/`tool_call_update` traduits par le harnais, même contrat NDJSON que le chemin direct | observability | §15 |
 | `ensure_for_path` crée et valide un projet par objectif autonome et n'en retire jamais (A-26) — 66 projets, 60 actifs+validés, mesuré HOS-292 | technical debt | §8 |
 | Workflows utilisateur écrits dans le dépôt (A-5) | technical debt | §3 |
 | `unified_memory` sans isolation de projet | architectural | §8 |

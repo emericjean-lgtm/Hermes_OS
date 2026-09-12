@@ -148,3 +148,111 @@ class TestCeQuiEstCollecte:
         with pytest.raises(RuntimeError, match="flux fermé"):
             asyncio.run(HermesAgentACP()._echanger(
                 session, "session/prompt", {"sessionId": "s-1"}, 5.0, []))
+
+
+def _debut_outil(identifiant="tc-1", titre="Reading note.txt",
+                 raw_input=None, chemin=None):
+    maj = {"sessionUpdate": "tool_call", "toolCallId": identifiant,
+           "title": titre, "kind": "read"}
+    if raw_input is not None:
+        maj["rawInput"] = raw_input
+    if chemin is not None:
+        maj["locations"] = [{"path": chemin}]
+    return {"jsonrpc": "2.0", "method": "session/update", "params": {"update": maj}}
+
+
+def _fin_outil(identifiant="tc-1", statut="completed", texte=None):
+    maj = {"sessionUpdate": "tool_call_update", "toolCallId": identifiant,
+          "status": statut}
+    if texte is not None:
+        maj["content"] = [{"type": "content",
+                           "content": {"type": "text", "text": texte}}]
+    return {"jsonrpc": "2.0", "method": "session/update", "params": {"update": maj}}
+
+
+class TestLesAppelsDOutilTraduits:
+    """G-43/G-44 : le harnais ne traduisait jamais `tool_call`/
+    `tool_call_update`, donc l'Assistant ne montrait aucun chip d'outil dès
+    qu'un projet était lié — c'est-à-dire dès que l'agent touchait
+    vraiment des fichiers via ACP."""
+
+    def test_un_debut_d_outil_est_traduit_et_mis_en_cache(self):
+        cache: dict = {}
+
+        genre, fragment, outils = HermesAgentACP.morceau(
+            _debut_outil(raw_input={"path": "note.txt"}), cache)
+
+        assert genre == "outil_debut"
+        assert fragment == ""
+        assert outils == [{"id": "tc-1",
+                           "function": {"name": "Reading note.txt",
+                                       "arguments": {"path": "note.txt"}}}]
+        assert cache == {"tc-1": {"name": "Reading note.txt",
+                                  "arguments": {"path": "note.txt"}}}
+
+    def test_une_fin_d_outil_reprend_le_nom_du_debut(self):
+        """`build_tool_complete` (hermes-agent) ne répète ni le titre ni les
+        arguments : sans le cache posé au début, la fin ne saurait pas quoi
+        montrer."""
+        cache = {"tc-1": {"name": "Reading note.txt",
+                          "arguments": {"path": "note.txt"}}}
+
+        genre, fragment, outils = HermesAgentACP.morceau(
+            _fin_outil(texte="contenu du fichier"), cache)
+
+        assert genre == "outil_fin"
+        assert fragment == ""
+        assert outils == [{"name": "Reading note.txt",
+                           "arguments": {"path": "note.txt"},
+                           "result": "contenu du fichier"}]
+        assert cache == {}  # consommé, pas laissé fuiter au tour suivant
+
+    def test_un_statut_intermediaire_ne_produit_rien(self):
+        cache = {"tc-1": {"name": "x", "arguments": {}}}
+
+        genre, fragment, outils = HermesAgentACP.morceau(
+            _fin_outil(statut="in_progress"), cache)
+
+        assert (genre, fragment, outils) == ("", "", None)
+        assert cache == {"tc-1": {"name": "x", "arguments": {}}}  # pas consommé
+
+    def test_une_fin_sans_debut_connu_reste_honnete_pas_muette(self):
+        """Notification perdue, ou cache d'un tour precedent : pas de nom a
+        recuperer, donc pas de nom invente — mais un chip nomme plutot
+        qu'aucun."""
+        genre, fragment, outils = HermesAgentACP.morceau(
+            _fin_outil(identifiant="tc-inconnu", texte="ok"), {})
+
+        assert genre == "outil_fin"
+        assert outils == [{"name": "tool", "arguments": {}, "result": "ok"}]
+
+    def test_desactive_quand_aucun_cache_n_est_fourni(self):
+        """`lire()` n'a besoin ni de l'un ni de l'autre : passer `appels=None`
+        doit neutraliser la traduction plutot que de risquer un cache
+        partage entre deux tours qui ne devraient pas se voir."""
+        genre, fragment, outils = HermesAgentACP.morceau(_debut_outil())
+
+        assert (genre, fragment, outils) == ("", "", None)
+
+    def test_le_flux_les_porte_jusqu_a_l_observateur(self, tmp_path):
+        """Bout en bout par `_echanger`, comme
+        `test_les_notifications_sont_collectees_pas_confondues` : la
+        correlation traverse la vraie boucle de lecture, pas seulement
+        l'appel direct a `morceau`."""
+        session = _session([
+            _debut_outil(raw_input={"path": "note.txt"}),
+            _fin_outil(texte="ok"),
+            {"jsonrpc": "2.0", "id": 3, "result": {"stopReason": "end_turn"}},
+        ], tmp_path)
+        recus: list = []
+
+        asyncio.run(HermesAgentACP()._echanger(
+            session, "session/prompt", {"sessionId": "s-1"}, 5.0, [],
+            au_fil_de_l_eau=lambda genre, fragment, outils=None:
+                recus.append((genre, fragment, outils))))
+
+        assert recus[0][0] == "outil_debut"
+        assert recus[0][2][0]["function"]["name"] == "Reading note.txt"
+        assert recus[1][0] == "outil_fin"
+        assert recus[1][2][0]["result"] == "ok"
+        assert session.appels_outils_en_cours == {}
