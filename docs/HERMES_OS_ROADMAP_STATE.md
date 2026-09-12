@@ -122,6 +122,22 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                l'asymétrie qui décide d'où bâtir Cowork
                                (§15.4) reste ouverte — G-11 fermait le
                                mensonge du rapport, pas l'asymétrie
+                               G-16 avancé (HOS-295) — la dette de routes
+                               orphelines datait du 2026-09-07 (120/306) et
+                               n'avait jamais été revérifiée ; `_motif`
+                               n'acceptait pas `$` en fin de chemin et
+                               classait 4 appelants réels comme orphelins
+                               (`` `/route${qs}` ``, le patron dominant du
+                               client) — corrigé, mutation rouge→vert à
+                               l'appui, 5 entrées retirées (118→113 sur
+                               314 routes). Le reste n'est pas homogène :
+                               sondes d'infra, pont de compatibilité
+                               documenté, surfaces fonctionnelles non
+                               câblées par choix déjà écrit ailleurs
+                               (HOS-070), appelants opérateur hors
+                               frontend — aucune n'avait de preuve
+                               suffisante pour suppression ; classées à
+                               conserver, pas fermées, pas fantômes
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1

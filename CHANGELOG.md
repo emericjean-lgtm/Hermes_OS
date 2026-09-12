@@ -1,3 +1,61 @@
+## HOS-295 — la dette d'orphelins n'avait jamais été revérifiée (2026-09-12)
+
+G-16. Chantier de mesure et de classification, pas de suppression massive.
+
+### Le défaut
+
+`test_pas_de_backend_orphelin.py` avait gelé 120 routes `/api/v1` sans
+appelant frontend le 2026-09-07 (HOS-265), et rien depuis ne revérifiait
+que ce gel restait exact. Mesuré à nouveau : 314 routes (306 avant), 118
+entrées dans la dette. `_motif`, la fonction qui décide si une route a un
+appelant, cherchait un chemin suivi d'un guillemet, d'une apostrophe, d'un
+backtick ou de `?`/`&` — mais pas de `$`. Or le patron dominant du client
+frontend pour une query string optionnelle est
+`` `/route${condition ? `?x=${v}` : ""}` `` : le `$` d'interpolation suit
+immédiatement le chemin, sans jamais fermer de guillemet avant. Quatre
+routes réellement appelées (`/collaboration/history`,
+`/filesystem/browse`, `/models/benchmarks`, `/operations/checkpoints`) et
+une cinquième par le même patron (`/logs`) étaient donc classées
+orphelines par un défaut de la sonde, pas par absence réelle d'appelant.
+
+Une tentative de correction plus large — retirer les commentaires du texte
+scanné pour éviter qu'un commentaire mentionnant un chemin de fichier
+(`data/logs/`) ne soit pris pour un appel réel — a été essayée et
+abandonnée : une regex de bloc de commentaire traverse les frontières de
+fichier sur ce dépôt et a supprimé du vrai code, fabriquant 37 nouveaux
+faux orphelins en un instant. `/logs/{session_id}` reste donc classé
+orphelin dans la dette malgré un « match » de sonde trompeur — vérifié à
+la main, aucun appelant réel n'existe.
+
+### Décision
+
+Corriger `_motif` (ajouter `$` aux terminateurs acceptés), pas réécrire la
+sonde. Retirer de la dette exactement les 5 entrées dont l'appelant réel a
+été confirmé par lecture directe du site d'appel, pas par confiance dans
+le nouveau chiffre. Pour les 113 entrées restantes, aucune n'a été
+supprimée sans preuve suffisante d'un appelant absent, d'un chemin
+indirect absent et d'un contrat documenté absent : `/healthz`, `/readyz`,
+`/system/status` sont des conventions de sonde d'infra ; `/legacy/*` est
+un pont de compatibilité documenté (P-002) ; `/collaboration/*` est
+fonctionnel et testé mais délibérément non câblé au pipeline de mission,
+déjà documenté comme tel (HOS-070, initiative séparée et plus large que
+ce chantier) ; `/studio/*` et une partie de `/git/*` ont des appelants
+opérateur réels dans `scripts/`, pas dans le frontend. Aucune de ces
+routes n'appartient à G-16 : les supprimer aurait été une réduction de
+chiffre sans preuve, exactement ce que ce chantier interdisait.
+
+### Ce qui a été livré
+
+`_motif` accepte `$` en fin de chemin. Nouveau test
+`test_l_interpolation_ne_masque_pas_un_appelant_reel` : vérifie
+explicitement que les 5 routes réintégrées ne repassent pas orphelines —
+neutraliser le `$` dans `_motif` le fait rougir avec
+`test_aucune_route_neuve_sans_appelant_frontend`, restaurer le `$` les
+rend verts (mutation vérifiée). Dette : 118 → 113 entrées sur 314 routes.
+Documentation en commentaire pour `/logs/{session_id}`, seule entrée dont
+le statut « orphelin » et le résultat brut de la sonde divergent, pour
+qu'un futur lecteur ne la retire pas sur la foi du chiffre.
+
 ## HOS-294 — `assigned_tools` planifié, jamais invoqué (2026-09-12)
 
 G-11. Ferme le chantier opérationnel #5.

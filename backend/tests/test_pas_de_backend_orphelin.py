@@ -63,7 +63,9 @@ ORPHELINS_CONNUS: frozenset = frozenset({
     "/collaboration/delegations",
     "/collaboration/delegations/{delegation_id}/accept",
     "/collaboration/delegations/{delegation_id}/complete",
-    "/collaboration/history",
+    # G-16 (2026-09-12) retire /collaboration/history : appelee reellement
+    # depuis client.ts (`/collaboration/history${qs}`), masquee jusqu'ici
+    # par le trou d'interpolation de `_motif` corrige dans la meme passe.
     "/collaboration/messages/broadcast",
     "/collaboration/messages/conversation/{conversation_id}",
     "/collaboration/messages/unread",
@@ -79,7 +81,8 @@ ORPHELINS_CONNUS: frozenset = frozenset({
     "/files/apply",
     "/files/content",
     "/files/diff",
-    "/filesystem/browse",
+    # G-16 (2026-09-12) retire /filesystem/browse : meme trou d'interpolation
+    # que /collaboration/history, appelant reel dans client.ts confirme.
     "/git/branch",
     "/git/branches",
     "/git/commit",
@@ -92,7 +95,17 @@ ORPHELINS_CONNUS: frozenset = frozenset({
     "/legacy/memory/search",
     "/legacy/skills",
     "/legacy/skills/{skill_id}",
-    "/logs",
+    # G-16 (2026-09-12) retire /logs : meme trou d'interpolation, appelant
+    # reel `` `/logs${qs}` `` dans client.ts. /logs/{session_id} reste EN
+    # BAS malgre l'air de famille : sa seule correspondance est une coincidence de
+    # texte dans un commentaire JSDoc de hermes.ts (« ... fichiers sous
+    # `data/logs/` ... ») qui referme sur une apostrophe inverse, pas un
+    # appelant. Verifie par lecture directe du site — aucun fetchJSON ne
+    # construit ce chemin. Tenter de filtrer les commentaires du cote sonde
+    # a ete essaye et abandonne : sur ce depot, ca supprime aussi du vrai
+    # code (une regex `/\*.*?\*/` traverse les bornes de fichier) et a
+    # fabrique 37 nouveaux faux orphelins instantanement — pire que le
+    # defaut qu'elle visait a corriger. Limite connue, non resolue ici.
     "/logs/latency",
     "/logs/{session_id}",
     "/memory",
@@ -100,12 +113,14 @@ ORPHELINS_CONNUS: frozenset = frozenset({
     "/memory/project/{project_id}",
     "/memory/types",
     "/memory/{memory_id}/promote",
-    "/models/benchmarks",
+    # G-16 (2026-09-12) retire /models/benchmarks : meme trou
+    # d'interpolation, appelant reel dans client.ts.
     "/models/catalogue/candidats",
     "/models/evolution",
     "/models/knowledge",
     "/operations/agents/{agent}",
-    "/operations/checkpoints",
+    # G-16 (2026-09-12) retire /operations/checkpoints : meme trou
+    # d'interpolation, appelant reel dans client.ts.
     "/planner/plan",
     "/planner/plan/template/{template_id}",
     "/planner/results",
@@ -209,11 +224,18 @@ def _motif(route: str) -> re.Pattern:
     `/bridge/capabilities/refresh`, si bien que supprimer l'appel a la
     premiere ne faisait rougir personne. Toute route prefixe d'une autre
     heritait ainsi d'un appelant qu'elle n'avait pas. Ce qui suit le chemin
-    doit clore le litteral (`` ` ``, `"`, `'`) ou ouvrir une requete (`?`,
-    `&`).
+    doit clore le litteral (`` ` ``, `"`, `'`), ouvrir une requete (`?`,
+    `&`), ou ouvrir une interpolation (`$`, pour `` `/logs${qs}` ``).
+
+    G-16 (2026-09-12) a trouve 4 faux orphelins par cette omission :
+    `/collaboration/history`, `/filesystem/browse`, `/models/benchmarks` et
+    `/operations/checkpoints` s'ecrivent tous
+    `` `/chemin${condition ? `?x=${v}` : ""}` `` cote frontend — le litteral
+    est bien la, mais rien avant `$` ne fermait la chaine. Verifie sur les
+    quatre call sites reels avant correction, pas sur le chiffre.
     """
     parts = [re.escape(s) for s in re.split(r"\{[^}]+\}", route)]
-    return re.compile("[^`\"']*".join(parts) + "(?=[`\"'?&])")
+    return re.compile("[^`\"']*".join(parts) + "(?=[`\"'?&$])")
 
 
 @pytest.fixture(scope="module")
@@ -243,6 +265,32 @@ def test_l_inventaire_ne_pourrit_pas():
     assert fantomes == [], (
         "entrees de `ORPHELINS_CONNUS` qui ne correspondent a aucune route :"
         "\n  " + "\n  ".join(fantomes) + "\n\nRetirez-les.")
+
+
+def test_l_interpolation_ne_masque_pas_un_appelant_reel(orphelins):
+    """G-16 : un consommateur legitime ne doit pas passer pour un orphelin.
+
+    Ces cinq routes ont toutes un appelant reel dans `client.ts`, ecrit
+    `` `/chemin${condition ? `?x=${v}` : ""}` `` — le `$` d'interpolation
+    suit immediatement le chemin, sans guillemet ni backtick entre les deux.
+    Avant le correctif de `_motif` (G-16, 2026-09-12), la sonde les classait
+    orphelines : `?` n'apparait qu'a l'interieur de la branche conditionnelle,
+    jamais colle au chemin lui-meme. Neutraliser le `$` dans `_motif` fait
+    rougir ce test — c'est la mutation qui prouve qu'il teste bien le
+    correctif et pas autre chose.
+    """
+    appelants_reels = {
+        "/collaboration/history",
+        "/filesystem/browse",
+        "/logs",
+        "/models/benchmarks",
+        "/operations/checkpoints",
+    }
+    faussement_orphelines = sorted(appelants_reels & orphelins)
+    assert faussement_orphelines == [], (
+        "routes a appelant reel reclassees orphelines — regression du "
+        "correctif d'interpolation de `_motif` :\n  "
+        + "\n  ".join(faussement_orphelines))
 
 
 def test_les_routes_du_pont_ont_un_appelant(orphelins):

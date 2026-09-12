@@ -124,7 +124,8 @@ def test_aucun_client_frontend_ne_vise_une_route_absente():
 def test_aucune_entree_d_orphelin_ne_designe_une_route_absente():
     """Une dette qui nomme une route disparue ne garde rien, et laisse
     croire a un travail restant qui n'existe plus. Mesure du 2026-09-11 :
-    118 entrees, 0 fantome."""
+    118 entrees, 0 fantome. G-16 (2026-09-12) a retire 5 entrees resolues
+    par un correctif de sonde (interpolation `$`) : 113 entrees, 0 fantome."""
     source = (RACINE / "backend" / "tests"
               / "test_pas_de_backend_orphelin.py").read_text(encoding="utf-8")
     debut = source.index("ORPHELINS_CONNUS")
