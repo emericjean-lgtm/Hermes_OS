@@ -139,6 +139,24 @@ def test_A_l_occupation_inclut_ce_qui_n_appartient_pas_a_ollama(monkeypatch):
         "est l'occupation de la machine, pas celle d'Ollama")
 
 
+def test_A_l_occupation_ne_depasse_jamais_la_capacite(monkeypatch):
+    """Signalé le 2026-09-12 : Hermes OS annonçait 17,3 Gio d'occupation
+    sur une carte de 15,98 — une valeur physiquement impossible, produite
+    par le compteur par processus (double-comptage des fenêtres
+    GPU-accélérées, voir `vram_physique.py`). Quelle que soit la source en
+    amont, `GPUMonitor` doit borner le chiffre qu'il rend."""
+    monkeypatch.setattr(vram_physique, "occupation_physique_octets",
+                        lambda **_: int(17.3 * GIO))
+    m = GPUMonitor()
+    m._adapter_vram_total = lambda: ("AMD Radeon RX 6800", CARTE)
+
+    info = m._try_compteurs_windows()
+
+    assert info.vram_used_bytes <= CARTE, (
+        "une occupation ne peut pas dépasser la capacité physique de la carte")
+    assert info.vram_free_bytes == 0
+
+
 def test_A_une_mesure_absente_n_est_pas_un_zero():
     """`None` et `0` mènent à des décisions opposées : `0` autorise."""
     assert vram_physique.occupation_physique_octets(executer=lambda _: "") is None
@@ -544,12 +562,19 @@ def test_une_seule_requete_d_occupation_machine():
 
 def test_le_module_canonique_pose_bien_la_question_machine():
     """Le pendant du test précédent : il ne doit pas passer parce que le
-    module canonique aurait cessé de mesurer quoi que ce soit."""
+    module canonique aurait cessé de mesurer quoi que ce soit.
+
+    Compteur par **adaptateur** depuis le 2026-09-12 (par processus
+    jusque-là) : sommer le compteur par processus sur toute la machine
+    double-comptait les surfaces que DWM recompose pour chaque fenêtre
+    GPU-accélérée, au point de produire une occupation supérieure à la
+    capacité physique de la carte — voir `vram_physique.py`.
+    """
     requetes = _requetes_de_compteur(
         RACINE / "backend" / "runtime" / "resources" / "vram_physique.py")
 
     assert requetes, "le module canonique n'interroge plus le compteur"
-    assert "GPU Process Memory" in requetes[0]
+    assert "GPU Adapter Memory" in requetes[0]
     assert "pid_" not in requetes[0], (
         "la source canonique s'est restreinte à un processus : elle ne "
         "répond plus à « reste-t-il de la place sur la carte »")

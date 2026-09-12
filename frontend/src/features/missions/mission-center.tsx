@@ -171,9 +171,15 @@ export function MissionCenter() {
                     onChange={(e) => setProjectId(e.target.value)}
                     className="bg-hermes-bg border border-hermes-border rounded-lg px-3 py-2 text-[11px] text-hermes-text font-mono focus:border-hermes-amber outline-none"
                   >
-                    <option value="">Aucun workspace (pas d&apos;accès fichiers réel)</option>
+                    {/* Le popup natif d'un <select> ignore le style hérité
+                        et rend un fond système (blanc sous Windows) : sans
+                        un fond explicite sur chaque <option>, le texte
+                        clair hérité devient illisible — blanc sur blanc. */}
+                    <option value="" className="bg-hermes-bg-deep text-hermes-text">
+                      Aucun workspace (pas d&apos;accès fichiers réel)
+                    </option>
                     {usableProjects.map((p) => (
-                      <option key={p.id} value={p.id}>
+                      <option key={p.id} value={p.id} className="bg-hermes-bg-deep text-hermes-text">
                         {p.name} — {p.root_path}
                       </option>
                     ))}

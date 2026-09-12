@@ -29,17 +29,67 @@ qui rend le défaut coûteux à trouver.
 
 ## Ce que ce module mesure, exactement
 
-La somme de `\\GPU Process Memory(*)\\Dedicated Usage` sur **tous** les
-processus de la machine : la mémoire vidéo dédiée effectivement détenue,
+La somme du compteur Windows par **adaptateur** (`_REQUETE` plus bas) sur
+**tous** les adaptateurs de la machine : la mémoire vidéo dédiée effectivement détenue,
 quel que soit le détenteur — Ollama, le compositeur de bureau, un
 navigateur. C'est la question que pose l'admission : « reste-t-il de la
-place sur la carte », pas « combien Ollama en a-t-il pris ».
+place sur la carte », pas « combien Ollama en a-t-il pris ». C'est aussi,
+vérifié ici, exactement ce qu'affiche le Gestionnaire des tâches.
 
-Le compteur par **processus** et non par **adaptateur** : mesuré ici, stable
-sur trois relevés, l'adaptateur annonce 14,669 Gio là où la somme des
-processus en compte 15,115. L'écart est petit (2,9 %) mais toujours dans le
-sens dangereux, et le compteur par processus est celui que
-`model_intelligence/model_bench.py` utilise déjà.
+## Corrigé le 2026-09-12 : le compteur par processus dépassait la capacité
+
+Ce module a porté le compteur Windows par **processus**, sommé sur tous les
+processus, depuis §6.2/A-15 jusqu'à cette date. Le choix venait d'un
+relevé unique, non reproduit depuis (CHANGELOG, HOS-258, 2026-09-05) :
+avec un modèle de 11,9 Gio résident, l'adaptateur annonçait 3,99 Gio contre
+12,70 pour la somme des processus — un facteur trois, dans le sens
+dangereux. Remesuré trois fois le lendemain, l'écart n'était plus que de
+2,9 % (14,669 contre 15,115) ; « la sonde d'origine n'a pas été conservée
+et n'est plus auditable », et le choix du compteur par processus avait été
+gardé par prudence malgré la non-reproduction.
+
+Un signalement de l'opérateur a fait rejouer la mesure une troisième fois,
+dans l'état réel de la machine plutôt que de s'arrêter à une conclusion de
+2026-09-05 : Hermes OS annonçait 17,3 Gio d'occupation avec `gpt-oss-20b`
+résident, sur une carte qui n'en porte que 15,98 — **une valeur physiquement
+impossible** — quand le Gestionnaire des tâches indiquait 15,4 Gio,
+cohérent. Rejoué au repos et avec un modèle chargé :
+
+    état                    adaptateur   somme processus   écart
+    au repos (aucun modèle)   1,237 Gio       3,144 Gio    +1,907
+    lfm2.5-2.6b chargé        5,565 Gio       7,478 Gio    +1,913
+
+L'écart est constant en valeur absolue (~1,9 Gio) aux deux états — la
+contribution du modèle lui-même, mesurée par différence, est identique des
+deux côtés (4,33 Gio, exactement la valeur déclarée par
+`config/models.yaml`) — ce qui écarte un effet du modèle chargé. L'excédent
+vient du bruit de fond : plusieurs fenêtres GPU-accélérées (navigateur,
+Explorer, le compositeur DWM lui-même) se voient chacune attribuer, dans le
+compteur par **processus**, la surface de composition que DWM recompose
+pour leur compte — un artefact documenté de cette catégorie de compteur
+Windows sommée sans filtrer. Il grandit avec le nombre de fenêtres
+ouvertes et n'est borné par aucune capacité physique, d'où la valeur
+supérieure à la carte lors du signalement.
+
+Le compteur par **adaptateur**, lui, n'a pas cet artefact : chaque
+allocation y est comptée une fois, au niveau du pilote, quel que soit le
+nombre de processus qui la partagent — c'est la définition que retient le
+Gestionnaire des tâches. Le facteur trois de §6.2 reste un fait mesuré,
+non expliqué et non reproduit en trois occasions séparées (2026-09-05,
+2026-09-12 à deux états) : le risque théorique d'un sous-relevé ponctuel du
+compteur par adaptateur n'est donc pas écarté, mais rien de mesuré depuis
+ne le montre, alors que le compteur par processus vient de produire une
+valeur qui viole une contrainte physique — un défaut certain contre un
+défaut qui ne s'est plus reproduit. `occupation_physique_octets` ne peut
+pas, à elle seule, garantir `occupation <= total` si la source se
+détraquait à nouveau : c'est `GPUMonitor._try_compteurs_windows` qui borne
+`vram_used_bytes` à `vram_total_bytes` en dernier recours (voir ce module).
+
+`model_intelligence/model_bench.py` garde son propre compteur par
+**processus nommé** (`gpu_dedicated_bytes`) : il répond à une question
+différente — « combien ce PID précis détient-il » — et un processus sans
+fenêtre (le serveur Ollama) n'est pas sujet à l'artefact de composition,
+puisque rien n'y recompose de surface pour son compte.
 
 ## Les limites, énoncées plutôt que découvertes plus tard
 
@@ -69,12 +119,16 @@ import os
 import subprocess
 from typing import Optional
 
-# Le compteur nomme ses instances `pid_<n>_luid_..._phys_<n>`. On somme
-# tout : la question est l'occupation de la machine, pas celle d'un
-# processus. `model_bench.gpu_dedicated_bytes` pose l'autre question — un
-# processus nommé — et c'est pour cela qu'il a sa propre requête.
+# Le compteur nomme ses instances `luid_..._phys_<n>`, une par adaptateur.
+# On somme tout : la question est l'occupation de la machine, pas celle
+# d'un processus. `model_bench.gpu_dedicated_bytes` pose l'autre
+# question — un processus nommé, sur `GPU Process Memory` — et c'est pour
+# cela qu'il a sa propre requête ; sommer ce compteur sur *tous* les
+# processus, comme ce module le faisait avant le 2026-09-12, double-compte
+# les surfaces que DWM recompose pour chaque fenêtre GPU-accélérée (voir
+# « Corrigé le 2026-09-12 » plus haut).
 _REQUETE = (
-    "(Get-Counter '\\GPU Process Memory(*)\\Dedicated Usage' -ErrorAction Stop)"
+    "(Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage' -ErrorAction Stop)"
     ".CounterSamples | Measure-Object -Property CookedValue -Sum "
     "| Select-Object -ExpandProperty Sum"
 )

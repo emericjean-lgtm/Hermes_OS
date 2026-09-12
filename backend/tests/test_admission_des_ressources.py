@@ -30,6 +30,14 @@ même carte, un modèle de 11,9 Gio résident :
 L'adaptateur sous-déclarait d'un facteur trois — dans le sens dangereux,
 celui qui fait croire qu'il reste de la place.
 
+> **Amendement du 2026-09-12.** Ce facteur trois ne s'est plus reproduit
+> en trois mesures séparées depuis (A-15 le 2026-09-05, puis deux états le
+> 2026-09-12) — voir `runtime/resources/vram_physique.py`. Le compteur par
+> processus, gardé par prudence après A-12, produisait entre-temps une
+> occupation supérieure à la capacité physique de la carte : la source
+> canonique est repassée au compteur par adaptateur, celui que lit le
+> Gestionnaire des tâches.
+
 ## Ce que ce fichier ne prouve pas
 
 Que l'estimation de VRAM soit exacte. `vram_gb_for` rend une estimation,
@@ -361,44 +369,70 @@ def _compteurs_interroges(chemin: Path) -> set[str]:
     return set(re.findall(r"GPU ([A-Za-z]+) Memory", textes))
 
 
-def test_l_occupation_machine_se_lit_par_processus():
-    """`GPU Adapter Memory` sous-déclare la VRAM réellement occupée.
+def test_l_occupation_machine_se_lit_par_adaptateur():
+    """Corrigé le 2026-09-12 : le compteur par **processus** dépassait la
+    capacité physique de la carte.
 
-    §6.2 chiffrait l'écart à un facteur trois — 3,99 contre 12,70 Gio.
-    **Ce relevé ne s'est pas reproduit** : remesuré pendant A-15, carte
-    portant un modèle de 12,74 Gio, l'adaptateur donne 14,669 Gio et les
-    processus 15,115, soit 0,445 Gio, stable sur trois relevés. La sonde
-    d'origine n'a pas été conservée et n'est plus auditable ; le chiffre
-    est retiré, la direction reste — l'adaptateur sous-déclare, dans le
-    sens qui fait croire qu'il reste de la place.
+    §6.2 chiffrait l'écart adaptateur/processus à un facteur trois — 3,99
+    contre 12,70 Gio, dans le sens qui ferait croire qu'il reste de la
+    place. **Ce relevé ne s'est jamais reproduit** : remesuré pendant A-15
+    (0,445 Gio, 2,9 %), puis une troisième fois le 2026-09-12 après un
+    signalement — Hermes OS annonçait 17,3 Gio d'occupation sur une carte
+    de 15,98, une valeur physiquement impossible, quand le Gestionnaire des
+    tâches (compteur par adaptateur) indiquait 15,4 Gio, cohérent. L'écart
+    mesuré ce jour-là (~1,9 Gio, constant que la carte soit au repos ou
+    qu'un modèle soit chargé) vient de fenêtres GPU-accélérées comptées en
+    double par le compteur par processus, pas d'un effet de modèle. Détail
+    et chiffres complets dans `vram_physique.py`.
     """
     canonique = RACINE / "backend/runtime/resources/vram_physique.py"
 
-    assert _compteurs_interroges(canonique) == {"Process"}, (
-        "la source canonique n'interroge plus le compteur par processus")
+    assert _compteurs_interroges(canonique) == {"Adapter"}, (
+        "la source canonique n'interroge plus le compteur par adaptateur")
 
 
-def test_aucune_production_n_interroge_le_compteur_par_adaptateur():
-    fautifs = [f.relative_to(RACINE).as_posix()
-               for f in (RACINE / "backend").rglob("*.py")
-               if "tests" not in f.parts
-               and "Adapter" in _compteurs_interroges(f)]
+def test_aucune_production_ne_somme_le_compteur_par_processus_sans_filtre():
+    """Le pendant de la garde précédente : personne d'autre ne doit sommer
+    le compteur par processus sur toute la machine — c'est exactement le
+    défaut corrigé le 2026-09-12 (voir ci-dessus). `model_bench.py` lit ce
+    même compteur légitimement, mais filtré sur un seul PID nommé
+    (`gpu_dedicated_bytes`, `pid_${_}_*`), jamais sommé sur `(*)` sans
+    filtre comme le faisait l'ancienne source canonique.
+    """
+    filtres = ("pid_", "Get-Process", "InstanceName", "$ids")
+    fautifs: list[str] = []
+    for f in (RACINE / "backend").rglob("*.py"):
+        if "tests" in f.parts:
+            continue
+        arbre = ast.parse(io.open(f, encoding="utf-8").read())
+        textes = [n.value for n in ast.walk(arbre)
+                  if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+        joint = " ".join(textes)
+        if "Process" in _compteurs_interroges(f) and not any(
+                marque in joint for marque in filtres):
+            fautifs.append(f.relative_to(RACINE).as_posix())
 
     assert fautifs == [], (
-        f"le compteur par adaptateur est de retour : {fautifs}")
+        f"une somme par processus sur toute la machine est de retour : {fautifs}")
 
 
-def test_le_banc_et_le_cockpit_lisent_le_meme_compteur():
-    """Deux lectures de la même grandeur qui divergent, c'est la situation
-    que A-12 nomme. Le Cockpit ne définit plus la sienne : il appelle la
-    source canonique — vérifié par l'appel, pas par une chaîne."""
-    canonique = _compteurs_interroges(
-        RACINE / "backend/runtime/resources/vram_physique.py")
-    banc = _compteurs_interroges(
-        RACINE / "backend/model_intelligence/model_bench.py")
+def test_le_banc_et_le_cockpit_ne_divergent_pas_sur_l_admission():
+    """A-12 : deux lectures de la même grandeur qui divergent. Le Cockpit
+    ne définit plus la sienne — vérifié par l'appel, pas par une chaîne.
 
-    assert canonique and canonique == banc, (
-        f"le banc lit {banc} et l'admission {canonique}")
+    Le banc (`model_bench.py`) et l'admission (`vram_physique.py`) posent
+    des questions différentes par construction depuis le 2026-09-12 — un
+    processus nommé contre la machine entière — donc plus le même compteur
+    au sens littéral ; ce qui doit rester vrai est que le Cockpit lit la
+    source canonique de l'admission plutôt que de définir la sienne.
+    """
+    cockpit = ast.parse(io.open(RACINE / "backend/monitoring/gpu_monitor.py",
+                                encoding="utf-8").read())
+    appels = {ast.unparse(n.func) for n in ast.walk(cockpit)
+              if isinstance(n, ast.Call)}
+    assert any(a.endswith("occupation_physique_octets") for a in appels), (
+        "le Cockpit a repris une requête à lui : c'est la divergence de "
+        "A-12 qui revient par la porte de derrière")
 
     cockpit = ast.parse(io.open(RACINE / "backend/monitoring/gpu_monitor.py",
                                 encoding="utf-8").read())

@@ -300,7 +300,17 @@ class TestStreamRoutePayload:
         assert done["context"]["used_tokens_estimate"] > 0
 
     @pytest.mark.asyncio
-    async def test_unknown_role_reports_a_real_error_not_a_silent_fallback(self, patched_registry):
+    async def test_unknown_role_reaches_the_model_literally_not_a_silent_fallback(
+        self, patched_registry,
+    ):
+        """The invariant that matters survives a contract change: a name
+        outside the catalogue must never turn into a *different* role
+        (silently answering with `swift` while the picker still shows the
+        typed name would be worse than an error). It used to get there by
+        raising `KeyError`; the ModelPicker now also offers Ollama models
+        that have no role at all, so `ModelRouter.decision_for_role` treats
+        an unrecognised name as a literal model tag instead — Ollama, not
+        this router, is the honest judge of whether it really exists."""
         from backend.conversation import routes as conv_routes
 
         mgr = conv_routes._get_manager()  # noqa: SLF001
@@ -309,6 +319,9 @@ class TestStreamRoutePayload:
         response = await conv_routes.stream_message({
             "session_id": session.session_id, "message": "bonjour", "role": "not-a-role",
         })
+        assert response.headers["X-Hermes-Model"] == "not-a-role"
         events = await _consume_stream(response)
-        assert events[0]["kind"] == "error"
-        assert "not-a-role" in events[0]["error"]
+        assert any(e["kind"] == "content" for e in events), (
+            "an uncatalogued role must not be silently rejected either — "
+            "the picker also offers non-benchmarked, installed models"
+        )

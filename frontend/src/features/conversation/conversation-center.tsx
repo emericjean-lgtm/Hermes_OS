@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { conversationClient } from "@/services/client";
 import { streamConversation, type ContextUsage, type StreamRouting } from "@/services/conversation-stream";
-import { useMonitoringResources, useSystemModelRoles } from "@/hooks/use-api";
+import { useAgentSkills, useMonitoringResources, useSystemModelRoles } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
 import type { EtatOperateur } from "@/components/operateur";
 import type { ResourceStatus } from "@/types/hermes";
@@ -16,7 +16,8 @@ import { formatGioPair, vramOccupee, vramPourcent } from "@/lib/format";
 import { MarkdownMessage } from "./markdown-message";
 import { ContextMeter, ModelPicker, type ModelSelection } from "./model-picker";
 import {
-  ContextPanel, HelpPanel, matchSlashCommands, SessionPicker, SlashCommandMenu, type SlashCommand,
+  ContextPanel, HelpPanel, matchSlashCommands, SessionPicker, skillsToSlashCommands,
+  SlashCommandMenu, type SlashCommand,
 } from "./slash-commands";
 import { AttachButton, AttachmentChips, buildAttachmentPreamble, type Attachment } from "./attachments";
 import { WebPreviewPanel } from "./web-preview";
@@ -153,7 +154,9 @@ export default function ConversationCenter() {
     () => [...messages].reverse().find((m) => m.context)?.context,
     [messages],
   );
-  const slashMatches = useMemo(() => matchSlashCommands(input), [input]);
+  const agentSkills = useAgentSkills();
+  const skillCommands = useMemo(() => skillsToSlashCommands(agentSkills.data), [agentSkills.data]);
+  const slashMatches = useMemo(() => matchSlashCommands(input, skillCommands), [input, skillCommands]);
 
   /* ── Session lifecycle ─────────────────────────────────────────── */
 
@@ -228,6 +231,14 @@ export default function ConversationCenter() {
   }, [sessionId, loadHistory]);
 
   const runSlashCommand = useCallback((command: SlashCommand) => {
+    // Une compétence de l'agent (`insertText`) n'est pas une action locale
+    // comme les 5 commandes ci-dessous : il n'y a rien à ouvrir côté
+    // Cockpit, c'est un message pour l'agent. On la laisse dans le
+    // composeur, complétée par l'opérateur, envoyée normalement.
+    if (command.insertText !== undefined) {
+      setInput(command.insertText);
+      return;
+    }
     setInput("");
     if (command.cmd === "/clean") {
       void newConversation();
@@ -251,9 +262,16 @@ export default function ConversationCenter() {
   }, []);
 
   useEffect(() => {
-    if (pinnedRef.current) {
-      endRef.current?.scrollIntoView({ behavior: streaming ? "auto" : "smooth" });
-    }
+    // `scrollIntoView` bubbles to every scrollable ancestor, not just this
+    // transcript — on a short viewport (a maximized/ultrawide window) it
+    // also scrolled the outer page container, pushing this Center's own
+    // header behind the fixed instrument bar (measured: header top at
+    // y=-7, fully hidden). Scrolling the transcript's own element directly
+    // never touches an ancestor.
+    if (!pinnedRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: streaming ? "auto" : "smooth" });
   }, [messages, streaming]);
 
   /* ── Sending ───────────────────────────────────────────────────── */
@@ -716,7 +734,7 @@ export default function ConversationCenter() {
         <ContextPanel sessionId={sessionId} onClose={() => setContextPanelOpen(false)} />
       )}
 
-      {helpOpen && <HelpPanel onClose={() => setHelpOpen(false)} />}
+      {helpOpen && <HelpPanel onClose={() => setHelpOpen(false)} extra={skillCommands} />}
 
       <AnimatePresence>
         {webPreviewOpen && <WebPreviewPanel onClose={() => setWebPreviewOpen(false)} />}

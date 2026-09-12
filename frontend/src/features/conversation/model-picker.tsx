@@ -50,14 +50,25 @@ export function ModelPicker({
 }) {
   const [open, setOpen] = useState(false);
 
+  // Un modèle hors catalogue (installé sur Ollama mais sans rôle dans
+  // config/models.yaml) porte `role: ""` — comme "Auto". `idOf` lève cette
+  // ambiguïté : c'est le tag du modèle, jamais vide, qui identifie
+  // l'option et qui est envoyé au backend (`ModelRouter.decision_for_role`
+  // le prend tel quel quand ce n'est pas un rôle connu).
+  const idOf = (r: SystemModelRoleDTO) => r.role || r.model;
+
   const byRole = useMemo(
-    () => new Map(roles.map((r) => [r.role, r])),
+    () => new Map(roles.map((r) => [idOf(r), r])),
     [roles],
   );
   const presetRoleNames = useMemo(() => new Set(EFFORT_PRESETS.map((p) => p.role)), []);
   const otherRoles = useMemo(
-    () => roles.filter((r) => r.role !== "embedding" && !presetRoleNames.has(r.role)),
+    () => roles.filter((r) => r.role !== "embedding" && !presetRoleNames.has(r.role) && r.benchmarked),
     [roles, presetRoleNames],
+  );
+  const extraModels = useMemo(
+    () => roles.filter((r) => !r.benchmarked),
+    [roles],
   );
 
   const activePreset = EFFORT_PRESETS.find(
@@ -132,16 +143,33 @@ export function ModelPicker({
                   const Icon = tierIcon(r.tier);
                   return (
                     <Option
-                      key={r.role}
-                      active={value.role === r.role && value.thinking === undefined}
+                      key={idOf(r)}
+                      active={value.role === idOf(r) && value.thinking === undefined}
                       icon={<Icon size={13} className="text-hermes-cyan/70" />}
                       label={r.model}
                       detail={r.description || r.role}
                       badge={r.loaded ? "chargé" : undefined}
-                      onClick={() => pick({ role: r.role })}
+                      onClick={() => pick({ role: idOf(r) })}
                     />
                   );
                 })}
+
+                {extraModels.length > 0 && (
+                  <>
+                    <SectionLabel>Autres modèles installés (non benchmarkés)</SectionLabel>
+                    {extraModels.map((r) => (
+                      <Option
+                        key={idOf(r)}
+                        active={value.role === idOf(r) && value.thinking === undefined}
+                        icon={<Cpu size={13} className="text-hermes-dim" />}
+                        label={r.model}
+                        detail={r.description}
+                        badge={r.loaded ? "chargé" : undefined}
+                        onClick={() => pick({ role: idOf(r) })}
+                      />
+                    ))}
+                  </>
+                )}
               </div>
             </motion.div>
           </>

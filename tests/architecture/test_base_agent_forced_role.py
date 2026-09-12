@@ -96,9 +96,15 @@ class TestForcedRoleRouting:
         assert decision.thinking is True  # planning's own real policy
 
     @pytest.mark.asyncio
-    async def test_unknown_forced_role_raises(self, agent):
-        with pytest.raises(KeyError):
-            await agent.routing_decision("conversation", forced_role="not-a-role")
+    async def test_unknown_forced_role_is_a_literal_model_tag(self, agent):
+        """Changed 2026-09-12: the ModelPicker also offers Ollama models
+        that have no role in the catalogue, so a name outside it is taken
+        as a literal model tag (Ollama judges whether it exists) instead
+        of raising — the invariant that must hold is that it never
+        silently becomes a *different* role."""
+        decision = await agent.routing_decision("conversation", forced_role="not-a-role")
+        assert decision.model == "not-a-role"
+        assert decision.role == ""
 
     @pytest.mark.asyncio
     async def test_forced_role_never_calls_list_running_models(self, agent, ollama):

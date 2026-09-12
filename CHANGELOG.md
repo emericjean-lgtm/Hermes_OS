@@ -1,3 +1,57 @@
+## HOS-304 — La source d'admission VRAM dépassait la capacité physique de la carte (2026-09-12)
+
+Signalement opérateur : Hermes OS annonçait 17,3 Gio d'occupation avec
+`gpt-oss-20b` résident, sur une carte de 15,98 Gio — une valeur
+physiquement impossible — quand le Gestionnaire des tâches indiquait
+15,4 Gio. Rejoué plutôt que supposé, comme l'exige `CLAUDE.md`.
+
+### La mesure
+
+`backend/runtime/resources/vram_physique.py` sommait le compteur Windows
+par **processus** sur toute la machine, un choix fait après A-12/§6.2 sur
+la foi d'un relevé (facteur trois par rapport au compteur par adaptateur)
+jamais reproduit depuis — remesuré le 2026-09-05 (HOS-258), l'écart
+n'était que de 2,9 %, et la sonde d'origine n'était déjà plus auditable.
+
+Rejoué le 2026-09-12, au repos et avec `lfm2.5-2.6b` chargé :
+
+    état                    adaptateur   somme processus   écart
+    au repos (aucun modèle)   1,237 Gio       3,144 Gio    +1,907
+    lfm2.5-2.6b chargé        5,565 Gio       7,478 Gio    +1,913
+
+L'écart est constant en valeur absolue et indépendant du modèle chargé (sa
+propre contribution, mesurée par différence, est identique des deux côtés :
+4,33 Gio, exactement la valeur déclarée par `config/models.yaml`). Il vient
+des fenêtres GPU-accélérées (navigateur, Explorer) que le compositeur DWM
+recompose et que le compteur par processus, sommé sans filtre, compte en
+double — un artefact qui grandit avec le nombre de fenêtres ouvertes et
+n'est borné par aucune capacité physique, d'où la valeur excédant la carte
+lors du signalement.
+
+### La correction
+
+Source canonique repassée au compteur par **adaptateur** (`\GPU Adapter
+Memory(*)\Dedicated Usage`), celui que lit le Gestionnaire des tâches et
+qui compte chaque allocation une fois, au niveau du pilote. Le risque
+théorique visé par le choix de 2026 (un sous-relevé ponctuel du compteur
+par adaptateur) n'est pas écarté — rien ne l'a jamais réexpliqué — mais il
+ne s'est reproduit dans aucune des trois mesures indépendantes depuis
+(2026-09-05, et deux états le 2026-09-12), alors que le compteur par
+processus vient de produire un défaut certain et vérifiable. `model_bench.py`
+garde son propre compteur par processus **nommé** (`gpu_dedicated_bytes`),
+sans le défaut : un processus sans fenêtre n'est sujet à aucun
+double-comptage de composition.
+
+Défense en profondeur ajoutée indépendamment du choix de source :
+`GPUMonitor._try_compteurs_windows` borne désormais `vram_used_bytes` à
+`vram_total_bytes` — une occupation ne peut physiquement pas dépasser la
+capacité de la carte, quelle que soit la source qui la mesure.
+
+Tests : `test_source_gpu_canonique.py`, `test_admission_des_ressources.py`
+et `test_gpu_monitor.py` réécrits sur la nouvelle source et la nouvelle
+direction d'erreur ; nouveau test nommant l'incident (occupation bornée à
+la capacité). Suite complète revérifiée verte.
+
 ## HOS-303 — #12 §10 Skills lifecycle : le ledger de versioning de l'agent existe, rien ne le lisait (2026-09-12)
 
 Chantier #12 — §10 Skills / Procedural Knowledge, condition de clôture :

@@ -227,6 +227,15 @@ class GPUMonitor:
             # calculé sur zéro.
             return None
 
+        # Une occupation ne peut jamais dépasser la capacité physique de la
+        # carte — signalé le 2026-09-12 : 17,3 Gio affichés sur une carte de
+        # 15,98, avec l'ancien compteur par processus (voir
+        # `vram_physique.py`, « Corrigé le 2026-09-12 »). Une source qui se
+        # détraquerait à nouveau produirait un chiffre absurde plutôt qu'un
+        # dépassement silencieux si rien ne le borne ici, en dernier
+        # recours, indépendamment du choix de compteur en amont.
+        occupation = min(occupation, total)
+
         return GPUInfo(
             name=nom or "unknown",
             vendor="AMD" if nom and "AMD" in nom.upper() else "unknown",

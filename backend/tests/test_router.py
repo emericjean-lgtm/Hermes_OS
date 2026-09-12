@@ -145,3 +145,26 @@ def test_unknown_task_type_raises(models_config):
 def test_model_for_role_resolves_directly(models_config):
     router = ModelRouter(models_config)
     assert router.model_for_role("security") == models_config["roles"]["security"]["model"]
+
+
+def test_model_for_role_still_raises_for_a_deterministic_caller(models_config):
+    """`model_for_role` serves callers bound to one specific, always-valid
+    role (e.g. Aegis's own advisory pass, always `security`) — an unknown
+    name there is a real config bug and must stay loud. Unlike
+    `decision_for_role`, this one keeps the strict contract."""
+    router = ModelRouter(models_config)
+    with pytest.raises(KeyError):
+        router.model_for_role("pas-un-role-connu")
+
+
+def test_decision_for_role_accepts_a_model_tag_outside_the_catalogue(models_config):
+    """HOS-075's ModelPicker also lists Ollama models that have no role in
+    config/models.yaml (installed but not benchmarked). A name outside the
+    catalogue used to raise KeyError; it is now taken as a literal model
+    tag — Ollama itself is the honest judge of whether it really exists."""
+    router = ModelRouter(models_config)
+    decision = router.decision_for_role("qwen3.5-9b-256k", "conversation")
+
+    assert decision.model == "qwen3.5-9b-256k"
+    assert decision.role == ""
+    assert decision.tier == ""

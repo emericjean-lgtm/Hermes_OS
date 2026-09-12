@@ -520,6 +520,11 @@ export interface SystemModelRoleDTO {
    *  sait pas » n'est pas « absent » (HOS-139). */
   installe: boolean | null;
   description: string;
+  /** `false` pour un modèle qu'Ollama a réellement installé mais qui n'a
+   *  aucun rôle dans config/models.yaml — proposé quand même (l'opérateur
+   *  sait ce qu'il fait), jamais mesuré pour l'agentique. `role` est alors
+   *  `""` et `model` porte le tag Ollama littéral. */
+  benchmarked: boolean;
 }
 
 // ── Missions ─────────────────────────────────────────
@@ -2123,6 +2128,16 @@ export const filesystemBrowseClient = {
     fetchJSON<FilesystemBrowseDTO>(
       `/filesystem/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`,
     ),
+  /** Ouvre un vrai dialogue Windows (le backend tourne sur la même machine
+   *  que le navigateur qui affiche le Cockpit) plutôt que la liste de
+   *  sous-dossiers ci-dessus. `path: null` = l'opérateur a annulé, pas une
+   *  erreur. Peut rester en attente plusieurs minutes tant que le
+   *  dialogue est ouvert. */
+  pickFolder: (startDir?: string) =>
+    fetchJSON<{ path: string | null; cancelled: boolean }>("/filesystem/pick-folder", {
+      method: "POST",
+      body: JSON.stringify(startDir ? { start_dir: startDir } : {}),
+    }),
 };
 
 export interface GitStatusDTO {
@@ -2161,6 +2176,21 @@ export const gitClient = {
     repo_path: string; title: string; body: string; base?: string; project_id?: string;
   }) =>
     fetchJSON<GitWriteResultDTO>("/git/pull-request", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  commit: (data: {
+    repo_path: string; message: string; paths?: string[]; project_id?: string;
+  }) =>
+    fetchJSON<GitWriteResultDTO>("/git/commit", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  push: (data: {
+    repo_path: string; remote?: string; branch?: string;
+    set_upstream?: boolean; project_id?: string;
+  }) =>
+    fetchJSON<GitWriteResultDTO>("/git/push", {
       method: "POST",
       body: JSON.stringify(data),
     }),

@@ -138,17 +138,19 @@ def _windows_run_command(args: list[str]) -> str | None:
     script = args[-1]
     if "HardwareInformation.qwMemorySize" in script:
         return _WIN_REGISTRY_VRAM
-    # §6.2 / A-12 : le compteur **par processus** remplace celui par
-    # adaptateur, qui sous-déclare la VRAM réellement occupée. Le facteur
-    # trois annoncé en §6.2 ne s'est pas reproduit — remesuré pendant A-15,
-    # l'écart est de 0,445 Gio, stable, toujours dans le même sens. Le
-    # garde-fou reste : la direction de l'erreur suffit à le justifier.
-    if "GPU Process Memory" in script:
-        return _WIN_GPU_USED
+    # Corrigé le 2026-09-12 : le compteur par processus (choisi après
+    # §6.2/A-12) sommait sans filtre sur toute la machine et finissait par
+    # dépasser la capacité physique de la carte — les fenêtres
+    # GPU-accélérées y sont comptées en double par le compositeur DWM. Le
+    # facteur trois annoncé en §6.2 pour le compteur par adaptateur, lui,
+    # ne s'est jamais reproduit en trois mesures séparées. Voir
+    # `runtime/resources/vram_physique.py` pour le détail et les chiffres.
     if "GPU Adapter Memory" in script:
+        return _WIN_GPU_USED
+    if "GPU Process Memory" in script:
         raise AssertionError(
-            "le compteur par adaptateur est de retour : il sous-déclare la "
-            "VRAM réellement occupée")
+            "le compteur par processus est de retour : sommé sans filtre, "
+            "il double-compte les fenêtres GPU-accélérées")
     if "GPU Engine" in script:
         return _WIN_GPU_LOAD
     if "Win32_Processor" in script:

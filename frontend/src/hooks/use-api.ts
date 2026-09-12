@@ -393,6 +393,19 @@ export function useSelectSkills(taskDescription: string) {
 export function useSkillCache() {
   return useQuery({ queryKey: ["skills", "cache"], queryFn: skillsClient.cache });
 }
+/** L'inventaire des 81 compétences réellement installées de Hermes Agent
+ *  (`GET /skills/agent`) — même clé de cache que le Skills Center, pour ne
+ *  pas refaire la même requête deux fois si les deux sont montés. Sert de
+ *  base aux commandes slash de l'Assistant (`skillsToSlashCommands`), qui
+ *  ne les exposait jamais avant : seules les 5 commandes de conversation
+ *  l'étaient. */
+export function useAgentSkills() {
+  return useQuery({
+    queryKey: ["skills", "agent"],
+    queryFn: () => skillsClient.agentSkills(),
+    staleTime: 60_000,
+  });
+}
 
 // ── Tools ────────────────────────────────────────────
 export function useTools() {
@@ -1020,6 +1033,32 @@ export function useGitStatus(
 }
 export function useCreatePullRequest() {
   return useMutation({ mutationFn: gitClient.createPullRequest });
+}
+/** Commit/push d'un dossier local déjà sous Git — le cas "je travaille en
+ *  local et je pousse sur le remote" (par opposition à la PR, qui suppose
+ *  un flux de revue). Invalide le statut git du même dossier après coup :
+ *  un commit change `dirty`/`staged`, un push change `ahead`. */
+export function useGitCommit(repoPath: string | null | undefined, projectId?: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: gitClient.commit,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["git", "status", repoPath, projectId] }),
+  });
+}
+export function useGitPush(repoPath: string | null | undefined, projectId?: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: gitClient.push,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["git", "status", repoPath, projectId] }),
+  });
+}
+/** Le vrai dialogue Windows plutôt que la liste de sous-dossiers — le
+ *  backend tourne sur la même machine que le navigateur qui affiche le
+ *  Cockpit, donc un `FolderBrowserDialog` natif est possible sans
+ *  Electron. Peut rester en attente plusieurs minutes, le temps que
+ *  l'opérateur choisisse. */
+export function usePickFolder() {
+  return useMutation({ mutationFn: filesystemBrowseClient.pickFolder });
 }
 /** Binds/unbinds a conversation session's active workspace
  *  (POST /conversation/{id}/project). Invalidates the session's own

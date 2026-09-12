@@ -45,6 +45,99 @@ def test_browse_never_returns_file_contents(client, tmp_path):
     assert "secret.txt" not in response.json()["directories"]
 
 
+class TestPickFolderDialogueNatif:
+    """POST /filesystem/pick-folder — corrige la liste illisible signalée
+    par l'opérateur en ouvrant un vrai dialogue Windows (le backend tourne
+    sur la même machine que le navigateur du Cockpit). Le dialogue lui-même
+    n'est jamais réellement ouvert ici : `_ouvrir_dialogue_natif`, seul
+    point qui lance PowerShell, est remplacé — ces tests couvrent le
+    contrat de la route, pas le rendu d'une fenêtre Windows.
+    """
+
+    def test_un_chemin_choisi_est_rendu(self, client, monkeypatch):
+        from backend.api.routes import workspace_browse
+
+        monkeypatch.setattr(workspace_browse, "platform",
+                            type("P", (), {"system": staticmethod(lambda: "Windows")}))
+        monkeypatch.setattr(workspace_browse, "_ouvrir_dialogue_natif",
+                            lambda start_dir: r"C:\Users\emeri\mon-projet")
+
+        response = client.post("/filesystem/pick-folder", json={})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["path"] == r"C:\Users\emeri\mon-projet"
+        assert body["cancelled"] is False
+
+    def test_annuler_n_est_pas_une_erreur(self, client, monkeypatch):
+        """Fermer le dialogue sans choisir est un résultat normal, pas un
+        échec — `path: None`, `cancelled: True`, jamais un statut 4xx/5xx."""
+        from backend.api.routes import workspace_browse
+
+        monkeypatch.setattr(workspace_browse, "platform",
+                            type("P", (), {"system": staticmethod(lambda: "Windows")}))
+        monkeypatch.setattr(workspace_browse, "_ouvrir_dialogue_natif",
+                            lambda start_dir: None)
+
+        response = client.post("/filesystem/pick-folder", json={})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["path"] is None
+        assert body["cancelled"] is True
+
+    def test_un_dialogue_oublie_devient_une_annulation(self, client, monkeypatch):
+        """Le sous-processus a son propre délai (10 min) : s'il expire, la
+        route ne doit pas planter, elle traite ça comme une annulation."""
+        import subprocess
+
+        from backend.api.routes import workspace_browse
+
+        def _expire(start_dir):
+            raise subprocess.TimeoutExpired(cmd="powershell", timeout=600.0)
+
+        monkeypatch.setattr(workspace_browse, "platform",
+                            type("P", (), {"system": staticmethod(lambda: "Windows")}))
+        monkeypatch.setattr(workspace_browse, "_ouvrir_dialogue_natif", _expire)
+
+        response = client.post("/filesystem/pick-folder", json={})
+
+        assert response.status_code == 200
+        assert response.json() == {"path": None, "cancelled": True}
+
+    def test_hors_windows_repond_501_pas_une_erreur_muette(self, client, monkeypatch):
+        """Le repli côté frontend (`DirectoryBrowser`) déclenche sur une
+        erreur — un 200 avec un chemin vide serait pris pour une
+        annulation et cacherait que le dialogue natif n'existe pas ici."""
+        from backend.api.routes import workspace_browse
+
+        monkeypatch.setattr(workspace_browse, "platform",
+                            type("P", (), {"system": staticmethod(lambda: "Linux")}))
+
+        response = client.post("/filesystem/pick-folder", json={})
+
+        assert response.status_code == 501
+
+    def test_le_dossier_de_depart_est_transmis(self, client, monkeypatch):
+        """Rouvrir le dialogue là où l'opérateur en était, pas toujours au
+        même endroit par défaut."""
+        from backend.api.routes import workspace_browse
+
+        recu = {}
+
+        def _capture(start_dir):
+            recu["start_dir"] = start_dir
+            return None
+
+        monkeypatch.setattr(workspace_browse, "platform",
+                            type("P", (), {"system": staticmethod(lambda: "Windows")}))
+        monkeypatch.setattr(workspace_browse, "_ouvrir_dialogue_natif", _capture)
+
+        client.post("/filesystem/pick-folder", json={"start_dir": r"D:\projets"})
+
+        assert recu["start_dir"] == r"D:\projets"
+
+
 def test_browse_missing_path_returns_404(client, tmp_path):
     response = client.get("/filesystem/browse", params={"path": str(tmp_path / "nope")})
 

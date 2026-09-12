@@ -400,7 +400,14 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Hermes-Model", "X-Hermes-Tier", "X-Hermes-Role"],
+        # Les 4 manquants laissaient le detail du RoutingBadge (raison,
+        # puce "reflexion", session, intention) vide sur toute requete
+        # cross-origin — le cas normal du Cockpit en dev (front et
+        # back sur des ports differents) — meme quand le nom du modele
+        # s'affichait.
+        expose_headers=["X-Hermes-Model", "X-Hermes-Tier", "X-Hermes-Role",
+                        "X-Hermes-Session", "X-Hermes-Reason",
+                        "X-Hermes-Thinking", "X-Hermes-Intent"],
         **_cors_kwargs,
     )
 

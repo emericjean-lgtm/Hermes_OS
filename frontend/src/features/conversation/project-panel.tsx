@@ -4,11 +4,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   CheckCircle2, ChevronLeft, CircleDot, FolderGit2, FolderOpen, GitBranch,
-  GitPullRequest, ShieldAlert, Trash2, Unlink, XCircle,
+  GitCommit, GitPullRequest, ShieldAlert, Trash2, Unlink, XCircle,
 } from "lucide-react";
 import {
   useBindProject, useCreateProject, useCreatePullRequest, useFilesystemBrowse,
-  useGitStatus, useProjects, useRemoveProject, useUpdateProject, useValidateProject,
+  useGitCommit, useGitPush, useGitStatus, usePickFolder, useProjects,
+  useRemoveProject, useUpdateProject, useValidateProject,
 } from "@/hooks/use-api";
 import type { ProjectDTO } from "@/services/client";
 import { RailPanel, Placeholder } from "./rail-primitives";
@@ -113,6 +114,18 @@ function LinkForm({ onLinked }: { onLinked: (id: string) => void }) {
   const [branch, setBranch] = useState("");
   const [browserOpen, setBrowserOpen] = useState(false);
   const create = useCreateProject();
+  const pickFolder = usePickFolder();
+
+  // Le vrai dialogue Windows d'abord — le backend tourne sur la même
+  // machine que ce navigateur. La liste de sous-dossiers (`DirectoryBrowser`,
+  // signalée illisible/peu fonctionnelle) ne reste qu'un repli, pour le cas
+  // où le backend tourne ailleurs (501, pas d'affichage local possible).
+  const browse = useCallback(() => {
+    pickFolder.mutate(rootPath.trim() || undefined, {
+      onSuccess: (r) => { if (r.path) setRootPath(r.path); },
+      onError: () => setBrowserOpen(true),
+    });
+  }, [rootPath, pickFolder]);
 
   const submit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -147,10 +160,12 @@ function LinkForm({ onLinked }: { onLinked: (id: string) => void }) {
           />
           <button
             type="button"
-            onClick={() => setBrowserOpen((v) => !v)}
-            title="Parcourir…"
+            onClick={browse}
+            disabled={pickFolder.isPending}
+            title="Parcourir… (dialogue Windows)"
             className="shrink-0 rounded-md border border-hermes-border px-2 text-hermes-muted
-              transition-colors hover:border-hermes-cyan/40 hover:text-hermes-cyan"
+              transition-colors hover:border-hermes-cyan/40 hover:text-hermes-cyan
+              disabled:pointer-events-none disabled:opacity-40"
           >
             <FolderOpen size={13} />
           </button>
@@ -344,6 +359,95 @@ function PullRequestForm(
   );
 }
 
+function CommitPushForm(
+  { repoPath, branch, projectId, ahead }:
+  { repoPath: string; branch: string; projectId: string; ahead: number },
+) {
+  const [message, setMessage] = useState("");
+  const commit = useGitCommit(repoPath, projectId);
+  const push = useGitPush(repoPath, projectId);
+
+  const submitCommit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (!message.trim()) return;
+    commit.mutate(
+      { repo_path: repoPath, message: message.trim(), project_id: projectId },
+      { onSuccess: (r) => { if (r.applied) setMessage(""); } },
+    );
+  }, [message, repoPath, projectId, commit]);
+
+  const doPush = useCallback(() => {
+    push.mutate({ repo_path: repoPath, project_id: projectId });
+  }, [repoPath, projectId, push]);
+
+  return (
+    <div className="mt-2 border-t border-hermes-border/50 pt-2">
+      <p className="mb-1.5 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider
+        text-hermes-muted">
+        <GitCommit size={11} /> Commit / push sur {branch}
+        {ahead > 0 && (
+          <span className="rounded border border-hermes-cyan/40 bg-hermes-cyan/10 px-1 py-0
+            text-[9px] normal-case tracking-normal text-hermes-cyan">
+            {ahead} en avance
+          </span>
+        )}
+      </p>
+      <form onSubmit={submitCommit} className="space-y-1.5">
+        <input
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Message de commit (git add -A puis commit)"
+          className="w-full rounded-md border border-hermes-border bg-hermes-bg-deep/60 px-2 py-1.5
+            font-mono text-[10.5px] text-hermes-text placeholder-hermes-dim focus:outline-none
+            focus:border-hermes-cyan/50"
+        />
+        <div className="flex gap-1.5">
+          <button
+            type="submit"
+            disabled={!message.trim() || commit.isPending}
+            className="flex-1 rounded-md border border-hermes-cyan/40 bg-hermes-cyan/10 py-1.5
+              font-mono text-[10px] uppercase tracking-wider text-hermes-cyan transition-all
+              hover:bg-hermes-cyan/20 disabled:pointer-events-none disabled:opacity-40"
+          >
+            {commit.isPending ? "Commit…" : "Commit"}
+          </button>
+          <button
+            type="button"
+            onClick={doPush}
+            disabled={push.isPending}
+            className="flex-1 rounded-md border border-hermes-violet/40 bg-hermes-violet/10 py-1.5
+              font-mono text-[10px] uppercase tracking-wider text-hermes-violet transition-all
+              hover:bg-hermes-violet/20 disabled:pointer-events-none disabled:opacity-40"
+          >
+            {push.isPending ? "Push…" : "Push"}
+          </button>
+        </div>
+      </form>
+
+      {/* Un refus (branche protégée, Aegis, rien à committer) est une
+          réponse normale que le backend rend avec applied=false — pas une
+          exception à intercepter, même contrat que PullRequestForm. */}
+      {[commit.data, push.data].filter(Boolean).map((r, i) => (
+        <div key={i} className={`mt-2 rounded-md border px-2 py-1.5 text-[10px] leading-relaxed ${
+          r!.applied
+            ? "border-hermes-green/30 bg-hermes-green/10 text-hermes-green"
+            : "border-hermes-amber/30 bg-hermes-amber/10 text-hermes-amber"
+        }`}
+        >
+          {r!.applied ? `${r!.operation} appliqué.` : `Refusé (${r!.verdict}) : ${r!.reason}`}
+        </div>
+      ))}
+      {(commit.isError || push.isError) && (
+        <p className="mt-2 text-[10px] text-hermes-red">
+          {(commit.error ?? push.error) instanceof Error
+            ? (commit.error ?? push.error as Error).message
+            : "Échec de la requête."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function ProjectPanel({ sessionId }: { sessionId?: string }) {
   const [linkedId, setLinkedId] = useState<string | null>(null);
   const { data: projects } = useProjects();
@@ -505,9 +609,14 @@ export function ProjectPanel({ sessionId }: { sessionId?: string }) {
                 )}
               </div>
               {project.root_path && !gitStatus.data.protected && (
-                <PullRequestForm
-                  repoPath={project.root_path} branch={gitStatus.data.branch}
-                  projectId={project.id} />
+                <>
+                  <CommitPushForm
+                    repoPath={project.root_path} branch={gitStatus.data.branch}
+                    projectId={project.id} ahead={gitStatus.data.ahead} />
+                  <PullRequestForm
+                    repoPath={project.root_path} branch={gitStatus.data.branch}
+                    projectId={project.id} />
+                </>
               )}
             </>
           )}

@@ -321,14 +321,75 @@ class TestLeChoixManuelDuModele:
 
         assert modeles_recus == [modele_standard]
 
-    def test_un_role_choisi_inconnu_du_catalogue_leve_une_erreur(self):
-        """Meme contrat que `ModelRouter.decision_for_role` (chemin direct) :
-        un role qui n'existe pas au catalogue ne doit jamais retomber en
-        silence sur `standard`, il doit se signaler comme une erreur."""
+    def test_un_nom_hors_catalogue_est_traite_comme_un_tag_litteral(self):
+        """Le ModelPicker propose aussi les modeles Ollama installes mais
+        non benchmarkes (pas de role dans config/models.yaml) : un nom
+        absent du catalogue n'est plus une erreur, c'est un tag de modele
+        pris tel quel — jamais un repli silencieux sur `standard` non plus,
+        ce qui reste le vrai contrat a garder. Ollama, pas ce module, dira
+        honnetement si le tag n'existe pas."""
         from backend.conversation.routes import _modele_du_chat
 
-        with pytest.raises(KeyError):
-            _modele_du_chat("role-qui-n-existe-pas")
+        assert _modele_du_chat("un-tag-ollama-hors-catalogue") == "un-tag-ollama-hors-catalogue"
+
+
+class TestLesEntetesDeRoutage:
+    """L'indicateur de modele de l'Assistant (RoutingBadge) lit les entetes
+    `X-Hermes-*` de la reponse. Le chemin direct les posait ; le chemin par
+    le harnais n'en posait aucun sauf `X-Hermes-Runtime` — l'indicateur
+    restait donc vide des qu'un projet etait lie a la session, c'est a
+    dire dans le cas normal."""
+
+    def test_le_modele_et_le_role_atteignent_les_entetes(self, monkeypatch, tmp_path):
+        import io
+
+        import yaml
+
+        from backend.conversation import routes
+        from backend.conversation.conversation_manager import ConversationManager
+        from backend.conversation.conversation_store import SqliteConversationStore
+        from backend.memory.db import init_db, make_engine, make_session_factory
+        from backend.ral.adapters.hermes_agent_acp import Tour
+
+        catalogue = yaml.safe_load(io.open("config/models.yaml", encoding="utf-8").read())
+        role_reasoning = catalogue["roles"]["reasoning"]
+
+        class _Registre:
+            async def tour(self, *a, **kw):
+                return Tour(texte="ok", stop="end_turn")
+
+        import backend.ral.adapters.sessions_de_mission as sess
+
+        monkeypatch.setattr(sess, "registre", lambda: _Registre())
+
+        engine = make_engine(str(tmp_path / "conv.db"))
+        init_db(engine)
+        mgr = ConversationManager(store=SqliteConversationStore(make_session_factory(engine)))
+        session_id, model_messages, intent = mgr.begin_stream("", "explique")
+
+        async def scenario():
+            reponse = await routes._repondre_par_le_harnais(
+                mgr, session_id, "explique", intent, model_messages,
+                project_id="p-1", project_root=str(tmp_path),
+                forced_role="reasoning")
+            [_ async for _ in reponse.body_iterator]
+            return reponse
+
+        reponse = asyncio.run(scenario())
+
+        assert reponse.headers["X-Hermes-Model"] == role_reasoning["model"]
+        assert reponse.headers["X-Hermes-Role"] == "reasoning"
+        assert reponse.headers["X-Hermes-Tier"] == role_reasoning["tier"]
+        assert reponse.headers["X-Hermes-Session"] == session_id
+        assert "manuellement" in reponse.headers["X-Hermes-Reason"]
+
+    def test_un_modele_impose_hors_catalogue_ne_casse_pas_les_entetes(self):
+        """`HERMES_MISSION_MODEL` peut pointer un tag qui n'est le modele
+        d'aucun role — la relecture doit rendre des chaines vides, jamais
+        lever, plutot qu'inventer un role."""
+        from backend.conversation.routes import _role_et_tier_pour_modele
+
+        assert _role_et_tier_pour_modele("un-tag-hors-catalogue") == ("", "")
 
 
 class TestLaFenetreAnnoncee:

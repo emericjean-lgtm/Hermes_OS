@@ -230,11 +230,28 @@ class ModelRouter:
         force reasoning on or off regardless of what the task type would
         normally get.
 
-        Raises ``KeyError`` for an unknown role — the route layer turns
-        that into a real 4xx rather than silently falling back to auto
-        routing, which would make a manual pick sometimes not apply.
+        ``role_name`` outside the catalogue is treated as a literal Ollama
+        model tag rather than an error: the ModelPicker also lists every
+        model Ollama has installed, not only the benchmarked roles, and an
+        installed-but-uncatalogued tag has no role/tier/num_ctx to look up
+        — `tier=""`, a conservative `num_ctx` default, and Ollama itself is
+        the honest judge of whether the tag really exists (a 404 there is
+        a loud failure, never a silent wrong answer). This used to raise
+        ``KeyError`` for anything unrecognised; that contract was too
+        strict once the picker could offer uncatalogued models too.
         """
-        role = self._roles[role_name]
+        role = self._roles.get(role_name)
+        if role is None:
+            return RoutingDecision(
+                task_type=task_type,
+                role="",
+                model=role_name,
+                tier="",
+                reason="modèle choisi manuellement (hors catalogue)" if thinking is None
+                       else "effort de réflexion choisi manuellement",
+                thinking=self.thinking_for(task_type) if thinking is None else thinking,
+                num_ctx=8192,
+            )
         return RoutingDecision(
             task_type=task_type,
             role=role_name,

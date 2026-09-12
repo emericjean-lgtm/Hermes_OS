@@ -3,10 +3,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  AlertTriangle, Clock, Compass, HelpCircle, History, MessageSquarePlus, Trash2,
+  AlertTriangle, Clock, Compass, HelpCircle, History, MessageSquarePlus, Sparkles, Trash2,
 } from "lucide-react";
 import {
   conversationClient,
+  type AgentSkills,
   type ConversationContextResponseDTO,
   type ConversationSummaryDTO,
 } from "@/services/client";
@@ -40,6 +41,47 @@ export interface SlashCommand {
   description: string;
   icon: React.ElementType;
   implemented: boolean;
+  /** Présent pour une compétence de l'agent (jamais pour une des 5
+   *  commandes de conversation ci-dessous) : au lieu de déclencher une
+   *  action locale (nouvelle session, panneau...), la sélectionner insère
+   *  ce texte dans le composeur — l'opérateur complète et envoie comme un
+   *  message normal, exactement le mécanisme que Hermes Agent lit déjà
+   *  pour invoquer une compétence par son nom. */
+  insertText?: string;
+}
+
+/** Convertit le nom d'une compétence en un jeton de commande tapable :
+ *  minuscules, séparateurs réduits à des tirets. Les 81 compétences
+ *  locales de l'agent ont des noms de fichier (`SKILL.md` sous un
+ *  dossier), pas des noms de commande — sans cette normalisation,
+ *  "Web Search" ne matcherait jamais l'entrée "/web-search". */
+function slugifierCompetence(nom: string): string {
+  return nom.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+/** Aplati `GET /skills/agent` (domaines → compétences) en commandes slash.
+ *  Les 81 compétences réellement installées de Hermes Agent n'étaient
+ *  jamais exposées ici — seules les 5 commandes de conversation
+ *  l'étaient — alors qu'elles sont déjà lues par `backend/skills/registre.py`
+ *  et affichées ailleurs (l'onglet Skills). */
+export function skillsToSlashCommands(data: AgentSkills | undefined): SlashCommand[] {
+  if (!data) return [];
+  const commandes: SlashCommand[] = [];
+  for (const domaine of data.domaines) {
+    for (const c of domaine.competences) {
+      const slug = slugifierCompetence(c.nom);
+      if (!slug) continue;
+      commandes.push({
+        cmd: `/${slug}`,
+        label: `/${slug}`,
+        description: c.description || domaine.nom,
+        icon: Sparkles,
+        implemented: true,
+        insertText: `/${slug} `,
+      });
+    }
+  }
+  return commandes;
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -55,10 +97,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     icon: AlertTriangle, implemented: false },
 ];
 
-export function matchSlashCommands(input: string): SlashCommand[] {
+export function matchSlashCommands(input: string, extra: SlashCommand[] = []): SlashCommand[] {
   if (!input.startsWith("/") || input.includes(" ")) return [];
   const q = input.slice(1).toLowerCase();
-  return SLASH_COMMANDS.filter((c) => c.cmd.slice(1).startsWith(q));
+  return [...SLASH_COMMANDS, ...extra].filter((c) => c.cmd.slice(1).startsWith(q));
 }
 
 export function SlashCommandMenu({
@@ -229,8 +271,10 @@ export function SessionPicker({
   );
 }
 
-/** "/help" — a static readout of SLASH_COMMANDS, no backend call. */
-export function HelpPanel({ onClose }: { onClose: () => void }) {
+/** "/help" — SLASH_COMMANDS plus, when loaded, the agent's own installed
+ *  skills (`extra`) — a static readout, the backend call already happened
+ *  wherever `extra` was built. */
+export function HelpPanel({ onClose, extra = [] }: { onClose: () => void; extra?: SlashCommand[] }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -255,7 +299,7 @@ export function HelpPanel({ onClose }: { onClose: () => void }) {
           </h3>
         </div>
         <div className="max-h-[55vh] overflow-y-auto p-1.5">
-          {SLASH_COMMANDS.map((c) => (
+          {[...SLASH_COMMANDS, ...extra].map((c) => (
             <div key={c.cmd} className="flex items-start gap-2.5 rounded-lg px-3 py-2.5">
               <c.icon size={13} className={`mt-0.5 shrink-0 ${c.implemented ? "text-hermes-cyan" : "text-hermes-amber"}`} />
               <span className="min-w-0 flex-1">

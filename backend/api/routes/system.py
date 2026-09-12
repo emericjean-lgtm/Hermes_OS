@@ -113,7 +113,8 @@ async def system_models() -> dict:
     # private and would couple this route to its internals.
     snapshot = await get_gpu_monitor().snapshot()
     loaded = {m.get("name", "") for m in snapshot.loaded_models}
-    installes = await _modeles_installes()
+    modeles_ollama = await _modeles_ollama()
+    installes = None if modeles_ollama is None else {m.get("name", "") for m in modeles_ollama}
 
     def _is_loaded(tag: str) -> bool:
         # Ollama reports "qwen3:1.7b" as "qwen3:1.7b" but a tagless
@@ -122,8 +123,10 @@ async def system_models() -> dict:
         return tag in loaded or f"{tag}:latest" in loaded
 
     roles = []
+    tags_catalogues = set()
     for name, spec in (config.get("roles") or {}).items():
         tag = spec.get("model", "")
+        tags_catalogues.add(tag)
         roles.append(
             {
                 "role": name,
@@ -140,10 +143,44 @@ async def system_models() -> dict:
                 # HOS-075: the Assistant's manual model picker shows this
                 # verbatim rather than inventing its own blurb per role.
                 "description": (spec.get("description") or "").strip(),
+                "benchmarked": True,
             }
         )
 
-    roles.sort(key=lambda r: (not r["always_loaded"], not r["loaded"], r["role"]))
+    # Signalement opérateur : le ModelPicker ne proposait que les 12 rôles
+    # benchmarkés, jamais les autres modèles qu'Ollama a réellement sur le
+    # disque — un choix délibéré à l'origine (chaque rôle est mesuré pour
+    # l'agentique), mais trop strict : l'opérateur sait ce qu'il fait et
+    # veut pouvoir essayer n'importe quel modèle installé. Exclus : ceux
+    # qui n'ont pas la capacité `completion` (les modèles d'embedding, par
+    # exemple `qwen3-embedding:0.6b`) — ceux-là ne répondent à aucun
+    # message, les proposer dans le chat serait un choix qui ne peut que
+    # produire une erreur.
+    for m in modeles_ollama or []:
+        tag = m.get("name", "")
+        # Même tolérance que `_is_loaded`/`_est_installe` : Ollama rend
+        # "<nom>:latest" pour une référence sans tag, alors que
+        # config/models.yaml écrit "<nom>" nu. Sans elle, chaque modèle
+        # catalogué réapparaissait une deuxième fois côté "hors catalogue".
+        if not tag or tag in tags_catalogues or tag.removesuffix(":latest") in tags_catalogues:
+            continue
+        if "completion" not in (m.get("capabilities") or []):
+            continue
+        roles.append(
+            {
+                "role": "",
+                "model": tag,
+                "tier": "",
+                "vram_gb": None,
+                "always_loaded": False,
+                "loaded": _is_loaded(tag),
+                "installe": True,
+                "description": "Installé, hors catalogue — non benchmarké pour l'agentique.",
+                "benchmarked": False,
+            }
+        )
+
+    roles.sort(key=lambda r: (not r["always_loaded"], not r["loaded"], not r["benchmarked"], r["role"] or r["model"]))
     return {
         "roles": roles,
         "loaded_count": len(loaded),
@@ -151,7 +188,7 @@ async def system_models() -> dict:
         # Le chiffre qu'un opérateur doit voir en premier : un rôle sans
         # modèle installé échouera à la première mission qui l'emploie.
         "roles_sans_modele": sorted(r["role"] for r in roles
-                                    if r["installe"] is False),
+                                    if r["benchmarked"] and r["installe"] is False),
     }
 
 
@@ -161,14 +198,18 @@ def _est_installe(tag: str, installes: set) -> bool:
     return tag in installes or f"{tag}:latest" in installes
 
 
-async def _modeles_installes():
-    """Ce qu'Ollama détient sur le disque, ou `None` s'il est injoignable."""
+async def _modeles_ollama() -> list[dict] | None:
+    """Ce qu'Ollama détient sur le disque, capacités comprises — ou `None`
+    s'il est injoignable. Les capacités (`completion`, `embedding`, ...)
+    sont ce qui distingue un modèle utilisable dans le chat d'un modèle
+    d'embedding, par exemple : sans elles, le ModelPicker ne pourrait pas
+    filtrer ces derniers du côté des modèles hors catalogue."""
     from backend.connectors.ollama_client import OllamaClient
     from backend.core.config import get_settings
 
     client = OllamaClient(get_settings().ollama_api_url, timeout=10.0)
     try:
-        return {m.get("name", "") for m in await client.list_local_models()}
+        return await client.list_local_models()
     except Exception:  # noqa: BLE001 - ne pas faire echouer toute la route
         return None
     finally:

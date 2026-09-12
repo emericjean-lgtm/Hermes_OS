@@ -109,9 +109,18 @@ class TestForcedRole:
         forced = router.decision_for_role("orchestrator", "planning", thinking=False)
         assert forced.thinking is False
 
-    def test_unknown_role_raises_key_error_not_a_silent_fallback(self, router):
-        with pytest.raises(KeyError):
-            router.decision_for_role("not-a-real-role", "conversation")
+    def test_unknown_role_is_a_literal_model_tag_not_a_silent_fallback(self, router):
+        """The invariant survives a contract change (2026-09-12): the
+        ModelPicker now also offers Ollama models with no role in the
+        catalogue, so a name outside it is taken as a literal model tag —
+        Ollama, not this router, judges whether it really exists — rather
+        than raising. What must still never happen is silently answering
+        with a *different* role than the one requested."""
+        decision = router.decision_for_role("not-a-real-role", "conversation")
+
+        assert decision.model == "not-a-real-role"
+        assert decision.role == ""
+        assert decision.tier == ""
 
     def test_known_roles_lists_every_configured_role(self, router):
         roles = router.known_roles()

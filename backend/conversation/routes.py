@@ -402,6 +402,7 @@ async def _repondre_par_le_harnais(
     from backend.conversation import harnais as _harnais
 
     modele = _modele_du_chat(forced_role)
+    role_effectif, tier_effectif = _role_et_tier_pour_modele(modele)
     flux, verdict = await _harnais.repondre(
         message, project_id=project_id, project_root=project_root,
         modele=modele, amorce=_amorce_du_chat(),
@@ -450,8 +451,42 @@ async def _repondre_par_le_harnais(
         }, ensure_ascii=False) + "\n"
 
     return StreamingResponse(_corps(), media_type="application/x-ndjson",
-                             headers={"Cache-Control": "no-cache",
-                                      "X-Hermes-Runtime": "hermes-agent-acp"})
+                             headers={
+                                 "X-Hermes-Session": session_id,
+                                 "X-Hermes-Model": modele,
+                                 "X-Hermes-Tier": tier_effectif,
+                                 "X-Hermes-Role": role_effectif,
+                                 "X-Hermes-Reason": ("modèle choisi manuellement"
+                                                      if forced_role else
+                                                      "conversation servie par le harnais"),
+                                 "X-Hermes-Thinking": "false",
+                                 "X-Hermes-Intent": intent.intent.value,
+                                 "Cache-Control": "no-cache",
+                                 "X-Hermes-Runtime": "hermes-agent-acp",
+                             })
+
+
+def _role_et_tier_pour_modele(modele: str) -> tuple[str, str]:
+    """Retrouve le rôle et le palier du catalogue pour un tag de modèle.
+
+    Le harnais ne porte qu'un nom de modèle brut (`harnais.repondre` prend
+    `modele: str`, jamais un `RoutingDecision`) — sans cette relecture, la
+    réponse du chat par le harnais ne portait aucun `X-Hermes-Role` ni
+    `X-Hermes-Tier`, et l'indicateur de modèle de l'Assistant restait vide
+    dès qu'un projet était lié à la session, c'est-à-dire dans le cas
+    normal. Best-effort : rend des chaînes vides si le tag ne correspond à
+    aucun rôle connu (ex. un modèle imposé hors catalogue via
+    `HERMES_MISSION_MODEL`) plutôt que d'inventer une valeur.
+    """
+    try:
+        from backend.core.config import load_models_config
+
+        for nom_role, spec in (load_models_config().get("roles") or {}).items():
+            if spec.get("model") == modele:
+                return nom_role, str(spec.get("tier") or "")
+    except Exception:  # pragma: no cover - catalogue illisible
+        logger.debug("rôle/palier introuvables pour %r", modele, exc_info=True)
+    return "", ""
 
 
 def _modele_du_chat(forced_role: str | None = None) -> str:
@@ -462,9 +497,11 @@ def _modele_du_chat(forced_role: str | None = None) -> str:
     1. `forced_role` — le ModelPicker de l'Assistant (HOS-075). Un choix
        fait a la volee, pour ce tour precis, doit gagner sur tout reglage
        permanent : sinon un operateur qui selectionne `reasoning` verrait
-       sa conversation rester sur le role par defaut sans explication.
-       Leve `KeyError` pour un role inconnu — l'appelant la traduit en
-       erreur plutot que de retomber en silence sur `standard`.
+       sa conversation rester sur le role par defaut sans explication. Un
+       nom hors catalogue (le picker propose aussi les modeles Ollama non
+       benchmarkes) est traite comme un tag de modele litteral par
+       `ModelRouter.decision_for_role` plutot que refuse — c'est Ollama,
+       pas ce module, qui dira honnetement si le tag n'existe pas.
     2. `HERMES_MISSION_MODEL` (HOS-153) — le chat lisait auparavant
        uniquement le role `standard` du catalogue et ignorait ce reglage.
        Un operateur qui imposait un modele voyait donc ses missions
@@ -479,7 +516,7 @@ def _modele_du_chat(forced_role: str | None = None) -> str:
     if forced_role:
         from backend.core.router import ModelRouter
 
-        return ModelRouter().model_for_role(forced_role)
+        return ModelRouter().decision_for_role(forced_role, "general").model
 
     from backend.execution.task_executor import modele_impose
 
