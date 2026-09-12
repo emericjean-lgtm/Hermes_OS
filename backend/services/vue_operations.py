@@ -99,6 +99,13 @@ def _run_en_dict(run: Any) -> dict[str, Any]:
         "demarre_le": run.demarre_le,
         "fini_le": run.fini_le,
         "contrat": bool(run.contrat),
+        # R-6 : la comptabilité physique du run — `None` reste `None`, ce
+        # que `Run`/`Registre` gardaient déjà (backend/runs/consommation.py) ;
+        # cette fonction ne faisait que s'arrêter avant de les recopier.
+        "vram_reservee_octets": run.vram_reservee_octets,
+        "vram_machine_debut_octets": run.vram_machine_debut_octets,
+        "vram_machine_pic_octets": run.vram_machine_pic_octets,
+        "exclusif": run.exclusif,
     }
 
 

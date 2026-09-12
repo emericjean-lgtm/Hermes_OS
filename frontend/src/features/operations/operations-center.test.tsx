@@ -30,6 +30,12 @@ const restauration = vi.hoisted(() => ({
   appels: [] as unknown[],
 }));
 
+// `undefined` par défaut : le détail d'un run n'est rendu que sur
+// sélection, et un hook simulé qui rendrait des données par défaut ferait
+// croire à un affichage qu'on ne mesure pas. Les gardes qui déplient un
+// run réassignent `lignee.valeur` avant de rendre.
+const lignee = vi.hoisted(() => ({ valeur: undefined as unknown }));
+
 vi.mock("@/hooks/use-api", () => ({
   useOperationsApercu: () => ({
     data: apercu.valeur,
@@ -43,10 +49,7 @@ vi.mock("@/hooks/use-api", () => ({
     isError: false,
     error: null,
   }),
-  // Le détail d'un run n'est rendu que sur sélection : ces gardes-ci ne
-  // le déplient pas, et un hook simulé qui rendrait des données ferait
-  // croire à un affichage qu'on ne mesure pas.
-  useOperationsLignee: () => ({ data: undefined }),
+  useOperationsLignee: () => ({ data: lignee.valeur }),
   useOperationsContrat: () => ({ data: undefined }),
   useApercuCheckpoint: () => ({
     data: apercuPoint.valeur,
@@ -400,5 +403,137 @@ describe("les points de reprise", () => {
     // que l'opérateur croit revenu.
     expect(screen.getByText(/Restauré/)).toBeInTheDocument();
     expect(screen.getByText(/état non repris/)).toBeInTheDocument();
+  });
+});
+
+// ═══ §15.5 — explicabilité et ressources d'un run ═══════════════════
+//
+// `Run.decision` (HOS-242) et la comptabilité physique R-6 existaient
+// déjà côté registre et transitaient déjà par `/operations/.../lignee` —
+// aucune ligne du Cockpit ne les lisait. Ces gardes portent sur le
+// dernier pas : la vue affiche ce que le backend a mesuré, jamais plus,
+// jamais un zéro à la place d'un « non mesuré ».
+
+function run(partiel: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    identifiant: "r-1234567890",
+    mission: "m-1",
+    objectif: "objectif",
+    statut: "reussi",
+    cause: null,
+    raison: "",
+    modele: "qwen3.6-35b",
+    runtime: "ollama",
+    fournisseur: "",
+    agent: "atlas",
+    workspace: "",
+    projet: "",
+    tentative: 1,
+    parent: null,
+    motif_de_reprise: "",
+    jetons_entree: 0,
+    jetons_sortie: 0,
+    cout: 0,
+    cree_le: "2026-09-12T00:00:00Z",
+    demarre_le: null,
+    fini_le: null,
+    contrat: false,
+    decision: "",
+    vram_reservee_octets: null,
+    vram_machine_debut_octets: null,
+    vram_machine_pic_octets: null,
+    exclusif: null,
+    ...partiel,
+  };
+}
+
+function ouvrirLeRun() {
+  apercu.valeur = {
+    ...VIDE,
+    runs: bloc({ en_cours: [run()], nombre_en_cours: 1 }),
+  };
+  render(<OperationsCenter />);
+  fireEvent.click(screen.getByText("objectif"));
+}
+
+describe("le routage et la consommation physique d'un run", () => {
+  it("affiche le repli quand le routeur a dévié", () => {
+    lignee.valeur = bloc(
+      [
+        run({
+          decision: JSON.stringify({
+            runtime_demande: "openrouter",
+            runtime_servi: "ollama",
+            modele: "qwen3.6-35b",
+            repli: "openrouter indisponible, servi par ollama",
+          }),
+        }),
+      ],
+      "backend.runs.registre.lignee",
+    );
+    ouvrirLeRun();
+    expect(
+      screen.getByText(/openrouter indisponible, servi par ollama/),
+    ).toBeTruthy();
+  });
+
+  it("ne dit rien quand le routeur a obtenu ce qu'il demandait", () => {
+    lignee.valeur = bloc(
+      [
+        run({
+          decision: JSON.stringify({
+            runtime_demande: "ollama",
+            runtime_servi: "ollama",
+            modele: "qwen3.6-35b",
+          }),
+        }),
+      ],
+      "backend.runs.registre.lignee",
+    );
+    ouvrirLeRun();
+    expect(screen.queryByText(/repli/)).toBeNull();
+    expect(screen.queryByText(/substitution/)).toBeNull();
+  });
+
+  it("montre l'écart machine seulement quand le run était exclusif", () => {
+    lignee.valeur = bloc(
+      [
+        run({
+          vram_reservee_octets: 2 * 1024 ** 3,
+          vram_machine_debut_octets: 4 * 1024 ** 3,
+          vram_machine_pic_octets: 6 * 1024 ** 3,
+          exclusif: true,
+        }),
+      ],
+      "backend.runs.registre.lignee",
+    );
+    ouvrirLeRun();
+    expect(screen.getAllByText(/réservé 2\.0 Gio/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/écart machine/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/exclusif, majorant/).length).toBeGreaterThan(0);
+  });
+
+  it("dit « non attribuable » plutôt que de montrer un écart partagé", () => {
+    lignee.valeur = bloc(
+      [
+        run({
+          vram_machine_debut_octets: 4 * 1024 ** 3,
+          vram_machine_pic_octets: 9 * 1024 ** 3,
+          exclusif: false,
+        }),
+      ],
+      "backend.runs.registre.lignee",
+    );
+    ouvrirLeRun();
+    expect(screen.getByText(/non attribuable — partagée avec un autre run/)).toBeTruthy();
+    expect(screen.queryByText(/écart machine/)).toBeNull();
+  });
+
+  it("n'affiche rien — jamais un zéro — quand rien n'a été mesuré", () => {
+    lignee.valeur = bloc([run()], "backend.runs.registre.lignee");
+    ouvrirLeRun();
+    expect(screen.queryByText(/réservé/)).toBeNull();
+    expect(screen.queryByText(/écart machine/)).toBeNull();
+    expect(screen.queryByText(/attribuable/)).toBeNull();
   });
 });

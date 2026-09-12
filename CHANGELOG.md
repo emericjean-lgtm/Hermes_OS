@@ -1,3 +1,91 @@
+## HOS-298 — §15.5 : le routage et la comptabilité physique d'un run avaient déjà leur colonne, jamais leur écran (2026-09-12)
+
+§15.5 (Explainability / Resource visibility / Proofs), premier lot.
+Chantier ouvert après T-28/HOS-297.
+
+### Le défaut, mesuré avant correction
+
+Deux capacités réelles s'arrêtaient avant l'écran. `_decision_en_json`
+(HOS-242, `backend/execution/mission_executor.py`) calcule déjà, par
+tâche, ce que le routeur a demandé contre ce qui a réellement servi — et
+nomme un repli ou une substitution quand les deux divergent — et
+`Run.decision` le porte jusqu'à `/api/v1/operations/{missions/{m}/runs,
+runs/{r}/lignee}` via `vue_operations._run_en_dict`. `RunWire`, côté
+frontend, ne portait pas le champ : la donnée traversait le réseau et
+s'arrêtait au typage.
+
+La comptabilité physique par run (R-6, HOS-260) allait moins loin encore :
+`Registre.mesurer()` écrit bien `vram_reservee_octets`,
+`vram_machine_debut_octets`, `vram_machine_pic_octets` et `exclusif` en
+base, avec leur sémantique `None` = non mesuré (jamais `0`) — mais
+`_run_en_dict` s'arrêtait avant ces quatre colonnes. Aucune route ne les a
+jamais servies ; aucun écran n'a donc jamais pu les afficher.
+
+### Ce qui a été rejeté
+
+Toucher `DecisionExplainer` (A-8, 3 routes montées, 0 appel) : il produit
+une explication générique qu'aucune décision réelle n'alimente encore, et
+le brancher aurait exigé une seconde autorité de décision quand une
+provenance réelle — `Run.decision` — attend déjà côté registre. G-3
+(provenance ailleurs que ce Center) et l'ensemble « Execution proofs »
+(`mission/verification.py`, `mission.unverified`) sont restés hors
+périmètre : chacun exige sa propre vérification de branchement
+(l'un touche une autre famille de gap, l'autre un système de mission dont
+il restait à confirmer qu'il est bien celui que `graph_executor.py`
+alimente) — un seul chemin correctement démontré valait mieux qu'un
+premier lot élargi sans cette vérification.
+
+### Ce qui a été livré
+
+`backend/services/vue_operations.py::_run_en_dict` sert désormais les
+quatre colonnes R-6, `None` compris. `RunWire` (`client.ts`) porte
+`decision` et les quatre champs physiques. L'Operations Center
+(`operations-center.tsx`), dans la lignée d'un run déjà dépliée, montre :
+
+- **routage** — silencieux quand le routeur a obtenu ce qu'il demandait ;
+  cite le repli ou la substitution quand il a dévié (`DecisionDeRoutage`) ;
+- **consommation physique** — la réservation exacte quand mesurée ;
+  l'écart machine (pic − début) **seulement** quand `exclusif === true`,
+  étiqueté « majorant » ; sinon « non attribuable » ou « attribution
+  inconnue », jamais un écart tu ou montré comme s'il l'était
+  (`ConsommationPhysique`).
+
+Chaque section reste sous le bloc `<Source de={bloc.source} />` déjà en
+place — l'explication affichée cite la route qui l'a produite sans code
+neuf, exactement le critère de passage que §15.5 pose.
+
+### Vérification
+
+Backend : 4 tests neufs dans `test_vue_operations.py` (passthrough R-6,
+`None` préservé, `exclusif=False` distinct de `None`, `decision`
+préservé) ; 35/35 verts. Mutation vérifiée en retirant les quatre lignes
+ajoutées à `_run_en_dict` : les trois gardes R-6 rougissent avec
+`KeyError`, remises elles repassent au vert.
+
+Frontend : 5 tests neufs dans `operations-center.test.tsx` (repli affiché,
+silence sans divergence, écart affiché seulement si exclusif, « non
+attribuable » si partagé, rien affiché — jamais un zéro — si non mesuré) ;
+21/21 verts sur ce fichier, 167/167 sur la suite complète. Mutation
+vérifiée par un `throw` inséré dans `ConsommationPhysique` : les cinq
+gardes neuves échouent sur l'erreur injectée, retiré elles repassent au
+vert. `npx tsc --noEmit` : aucune erreur.
+
+Suite complète (`pytest`, sans argument de chemin ; `vitest run`) : voir
+le rapport de fin de chantier.
+
+### Ce qui reste hors périmètre
+
+A-8/`DecisionExplainer` (aucune décision réelle ne l'alimente encore),
+G-3 (provenance dans les Centers autres qu'Operations), G-16/G-17/G-20/
+G-21/G-25/G-43/G-44 et #24 (hors trajectoire par construction de ce
+chantier), la famille « Execution proofs »
+(`mission/verification.py`/`mission.unverified`/`verification_chat_tools`)
+— diagnostiquée réelle et persistée (`mission.metadata["verification"]`,
+corrélée par `mission_id`) mais dont le branchement à un écran suppose de
+confirmer d'abord que le système de mission que `hos_routes.get_mission`
+sert est bien celui que `mission/graph_executor.py` alimente ; G-45,
+explicitement non traité (découvert pendant T-28, hors trajectoire ici).
+
 ## HOS-296 — la promotion d'un souvenir avait déjà sa route, jamais son écran (2026-09-12)
 
 G-10. Ferme le gap §8 : « la promotion d'un souvenir n'a aucune route

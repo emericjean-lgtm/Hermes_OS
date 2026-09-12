@@ -188,6 +188,91 @@ def test_une_cause_non_demontree_reste_nulle(tmp_path):
     assert rendu["raison"] == "KeyError"
 
 
+# ═══ §15.5 — R-6 : la comptabilité physique arrivait jusqu'à la colonne
+#     et s'arrêtait là, `_run_en_dict` ne la recopiait pas ═══════════════
+
+def test_la_consommation_physique_traverse_jusqu_au_json(tmp_path):
+    """Mesurée par `mesurer()`, elle doit ressortir telle quelle — le seul
+    maillon qui manquait entre le registre (R-6) et une route réelle."""
+    from backend.config.config_models import DatabaseConfig
+    from backend.runs.registre import Registre
+    from backend.storage.database_manager import DatabaseManager
+
+    registre = Registre(DatabaseManager(DatabaseConfig(name=str(tmp_path / "r"))))
+    run = registre.ouvrir(mission="m", objectif="o")
+    registre.mesurer(
+        run.identifiant,
+        vram_reservee_octets=2 * 1024**3,
+        vram_machine_debut_octets=4 * 1024**3,
+        vram_machine_pic_octets=6 * 1024**3,
+        exclusif=True,
+    )
+
+    rendu = vue_operations._run_en_dict(registre.lire(run.identifiant))
+    assert rendu["vram_reservee_octets"] == 2 * 1024**3
+    assert rendu["vram_machine_debut_octets"] == 4 * 1024**3
+    assert rendu["vram_machine_pic_octets"] == 6 * 1024**3
+    assert rendu["exclusif"] is True
+
+
+def test_l_absence_de_mesure_physique_reste_none_pas_zero(tmp_path):
+    """Un run jamais mesuré ne doit jamais rendre `0` — `0` se lit « mesuré,
+    rien pris », ce qui est faux dans le sens dangereux (backend/runs/
+    consommation.py)."""
+    from backend.config.config_models import DatabaseConfig
+    from backend.runs.registre import Registre
+    from backend.storage.database_manager import DatabaseManager
+
+    registre = Registre(DatabaseManager(DatabaseConfig(name=str(tmp_path / "r"))))
+    run = registre.ouvrir(mission="m", objectif="o")
+
+    rendu = vue_operations._run_en_dict(registre.lire(run.identifiant))
+    assert rendu["vram_reservee_octets"] is None
+    assert rendu["vram_machine_debut_octets"] is None
+    assert rendu["vram_machine_pic_octets"] is None
+    assert rendu["exclusif"] is None
+
+
+def test_exclusif_faux_reste_distinct_de_inconnu(tmp_path):
+    """`exclusif=False` est un fait mesuré — un autre run partageait la
+    fenêtre — pas la même chose que `None`, « on n'a pas su regarder »."""
+    from backend.config.config_models import DatabaseConfig
+    from backend.runs.registre import Registre
+    from backend.storage.database_manager import DatabaseManager
+
+    registre = Registre(DatabaseManager(DatabaseConfig(name=str(tmp_path / "r"))))
+    run = registre.ouvrir(mission="m", objectif="o")
+    registre.mesurer(
+        run.identifiant,
+        vram_machine_debut_octets=4 * 1024**3,
+        vram_machine_pic_octets=9 * 1024**3,
+        exclusif=False,
+    )
+
+    rendu = vue_operations._run_en_dict(registre.lire(run.identifiant))
+    assert rendu["exclusif"] is False
+
+
+def test_la_decision_de_routage_traverse_jusqu_au_json(tmp_path):
+    """`Run.decision` (HOS-242) était déjà servie par `_run_en_dict` — ce
+    test tient l'existant pour que rien ne le retire par mégarde en
+    touchant la fonction pour R-6."""
+    from backend.config.config_models import DatabaseConfig
+    from backend.runs.registre import Registre
+    from backend.storage.database_manager import DatabaseManager
+
+    registre = Registre(DatabaseManager(DatabaseConfig(name=str(tmp_path / "r"))))
+    run = registre.ouvrir(mission="m", objectif="o")
+    registre.constater(
+        run.identifiant,
+        decision='{"runtime_demande": "openrouter", "runtime_servi": "ollama", '
+                 '"repli": "openrouter indisponible, servi par ollama"}',
+    )
+
+    rendu = vue_operations._run_en_dict(registre.lire(run.identifiant))
+    assert "repli" in rendu["decision"]
+
+
 def test_le_contrat_separe_les_inverifiables_des_echoues():
     """Les fondre ferait lire une ignorance comme un constat (HOS-222)."""
     import inspect

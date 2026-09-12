@@ -8,10 +8,15 @@
 > la roadmap maître, lequel exige des preuves mesurées.
 
 ```
-CURRENT_SECTION:      §6 — Cognitive Scheduler / Resource Intelligence
-CURRENT_SUBSECTION:   §6.6 — Ordonnancement cognitif (non ouvert)
-                      §6.1 🟢 — la décision du routeur atteint l'exécution
-CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
+CURRENT_SECTION:      §15 — Frontend ↔ Backend Product Parity / Hermes Assistant
+CURRENT_SUBSECTION:   §15.5 — Explainability / Resource visibility / Proofs
+                      premier lot livré (HOS-298) ; §6.1 🟢 — la décision
+                      du routeur atteint l'exécution
+CURRENT_STATUS:       🟡 §15.5 premier lot (HOS-298) — routage d'un run
+                      (`Run.decision`, HOS-242) et comptabilité physique
+                      (R-6) branchés dans l'Operations Center ; restent
+                      A-8/`DecisionExplainer`, G-3 hors ce Center, et la
+                      famille Execution proofs. §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
@@ -33,8 +38,8 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      c5790f0 (HOS-296) — dernier commit
-                               de code avant T-28 (HOS-297)
+BASELINE:                      c9ad553 (T-28/HOS-297) — dernier commit
+                               avant l'ouverture de §15.5 (HOS-298)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -173,6 +178,22 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                pour `runs`, `missions` et les
                                conversations. §15.4 hérite de l'asymétrie
                                d'outils de G-11, qui reste ouverte
+                               §15.5 premier lot (HOS-298) — `Run.decision`
+                               (HOS-242) et la comptabilité physique R-6
+                               transitaient déjà par les routes
+                               `/operations/.../{runs,lignee}` ; R-6
+                               s'arrêtait avant `_run_en_dict`, qui ne
+                               recopiait pas ses quatre colonnes. Les deux
+                               sont désormais affichés dans la lignée d'un
+                               run à l'Operations Center — routage
+                               silencieux sauf déviation réelle, écart
+                               machine affiché seulement si `exclusif`.
+                               Aucune route neuve. A-8/`DecisionExplainer`,
+                               G-3 (autres Centers) et Execution proofs
+                               (`mission/verification.py`) restent ouverts,
+                               ce dernier diagnostiqué mais non branché —
+                               son système de mission reste à confirmer
+                               avant d'y toucher
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -399,12 +420,15 @@ pas parce qu'elle est prête. Ce qui la précède :
    partagée (agent-cerveau, base SQLite), pas deux modes d'une même
    exécution. §15.1 satisfait son critère de passage.
 
-Quand §15 s'ouvrira, **§15.5 est l'entrée à privilégier**, et c'est la
-mesure qui le dit plutôt qu'une préférence : `DecisionExplainer` produit
-des explications que personne ne demande (A-8), la provenance est exposée
-et affichée nulle part (G-3), et §6 vient de rendre la ressource honnête.
-Tout y est monté, testé, et sans consommateur — meilleur rapport
-valeur/coût du dépôt, et aucune dépendance ouverte.
+**§15.5 est ouverte, premier lot livré le 2026-09-12 (HOS-298).** Deux
+capacités déjà mesurées et persistées, jamais affichées, sont désormais
+branchées dans l'Operations Center : le routage d'un run (`Run.decision`,
+HOS-242) et sa comptabilité physique (R-6). `DecisionExplainer` (A-8) et
+G-3 hors de ce Center restent ouverts — non traités par ce lot, qui a
+délibérément préféré une provenance déjà alimentée par une décision réelle
+à une autorité d'explication générique sans appelant démontré derrière
+elle. Détail : `CHANGELOG.md` HOS-298, `HERMES_OS_MASTER_ROADMAP.md`
+§15.5.
 
 §15.4 (Cowork) était **bloqué** sur A-3 : `checkpoint.restaurer` n'avait
 aucun appelant, et un bouton « reprendre » sans restauration mentirait

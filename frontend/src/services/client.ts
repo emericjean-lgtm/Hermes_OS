@@ -2228,6 +2228,18 @@ export interface RunWire {
   demarre_le: string | null;
   fini_le: string | null;
   contrat: boolean;
+  /** Ce que le routeur a demandé vs ce qui a réellement servi, en JSON
+   *  compact (HOS-242) — `""` tant que rien n'a tourné. Voir
+   *  `backend/execution/mission_executor.py::_decision_en_json`. */
+  decision: string;
+  /** R-6 — comptabilité physique du run, en octets. `null` = non mesuré,
+   *  jamais `0` (backend/runs/consommation.py). */
+  vram_reservee_octets: number | null;
+  vram_machine_debut_octets: number | null;
+  vram_machine_pic_octets: number | null;
+  /** `null` = attribution inconnue ; `false` = un autre run partageait la
+   *  fenêtre, l'écart machine n'est attribuable à personne. */
+  exclusif: boolean | null;
 }
 
 export interface CritereWire {

@@ -53,6 +53,15 @@
  * Le contrat en lecture seule du **backend** (`routes/operations.py` et
  * ses deux gardes) est, lui, intact : la mutation vit sur son propre
  * routeur, `routes/checkpoints.py`.
+ *
+ * **Amendement HOS-298 (§15.5).** La lignée d'un run montre désormais
+ * pourquoi il a été routé (`Run.decision`, HOS-242 — silencieux sauf
+ * repli ou substitution réels) et ce qu'il a coûté à la machine (R-6) —
+ * deux capacités déjà mesurées et déjà transportées par les routes
+ * d'opérations, jamais lues côté client avant ce lot. L'écart machine
+ * (pic − début) ne s'affiche que si `exclusif` le rend attribuable ;
+ * sinon la vue dit « non attribuable », jamais un chiffre qu'elle ne
+ * peut pas garantir.
  */
 
 import { useMemo, useState } from "react";
@@ -73,6 +82,7 @@ import {
   useRestaurerCheckpoint,
 } from "@/hooks/use-api";
 import { useCockpitStore } from "@/hooks/use-store";
+import { formatGio } from "@/lib/format";
 import type {
   Bloc,
   CheckpointWire,
@@ -266,6 +276,83 @@ export function Cause({ cause }: { cause: string | null }) {
   return <Badge variant="danger">{cause}</Badge>;
 }
 
+/** Ce que `_decision_en_json` (HOS-242) a réduit d'une décision de
+ *  routage : ce qui a été demandé, ce qui a servi, et l'écart quand il y
+ *  en a un. Parsé côté client parce que le backend transporte déjà ce
+ *  JSON tel quel — le reformater ici n'invente rien, `_decision_en_json`
+ *  reste la seule autorité qui décide ce que ces clés veulent dire. */
+interface DecisionRoutage {
+  runtime_demande?: string;
+  runtime_servi?: string;
+  modele?: string;
+  fournisseur?: string;
+  repli?: string;
+  modele_demande?: string;
+  substitution?: string;
+}
+
+function parseDecision(brut: string): DecisionRoutage | null {
+  if (!brut) return null;
+  try {
+    const valeur: unknown = JSON.parse(brut);
+    return valeur && typeof valeur === "object" ? (valeur as DecisionRoutage) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pourquoi ce routage — et surtout pourquoi il a dévié. Silencieux quand
+ *  rien n'a dévié : un routeur qui a obtenu ce qu'il demandait n'a rien à
+ *  expliquer de plus que le modèle déjà affiché sur la ligne. */
+function DecisionDeRoutage({ decision }: { decision: DecisionRoutage }) {
+  const ecarts = [decision.repli, decision.substitution].filter(Boolean);
+  if (ecarts.length === 0) return null;
+  return (
+    <p className="mt-0.5 text-hermes-gold/90">
+      {ecarts.join(" · ")}
+    </p>
+  );
+}
+
+/** La comptabilité physique d'un run (R-6) : réservation exacte, et
+ *  l'écart machine **seulement** quand `exclusif` le rend attribuable.
+ *  Sans lui, l'écart ne veut rien dire — le dire, plutôt que le taire ou
+ *  le montrer comme s'il l'était (backend/runs/consommation.py). */
+function ConsommationPhysique({ run }: { run: RunWire }) {
+  const { vram_reservee_octets, vram_machine_debut_octets, vram_machine_pic_octets, exclusif } =
+    run;
+  const rienMesure =
+    vram_reservee_octets == null &&
+    vram_machine_debut_octets == null &&
+    vram_machine_pic_octets == null;
+  if (rienMesure) return null;
+
+  const ecartAttribuable =
+    exclusif === true && vram_machine_debut_octets != null && vram_machine_pic_octets != null;
+  const occupationVue = vram_machine_debut_octets != null || vram_machine_pic_octets != null;
+
+  return (
+    <p className="mt-0.5 text-hermes-muted/70">
+      {vram_reservee_octets != null && (
+        <span className="num">réservé {formatGio(vram_reservee_octets)} Gio</span>
+      )}
+      {ecartAttribuable && (
+        <span className="num ml-2">
+          écart machine{" "}
+          {formatGio(vram_machine_pic_octets! - vram_machine_debut_octets!)} Gio{" "}
+          <span className="text-hermes-muted/50">(exclusif, majorant)</span>
+        </span>
+      )}
+      {!ecartAttribuable && occupationVue && (
+        <span className="ml-2 text-hermes-gold/80">
+          occupation machine{" "}
+          {exclusif === false ? "non attribuable — partagée avec un autre run" : "attribution inconnue"}
+        </span>
+      )}
+    </p>
+  );
+}
+
 const TON_STATUT: Record<string, "success" | "danger" | "info" | "warning"> = {
   reussi: "success",
   echoue: "danger",
@@ -365,21 +452,26 @@ function DetailDuRun({ run }: { run: string }) {
       <Section bloc={lignee.data as Bloc<RunWire[]> | undefined} vide="tentative">
         {(chaine) => (
           <div className="mt-1">
-            {chaine.map((r) => (
-              <div key={r.identifiant} className="py-1 text-xs">
-                <Badge variant="info">tentative {r.tentative}</Badge>{" "}
-                <span className="num text-hermes-muted">{r.statut}</span>{" "}
-                {r.modele && (
-                  <span className="num text-hermes-muted/70">{r.modele}</span>
-                )}
-                {r.motif_de_reprise && (
-                  <p className="text-hermes-muted/80">
-                    reprise : {r.motif_de_reprise}
-                  </p>
-                )}
-                {r.statut === "echoue" && <Cause cause={r.cause} />}
-              </div>
-            ))}
+            {chaine.map((r) => {
+              const decision = parseDecision(r.decision);
+              return (
+                <div key={r.identifiant} className="py-1 text-xs">
+                  <Badge variant="info">tentative {r.tentative}</Badge>{" "}
+                  <span className="num text-hermes-muted">{r.statut}</span>{" "}
+                  {r.modele && (
+                    <span className="num text-hermes-muted/70">{r.modele}</span>
+                  )}
+                  {r.motif_de_reprise && (
+                    <p className="text-hermes-muted/80">
+                      reprise : {r.motif_de_reprise}
+                    </p>
+                  )}
+                  {r.statut === "echoue" && <Cause cause={r.cause} />}
+                  {decision && <DecisionDeRoutage decision={decision} />}
+                  <ConsommationPhysique run={r} />
+                </div>
+              );
+            })}
           </div>
         )}
       </Section>

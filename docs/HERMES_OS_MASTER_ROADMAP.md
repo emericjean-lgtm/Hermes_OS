@@ -26,7 +26,7 @@
 | §12 | Plugins / Extensibility | 🟠 | reporté | Hermes Agent |
 | §13 | Voice / Multimodal | ⚪ | reporté | Hermes Agent |
 | §14 | Specialized Studios | ⚪ | observation | multiples |
-| §15 | Frontend ↔ Backend Product Parity / Hermes Assistant | 🟠 | **§15.1 tranché (T-28, option B)** · §15.5 réalisable | ChatGPT ; LM Studio Bionic |
+| §15 | Frontend ↔ Backend Product Parity / Hermes Assistant | 🟠 | **§15.1 tranché (T-28, option B)** · §15.5 premier lot livré (HOS-298) | ChatGPT ; LM Studio Bionic |
 
 > **§3 et §4 divergent du statut attendu par le cahier de la passe 25.**
 > Celui-ci les annonçait 🟢. L'audit global J25 a mesuré, sur le code au
@@ -1885,6 +1885,8 @@ des capacités **livrées, testées, et sans consommateur produit** :
 | capacité | backend | frontend | niveau réel |
 |---|---|---|---|
 | Explication de décision (`DecisionExplainer`) | 3 routes montées | **0 appel** | `CALLED` = non (A-8) |
+| Routage d'un run (`Run.decision`, HOS-242) | déjà servi par `/operations/.../lignee` | Operations Center, lignée du run | `DEMONSTRATED` (§15.5, HOS-298) |
+| Comptabilité physique par run (R-6) | mesurée, jamais servie par `_run_en_dict` | Operations Center, lignée du run | `DEMONSTRATED` (§15.5, HOS-298) |
 | Quarantaine / provenance mémoire | 4 champs exposés | **0 affichage** | `ACTUALLY USED` = non (G-3) |
 | Promotion d'un souvenir | route testée depuis HOS-250 | panneau Quarantaine (Memory Center) | `DEMONSTRATED` (G-10 fermé HOS-296) |
 | Points de reprise | `prendre` appelé | aperçu + restauration branchés (HOS-291) | `DEMONSTRATED` (A-3 fermé) |
@@ -2315,25 +2317,42 @@ Cowork moins outillé.
 (fermé HOS-294 — l'asymétrie qu'il décrivait reste ouverte, voir
 ci-dessus), ~~T-28~~ (tranché HOS-297 — option B).
 
-#### §15.5 — Explainability & resource visibility — 🟠 réalisable, et le meilleur rapport
+#### §15.5 — Explainability & resource visibility — 🟡 premier lot livré (HOS-298)
 
 Le « pourquoi ? » — action, modèle, routage, refus —, le contexte
 réellement utilisé, l'état d'exécution, les ressources, le budget, la
 provenance.
 
-**C'est le sous-chantier le moins cher et le plus rentable**, et la mesure
-le dit : `DecisionExplainer` produit déjà des explications que **personne
-ne demande** (A-8), la provenance est exposée et **affichée nulle part**
-(G-3), et §6 vient de rendre la ressource honnête — `occupation_mesuree`
-distingue « mesuré » de « non mesuré », `runs.vram_machine_*` et
-`exclusif` disent ce qu'un run a coûté **et ce qu'on ne sait pas lui
-attribuer**.
+**Premier lot livré le 2026-09-12 (HOS-298).** Deux capacités déjà
+mesurées, déjà persistées, sans consommateur : `Run.decision` (HOS-242 —
+ce que le routeur a demandé contre ce qui a réellement servi, avec repli
+ou substitution nommés) et la comptabilité physique R-6
+(`vram_reservee_octets`, `vram_machine_debut_octets`,
+`vram_machine_pic_octets`, `exclusif`). Les deux transitaient déjà par
+`/api/v1/operations/{missions/{m}/runs, runs/{r}/lignee}` — R-6 s'arrêtait
+en fait avant, `_run_en_dict` ne recopiait pas les quatre colonnes.
+L'Operations Center les affiche désormais dans la lignée d'un run :
+routage silencieux sauf déviation réelle, écart machine affiché
+**seulement** quand `exclusif` le rend attribuable, sinon « non
+attribuable » ou « attribution inconnue ». Aucune route neuve, aucune
+seconde autorité — `_run_en_dict` et `RunWire` complétés, deux composants
+de rendu ajoutés au Center existant. Détail : `CHANGELOG.md` HOS-298.
 
-Aucune dépendance ouverte : tout est monté, testé, et sans consommateur.
+**Reste dans ce sous-chantier**, non traité par HOS-298 : `DecisionExplainer`
+(A-8, 3 routes montées, 0 appel — aucune décision réelle ne l'alimente
+encore, contrairement à `Run.decision` qui, lui, en a une) ; G-3 pour les
+Centers autres qu'Operations ; la famille **Execution proofs** —
+`mission/verification.py` compare déjà le workspace avant/après et
+persiste son verdict sur `mission.metadata["verification"]` (corrélé par
+`mission_id`), mais brancher un écran dessus suppose d'abord de confirmer
+que le système de mission que `hos_routes.get_mission` sert (`agent.
+supervisor`) est bien celui que `mission/graph_executor.py` alimente —
+non vérifié, diagnostiqué comme sa propre passe.
 
-**Critère de passage.** Une explication affichée cite la route qui l'a
-produite ; une jauge de ressource n'affiche jamais un chiffre quand
-`occupation_mesuree` est faux.
+**Critère de passage** (tenu pour le lot livré, pas encore pour le
+sous-chantier entier). Une explication affichée cite la route qui l'a
+produite ; une jauge de ressource n'affiche jamais un chiffre quand la
+mesure sous-jacente est absente.
 
 #### §15.6 — Skills & Memory UX — 🟡 partiellement bloqué
 
