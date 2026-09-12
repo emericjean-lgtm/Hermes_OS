@@ -26,7 +26,7 @@
 | §12 | Plugins / Extensibility | 🟠 | reporté | Hermes Agent |
 | §13 | Voice / Multimodal | ⚪ | reporté | Hermes Agent |
 | §14 | Specialized Studios | ⚪ | observation | multiples |
-| §15 | Frontend ↔ Backend Product Parity / Hermes Assistant | 🟠 | **§15.1 contrat à trancher (T-28)** · §15.5 réalisable | ChatGPT ; LM Studio Bionic |
+| §15 | Frontend ↔ Backend Product Parity / Hermes Assistant | 🟠 | **§15.1 tranché (T-28, option B)** · §15.5 réalisable | ChatGPT ; LM Studio Bionic |
 
 > **§3 et §4 divergent du statut attendu par le cahier de la passe 25.**
 > Celui-ci les annonçait 🟢. L'audit global J25 a mesuré, sur le code au
@@ -2175,13 +2175,64 @@ Aucune ligne de produit avant que ce contrat soit tranché — c'est la même
 discipline que T-22 impose à §6.
 
 **Question à trancher : Chat et Cowork sont-ils deux surfaces ou deux
-modes d'une seule ?** Le dépôt penche pour *deux modes* : la session de
-conversation et l'objectif autonome partagent déjà le Run Ledger et le
-bus d'événements, et les séparer en deux produits créerait deux histoires
-pour une seule exécution. À décider en T-28.
+modes d'une seule ?** Le dépôt penchait pour *deux modes*, au motif que
+la session de conversation et l'objectif autonome partageraient déjà le
+Run Ledger et le bus d'événements. **T-28 (HOS-297) a vérifié cette
+prémisse dans le code et l'a trouvée fausse.**
 
-**Critère de passage.** Le contrat nomme, pour chaque surface, l'autorité
-consultée et l'identifiant qui corrèle (session, `run_id`, `mission_id`).
+Le chat n'ouvre jamais de `Run` : `backend/runs/correlation.py` documente
+lui-même que `etiquette_du_tour()` rend `""` faute d'un Run déjà ouvert
+par une mission sur le même projet — le chat n'en ouvre aucun de son
+propre chef. Et son bus d'événements est **déclaré, pas câblé** :
+`conversation_manager` (`service_registry.py:2103-2112`) ne porte aucune
+`dependencies=`, `_make_conversation_manager` construit un
+`ConversationManager()` nu, et ses `produced_events=("conversation.started",
+"conversation.message")` ne sont jamais publiés — zéro appel `event_hub`/
+`EventBus` dans `backend/conversation/*.py` ni `harnais.py` (voir **G-45**,
+ouvert par cette passe). Le seul chemin qui publie réellement sur ce
+sujet est le walking-skeleton mort `POST /chat` (`chat.py:100`), que rien
+dans `frontend/src` n'appelle.
+
+Ce qui est réellement partagé, mesuré directement : le **cerveau**. Chat
+et mission appellent le **même** registre de session ACP persistante,
+`backend/ral/adapters/sessions_de_mission.py:464 registre()`, sous la
+**même** clé `f"projet:{project_id}"` (`sessions_de_mission.py:124-125`) —
+`conversation/harnais.py` côté chat (projet lié et validé),
+`execution/task_executor.py:1089 _par_le_harnais` côté mission. Sur un
+même projet, un chat et une tâche de mission parlent au même processus
+agent vivant, pas seulement au même code. Et la même base : `runs`,
+`missions` et les sessions de conversation vivent dans le même fichier
+SQLite, via le même `get_settings().sqlite_path` (`core/config.py:100`)
+et le même `DatabaseManager` (`mission/persistance.py:16-19`,
+`conversation/conversation_store.py:129`).
+
+Ce qui diverge, structurellement : l'identifiant (`session_id` côté chat ;
+`mission_id`/`run_id` côté mission — aucun identifiant unique ne raconte
+les deux d'un bout à l'autre), la gouvernance (Run Ledger et bus
+d'événements réellement branchés seulement côté mission :
+`mission_executor` dépend de `event_dispatcher`, `conversation_manager`
+non), l'outillage (chat : `_conversation_tools()` et, sous harnais,
+jusqu'à treize outils MCP réels ; mission : `assigned_tools`, planifié et
+jamais invoqué, §15.4/G-11), et l'existence même hors projet lié — un
+chat sans projet tourne en direct sur `BaseAgent.respond_events`, sans
+aucun contact avec le pipeline mission.
+
+**Décision (OPTION B) : deux surfaces produit, une infrastructure
+partagée.** Chat (session éphémère, conversationnelle) et Cowork
+(objectif/mission durable, gouverné par le Run Ledger) restent deux
+contrats produit distincts, qui peuvent s'appuyer sur le même
+agent-cerveau et la même base quand un projet les lie — sans que cela
+fasse une seule exécution racontable par un identifiant unique. §15.2 et
+§15.4 se construisent donc comme deux consommateurs séparés de §1→§13,
+pas comme deux vues d'un même Run. Cartographie complète, matrice
+d'identifiants et preuves : diagnostic T-28, 2026-09-12.
+
+**Critère de passage — satisfait.** Le contrat nomme, pour chaque
+surface, l'autorité consultée et l'identifiant qui corrèle : Chat →
+`ConversationManager`/`session_id` (SQLite via `conversation_store.py`,
+aucun Run, événements déclarés mais non publiés — G-45) ; Cowork (Mission)
+→ `GraphExecutor`/`MissionExecutor`, `mission_id` corrélé à `run_id` dans
+la table `runs` (colonne `mission`), bus d'événements réellement branché.
 
 #### §15.2 — Chat UX consolidation — 🟠 réalisable
 
@@ -2252,11 +2303,17 @@ elle-même reste entière**, et n'était pas ce que G-11 promettait de
 résoudre. Bâtir Cowork sur le chemin de mission demande toujours une
 route neuve vers ce catalogue de treize outils, pas la fermeture de G-11 ;
 le bâtir sur le chemin de conversation hérite d'outils qui marchent déjà.
-C'est une question de §15.1, et elle n'est pas tranchée.
+C'était une question de §15.1 — **tranchée par T-28 (HOS-297, option B)** :
+Cowork reste le chemin mission (Run Ledger, bus d'événements, persistance
+propres), pas un mode du chat. L'asymétrie d'outils décrite ci-dessus
+n'était pas ce que T-28 devait résoudre et reste donc entière : bâtir
+Cowork sur le chemin de mission demande toujours une route neuve vers le
+catalogue de treize outils du chat, ou l'acceptation explicite d'un
+Cowork moins outillé.
 
 **Dépend de** : ~~A-3~~ (fermé HOS-291), §7 (orchestration), ~~G-11~~
 (fermé HOS-294 — l'asymétrie qu'il décrivait reste ouverte, voir
-ci-dessus), et de la décision T-28.
+ci-dessus), ~~T-28~~ (tranché HOS-297 — option B).
 
 #### §15.5 — Explainability & resource visibility — 🟠 réalisable, et le meilleur rapport
 
@@ -2402,6 +2459,7 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | ~~**G-22**~~ | ~~architectural~~ | ~~Trois capacités attendent le chat~~ — **partiellement fermé HOS-271** | §16 | le chat interactif **existait déjà**, par ACP, et était injoignable : sa sonde de disponibilité bloquait la boucle du serveur qu'elle interrogeait. Corrigé — les permissions d'édition ACP sont désormais un producteur réel, tracé et affiché. Les trois capacités **du gateway** restent hors d'atteinte : le chat passe par ACP, elles vivent dans le gateway |
 | ~~**G-24**~~ | ~~functional~~ | ~~Le contrôle natif d'ACP n'est pas émis~~ — **fermé HOS-273** | §16 | `session/cancel` émis et démontré : 50 s/9898 car. sans annulation, 12 s/0 car. avec, 195 s avec un **mauvais** identifiant — réel et corrélé. Deux faux contrôles déjà livrés corrigés au passage : `POST /cancel` ne touchait pas le tour, et le bouton stop n'abandonnait que le `fetch` |
 | **G-25** | **functional** | Le steering n'a aucun mécanisme d'injection dans un tour actif | §16 | ACP n'offre que « annuler puis redemander » — le serveur garde `interrupted_prompt_text` et le rattache au tour suivant. C'est un geste produit distinct, à concevoir comme tel plutôt qu'à maquiller en steering. **DEFER** |
+| **G-45** | **observability** | `conversation_manager` déclare des événements jamais publiés | §15/§16 | mesuré T-28 (HOS-297) : `service_registry.py:2103-2112` sans `dependencies=`, `_make_conversation_manager` construit `ConversationManager()` nu ; `produced_events=("conversation.started", "conversation.message")` n'est jamais appelé — 0 occurrence `event_hub`/`EventBus` dans `backend/conversation/*.py`/`harnais.py`. Seul le walking-skeleton mort `POST /chat` (`chat.py:100`) publie réellement, et rien dans `frontend/src` ne l'appelle |
 | **G-23** | **architectural** | Deux transports agentiques coexistent sans passerelle — **convergence REJECT (HOS-272)** | §16 | les deux **partagent le magasin** : un identifiant ACP est repris par `session.resume`. Mais `resume` matérialise une **seconde session vivante** dans le processus Gateway : mesuré pendant un tour ACP réel, `session.steer` rend `queued` et `session.interrupt` rend `interrupted` **sans toucher le tour**, qui se termine normalement. Convergence rejetée : elle fabrique des succès HTTP confiants qui n'agissent sur rien. Le chemin réel est le contrôle natif d'ACP (`acp_adapter/server.py: cancel`), non émis par notre client |
 | **G-21** | **architectural** | La mémoire de l'agent échappe à la provenance Hermes OS | §8/§16 | aucune méthode `memory.*` dans les 206 ; la capacité vit dans `tools/memory_tool.py`, côté agent. Hermes OS ne peut donc lui appliquer ni provenance, ni quarantaine, ni promotion — et fabriquer une API serait ce que G-19 interdit |
 | G-13 | **technical debt** | Deux dimensions sur cinq du score modèle sont inertes | §6 | `_get_records_for_task` rend `[]` en dur ; `_compute_speed_score` rend 0,000 pour les six profils |
@@ -2485,7 +2543,7 @@ des passes ne sont pas reconstituées.
 | T-24 | 2026-09-04 | A-2 — contrôles de sécurité non câblés | **ADOPT** | les deux invariants étaient réels *et* non couverts par ailleurs | câblés sur les coutures existantes, aucune politique nouvelle | HOS-256 | 🟢 appliqué |
 | **T-25** | 2026-09-11 | A-3 — restauration des points de reprise | **ADOPT (HOS-291)** | on prenait ce qu'on ne savait pas rendre, et le filet était *visible* — donc on comptait dessus | exposer : l'appelant naturel existait déjà (panneau « Points de reprise »), aucune couche nouvelle, Aegis inchangé. Aperçu non destructif, accord humain nommant le point de reprise, restauration prouvée au navigateur puis après redémarrage | §3 | 🟢 appliqué |
 | **T-26** | 2026-09-11 | A-4 — habilitation de portée projet | **tranché ADAPT (HOS-292)** | l'isolation reposait sur la bonne foi du modèle *et* sur une union : ne nommer aucun projet donnait accès à tous | habilitation **nominative** — une racine ne s'accorde qu'à l'action qui nomme son projet, et seulement tant qu'il est actif et validé. Liste blanche statique inchangée, aucune autorité nouvelle : le prédicat des trois copies est consolidé dans `authorized_root` | §8 | 🟢 appliqué |
-| **T-28** | — | §15.1 — Chat et Cowork : deux surfaces ou deux modes ? | **ouvert** | les deux partagent déjà le Run Ledger et le bus ; les séparer ferait deux histoires pour une exécution | trancher **avant** toute ligne de §15 | §15 | 🟠 à décider |
+| **T-28** | 2026-09-12 | §15.1 — Chat et Cowork : deux surfaces ou deux modes ? | **tranché OPTION B (HOS-297)** | la prémisse « Ledger et bus déjà communs » était fausse : le chat n'ouvre jamais de Run et son bus d'événements déclaré n'est jamais câblé (G-45, ouvert par cette passe) ; seuls le processus agent (harnais ACP, `sessions_de_mission.py`, clé `projet:{id}`) et la base SQLite sont réellement partagés | Chat et Cowork restent deux contrats produit distincts sur une infrastructure commune ; §15.2 et §15.4 avancent séparément, l'asymétrie d'outils de G-11 reste hors périmètre | §15 | 🟢 fermé |
 | T-22 | 2026-09-05 | §6.1 — autorité d'ordonnancement | **ADAPT** | l'architecture existante suffisait : deux routeurs sur deux chemins disjoints, `ResourceManager` fournissant le plafond. Aucun ordonnanceur n'était requis | retirer la troisième estimation de capacité, laisser les autorités en place | HOS-262 | 🟢 appliqué |
 | T-29 | 2026-09-06 | G-12 — un modèle non sondé peut-il piloter la boucle ? | **ADAPT** | la question était mal posée : le repli n'est pas mieux prouvé que ce qu'il remplace, donc la substitution n'arbitrait rien. Sonder reste souhaitable (G-14) mais n'était pas requis pour rendre la décision contraignante | un repli ne défait une décision que s'il porte une preuve qu'elle n'a pas ; prédicat tri-état | HOS-263 | 🟢 appliqué |
 
@@ -2512,6 +2570,7 @@ des passes ne sont pas reconstituées.
 | 2026-09-04 | `528a0d3` | Création. §3 et §4 rétrogradées 🟡 sur les mesures de l'audit J25, contre le statut 🟢 attendu par le cahier. Registre ouvert à T-22. |
 | 2026-09-05 | `04624ae` | §6.1 passée 🟡 sur mesure : le routeur classait juste et n'était jamais écouté. T-22 tranché (ADAPT) — l'architecture suffisait. A-19 fermé en chemin, cette passe le faisant sortir. G-12 et G-13 ouverts. |
 | 2026-09-05 | `6dfa78a` | §15 créée — couche produit consommant §1→§13, aucune autorité nouvelle. Deux écarts relevés en la construisant (G-10, G-11), une décision ouverte (T-28), trois idées rejetées avec leur raison. §15 **ne devient pas la section active** : §6.1 et A-10 la précèdent. |
+| 2026-09-12 | `c5790f0` | T-28 tranché (HOS-297, OPTION B) : Chat et Cowork sont deux contrats produit distincts sur une infrastructure partagée, pas deux modes d'une même exécution. La prémisse de §15.1 (Ledger et bus déjà communs) était fausse — lue dans le code, pas dans la doc. G-45 ouvert (bus déclaré, jamais câblé côté chat). §15.4 hérite de l'asymétrie d'outils de G-11, toujours ouverte. §15 **ne devient toujours pas la section active**. |
 | 2026-09-06 | `0d2b9e1` | §6.1 passée 🟢 : G-12 fermé sur le chemin agentique réel — 0 décision sur 5 survivait, 5 sur 5 survivent. T-29 tranché (ADAPT) : le repli n'était pas mieux prouvé que ce qu'il remplaçait, donc la substitution n'arbitrait rien. G-14 ouvert en chemin — la cause de G-12 était un magasin de sondes écrit dans `%TEMP%` depuis toujours, et effacé. |
 | 2026-09-06 | `a102d54` | G-14 fermé : le catalogue est sondé pour de vrai — 18 essais, 6 modèles, 6/6 prouvés capables, chaîne complète mesurée du magasin jusqu'au modèle engagé. La sonde mesurait « ce modèle devine-t-il la convention de chemin » et non sa capacité agentique ; corrigée sur la formulation de la production. G-15 ouvert en chemin. §6.1 reste 🟢, sur une base désormais mesurée plutôt que supposée. |
 | 2026-09-07 | `116f603` | §16 créée — le pont Hermes Agent, infrastructure transverse sans autorité nouvelle. Agent migré 0.20.0 → 0.21.0 (31 918 commits, état persistant intact, suite inchangée). Capacités **négociées** contre le gateway et non déclarées : 54 méthodes présentes, 8 absentes, 15 surfaces complètes sur 18. Une seule chaîne complète jusqu'au frontend ; les autres restent PLANNED. Règle anti-orphelin posée : 120 routes sur 306 sans appelant frontend, gelées comme dette. G-16 et G-17 ouverts en chemin. |

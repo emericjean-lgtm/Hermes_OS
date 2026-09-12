@@ -33,8 +33,8 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      cb39b04 (HOS-295/G-16) — dernier commit
-                               de code avant G-10 (HOS-296)
+BASELINE:                      c5790f0 (HOS-296) — dernier commit
+                               de code avant T-28 (HOS-297)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -150,6 +150,29 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                redémarrage backend ; `/memory` et
                                `/memory/{memory_id}/promote` retirés de
                                `ORPHELINS_CONNUS` (113→111)
+                               T-28 tranché (HOS-297) — OPTION B : Chat et
+                               Cowork sont deux contrats produit distincts
+                               sur une infrastructure partagée, pas deux
+                               modes d'une même exécution. La prémisse de
+                               §15.1 (Ledger et bus déjà communs) ne
+                               résistait pas à la lecture du code : le
+                               chat n'ouvre jamais de Run
+                               (`runs/correlation.py` :
+                               `etiquette_du_tour()` rend `""` sans Run de
+                               mission déjà ouvert) et son bus
+                               d'événements est déclaré, jamais câblé
+                               (`conversation_manager` sans
+                               `event_dispatcher`, G-45 ouvert). Ce qui
+                               est réellement partagé et mesuré : le même
+                               registre de session ACP
+                               (`sessions_de_mission.py: registre()`),
+                               sous la même clé `projet:{id}`, entre
+                               `conversation/harnais.py` et
+                               `execution/task_executor.py`, et la même
+                               base SQLite (`get_settings().sqlite_path`)
+                               pour `runs`, `missions` et les
+                               conversations. §15.4 hérite de l'asymétrie
+                               d'outils de G-11, qui reste ouverte
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -371,8 +394,10 @@ pas parce qu'elle est prête. Ce qui la précède :
    sur 6 prouvés capables. Reste **G-15**, sa suite naturelle — un verdict
    est une mesure datée que rien ne réévalue quand les poids ou le
    `num_ctx` changent sous le même tag ;
-4. **T-28** tranche le contrat Chat/Cowork — sans lui, §15 ne peut pas
-   commencer.
+4. ~~**T-28**~~ — **tranché le 2026-09-12 (HOS-297, OPTION B)** : Chat et
+   Cowork sont deux contrats produit distincts sur une infrastructure
+   partagée (agent-cerveau, base SQLite), pas deux modes d'une même
+   exécution. §15.1 satisfait son critère de passage.
 
 Quand §15 s'ouvrira, **§15.5 est l'entrée à privilégier**, et c'est la
 mesure qui le dit plutôt qu'une préférence : `DecisionExplainer` produit
@@ -422,6 +447,7 @@ décrivait ne l'est pas).
 | Deux transports agentiques coexistent sans passerelle (G-23) — **convergence REJECT, HOS-272** | architectural | §16 |
 | ~~Le contrôle natif d'ACP (`cancel`) n'est pas émis par notre client (G-24)~~ — **fermé HOS-273** | functional | §16 |
 | Le steering n'a aucun mécanisme d'injection dans un tour actif (G-25) | functional | §16 |
+| `conversation_manager` déclare des événements jamais publiés (G-45) — mesuré T-28/HOS-297 : aucun `event_dispatcher` injecté, le bus de `/conversation/stream` n'émet rien | observability | §15/§16 |
 | Deux dimensions sur cinq du score modèle sont inertes (G-13) | technical debt | §6 |
 | `test_no_real_subsystem_event_is_dropped` ne tient pas dans le délai de garde de 60 s (A-17) | test | §3 |
 | ~~Contrôles de sécurité non câblés (A-2)~~ — **fermé HOS-256** | security | §3 |
