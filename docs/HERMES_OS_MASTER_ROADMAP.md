@@ -1840,6 +1840,44 @@ l'autorité ; toute sous-allocation doit en **dériver**, pas la concurrencer.
 **Sources.** Hermes Agent (délégation, subagents) ; Paperclip
 (orchestration d'équipe, objectifs, budgets, gouvernance).
 
+**Chantier #11 (HOS-302) — audit re-mesuré, une rupture fermée.** HOS-070
+et G-4 restent exacts, re-mesurés sur ce commit : `CollaborationEngine`
+répond sur ses 14 routes montées (`_bind_collaboration_routes`,
+`service_registry.py`), mais `backend/execution/mission_executor.py` — le
+chemin réellement traversé par `GraphExecutor`/`node_execution.py` — ne
+publie, ne partage, ne délègue et ne révise jamais rien à travers lui.
+Côté frontend, seul `GET /collaboration/messages` a un appelant réel
+(`useCollaborationMessages`, Agent Center) ; `useSendMessage`,
+`delegate`/`review` du client HTTP n'ont aucun composant qui les invoque
+(`surface-api.test.ts` le documentait déjà : *« la messagerie inter-agents
+n'a pas d'écran »*). `delegate_task`/`.delegate(` n'a **aucun appelant**
+ailleurs que le module lui-même, ses routes et ses tests — la délégation
+n'existe nulle part sur un chemin de mission réel. Le Council n'a aucune
+implémentation : ni proposition, ni vote/arbitrage, ni quorum au-dessus
+d'un agent unique.
+
+Le composant étant inerte sur le chemin réel, le brancher à
+`GraphExecutor` sans contrat déjà tranché aurait été la refonte que ce
+chantier interdit. La rupture retenue est interne au composant lui-même,
+indépendante de son intégration : `DelegationManager._transition()`
+appliquait n'importe quel nouveau statut à une délégation sans vérifier
+le statut courant. `CollaborationEngine.complete_delegation()` appelle
+`start()` puis `complete()` sans condition — sans garde, cela forçait
+silencieusement une délégation `REJECTED` ou `FAILED` à repasser par
+`IN_PROGRESS` puis `COMPLETED`, avec un résumé arbitraire fourni par
+l'appelant. Un échec de délégation pouvait donc être réécrit en succès
+après coup, exactement l'inverse de l'invariant que §1/§2/§7/§15.5 posent
+déjà pour la mission. Corrigé par une table de prédécesseurs légaux
+(`_LEGAL_PREDECESSORS`, le contrat déjà documenté dans
+`docs/architecture/MULTI_AGENT_COLLABORATION_ARCHITECTURE.md` :
+REQUESTED → ACCEPTED → IN_PROGRESS → COMPLETED, REJECTED/FAILED en
+terminaux) — une transition hors de cette table est refusée, pas
+silencieusement acceptée. 6 tests neufs (`tests/architecture/
+test_collaboration.py::TestDelegationStateMachineIntegrity`), mutation
+rouge→vert vérifiée en retirant la garde. §11 reste 🟡 : ce lot ferme une
+rupture d'intégrité locale, pas l'intégration au noyau (G-4, inchangée)
+ni l'absence de Council (inchangée).
+
 ---
 
 ## §12 — Plugins / Extensibility — 🟠 PLANNED / DEFERRED
@@ -2522,7 +2560,7 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | G-1 | **architectural** | Mission → MCP : propagation du `project_id` par le texte du prompt | §7/§8 | `runtime_ctx` sérialisé dans le prompt ; aucun contexte MCP implicite |
 | G-2 | **architectural** | `unified_memory` sans isolation de projet | §8 | — |
 | G-3 | **UX** | Quarantaine/provenance non affichées | §9 | API expose 4 champs, frontend 0 |
-| G-4 | **architectural** | `CollaborationEngine` non intégré au noyau | §11 | 10 des 14 routes jamais appelées |
+| G-4 | **architectural** | `CollaborationEngine` non intégré au noyau | §11 | re-mesuré HOS-302 : toujours 10 routes/14 sans appelant, `delegate_task` sans appelant hors du module/ses tests, aucun Council. Non fermé par HOS-302, qui a corrigé une intégrité interne (`DelegationManager`) sans brancher le composant au DAG |
 | G-5 | **future capability** | Adoption pratique des skills | §10 | machinerie présente, cycle de vie absent |
 | G-6 | **technical debt** | Complétude outils/capacités génériques (HOS-049) | §12 | `register_executor()` jamais appelé |
 | G-7 | **architectural** | Maturation du modèle de propriété des processus | §7 | identité seulement dans la ligne de commande |

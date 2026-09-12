@@ -8,38 +8,44 @@
 > la roadmap maître, lequel exige des preuves mesurées.
 
 ```
-CURRENT_SECTION:      Chantier #10 — §7 Advanced Agent Orchestration
-                      (docs/HERMES_OS_MASTER_ROADMAP.md, §7)
-CURRENT_SUBSECTION:   Audit de décision + HOS-301 fermé — un nœud
-                      indépendant (branche parallèle, §7.2) ne pouvait
-                      pas devenir une Mission exécutable
-CURRENT_STATUS:       🟠 §7 reste PLANNED — HOS-301 ferme une rupture
-                      ponctuelle dans la construction du DAG, pas la
-                      section. Audit de décision sur le chemin réel
-                      d'orchestration : Context Relay (§7.3) réel et
-                      correct, laissé intact ; MultiAgentSupervisor/
-                      MissionInstance (façade sans surface HTTP, HOS-072)
-                      et CollaborationEngine (réel, monté, jamais consulté
-                      par le DAG, HOS-070) déjà qualifiés comme dette
-                      acceptée, non touchés. Le défaut réel : le
-                      planificateur (DependencyBuilder, ValidationEngine)
-                      déclare deux fois qu'une tâche sans dépendance est
-                      une branche parallèle valide ; MissionGraph.
-                      validate_graph la rejetait comme « orphelin » dès
-                      qu'une autre arête existait ; MissionPlanner.
-                      build_mission corrompait mission.status (une chaîne
-                      dans un champ d'énumération) au lieu de marquer
-                      FAILED, faisant planter mission.status.value chez
-                      tout appelant. Fermé : orphelin accepté (cycles/
-                      arêtes invalides inchangés), FAILED + graph_issues
-                      matérialisés et exposés par la route de build.
-                      Preuve : backend/tests/test_orphan_node_is_not_an_
-                      error.py (5 tests, mutation testing). Suite
-                      complète verte (6320 passed, 3 skipped). Dette
-                      d'entrée non traitée (hors périmètre du lot) :
-                      identité de processus non persistée (J-passe 7.1).
-                      Chantier #9 (HOS-300) reste le dernier chantier
-                      fermé avant celui-ci — un appel d'outil réel
+CURRENT_SECTION:      Chantier #11 — §11 Collaboration / Agent Council /
+                      Delegation (docs/HERMES_OS_MASTER_ROADMAP.md, §11)
+CURRENT_SUBSECTION:   Audit re-mesuré (HOS-070/G-4 confirmés inchangés) +
+                      HOS-302 fermé — un échec de délégation pouvait être
+                      réécrit en succès a posteriori
+CURRENT_STATUS:       🟡 §11 reste PARTIAL — HOS-302 ferme une rupture
+                      d'intégrité locale à `DelegationManager`, pas la
+                      section. Audit re-mesuré sur le chemin réel :
+                      `CollaborationEngine` répond sur ses 14 routes
+                      montées mais `backend/execution/mission_executor.py`
+                      — le chemin que `GraphExecutor`/`node_execution.py`
+                      traverse réellement — ne l'appelle jamais (HOS-070,
+                      G-4, inchangés) ; côté frontend seul `GET
+                      /collaboration/messages` a un appelant réel ;
+                      `delegate_task` n'a aucun appelant hors du module et
+                      de ses tests ; le Council n'a aucune implémentation.
+                      Ne pas brancher le composant sans contrat tranché
+                      aurait été la refonte que ce chantier interdisait ;
+                      la rupture retenue est interne au composant :
+                      `DelegationManager._transition()` appliquait
+                      n'importe quel nouveau statut sans vérifier le
+                      statut courant, et `CollaborationEngine.
+                      complete_delegation()` appelle start() puis
+                      complete() sans condition — une délégation
+                      REJECTED/FAILED pouvait donc être forcée en
+                      COMPLETED avec un résumé arbitraire, soit un échec
+                      réécrit en succès après coup. Fermé par une table de
+                      prédécesseurs légaux reprenant le contrat déjà
+                      documenté (REQUESTED→ACCEPTED→IN_PROGRESS→COMPLETED,
+                      REJECTED/FAILED en terminaux). 6 tests neufs
+                      (`TestDelegationStateMachineIntegrity`), mutation
+                      rouge→vert vérifiée. Suite complète verte (6326
+                      passed, 3 skipped, 273 deselected) ; `tsc --noEmit`
+                      propre (aucun fichier frontend touché). Chantier #10
+                      (HOS-301) reste le dernier chantier fermé avant
+                      celui-ci — un nœud indépendant (branche parallèle,
+                      §7.2) ne pouvait pas devenir une Mission exécutable ;
+                      Chantier #9 (HOS-300) avant lui — un appel d'outil réel
                       (lecture/écriture de fichier) n'atteignait jamais
                       l'écran dès qu'un projet était lié à l'Assistant ;
                       G-43 non concerné et reste exact (frontière ACP, pas
@@ -67,8 +73,8 @@ CURRENT_STATUS:       🟠 §7 reste PLANNED — HOS-301 ferme une rupture
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      ad34d5a (HOS-300) — dernier commit avant
-                               l'ouverture du chantier #10 (HOS-301)
+BASELINE:                      8770a62 (HOS-301) — dernier commit avant
+                               l'ouverture du chantier #11 (HOS-302)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -254,6 +260,28 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                chips READ/WRITE affichés en direct pour un
                                projet lié, fichier vérifié modifié sur
                                disque. G-43 non concerné, reste exact
+                               HOS-301 — Chantier #10 fermé : deux
+                               autorités de planification (`Dependency
+                               Builder`, `ValidationEngine`) validaient une
+                               tâche parallèle indépendante que
+                               `MissionGraph.validate_graph` rejetait
+                               ensuite comme orpheline ; `mission.status`
+                               pouvait aussi recevoir une chaîne au lieu
+                               d'un `MissionStatus`. Orphelin accepté,
+                               FAILED + graph_issues matérialisés et
+                               exposés par la route de build
+                               HOS-302 — Chantier #11 fermé (§11) : audit
+                               re-mesuré (HOS-070/G-4 confirmés inchangés,
+                               Council toujours absent) ;
+                               `DelegationManager._transition()` forçait
+                               tout statut sans vérifier le précédent, et
+                               `CollaborationEngine.complete_delegation()`
+                               (start() puis complete() sans condition)
+                               pouvait donc réécrire une délégation
+                               REJECTED/FAILED en COMPLETED avec un résumé
+                               arbitraire. Table de prédécesseurs légaux
+                               posée ; le composant reste non intégré au
+                               DAG (G-4 ouvert)
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -552,8 +580,43 @@ lire puis remplacer un fichier — chips `READ: NOTE.TXT` puis
 après coup (« ancien contenu » → « chantier9-ok »), projet et dossier
 scratch supprimés ensuite. Détail : `CHANGELOG.md` HOS-300.
 
-**Prochain chantier obligatoire : #10 — §7 Advanced Agent Orchestration**
-(`docs/HERMES_OS_OPERATIONAL_ROADMAP.md`, table §3, ligne 10).
+**Chantier #10 — §7 Advanced Agent Orchestration — fermé le 2026-09-12
+(HOS-301).** Audit de décision sur le chemin réel d'orchestration :
+Context Relay (§7.3) réel et correct, laissé intact ;
+`MultiAgentSupervisor`/`MissionInstance` et `CollaborationEngine`
+(HOS-070, HOS-072) déjà qualifiés comme dette acceptée, non touchés. Le
+défaut réel vivait dans `MissionPlanner.build_mission` →
+`GraphExecutor.build_graph` → `MissionGraph.validate_graph` :
+`DependencyBuilder`/`ValidationEngine` déclaraient valide une tâche
+parallèle indépendante que `validate_graph` rejetait ensuite comme
+orpheline, et `mission.status` pouvait recevoir une chaîne au lieu d'un
+`MissionStatus`, faisant planter tout appelant de `.status.value`.
+Orphelin accepté (cycles/arêtes invalides inchangés), FAILED +
+`graph_issues` matérialisés et exposés par la route de build. 5 tests,
+mutation testing, suite complète verte (6320 passed, 3 skipped). Détail :
+`CHANGELOG.md` HOS-301.
+
+**Chantier #11 — §11 Collaboration / Agent Council / Delegation — fermé
+le 2026-09-12 (HOS-302).** Audit re-mesuré : HOS-070 et G-4 confirmés
+inchangés (`CollaborationEngine` toujours jamais consulté par
+`mission_executor.py`/`GraphExecutor`, 10 routes/14 sans appelant,
+`delegate_task` sans appelant hors du module et de ses tests, Council
+toujours inexistant). Brancher le composant sans contrat tranché aurait
+été la refonte que le chantier interdisait ; la rupture fermée est
+interne au composant : `DelegationManager._transition()` appliquait tout
+nouveau statut sans vérifier le statut courant, et
+`CollaborationEngine.complete_delegation()` (start() puis complete() sans
+condition) pouvait donc réécrire une délégation REJECTED/FAILED en
+COMPLETED avec un résumé arbitraire — un échec collaboratif transformé en
+succès après coup. Fermé par une table de prédécesseurs légaux reprenant
+le contrat déjà documenté (REQUESTED→ACCEPTED→IN_PROGRESS→COMPLETED,
+REJECTED/FAILED en terminaux). 6 tests neufs, mutation rouge→vert. Suite
+complète verte (6326 passed, 3 skipped, 273 deselected), `tsc --noEmit`
+propre. §11 reste 🟡 — G-4 (intégration au noyau) et l'absence de Council
+restent ouverts, non touchés par ce lot. Détail : `CHANGELOG.md` HOS-302.
+
+**Prochain chantier : déterminé par `docs/HERMES_OS_OPERATIONAL_ROADMAP.md`
+(table §3) à l'ouverture de la prochaine session — non fixé par ce lot.**
 
 ---
 
@@ -607,7 +670,7 @@ scratch supprimés ensuite. Détail : `CHANGELOG.md` HOS-300.
 | `DecisionExplainer` sans consommateur | observability | §9 |
 | Une affirmation de capacité sans producteur n'a aucune garde (G-40) — mesuré HOS-289 : aucune regex ne sépare l'affirmation de la négation | observability | §9/§15 |
 | 66 numéros de jalon sur 78 entre HOS-112 et HOS-189 ne sont cités par aucun document (G-41) — mesuré HOS-289 ; git en porte 71, donc le travail a eu lieu et c'est le suivi qui l'a perdu | technical debt | — |
-| `CollaborationEngine` non intégré au noyau | architectural | §11 |
+| `CollaborationEngine` non intégré au noyau (G-4) — re-mesuré HOS-302, non fermé : intégrité de `DelegationManager` corrigée, intégration au DAG toujours absente | architectural | §11 |
 | Machinerie des skills non adoptée en pratique | future capability | §10 |
 | Complétude outils/capacités génériques (HOS-049) | technical debt | §12 |
 | Maturation du modèle de propriété des processus | architectural | §7 |

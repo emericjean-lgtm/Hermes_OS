@@ -262,6 +262,62 @@ class TestDelegationManager:
         assert stats["total"] >= 1
 
 
+class TestDelegationStateMachineIntegrity:
+    """HOS-302 (§11 audit): a delegation must not be able to record success
+    over a failure it never recovered from — see DelegationManager's
+    _LEGAL_PREDECESSORS. Before this fix, _transition() applied any status
+    unconditionally, so CollaborationEngine.complete_delegation() (which calls
+    start() then complete()) could force a REJECTED or FAILED delegation back
+    to COMPLETED with a fabricated summary.
+    """
+
+    def test_reject_then_complete_is_refused(self, delegation_manager):
+        d = delegation_manager.delegate("a1", "a2", "m1", "n1", "Task")
+        assert delegation_manager.reject(d.delegation_id, "a2")
+        assert not delegation_manager.start(d.delegation_id, "a2")
+        assert not delegation_manager.complete(d.delegation_id, "a2", "actually done")
+        assert delegation_manager.get(d.delegation_id).status == DelegationStatus.REJECTED
+
+    def test_fail_then_complete_is_refused(self, delegation_manager):
+        d = delegation_manager.delegate("a1", "a2", "m1", "n1", "Task")
+        delegation_manager.accept(d.delegation_id, "a2")
+        delegation_manager.start(d.delegation_id, "a2")
+        assert delegation_manager.fail(d.delegation_id, "a2")
+        # A second start() (as CollaborationEngine.complete_delegation() issues)
+        # must not resurrect a FAILED delegation into IN_PROGRESS.
+        assert not delegation_manager.start(d.delegation_id, "a2")
+        assert not delegation_manager.complete(d.delegation_id, "a2", "actually done")
+        assert delegation_manager.get(d.delegation_id).status == DelegationStatus.FAILED
+
+    def test_completed_delegation_cannot_be_reopened(self, delegation_manager):
+        d = delegation_manager.delegate("a1", "a2", "m1", "n1", "Task")
+        delegation_manager.accept(d.delegation_id, "a2")
+        delegation_manager.start(d.delegation_id, "a2")
+        assert delegation_manager.complete(d.delegation_id, "a2", "Done")
+        assert not delegation_manager.accept(d.delegation_id, "a2")
+        assert not delegation_manager.start(d.delegation_id, "a2")
+        assert delegation_manager.get(d.delegation_id).status == DelegationStatus.COMPLETED
+
+    def test_start_without_accept_is_refused(self, delegation_manager):
+        d = delegation_manager.delegate("a1", "a2", "m1", "n1", "Task")
+        assert not delegation_manager.start(d.delegation_id, "a2")
+        assert delegation_manager.get(d.delegation_id).status == DelegationStatus.REQUESTED
+
+    def test_fail_requires_accepted_or_in_progress(self, delegation_manager):
+        d = delegation_manager.delegate("a1", "a2", "m1", "n1", "Task")
+        # Never accepted: nothing was ever actually taken on, so there is
+        # nothing to fail — this is not the same as a real execution failure.
+        assert not delegation_manager.fail(d.delegation_id, "a2")
+        assert delegation_manager.get(d.delegation_id).status == DelegationStatus.REQUESTED
+
+    def test_engine_complete_delegation_cannot_override_rejection(self, engine):
+        """End-to-end through the same public surface routes.py exposes."""
+        d = engine.delegate_task("coder", "tester", "m1", "n1", "Write tests")
+        assert engine.delegations.reject(d.delegation_id, "tester")
+        assert not engine.complete_delegation(d.delegation_id, "tester", "Tests done")
+        assert engine.delegations.get(d.delegation_id).status == DelegationStatus.REJECTED
+
+
 # ── Consensus Engine Tests ───────────────────────────────────
 
 class TestConsensusEngine:

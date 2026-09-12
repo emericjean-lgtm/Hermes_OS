@@ -1,3 +1,84 @@
+## HOS-302 — #11 §11 Collaboration / Agent Council / Delegation : un échec de délégation pouvait être réécrit en succès (2026-09-12)
+
+Chantier #11 — §11 Collaboration / Agent Council / Delegation. Audit
+re-mesuré sur ce commit, avant toute correction : `CollaborationEngine`
+répond sur ses 14 routes `collaboration` montées
+(`_bind_collaboration_routes`, `service_registry.py`), mais
+`backend/execution/mission_executor.py` — le chemin que
+`GraphExecutor`/`node_execution.py` traverse réellement pour une mission
+— ne publie, ne partage, ne délègue et ne fait réviser aucun résultat à
+travers lui (HOS-070, inchangé). Côté frontend, seul `GET
+/collaboration/messages` a un appelant réel (`useCollaborationMessages`,
+Agent Center) ; `useSendMessage` et les fonctions `delegate`/`requestReview`
+du client HTTP n'ont aucun composant qui les invoque
+(`surface-api.test.ts` le documentait déjà : *« la messagerie inter-agents
+n'a pas d'écran »*). `delegate_task`/`.delegate(` n'a **aucun appelant**
+en dehors du module de collaboration lui-même, de ses routes et de ses
+tests — la délégation n'existe sur aucun chemin de mission réel. Le
+Council n'a aucune implémentation : ni proposition inter-agents au-dessus
+d'un agent unique, ni vote, ni quorum, ni arbitrage. G-4 est donc confirmé
+exact, inchangé.
+
+### Le défaut
+
+Le composant étant inerte sur le chemin réel, le brancher à
+`GraphExecutor` sans qu'un contrat de délégation soit déjà tranché
+(§7/§11, toujours ouvert) aurait été la refonte globale que ce chantier
+interdit explicitement. La rupture retenue est interne au composant,
+indépendante de son intégration : `DelegationManager._transition()`
+(`backend/agents/collaboration/delegation_manager.py`) appliquait
+n'importe quel nouveau statut à une délégation sans jamais vérifier le
+statut courant. `CollaborationEngine.complete_delegation()` appelle
+`start()` puis `complete()` sans condition — sans garde sur `start()`,
+cela forçait silencieusement une délégation `REJECTED` ou `FAILED` à
+repasser par `IN_PROGRESS` puis `COMPLETED`, avec un résumé arbitraire
+fourni par l'appelant. Un échec de délégation pouvait donc être réécrit
+en succès après coup, l'exact inverse de l'invariant « un résultat
+annoncé n'est pas un résultat exécuté » que §1/§2/§7/§15.5 posent déjà
+pour la mission.
+
+### La correction
+
+Une table de prédécesseurs légaux (`_LEGAL_PREDECESSORS`), reprenant le
+contrat déjà documenté dans
+`docs/architecture/MULTI_AGENT_COLLABORATION_ARCHITECTURE.md`
+(`REQUESTED → ACCEPTED → IN_PROGRESS → COMPLETED`, `REJECTED`/`FAILED` en
+terminaux) : une transition absente de cette table est refusée, pas
+silencieusement acceptée. `_transition()` (utilisée par `accept()`,
+`reject()`, `start()`) et `fail()` la consultent avant de muter le
+statut. `complete()` gardait déjà son propre contrôle (`status !=
+IN_PROGRESS`) — le trou était en amont, dans `start()`.
+
+- `backend/agents/collaboration/delegation_manager.py` : ajout de
+  `_LEGAL_PREDECESSORS`, garde posée dans `_transition()` et `fail()`.
+
+### Vérification
+
+`tests/architecture/test_collaboration.py::TestDelegationStateMachineIntegrity`
+(6 tests neufs) : une délégation `REJECTED` ou `FAILED` refuse `start()`
+et `complete()` ; une délégation `COMPLETED` refuse d'être rouverte par
+`accept()`/`start()` ; `start()` sans `accept()` préalable est refusé ;
+`fail()` sur une délégation jamais acceptée est refusé (rien n'a
+réellement été pris en charge, donc rien à faire échouer) ; le même
+contrôle est vérifié à travers la surface publique
+(`CollaborationEngine.complete_delegation()`), pas seulement au niveau du
+gestionnaire interne. Mutation testing : la garde retirée de
+`_transition()`/`fail()` fait échouer exactement les 6 tests qui
+l'affirment, rien d'autre. Suite complète (`pytest -q`, sans argument de
+chemin, `testpaths` du dépôt) : 6326 passed, 3 skipped, 273 deselected, 0
+failed. `npx tsc --noEmit` : aucune erreur (aucun fichier frontend
+touché, `vitest` non requis).
+
+§11 reste 🟡 PARTIAL : ce lot ferme une rupture d'intégrité locale au
+gestionnaire de délégations, pas l'intégration de `CollaborationEngine`
+au DAG (G-4, re-mesurée inchangée) ni l'absence de Council (inchangée,
+non fabriquée pour l'occasion). Les événements manquants sur les
+transitions `accept`/`reject`/`start`/`fail` (seules `delegate()` et
+`complete()` publient sur l'Event Bus) restent un gap d'observabilité
+distinct, non traité par ce lot.
+
+---
+
 ## HOS-301 — #10 §7 Advanced Agent Orchestration : deux autorités contredisaient une tâche parallèle légitime (2026-09-12)
 
 Chantier #10 — §7 Advanced Agent Orchestration. Audit de décision sur le

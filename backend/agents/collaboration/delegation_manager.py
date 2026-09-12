@@ -22,6 +22,24 @@ class DelegationManager:
     Thread-safe.
     """
 
+    # HOS-302 (§11 audit): _transition() previously moved a delegation to any
+    # status regardless of its current one. CollaborationEngine.complete_delegation()
+    # calls start() unconditionally before complete() — with no guard, that
+    # silently forced a REJECTED or FAILED delegation back through IN_PROGRESS
+    # into COMPLETED, turning a recorded collaborative failure into a recorded
+    # success. This map is the legal-predecessor contract documented in
+    # docs/architecture/MULTI_AGENT_COLLABORATION_ARCHITECTURE.md
+    # (REQUESTED → ACCEPTED → IN_PROGRESS → COMPLETED, with REJECTED/FAILED as
+    # terminal alternates) — a transition not listed here is refused, not silently
+    # ignored.
+    _LEGAL_PREDECESSORS: dict[DelegationStatus, frozenset[DelegationStatus]] = {
+        DelegationStatus.ACCEPTED: frozenset({DelegationStatus.REQUESTED}),
+        DelegationStatus.REJECTED: frozenset({DelegationStatus.REQUESTED}),
+        DelegationStatus.IN_PROGRESS: frozenset({DelegationStatus.ACCEPTED}),
+        DelegationStatus.COMPLETED: frozenset({DelegationStatus.IN_PROGRESS}),
+        DelegationStatus.FAILED: frozenset({DelegationStatus.ACCEPTED, DelegationStatus.IN_PROGRESS}),
+    }
+
     def __init__(self, on_event: Optional[Callable] = None) -> None:
         self._lock = threading.RLock()
         self._on_event = on_event
@@ -114,6 +132,8 @@ class DelegationManager:
             d = self._delegations.get(delegation_id)
             if d is None or d.to_agent_id != agent_id:
                 return False
+            if d.status not in self._LEGAL_PREDECESSORS[DelegationStatus.FAILED]:
+                return False
             d.status = DelegationStatus.FAILED
             d.completed_at = datetime.now(timezone.utc)
         return True
@@ -186,6 +206,9 @@ class DelegationManager:
             if d is None:
                 return False
             if d.to_agent_id and d.to_agent_id != agent_id:
+                return False
+            allowed = self._LEGAL_PREDECESSORS.get(new_status)
+            if allowed is not None and d.status not in allowed:
                 return False
             d.status = new_status
             if new_status in (DelegationStatus.ACCEPTED, DelegationStatus.COMPLETED):
