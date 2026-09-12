@@ -45,6 +45,7 @@ import type {
   Delegation,
   RuntimeInfo,
   MemoryEntry,
+  EpisodicMemoryRecord,
   SearchResult,
   Skill,
   SkillSelection,
@@ -364,6 +365,21 @@ export function useExperiences() {
 }
 export function useMemoryStatistics() {
   return useQuery({ queryKey: ["memory", "statistics"], queryFn: memoryClient.statistics });
+}
+/** Le chemin episodique (EchoAgent), avec la provenance de chaque entree —
+ *  ce qu'il faut pour reperer ce qui est en quarantaine (G-10). */
+export function useMemoryList() {
+  return useQuery<EpisodicMemoryRecord[]>({ queryKey: ["memory", "list"], queryFn: memoryClient.list });
+}
+export function useMemoryPromote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, promuPar }: { id: string; promuPar: string }) =>
+      memoryClient.promote(id, promuPar),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["memory", "list"] });
+    },
+  });
 }
 
 // ── Skills ───────────────────────────────────────────

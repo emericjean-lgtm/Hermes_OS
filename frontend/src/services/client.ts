@@ -10,6 +10,7 @@ import type {
   RuntimeDecision,
   ResourceStatus,
   MemoryEntry,
+  EpisodicMemoryRecord,
   KnowledgeGraph,
   Experience,
   SearchResult,
@@ -929,6 +930,16 @@ export const memoryClient = {
       body: JSON.stringify(data),
     }),
   statistics: () => fetchJSON<Record<string, number>>("/memory/statistics"),
+  // ── Chemin episodique (EchoAgent -> episodic.py) ──────────────────
+  // Distinct des methodes ci-dessus, qui servent la memoire unifiee
+  // (MemoryManager). C'est ici que vit la provenance (HOS-250) : ce
+  // qu'un operateur doit voir pour savoir quoi promouvoir (G-10).
+  list: () => fetchJSON<EpisodicMemoryRecord[]>("/memory"),
+  promote: (id: string, promu_par: string) =>
+    fetchJSON<EpisodicMemoryRecord>(`/memory/${encodeURIComponent(id)}/promote`, {
+      method: "POST",
+      body: JSON.stringify({ promu_par }),
+    }),
 };
 
 // ── Skills ───────────────────────────────────────────

@@ -399,6 +399,24 @@ export type MemoryType = "EPISODIC" | "SEMANTIC" | "PROCEDURAL" | "DOCUMENT" | "
 
 export type MemoryScope = "SESSION" | "MISSION" | "AGENT" | "PROJECT" | "USER" | "GLOBAL" | "EXPERIENCE";
 
+/** `MemoryResponse` de `backend/api/routes/memory.py` — le chemin episodique
+ *  (`EchoAgent` -> `episodic.py`), distinct de `MemoryEntry` ci-dessus qui
+ *  sert la memoire unifiee (`MemoryManager`). Porte la provenance (HOS-250) :
+ *  c'est ce qu'un operateur doit voir pour savoir quoi promouvoir. */
+export interface EpisodicMemoryRecord {
+  id: string;
+  project_id: string | null;
+  type: string;
+  content: string;
+  tags: string[];
+  confidence: number;
+  created_at: string;
+  origine: string | null;
+  en_quarantaine: boolean;
+  promu_par: string | null;
+  verifie_le: string | null;
+}
+
 export interface KnowledgeNode {
   id: string;
   type: string;

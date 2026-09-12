@@ -33,8 +33,8 @@ CURRENT_STATUS:       🟡 §6.1 fermée · §6.2 livré (HOS-257)
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      6a27535 (merge, HOS-293/G-15) — dernier
-                               commit de code avant G-11 (HOS-294)
+BASELINE:                      cb39b04 (HOS-295/G-16) — dernier commit
+                               de code avant G-10 (HOS-296)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -138,6 +138,18 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                frontend — aucune n'avait de preuve
                                suffisante pour suppression ; classées à
                                conserver, pas fermées, pas fantômes
+                               G-10 fermé (HOS-296) — l'énoncé du gap
+                               datait d'avant une lecture directe du code :
+                               `POST /memory/{id}/promote` existait déjà
+                               (HOS-250), montée deux fois, gouvernée,
+                               testée par 19 tests — mais sans appelant
+                               frontend, exactement le défaut que G-16
+                               nomme. Panneau Quarantaine ajouté au Memory
+                               Center ; vérifié bout en bout sur le
+                               processus réel, promotion persistée après
+                               redémarrage backend ; `/memory` et
+                               `/memory/{memory_id}/promote` retirés de
+                               `ORPHELINS_CONNUS` (113→111)
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -264,10 +276,10 @@ plugin peut être refusé tant que la découverte n'a pas abouti.
 
 **§15 — Hermes Assistant — a été créée le 2026-09-05 et n'est pas la
 section active.** Elle est une couche produit qui consomme §1→§13 ; la
-créer ne la rend pas prioritaire, et deux de ses sous-chantiers sont
-bloqués par des dettes qui vivent ailleurs (A-3 pour la reprise, A-4 pour
-les artefacts, G-10 pour le contrôle mémoire). Le contrat §15.1 (T-28)
-doit être tranché avant toute ligne de produit.
+créer ne la rend pas prioritaire. Le contrat §15.1 (T-28) doit être
+tranché avant toute ligne de produit. (A-3, A-4 et G-10 — les dettes qui
+bloquaient §15.4/§15.6 — sont fermées depuis, respectivement HOS-291,
+HOS-292 et HOS-296.)
 
 **G-15 est fermé le 2026-09-12 (HOS-293).** `agentic_probe.py` indexait un
 verdict sur le seul tag du modèle : un `ollama pull` remplaçant les poids
@@ -392,7 +404,7 @@ décrivait ne l'est pas).
 | ~~Comptabilité VRAM/CPU par Run (R-6)~~ — **fermé HOS-260** | observability | §6 |
 | ~~Empreinte déclarée sous le contexte servi (A-18)~~ — **fermé HOS-261** | architectural | §6 |
 | Rien ne détecte un Modelfile élargi sous une empreinte (A-20) | architectural | §6 |
-| La promotion d'un souvenir n'a aucune route HTTP (G-10) | architectural | §8 |
+| ~~La promotion d'un souvenir n'a aucune route HTTP (G-10)~~ — **fermé HOS-296** | architectural | §8 |
 | ~~Deux files d'approbation, et le cockpit regarde la morte (G-36)~~ — **fermé HOS-285** | security | §15/§23 |
 | ~~La file de `backend/policy/` n'a aucun producteur ni consommateur (G-37)~~ — **audité HOS-286 (REJECT), supprimé HOS-287** | technical debt | §15 |
 | ~~`assigned_tools` planifié et jamais invoqué (G-11)~~ — **fermé HOS-294** | technical debt | §7 |

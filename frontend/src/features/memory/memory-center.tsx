@@ -6,6 +6,8 @@ import {
   useKnowledgeGraph,
   useExperiences,
   useMemoryStatistics,
+  useMemoryList,
+  useMemoryPromote,
   useAlexandrieStatus,
   useAlexandrieHealth,
   useAlexandrieSearch,
@@ -70,6 +72,12 @@ export function MemoryCenter() {
   const { data: results, isLoading: searching } = useMemorySearch(query);
   const { data: experiences } = useExperiences();
   const { data: stats } = useMemoryStatistics();
+
+  // ── Quarantaine / provenance (G-10) ──
+  const memEntries = useMemoryList();
+  const promote = useMemoryPromote();
+  const [promoteErrors, setPromoteErrors] = useState<Record<string, string>>({});
+  const quarantaine = (memEntries.data ?? []).filter((e) => e.en_quarantaine);
 
   // ── Graphe ──
   const memGraph = useKnowledgeGraph();
@@ -218,6 +226,74 @@ export function MemoryCenter() {
               ))}
             </div>
           </AsyncPanel>
+
+          <div className="mt-4">
+            <AsyncPanel
+              title="Quarantaine"
+              subtitle={`${quarantaine.length} mémoire(s) en attente de promotion — /api/v1/memory`}
+              isLoading={memEntries.isLoading}
+              isError={memEntries.isError}
+              error={memEntries.error}
+              isEmpty={quarantaine.length === 0}
+              emptyLabel="Aucune mémoire en quarantaine : rien écrit par un agent, le web ou un dépôt n'attend de validation."
+            >
+              <div className="flex flex-col gap-2 max-h-[380px] overflow-y-auto">
+                {quarantaine.slice(0, 30).map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="flex items-start gap-3 p-3 rounded-lg bg-hermes-bg-deep/50
+                      border border-hermes-border/50"
+                  >
+                    <Badge variant="warning">{entry.origine ?? "inconnue"}</Badge>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] text-hermes-text truncate">
+                        {entry.content.slice(0, 140)}
+                      </div>
+                      <div className="text-[10px] text-hermes-dim mt-1">
+                        {entry.project_id ? `projet ${entry.project_id}` : "sans projet"}
+                        {" · "}
+                        {entry.type}
+                      </div>
+                      {promoteErrors[entry.id] && (
+                        <div className="text-[10px] text-hermes-red mt-1">
+                          {promoteErrors[entry.id]}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        const acteur = window.prompt(
+                          "Qui valide cette mémoire et la sort de quarantaine ?", "");
+                        if (!acteur || !acteur.trim()) return;
+                        setPromoteErrors((p) => {
+                          const suite = { ...p };
+                          delete suite[entry.id];
+                          return suite;
+                        });
+                        promote.mutate(
+                          { id: entry.id, promuPar: acteur.trim() },
+                          {
+                            onError: (e) =>
+                              setPromoteErrors((p) => ({
+                                ...p,
+                                [entry.id]: e instanceof Error ? e.message : "Promotion refusée",
+                              })),
+                          },
+                        );
+                      }}
+                      disabled={promote.isPending}
+                      aria-label={`Promouvoir la mémoire ${entry.id}`}
+                      className="shrink-0 px-2 py-1 text-[10px] font-mono border border-hermes-border
+                        text-hermes-muted hover:text-hermes-sodium hover:border-hermes-sodium/45
+                        disabled:opacity-50"
+                    >
+                      Promouvoir
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </AsyncPanel>
+          </div>
         </>
       )}
 

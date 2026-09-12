@@ -108,11 +108,12 @@ ORPHELINS_CONNUS: frozenset = frozenset({
     # defaut qu'elle visait a corriger. Limite connue, non resolue ici.
     "/logs/latency",
     "/logs/{session_id}",
-    "/memory",
+    # G-10 (2026-09-12) retire /memory et /memory/{memory_id}/promote : le
+    # panneau Quarantaine de Memory Center les appelle desormais reellement
+    # (`memoryClient.list`/`memoryClient.promote`, `use-api.ts`).
     "/memory/permanent",
     "/memory/project/{project_id}",
     "/memory/types",
-    "/memory/{memory_id}/promote",
     # G-16 (2026-09-12) retire /models/benchmarks : meme trou
     # d'interpolation, appelant reel dans client.ts.
     "/models/catalogue/candidats",

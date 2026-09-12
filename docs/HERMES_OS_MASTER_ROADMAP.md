@@ -1886,7 +1886,7 @@ des capacités **livrées, testées, et sans consommateur produit** :
 |---|---|---|---|
 | Explication de décision (`DecisionExplainer`) | 3 routes montées | **0 appel** | `CALLED` = non (A-8) |
 | Quarantaine / provenance mémoire | 4 champs exposés | **0 affichage** | `ACTUALLY USED` = non (G-3) |
-| Promotion d'un souvenir | 4 niveaux, testé | **aucune route HTTP** | `PRESENT` (G-10) |
+| Promotion d'un souvenir | route testée depuis HOS-250 | panneau Quarantaine (Memory Center) | `DEMONSTRATED` (G-10 fermé HOS-296) |
 | Points de reprise | `prendre` appelé | aperçu + restauration branchés (HOS-291) | `DEMONSTRATED` (A-3 fermé) |
 | Cycle de vie des skills | 9 routes, **aucune création** | liste seule | `PRESENT` (G-5) |
 | `assigned_tools` d'une tâche | planifié, jamais invoqué | — | décoratif, rapport corrigé (G-11 fermé HOS-294) |
@@ -2283,15 +2283,23 @@ produite ; une jauge de ressource n'affiche jamais un chiffre quand
 Invocation `@`, découverte et suggestion de skills, mémoire proposée puis
 validée, provenance et contrôle utilisateur.
 
-Le **contrôle mémoire** est bloqué par construction : `promouvoir` existe
-à quatre niveaux et est testé, mais `backend/memory/routes.py` n'expose
-que `search`, `graph`, `experiences`, `index`, `statistics` — **aucune
-route de promotion** (**G-10**). L'utilisateur ne peut pas accepter un
-souvenir parce qu'aucune API ne le lui permet.
+**Le contrôle mémoire est câblé le 2026-09-12 (G-10, HOS-296).** L'énoncé
+du gap datait d'avant une lecture directe du code : `POST
+/memory/{memory_id}/promote` existait déjà (HOS-250), sur
+`backend/api/routes/memory.py` — le chemin épisodique (`EchoAgent` →
+`episodic.py`), distinct de `backend/memory/routes.py` (mémoire unifiée,
+`search`/`graph`/`experiences`/`index`/`statistics`) que cite l'énoncé
+d'origine. La route était montée, gouvernée, testée (19 tests), et sans
+un seul appelant — exactement le défaut que G-16 nomme. Le Memory Center a
+désormais un panneau **Quarantaine** : liste les entrées `en_quarantaine`,
+bouton « Promouvoir » qui demande l'acteur et appelle la route réelle.
+Vérifié bout en bout sur le processus en marche, y compris après
+redémarrage backend. `/memory` et `/memory/{memory_id}/promote` sortent de
+`ORPHELINS_CONNUS`.
 
 Les **skills** : 9 routes, dont aucune ne **crée** un skill (G-5).
 
-**Dépend de** : G-10 (§8), G-5 (§10).
+**Dépend de** : G-5 (§10).
 
 #### §15.7 — Research / multimodal / voice — 🟠 dépend de §13
 
@@ -2381,7 +2389,7 @@ mélangent pas** : les premières se ferment, les secondes se décident.
 | G-7 | **architectural** | Maturation du modèle de propriété des processus | §7 | identité seulement dans la ligne de commande |
 | G-8 | **technical debt** | Deux vocabulaires « mission » (`Mission` / `MissionInstance`) | §7 | deux routes homonymes, une seule montée |
 | G-9 | **technical debt** | 8 runs orphelins ; aucune suppression exposée par `Registre` | §2 | dette acceptée, voir STATE |
-| G-10 | **architectural** | La promotion d'un souvenir n'a **aucune route HTTP** | §8 | `promouvoir` à 4 niveaux, testé ; `memory/routes.py` n'expose que search/graph/experiences/index/statistics |
+| ~~**G-10**~~ | ~~architectural~~ | ~~La promotion d'un souvenir n'a aucune route HTTP~~ — **fermé HOS-296** | §8 | l'énoncé était faux : `POST /memory/{id}/promote` existait déjà (HOS-250), montée, gouvernée, testée — mais sans appelant frontend, exactement le défaut que G-16 nomme. Memory Center a désormais un panneau Quarantaine ; verifié bout en bout sur le processus reel, y compris apres redemarrage |
 | ~~**G-11**~~ | ~~technical debt~~ | ~~`assigned_tools` d'une tâche est planifié et **jamais invoqué**~~ — **fermé HOS-294** | §7 | invoquer réellement la recommandation violerait HOS-085 (agent) ou exigerait un second pont d'outils vers un catalogue disjoint (local) ; le rapport de mission ne la fait plus passer pour une mesure — `TaskExecution.tools_used`/`ExecutionReport.tools_used` viennent désormais de ce que `_run_tool_loop` a réellement invoqué, jamais de `assigned_tools` |
 | ~~**G-12**~~ | ~~architectural~~ | ~~Le repli agentique défait **toutes** les décisions du routeur~~ — **fermé HOS-263** | §6/§7 | mesuré : 0 sur 5 avant, **5 sur 5** après ; un repli ne défait plus une décision sans porter une preuve qu'elle n'a pas |
 | ~~**G-14**~~ | ~~architectural~~ | ~~La capacité agentique n'est mesurée pour aucun modèle du catalogue~~ — **fermé HOS-264** | §7 | 18 essais réels, 6 modèles, 6/6 prouvés ; chaîne magasin → prédicat → modèle engagé mesurée sur le vrai bootstrap. La sonde mesurait la convention de chemin et non le modèle : corrigée sur la formulation même de la production |
@@ -2515,3 +2523,4 @@ des passes ne sont pas reconstituées.
 | 2026-09-09 | `4b4c022` | **G-22 partiellement fermé.** Le chat interactif existait déjà — session Hermes Agent vivante par ACP — et il était **injoignable depuis l'Assistant** : `harnais.disponible()` sonde le backend par un `requests.get` synchrone sur son propre `/health`, ce qui bloque la boucle d'un uvicorn mono-worker. Le serveur se demandait s'il était vivant pendant qu'il servait la requête qui posait la question. Déportée hors de la boucle, la signature du flux passe de `tool_calls` à `thinking` — le harnais est emprunté. Les permissions d'édition ACP, qui refusaient déjà vraiment (3 refus sur un tour réel) sans aucun témoin, sont tracées et affichées. G-23 ouvert : deux transports agentiques sans passerelle. |
 | 2026-09-09 | `d28ccf0` | **G-23 tranché : REJECT.** ACP et Gateway partagent `state.db` — un identifiant ACP est repris par le Gateway — mais la reprise crée une **seconde session vivante** dans son propre processus. Mesuré pendant un tour ACP réel (3242 fragments, fichier écrit) : `session.steer` → `queued`, `session.interrupt` → `interrupted`, et le tour se termine normalement. Une ligne stockée, deux sessions vivantes, deux processus. Convergence rejetée plutôt que différée : elle produit exactement le faux succès que ce dépôt poursuit depuis l'origine. Aucune fonctionnalité livrée — une garde en quatre tests fixe la ligne : le contrat de mutation ne porte que sur de l'état **stocké**, jamais sur un tour vivant. |
 | 2026-09-09 | `459b8ea` | **G-24 fermé — interruption ADOPT.** `session/cancel` d'ACP atteint le tour vivant : 50 s/9898 car. sans annulation, 12 s/0 car. avec, et 195 s avec un mauvais identifiant — donc réel *et* corrélé. De bout en bout par HTTP : 217 s → 17 s. Deux faux contrôles **déjà livrés** corrigés : `POST /conversation/{id}/cancel` marquait la conversation sans toucher le tour, et le bouton stop n'abandonnait que le `fetch` pendant que l'agent continuait d'écrire. Steering **DEFER** (aucune injection dans un tour actif), approvals Gateway **REJECT** (G-23), permissions ACP **ADOPT** (HOS-271). G-25 ouvert. |
+| 2026-09-12 | *(ce commit)* | **G-10 fermé (HOS-296).** L'énoncé du gap datait d'avant une lecture directe du code : `POST /memory/{id}/promote` existait déjà (HOS-250), montée deux fois, gouvernée, testée par 19 tests — mais sans appelant frontend, exactement le défaut que G-16 (HOS-295) nomme. Panneau Quarantaine ajouté au Memory Center ; vérifié bout en bout sur le processus réel, promotion persistée après redémarrage backend. `/memory` et `/memory/{memory_id}/promote` retirés de `ORPHELINS_CONNUS` (113→111). |

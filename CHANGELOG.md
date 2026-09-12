@@ -1,3 +1,78 @@
+## HOS-296 — la promotion d'un souvenir avait déjà sa route, jamais son écran (2026-09-12)
+
+G-10. Ferme le gap §8 : « la promotion d'un souvenir n'a aucune route
+HTTP ».
+
+### Le défaut, mesuré avant correction
+
+L'énoncé du gap était faux sur un point précis : la route existait déjà.
+`backend/api/routes/memory.py` porte `POST /memory/{memory_id}/promote`
+depuis HOS-250, avec son contrat complet — `MemoryPromoteRequest`,
+`promu_par` obligatoire et non vide, 404/409/422 distincts, chaîne réelle
+jusqu'à `episodic.promouvoir()` — et 19 tests dans
+`test_memoire_promotion.py`, tous verts avant cette passe. `backend/main.py`
+la monte deux fois : nue (`/memory/{id}/promote`) et sous
+`/api/v1/memory/{id}/promote` (`mount_legacy_under_api`). Confirmé sur le
+processus en marche.
+
+Ce que le diagnostic de ce chantier a trouvé à sa place : `_LEGACY_ROUTERS`
+inclut `backend.api.routes.memory` (chemin épisodique, `EchoAgent` →
+`episodic.py`) — distinct de `backend.memory.routes` (mémoire unifiée,
+`MemoryManager`), que le Memory Center appelle déjà pour la recherche et
+le graphe. Le premier n'avait aucun consommateur : `test_pas_de_backend_orphelin.py`
+portait `/memory` et `/memory/{memory_id}/promote` dans `ORPHELINS_CONNUS`
+depuis HOS-265. Le vrai gap n'était donc pas HTTP — il était produit : une
+route montée, gouvernée, testée, sans un seul appelant. Le principe posé
+par G-16 (HOS-295) s'applique mot pour mot.
+
+### Ce qui a été rejeté
+
+Réimplémenter la promotion, ou lui fabriquer un second contrat côté
+route : la chaîne existante (garde-fou `PromotionRefusee`, refus de double
+promotion `DejaPromue`, persistance vérifiée par relecture) est correcte
+et déjà mesurée — la reconstruire aurait dupliqué une autorité au lieu de
+la brancher. Un écran dédié à la seule promotion aurait aussi été un
+appelant fabriqué pour la forme : le Memory Center existe déjà, sert déjà
+la mémoire, et n'affichait tout simplement pas la provenance — le gap G-3
+adjacent (« quarantaine/provenance non affichées »).
+
+### Ce qui a été livré
+
+Un panneau **Quarantaine** dans l'onglet Mémoire du Memory Center, sous
+les Expériences. `memoryClient.list()` (`GET /memory`) rend chaque entrée
+avec sa provenance ; le panneau filtre `en_quarantaine === true` et
+affiche origine, projet, type et contenu. Le bouton « Promouvoir » demande
+l'acteur via `window.prompt` — le même patron que le renommage de session
+du pont (`cerveau-center.tsx`) — et appelle `memoryClient.promote(id,
+promu_par)` (`POST /memory/{id}/promote`). Une saisie annulée ne mute
+rien ; un refus de l'API (404/409/422) s'affiche sur l'entrée concernée,
+jamais un succès silencieux.
+
+`ORPHELINS_CONNUS` perd `/memory` et `/memory/{memory_id}/promote` — la
+dette rétrécit de 113 à 111 entrées. Mutation vérifiée :
+retirer l'appel réel du client fait rougir
+`test_aucune_route_neuve_sans_appelant_frontend` exactement sur ces deux
+chemins ; le restaurer les rend verts.
+
+Vérifié en navigateur, bout en bout, sur le processus réel : une entrée
+`agent` insérée directement dans `hermes.db` apparaît en quarantaine dans
+le Cockpit, le clic sur « Promouvoir » émet le `POST` réel (`200 OK`),
+l'entrée disparaît du panneau après invalidation de la requête, et
+`GET /api/v1/memory` la rend avec `en_quarantaine: false`,
+`promu_par: "emeric-verification-navigateur"` — **avant et après un
+redémarrage complet du processus backend**. Six tests frontend neufs
+(`memory-center.test.tsx`) : rendu d'une entrée en quarantaine, exclusion
+d'une entrée déjà promue, état vide, mutation appelée avec l'acteur saisi,
+saisie annulée sans mutation, erreur API affichée sur l'entrée.
+
+### Ce qui reste hors périmètre
+
+G-3 (quarantaine/provenance dans les autres écrans que Memory Center),
+G-21 (la mémoire de l'agent, côté `tools/memory_tool.py`, échappe
+entièrement à cette provenance — chemin distinct, non touché ici), et
+T-28/§15 (le contrat produit plus large de la validation mémoire). Aucun
+n'était dans le périmètre du gap G-10 tel qu'énoncé.
+
 ## HOS-295 — la dette d'orphelins n'avait jamais été revérifiée (2026-09-12)
 
 G-16. Chantier de mesure et de classification, pas de suppression massive.
