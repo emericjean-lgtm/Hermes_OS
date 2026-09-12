@@ -5,9 +5,10 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $csc = Get-ChildItem "C:\Windows\Microsoft.NET\Framework64" -Recurse -Filter csc.exe -ErrorAction Stop |
     Select-Object -Last 1 -ExpandProperty FullName
 $src = Join-Path $here "HermesOSLauncher.cs"
+$icon = Join-Path $here "hermes.ico"
 $out = Join-Path ([Environment]::GetFolderPath("Desktop")) "Hermes OS.exe"
 
-& $csc /nologo /target:exe /out:"$out" "$src"
+& $csc /nologo /target:exe /win32icon:"$icon" /out:"$out" "$src"
 if (Test-Path $out) {
     Write-Output "OK: $out"
 } else {

@@ -375,7 +375,7 @@ async def send_message(payload: dict = Body(...)) -> dict[str, Any]:
 
 async def _repondre_par_le_harnais(
     mgr, session_id: str, message: str, intent, model_messages,
-    *, project_id: str, project_root: str,
+    *, project_id: str, project_root: str, forced_role: str | None = None,
 ):
     """Le même contrat NDJSON, servi par la session d'agent du projet.
 
@@ -389,10 +389,19 @@ async def _repondre_par_le_harnais(
     devient de l'historique réel même si l'utilisateur raccroche. La perdre
     désynchroniserait le tour suivant — le module de conversation croirait
     avoir dit ce que l'agent n'a jamais dit.
+
+    `forced_role` porte le choix manuel de modèle du ModelPicker (HOS-075).
+    Sans lui, cette route ignorait toujours ce choix et servait `standard`
+    envers et contre tout : un opérateur qui sélectionnait `reasoning` dans
+    l'Assistant voyait sa conversation rester sur `ornith-9b-256k` dès
+    qu'un projet était lié à la session — c'est-à-dire dans le cas normal.
+    Lève ``KeyError`` pour un rôle inconnu, même contrat que
+    `ModelRouter.decision_for_role` : l'appelant la traduit en erreur 4xx
+    plutôt que de retomber en silence sur le routage automatique.
     """
     from backend.conversation import harnais as _harnais
 
-    modele = _modele_du_chat()
+    modele = _modele_du_chat(forced_role)
     flux, verdict = await _harnais.repondre(
         message, project_id=project_id, project_root=project_root,
         modele=modele, amorce=_amorce_du_chat(),
@@ -445,19 +454,33 @@ async def _repondre_par_le_harnais(
                                       "X-Hermes-Runtime": "hermes-agent-acp"})
 
 
-def _modele_du_chat() -> str:
-    """Le modele du chat, table de l'operateur comprise (HOS-153).
+def _modele_du_chat(forced_role: str | None = None) -> str:
+    """Le modele du chat, choix manuel puis table de l'operateur compris.
 
-    Le chat lisait uniquement le role `standard` du catalogue et ignorait
-    `HERMES_MISSION_MODEL`. Un operateur qui imposait un modele voyait donc
-    ses missions changer de cerveau et sa conversation garder l'ancien, sans
-    que rien ne l'explique — deux comportements pour un meme reglage.
+    Ordre de priorite, du plus specifique au plus general :
 
-    Le type demande est `general` : une conversation n'est ni de la
+    1. `forced_role` — le ModelPicker de l'Assistant (HOS-075). Un choix
+       fait a la volee, pour ce tour precis, doit gagner sur tout reglage
+       permanent : sinon un operateur qui selectionne `reasoning` verrait
+       sa conversation rester sur le role par defaut sans explication.
+       Leve `KeyError` pour un role inconnu — l'appelant la traduit en
+       erreur plutot que de retomber en silence sur `standard`.
+    2. `HERMES_MISSION_MODEL` (HOS-153) — le chat lisait auparavant
+       uniquement le role `standard` du catalogue et ignorait ce reglage.
+       Un operateur qui imposait un modele voyait donc ses missions
+       changer de cerveau et sa conversation garder l'ancien, sans que
+       rien ne l'explique — deux comportements pour un meme reglage.
+    3. Le role `standard` du catalogue, a defaut des deux precedents.
+
+    Le type demande pour (2) est `general` : une conversation n'est ni de la
     generation de code ni une relecture, et la table doit pouvoir la traiter
-    a part si l'operateur le veut. A defaut d'entree, `*` prend le relais,
-    puis le role `standard` du catalogue.
+    a part si l'operateur le veut. A defaut d'entree, `*` prend le relais.
     """
+    if forced_role:
+        from backend.core.router import ModelRouter
+
+        return ModelRouter().model_for_role(forced_role)
+
     from backend.execution.task_executor import modele_impose
 
     return modele_impose("general") or _modele_du_role_standard()
@@ -584,9 +607,23 @@ async def stream_message(payload: dict = Body(...)) -> StreamingResponse:
     _par_harnais, _pourquoi = await asyncio.to_thread(
         _harnais.disponible, project_root or "")
     if _par_harnais:
-        return await _repondre_par_le_harnais(
-            mgr, session_id, message, intent, model_messages,
-            project_id=project_id, project_root=project_root or "")
+        try:
+            return await _repondre_par_le_harnais(
+                mgr, session_id, message, intent, model_messages,
+                project_id=project_id, project_root=project_root or "",
+                forced_role=forced_role)
+        except KeyError as exc:
+            # Meme contrat que le chemin direct plus bas : un role choisi
+            # manuellement dans le Assistant qui n'existe pas au catalogue
+            # doit rendre une erreur, jamais retomber en silence sur le
+            # role `standard` du harnais.
+            mgr.finish_stream(session_id, "")
+            return StreamingResponse(
+                iter([json.dumps({"kind": "error", "session_id": session_id,
+                                  "error": f"unknown role {forced_role!r}: {exc}"},
+                                 ensure_ascii=False) + "\n"]),
+                media_type="application/x-ndjson",
+            )
     logger.info("chat servi en direct (sans harnais) : %s", _pourquoi)
 
     decision = None

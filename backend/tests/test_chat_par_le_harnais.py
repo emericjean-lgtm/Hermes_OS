@@ -222,6 +222,115 @@ class TestLeContratNDJSONDeLaRoute:
         assert "tool_calls" not in contenu
 
 
+class TestLeChoixManuelDuModele:
+    """Le ModelPicker de l'Assistant (HOS-075) laissait le chat retomber sur
+    `standard` (`ornith-9b-256k`) des qu'un projet etait lie a la session,
+    quel que soit le role choisi a l'ecran : `_repondre_par_le_harnais`
+    n'avait jamais recu `forced_role`, seul `_modele_du_chat()` sans
+    argument etait appele. Un operateur qui selectionnait `reasoning` dans
+    l'Assistant voyait donc sa conversation servie par un autre modele que
+    celui affiche, sans qu'aucune erreur ne le signale."""
+
+    def test_le_role_choisi_dans_l_assistant_atteint_le_harnais(
+        self, monkeypatch, tmp_path,
+    ):
+        import io
+
+        import yaml
+
+        from backend.conversation import routes
+        from backend.conversation.conversation_manager import ConversationManager
+        from backend.conversation.conversation_store import SqliteConversationStore
+        from backend.memory.db import init_db, make_engine, make_session_factory
+        from backend.ral.adapters.hermes_agent_acp import Tour
+
+        catalogue = yaml.safe_load(io.open("config/models.yaml", encoding="utf-8").read())
+        modele_attendu = catalogue["roles"]["reasoning"]["model"]
+        assert modele_attendu != catalogue["roles"]["standard"]["model"]
+
+        modeles_recus = []
+
+        class _Registre:
+            async def tour(self, cle, workspace, texte, *, amorce="",
+                           modele="", delai=0, au_fil_de_l_eau=None):
+                modeles_recus.append(modele)
+                return Tour(texte="ok", stop="end_turn")
+
+        import backend.ral.adapters.sessions_de_mission as sess
+
+        monkeypatch.setattr(sess, "registre", lambda: _Registre())
+
+        engine = make_engine(str(tmp_path / "conv.db"))
+        init_db(engine)
+        mgr = ConversationManager(store=SqliteConversationStore(make_session_factory(engine)))
+        session_id, model_messages, intent = mgr.begin_stream("", "explique")
+
+        async def scenario():
+            reponse = await routes._repondre_par_le_harnais(
+                mgr, session_id, "explique", intent, model_messages,
+                project_id="p-1", project_root=str(tmp_path),
+                forced_role="reasoning")
+            return [_ async for _ in reponse.body_iterator]
+
+        asyncio.run(scenario())
+
+        assert modeles_recus == [modele_attendu]
+
+    def test_sans_choix_manuel_le_comportement_precedent_est_conserve(
+        self, monkeypatch, tmp_path,
+    ):
+        """`forced_role=None` (Auto dans le ModelPicker) ne doit rien
+        changer au routage existant du chat par le harnais."""
+        import io
+
+        import yaml
+
+        from backend.conversation import routes
+        from backend.conversation.conversation_manager import ConversationManager
+        from backend.conversation.conversation_store import SqliteConversationStore
+        from backend.memory.db import init_db, make_engine, make_session_factory
+        from backend.ral.adapters.hermes_agent_acp import Tour
+
+        catalogue = yaml.safe_load(io.open("config/models.yaml", encoding="utf-8").read())
+        modele_standard = catalogue["roles"]["standard"]["model"]
+
+        modeles_recus = []
+
+        class _Registre:
+            async def tour(self, cle, workspace, texte, *, amorce="",
+                           modele="", delai=0, au_fil_de_l_eau=None):
+                modeles_recus.append(modele)
+                return Tour(texte="ok", stop="end_turn")
+
+        import backend.ral.adapters.sessions_de_mission as sess
+
+        monkeypatch.setattr(sess, "registre", lambda: _Registre())
+
+        engine = make_engine(str(tmp_path / "conv.db"))
+        init_db(engine)
+        mgr = ConversationManager(store=SqliteConversationStore(make_session_factory(engine)))
+        session_id, model_messages, intent = mgr.begin_stream("", "explique")
+
+        async def scenario():
+            reponse = await routes._repondre_par_le_harnais(
+                mgr, session_id, "explique", intent, model_messages,
+                project_id="p-1", project_root=str(tmp_path))
+            return [_ async for _ in reponse.body_iterator]
+
+        asyncio.run(scenario())
+
+        assert modeles_recus == [modele_standard]
+
+    def test_un_role_choisi_inconnu_du_catalogue_leve_une_erreur(self):
+        """Meme contrat que `ModelRouter.decision_for_role` (chemin direct) :
+        un role qui n'existe pas au catalogue ne doit jamais retomber en
+        silence sur `standard`, il doit se signaler comme une erreur."""
+        from backend.conversation.routes import _modele_du_chat
+
+        with pytest.raises(KeyError):
+            _modele_du_chat("role-qui-n-existe-pas")
+
+
 class TestLaFenetreAnnoncee:
     """L'indicateur de contexte du Cockpit lit cette valeur. La deviner
     afficherait une jauge fausse — et une jauge fausse est pire qu'absente."""
