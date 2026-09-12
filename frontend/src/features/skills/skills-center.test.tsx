@@ -17,14 +17,16 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type {
-  ObservationsSkills, GouvernanceSkills, SkillPosee,
+  ObservationsSkills, GouvernanceSkills, SkillPosee, VersionsSkills,
 } from "@/services/client";
 
 const donnees = vi.hoisted(() => ({
   observations: {} as ObservationsSkills,
   gouvernance: {} as GouvernanceSkills,
+  versions: {} as VersionsSkills,
   appels: 0,
   appelsGouvernance: 0,
+  appelsVersions: 0,
 }));
 
 vi.mock("@/services/client", () => ({
@@ -44,6 +46,10 @@ vi.mock("@/services/client", () => ({
     gouvernance: () => {
       donnees.appelsGouvernance += 1;
       return Promise.resolve(donnees.gouvernance);
+    },
+    versions: () => {
+      donnees.appelsVersions += 1;
+      return Promise.resolve(donnees.versions);
     },
   },
 }));
@@ -87,9 +93,19 @@ function posee(p: Partial<SkillPosee>): SkillPosee {
   };
 }
 
+const VERSIONS_VIDE: VersionsSkills = {
+  ledger_lisible: false,
+  racine: "/agent/skills/.curator_ledger.jsonl",
+  total: 0,
+  entrees: [],
+  rollback_declenchable: false,
+  rollback_absent_raison: "aucune RPC ne l'expose depuis Hermes OS",
+};
+
 async function ouvrirGouvernance(g: GouvernanceSkills) {
   donnees.gouvernance = g;
   donnees.observations = VIDE;
+  donnees.versions = VERSIONS_VIDE;
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -101,9 +117,25 @@ async function ouvrirGouvernance(g: GouvernanceSkills) {
   fireEvent.click(await screen.findByText("Gouvernance"));
 }
 
+async function ouvrirVersions(v: VersionsSkills) {
+  donnees.gouvernance = GOUV_VIDE;
+  donnees.observations = VIDE;
+  donnees.versions = v;
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <SkillsCenter />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByText("Versions"));
+}
+
 async function ouvrir(observations: ObservationsSkills) {
   donnees.gouvernance = GOUV_VIDE;
   donnees.observations = observations;
+  donnees.versions = VERSIONS_VIDE;
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -118,6 +150,7 @@ async function ouvrir(observations: ObservationsSkills) {
 beforeEach(() => {
   donnees.appels = 0;
   donnees.appelsGouvernance = 0;
+  donnees.appelsVersions = 0;
 });
 
 describe("l'onglet Runs ↔ Skills", () => {
@@ -373,5 +406,82 @@ describe("l'onglet Gouvernance", () => {
     await ouvrirGouvernance(GOUV_VIDE);
     const vide = await screen.findByText(/dossier `.hub`/);
     expect(vide.textContent).toContain("jamais ete posee");
+  });
+});
+
+describe("l'onglet Versions", () => {
+  // Le ledger de mutations de l'agent, LU (G-42, HOS-303). Population
+  // distincte des trois autres onglets : chaque entree ici EST une
+  // version, jamais un horodatage ou un hash fabrique.
+
+  it("consomme réellement la route, il n'est pas seulement prêt", async () => {
+    await ouvrirVersions(VERSIONS_VIDE);
+    await waitFor(() => expect(donnees.appelsVersions).toBeGreaterThan(0));
+  });
+
+  it("un ledger absent se lit comme tel, pas comme une panne", async () => {
+    await ouvrirVersions(VERSIONS_VIDE);
+    const vide = await screen.findByText(/n'existe pas encore/);
+    expect(vide.textContent).toContain("aucune mutation");
+  });
+
+  it("montre le diff derive des before/after, pas une declaration", async () => {
+    await ouvrirVersions({
+      ...VERSIONS_VIDE,
+      ledger_lisible: true,
+      total: 1,
+      entrees: [{
+        id: "g42-un", horodatage: "2026-09-12T10:00:00+00:00",
+        acteur: "user", action: "created", skill: "g42-scratch",
+        fichiers: [{ chemin: "a/SKILL.md", etat: "ajoute" }],
+        rollback_de: null, absorbe_dans: null,
+      }],
+    });
+    expect(await screen.findByText("g42-scratch")).toBeInTheDocument();
+    expect(screen.getByText("created")).toBeInTheDocument();
+    expect(screen.getByText(/\+1/)).toBeInTheDocument();
+  });
+
+  it("un acteur hors de la liste connue est dit inconnu, jamais devine", async () => {
+    await ouvrirVersions({
+      ...VERSIONS_VIDE,
+      ledger_lisible: true,
+      total: 1,
+      entrees: [{
+        id: "g42-deux", horodatage: "2026-09-12T10:00:00+00:00",
+        acteur: "acteur_inconnu", action: "created", skill: "g42-scratch",
+        fichiers: [], rollback_de: null, absorbe_dans: null,
+      }],
+    });
+    expect(await screen.findByText("acteur inconnu")).toBeInTheDocument();
+  });
+
+  it("dit pourquoi le rollback n'est pas declenchable, ne le tait pas", async () => {
+    await ouvrirVersions({
+      ...VERSIONS_VIDE,
+      ledger_lisible: true,
+      total: 1,
+      entrees: [{
+        id: "g42-trois", horodatage: "2026-09-12T10:00:00+00:00",
+        acteur: "user", action: "created", skill: "g42-scratch",
+        fichiers: [], rollback_de: null, absorbe_dans: null,
+      }],
+    });
+    expect(await screen.findByText(/Rollback :/)).toBeInTheDocument();
+    expect(screen.getByText(/aucune RPC/)).toBeInTheDocument();
+  });
+
+  it("montre le lien vers l'entree d'origine d'un rollback", async () => {
+    await ouvrirVersions({
+      ...VERSIONS_VIDE,
+      ledger_lisible: true,
+      total: 1,
+      entrees: [{
+        id: "g42-quatre", horodatage: "2026-09-12T10:05:00+00:00",
+        acteur: "user", action: "rollback", skill: "g42-scratch",
+        fichiers: [], rollback_de: "g42-un", absorbe_dans: null,
+      }],
+    });
+    expect(await screen.findByText(/rollback de g42-un/)).toBeInTheDocument();
   });
 });

@@ -1106,6 +1106,52 @@ export interface GouvernanceSkills {
   angle_mort: string;
 }
 
+/** L'etat d'un fichier entre `before` et `after` d'une entree de ledger.
+ *  Borne cote backend, derive directement des sha256 de l'entree — jamais
+ *  fabrique. */
+export type EtatFichierVersion = "ajoute" | "supprime" | "modifie" | "inchange";
+
+export interface FichierVersion {
+  chemin: string;
+  etat: EtatFichierVersion;
+}
+
+/** Ce que `GET /skills/versions` rend : le ledger de mutations de l'agent,
+ *  LU (G-42, HOS-303).
+ *
+ *  §10 attendait le versioning et le rollback. Le ledger qui les
+ *  porterait existe cote agent (`tools/skill_ledger.py`) ; cette entree EST
+ *  la version — jamais un horodatage ou un hash de fichier fabrique. A ne
+ *  pas confondre avec `GouvernanceSkills` (les poses du hub) ni
+ *  `ObservationsSkills` (les mutations rattachees a un Run) : ici, c'est
+ *  CHAQUE mutation que l'agent a ecrite dans son ledger propre. */
+export interface EntreeVersion {
+  id: string;
+  horodatage: string;
+  /** `"acteur_inconnu"` couvre une entree qui ne porte aucun des trois
+   *  acteurs que l'agent ecrit (`curator` | `agent` | `user`) — jamais
+   *  devine. */
+  acteur: "curator" | "agent" | "user" | "acteur_inconnu";
+  action: string;
+  skill: string;
+  fichiers: FichierVersion[];
+  rollback_de: string | null;
+  absorbe_dans: string | null;
+}
+
+export interface VersionsSkills {
+  /** Distingue « aucune mutation n'a jamais ete ecrite » de « Hermes OS
+   *  n'a pas su lire le fichier ». */
+  ledger_lisible: boolean;
+  racine: string;
+  total: number;
+  entrees: EntreeVersion[];
+  /** Toujours `false` aujourd'hui : le declenchement du rollback existe
+   *  cote agent mais n'a pas de RPC, meme DEFER que la pose avant G-36. */
+  rollback_declenchable: boolean;
+  rollback_absent_raison: string;
+}
+
 export const skillsClient = {
   list: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params) : "";
@@ -1118,6 +1164,13 @@ export const skillsClient = {
   observations: () =>
     fetchJSON<ObservationsSkills>("/skills/observations"),
   gouvernance: () => fetchJSON<GouvernanceSkills>("/skills/gouvernance"),
+  versions: (params?: { skill?: string; limite?: number }) => {
+    const p = new URLSearchParams();
+    if (params?.skill) p.set("skill", params.skill);
+    if (params?.limite) p.set("limite", String(params.limite));
+    const qs = p.toString() ? `?${p}` : "";
+    return fetchJSON<VersionsSkills>(`/skills/versions${qs}`);
+  },
   installer: (identifiant: string) =>
     fetchJSON<ResultatInstallation>("/skills/installer", {
       method: "POST",

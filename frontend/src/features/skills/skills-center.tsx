@@ -15,6 +15,7 @@ import {
   type ObservationsSkills, type MutationObservee, type RaisonSansRun,
   type GouvernanceSkills, type SkillPosee, type EtatPosee,
   type ResultatInstallation, type StatutInstallation,
+  type VersionsSkills, type EntreeVersion, type EtatFichierVersion,
 } from "@/services/client";
 import {
   useSkillsCatalogue, useSkillsRecherche, useSkillDetail,
@@ -59,7 +60,7 @@ import {
  * sécurité pour une réussite.
  */
 
-type Onglet = "agent" | "runs" | "gouvernance" | "distributeur" | "catalogue";
+type Onglet = "agent" | "runs" | "gouvernance" | "versions" | "distributeur" | "catalogue";
 
 export function SkillsCenter() {
   const [onglet, setOnglet] = useState<Onglet>("agent");
@@ -95,12 +96,23 @@ export function SkillsCenter() {
     staleTime: 30_000,
   });
 
+  // Le ledger de mutations de l'agent, LU (G-42). Population distincte des
+  // trois autres : ni l'inventaire, ni les mutations rattachees a un Run,
+  // ni les poses du hub — chaque entree que l'agent a ecrite dans son
+  // propre journal de versions.
+  const versions = useQuery({
+    queryKey: ["skills", "versions"],
+    queryFn: () => skillsClient.versions(),
+    staleTime: 30_000,
+  });
+
   const total = agent.data?.total ?? 0;
   const domaines = agent.data?.domaines ?? [];
   const distribues = distributeur.data?.length ?? 0;
   const runsObserves = observations.data?.runs.length ?? 0;
   const alertes = gouvernance.data?.alertes;
   const aSignaler = (alertes?.alterees ?? 0) + (alertes?.absentes ?? 0);
+  const totalVersions = versions.data?.total ?? 0;
 
   return (
     <div className="animate-fade-in">
@@ -145,6 +157,11 @@ export function SkillsCenter() {
               badge: aSignaler || undefined,
             },
             {
+              id: "versions",
+              label: "Versions",
+              badge: totalVersions || undefined,
+            },
+            {
               id: "distributeur",
               label: "Distributeur",
               badge: distribues || undefined,
@@ -167,6 +184,8 @@ export function SkillsCenter() {
           <OngletRuns requete={observations} />
         ) : onglet === "gouvernance" ? (
           <OngletGouvernance requete={gouvernance} />
+        ) : onglet === "versions" ? (
+          <OngletVersions requete={versions} />
         ) : onglet === "catalogue" ? (
           <OngletCatalogue />
         ) : (
@@ -1158,6 +1177,122 @@ function ActionSkill({ action }: { action: string }) {
   const ton =
     action === "INSTALL" ? "success" : action === "BLOCKED" ? "danger" : "info";
   return <Badge variant={ton}>{action}</Badge>;
+}
+
+/* ── Le ledger de mutations de l'agent, LU (G-42, HOS-303) ──────────── */
+
+/**
+ * Le versioning des Skills, tel que le ledger de l'agent le porte.
+ *
+ * §10 attendait le versioning et le rollback. Le ledger qui les porterait
+ * (`tools/skill_ledger.py` chez l'agent) existe reellement — chaque entree
+ * ici EST une version, jamais un horodatage ou un hash fabrique de ce cote.
+ * `rollback_declenchable` reste `false` : le declenchement existe cote
+ * agent (`hermes curator rollback <id>`), aucune RPC ne l'expose encore.
+ */
+function OngletVersions({
+  requete,
+}: {
+  requete: ReturnType<typeof useQuery<VersionsSkills>>;
+}) {
+  const d = requete.data;
+  const lignes = d?.entrees ?? [];
+
+  return (
+    <AsyncPanel
+      title="Versioning des Skills, tel que le ledger le porte"
+      subtitle={d?.racine ?? "Le journal de mutations que l'agent tient lui-meme"}
+      isLoading={requete.isLoading}
+      isError={requete.isError}
+      error={requete.error}
+      isEmpty={lignes.length === 0}
+      emptyLabel={
+        d && !d.ledger_lisible
+          ? "Le ledger n'existe pas encore sur cette installation : aucune " +
+            "mutation de Skill n'a ete ecrite par l'agent."
+          : "Le ledger existe mais ne porte encore aucune entree."
+      }
+    >
+      {lignes.length > 0 && (
+        <DataTable
+          rows={lignes}
+          rowKey={(e) => e.id}
+          columns={[
+            {
+              header: "Quand",
+              cell: (e: EntreeVersion) => (
+                <span className="num text-[10px] text-hermes-muted">
+                  {e.horodatage || "—"}
+                </span>
+              ),
+            },
+            {
+              header: "Acteur",
+              cell: (e: EntreeVersion) => <ActeurVersion acteur={e.acteur} />,
+            },
+            {
+              header: "Action",
+              cell: (e: EntreeVersion) => <ActionSkill action={e.action} />,
+            },
+            {
+              header: "Competence",
+              cell: (e: EntreeVersion) => (
+                <span className="num text-[11px] text-hermes-text">
+                  {e.skill || "—"}
+                </span>
+              ),
+            },
+            {
+              header: "Fichiers",
+              cell: (e: EntreeVersion) => <DiffFichiers fichiers={e.fichiers} />,
+            },
+            {
+              header: "Lien",
+              cell: (e: EntreeVersion) => (
+                <span className="text-[10px] text-hermes-dim">
+                  {e.rollback_de
+                    ? `rollback de ${e.rollback_de}`
+                    : e.absorbe_dans
+                    ? `absorbe dans ${e.absorbe_dans}`
+                    : "—"}
+                </span>
+              ),
+            },
+          ]}
+        />
+      )}
+
+      {d && (
+        <p className="pt-3 text-[10px] text-hermes-dim">
+          Rollback : {d.rollback_absent_raison}.
+        </p>
+      )}
+    </AsyncPanel>
+  );
+}
+
+function ActeurVersion({ acteur }: { acteur: EntreeVersion["acteur"] }) {
+  if (acteur === "acteur_inconnu") {
+    return <span className="text-hermes-dim">acteur inconnu</span>;
+  }
+  const ton = acteur === "user" ? "info" : acteur === "curator" ? "success" : "warning";
+  return <Badge variant={ton}>{acteur}</Badge>;
+}
+
+function DiffFichiers({ fichiers }: { fichiers: { chemin: string; etat: EtatFichierVersion }[] }) {
+  const comptes = fichiers.reduce<Record<EtatFichierVersion, number>>(
+    (acc, f) => ({ ...acc, [f.etat]: (acc[f.etat] ?? 0) + 1 }),
+    { ajoute: 0, supprime: 0, modifie: 0, inchange: 0 },
+  );
+  const titre = fichiers.map((f) => `${f.etat}: ${f.chemin}`).join("\n");
+  return (
+    <span className="num text-[10px] text-hermes-muted" title={titre || "aucun fichier"}>
+      {comptes.ajoute ? `+${comptes.ajoute} ` : ""}
+      {comptes.supprime ? `-${comptes.supprime} ` : ""}
+      {comptes.modifie ? `~${comptes.modifie} ` : ""}
+      {!comptes.ajoute && !comptes.supprime && !comptes.modifie ? "—" : ""}
+    </span>
+  );
 }
 
 export default SkillsCenter;

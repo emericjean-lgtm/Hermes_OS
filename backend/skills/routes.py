@@ -298,6 +298,33 @@ async def gouvernance_du_cycle_de_vie(
     return gouvernance.vue(limite)
 
 
+@router.get("/versions")
+async def versions_des_skills(
+    skill: Optional[str] = Query(None),
+    limite: int = Query(200, ge=1, le=1000),
+) -> dict:
+    """Le ledger de mutations de l'agent, LU (G-42, HOS-303).
+
+    §10 attendait le versioning et le rollback ; le ledger qui les
+    porterait (`tools/skill_ledger.py` chez l'agent) existe reellement,
+    depuis son commit d'aout, mais rien ne le lisait et le fichier
+    `.curator_ledger.jsonl` lui-meme n'existe pas encore sur cette
+    installation faute de mutation. Cette route ne fabrique rien : chaque
+    entree qu'elle rend EST une ligne que l'agent a ecrite, avec le diff de
+    fichiers derive directement de ses `before`/`after`.
+
+    Le declenchement du rollback reste DEFER, meme motif que
+    `/skills/gouvernance` pour l'installation : `hermes curator rollback
+    <id>` existe cote agent, aucune RPC ne l'expose, et l'invoquer d'ici
+    demanderait la meme decision de gouvernance que G-36 a prise pour la
+    pose. `rollback_absent_raison` le dit explicitement plutot que de
+    laisser un ecran vide le taire.
+    """
+    from backend.skills import versioning
+
+    return versioning.vue(skill=skill, limite=limite)
+
+
 @router.post("/installer")
 async def installer_une_competence(payload: dict = Body(...)) -> dict:
     """Demander la pose d'une Skill, sous l'autorite d'Aegis (G-36, HOS-285).

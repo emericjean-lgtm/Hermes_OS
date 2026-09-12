@@ -972,7 +972,7 @@ Agent de NousResearch, toujours citer le dépôt exact.
 
 ---
 
-## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-286)
+## §10 — Skills / Procedural Knowledge — 🟡 PARTIAL (HOS-274 → HOS-303)
 
 Découverte, activation, divulgation progressive, cycle de vie, création,
 validation, versioning, rollback, provenance, appariement automatique
@@ -1804,6 +1804,13 @@ l'agent (`.curator_ledger.jsonl`) les porterait, mais il **n'existe pas**
 sur cette installation, et aucune RPC ne l'expose. Appariement skill ↔
 tâche reste PLANNED.
 
+**Amendé par G-42 (HOS-303).** La partie fichier reste exacte — il
+n'existe toujours pas sur cette installation, faute de mutation. Ce qui ne
+l'était plus : le code qui le porterait n'était pas absent, seulement non
+lu. `backend/skills/versioning.py` en fait la lecture ; le rollback reste
+DEFER, cette fois pour une raison nommée (aucune RPC ni décision de
+gouvernance) plutôt que par absence du code sous-jacent.
+
 **G-39 (HOS-288) a vérifié la chaîne après retrait.** La demande
 `skill_install` déposée en G-36 est toujours en tête de la file d'Aegis
 dans le cockpit, avec sa raison — « skill_install always requires human
@@ -1816,6 +1823,44 @@ l'approbation d'une Skill. Elle ne le peut pas : ses règles ne sont
 évaluées nulle part, et aucune ne mentionne l'installation. `skill_install`
 reste gardé par Aegis seul, et une garde interdit désormais de câbler
 l'autre moteur sans trancher laquelle des deux politiques s'applique.
+
+### G-42 — le versioning, lu (HOS-303)
+
+**ADOPT sur la lecture, DEFER confirmé sur le déclenchement du rollback.**
+Chantier #12, remesuré plutôt que de croire G-35 sur parole. Ce que G-35
+avait conclu était vrai le 2026-09-10 et le reste en partie : `tools/
+skill_ledger.py` existe réellement chez l'agent (v0.21.0, commit
+`693641aa8b`, 17 août) — un JSONL en ajout seul, avant/après
+content-addressed, acteur borné, rollback qui échoue fermé — mais le
+fichier `.curator_ledger.jsonl` n'existe simplement pas encore sur cette
+installation, et `skills.manage` ne porte toujours que `list/search/
+install/browse/inspect`. Aucune RPC ne l'expose, exactement comme mesuré.
+
+Ce que G-35 n'avait pas nommé : le code qui porterait le versioning et le
+rollback n'était pas absent, seulement non lu. `backend/skills/
+versioning.py` en est la cinquième lecture (après HOS-274/275/281/283),
+même posture — lire, jamais écrire. Le diff de fichiers se dérive des
+`before`/`after` de chaque entrée, jamais d'une déclaration : une entrée
+EST une version, pas un horodatage ou un hash fabriqué en substitut.
+
+Démontré sur un `HERMES_HOME` de substitution, avec le module de l'agent
+réellement importé pour écrire trois mutations (`created`, `edited`,
+`delete` de `g42-scratch`) — relu dans un nouveau processus, puis par un
+appel HTTP réel sur `GET /skills/versions` : les trois ressortent dans
+l'ordre inverse, avec `ajoute`/`modifie`/`supprime` respectivement.
+
+Le rollback reste DEFER, même motif que G-35/G-26 pour l'installation
+avant G-36 : la primitive existe côté agent
+(`hermes curator rollback <id>`), rien ne la joint depuis Hermes OS, et
+l'invoquer demanderait la même décision de gouvernance que G-36 a prise
+pour la pose. La route le dit explicitement (`rollback_declenchable:
+false`, raison rendue) plutôt que de laisser un écran vide le taire.
+
+Écarté du lot : le cache process-lifetime de `banner.get_available_skills()`
+chez l'agent, toujours non invalidé par `skills.reload` — mesuré à
+nouveau, inchangé depuis HOS-274. Il ne touche que le display RPC/CLI de
+l'agent ; l'inventaire de Hermes OS lit déjà le disque à chaque appel
+(décision de G-26) et n'en dépend pas.
 
 ---
 

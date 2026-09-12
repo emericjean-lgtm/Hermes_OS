@@ -1,3 +1,106 @@
+## HOS-303 — #12 §10 Skills lifecycle : le ledger de versioning de l'agent existe, rien ne le lisait (2026-09-12)
+
+Chantier #12 — §10 Skills / Procedural Knowledge, condition de clôture :
+versioning, rollback, création/édition/suppression, hot reload et
+gouvernance démontrés. Remesuré avant toute correction plutôt que de
+supposer que le défaut restait celui nommé par G-35 (HOS-283) : *« le
+ledger de l'agent (`.curator_ledger.jsonl`) [porterait le versioning et le
+rollback], mais il n'existe pas sur cette installation, et aucune RPC ne
+l'expose »*.
+
+### La mesure
+
+`tools/skill_ledger.py` existe réellement chez l'agent (v0.21.0, commit
+`693641aa8b`, 17 août) : un JSONL en ajout seul, une ligne par mutation de
+Skill, avant/après content-addressed (sha256, dédupliqué) sous
+`.curator_backups/blobs/`, avec un acteur borné (`curator`/`agent`/`user`)
+et une primitive de rollback qui échoue fermé (`rollback_entry`, capture de
+sécurité avant toute restauration). Câblé dans `skill_manager_tool.py`
+(create/edit/delete de l'agent) et exposé côté CLI par
+`hermes curator ledger` / `hermes curator rollback <id>`. La partie de la
+conclusion de G-35 qui reste exacte : le fichier `.curator_ledger.jsonl`
+n'existe simplement pas encore sur cette installation, faute de mutation
+écrite depuis que l'agent le tient — et aucune RPC (`skills.manage` ne
+porte que `list/search/install/browse/inspect`) ni CLI gouverné ne
+l'expose depuis Hermes OS.
+
+Écarté en chemin : le cache process-lifetime de `banner.get_available_skills()`
+(non invalidé par `skills.reload`, toujours mesuré tel quel) est un défaut
+réel côté agent, mais il ne touche que le *display* RPC/CLI de l'agent —
+l'inventaire de Hermes OS (`/skills/agent`) lit déjà le disque directement
+à chaque appel (décision de G-26) et n'a donc aucun besoin de hot reload
+pour rester à jour.
+
+### La correction
+
+`backend/skills/versioning.py` — cinquième lecture du disque de l'agent
+(après HOS-274, HOS-275, HOS-281, HOS-283), même posture : lire, jamais
+écrire, ne jamais fabriquer un second magasin. Le ledger est lu tel quel ;
+le diff de fichiers (`ajoute`/`supprime`/`modifie`/`inchange`) se dérive
+directement des `before`/`after` de chaque entrée, jamais d'une déclaration
+— aucun horodatage ni hash de fichier ne tient lieu de version fabriquée,
+c'est l'entrée elle-même, telle que l'agent l'a écrite, qui EST la
+version. Route `GET /skills/versions` (avant le joker `/{skill_id}`,
+comme `/gouvernance`), client `skillsClient.versions()`, onglet
+« Versions » du Skills Center.
+
+Le rollback reste explicitement `rollback_declenchable: false`, avec sa
+raison rendue plutôt que taite : le déclenchement existe côté agent
+(`hermes curator rollback <id>`), mais l'invoquer depuis Hermes OS
+demanderait la même décision de gouvernance que G-36 a prise pour la
+pose — quelle autorité approuverait cette écriture-ci, par quelle file.
+Cette passe fournit la lecture qui rend cette décision possible à prendre
+plus tard ; elle ne la prend pas elle-même.
+
+### Vérification
+
+20 tests neufs (`backend/tests/test_versioning_skills.py`) : lecture
+newest-first, filtre par skill, limite, ligne malformée ignorée, les
+quatre états du diff (dont le cas `inchange` — même sha256 des deux
+côtés, pour ne pas confondre un fichier immobile avec un ajout), acteur
+hors liste rendu `acteur_inconnu` plutôt que deviné, lien
+rollback/consolidation lu depuis `evidence` seulement, garde AST « le
+lecteur n'écrit rien », garde AST « le lecteur n'importe rien de
+l'agent » (survit au retrait de compatibilité du 2026-09-14), garde
+« aucune route de versioning ne mute », garde anti-orphelin (l'écran
+appelle vraiment la route), garde d'ordre de route. Mutation : la
+condition de détection `modifie` neutralisée fait rougir exactement les
+deux tests qui l'exercent (`modifie` et `inchange`), aucun autre.
+
+Runtime réel sur un `HERMES_HOME` de substitution : `tools/skill_ledger.py`
+de l'agent importé et exécuté tel quel (pas un JSONL imité) pour écrire
+trois mutations réelles — `created` puis `edited` puis `delete` d'une
+Skill `g42-scratch`, chacune avec sa capture de contenu sha256 réelle.
+Relu dans un **nouveau processus** Python, puis via un appel HTTP réel sur
+`GET /skills/versions?skill=g42-scratch` (`TestClient`) : les trois
+entrées ressortent dans l'ordre inverse d'écriture, avec le diff attendu
+— `ajoute` pour la création, `modifie` pour l'édition, `supprime` pour la
+suppression. Persistance et redémarrage acquis. Artefacts scratch
+supprimés après mesure.
+
+Frontend : 6 tests neufs dans `skills-center.test.tsx` (onglet Versions —
+consommation réelle de la route, ledger absent lu comme tel, diff affiché,
+acteur inconnu jamais deviné, raison du DEFER rollback affichée, lien vers
+l'entrée d'origine d'un rollback). `npx tsc --noEmit` propre ; Vitest
+complet 180 passed (15 fichiers, dont les 23 de `skills-center.test.tsx`,
+17 préexistants + 6 neufs) ; pytest sans argument de chemin (`testpaths`
+du dépôt).
+
+### Limites — §10 reste 🟡
+
+Versioning : lecture ADOPT, une entrée réelle EST une version. Rollback :
+primitive réelle côté agent, **déclenchement toujours DEFER** — aucune
+RPC, décision de gouvernance non prise. Création/édition/suppression
+pilotées depuis Hermes OS : toujours DEFER (motif G-26, inchangé — outil
+que l'agent s'appelle à lui-même). Hot reload : le cache `get_available_skills()`
+de l'agent reste non invalidé par `skills.reload` (mesuré, non corrigé —
+hors du disque que Hermes OS possède) ; sans conséquence sur l'inventaire
+de Hermes OS, qui lit déjà le disque directement. Gouvernance de
+l'installation : inchangée, toujours ADOPT depuis G-36. Aucune corrélation
+Run ↔ ledger de versioning n'est établie ici — distincte de
+`/skills/observations` (G-32→G-34), qui reste la seule relation Run ↔
+Skill démontrée.
+
 ## HOS-302 — #11 §11 Collaboration / Agent Council / Delegation : un échec de délégation pouvait être réécrit en succès (2026-09-12)
 
 Chantier #11 — §11 Collaboration / Agent Council / Delegation. Audit

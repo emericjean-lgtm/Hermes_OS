@@ -8,14 +8,34 @@
 > la roadmap maître, lequel exige des preuves mesurées.
 
 ```
-CURRENT_SECTION:      Chantier #11 — §11 Collaboration / Agent Council /
-                      Delegation (docs/HERMES_OS_MASTER_ROADMAP.md, §11)
-CURRENT_SUBSECTION:   Audit re-mesuré (HOS-070/G-4 confirmés inchangés) +
-                      HOS-302 fermé — un échec de délégation pouvait être
-                      réécrit en succès a posteriori
-CURRENT_STATUS:       🟡 §11 reste PARTIAL — HOS-302 ferme une rupture
-                      d'intégrité locale à `DelegationManager`, pas la
-                      section. Audit re-mesuré sur le chemin réel :
+CURRENT_SECTION:      Chantier #12 — §10 Skills lifecycle
+                      (docs/HERMES_OS_MASTER_ROADMAP.md, §10)
+CURRENT_SUBSECTION:   Audit re-mesuré + G-42 fermé (HOS-303) — le ledger de
+                      versioning de l'agent existe, rien ne le lisait
+CURRENT_STATUS:       🟡 §10 reste PARTIAL — G-42 lit le ledger de
+                      mutations de l'agent (`tools/skill_ledger.py`,
+                      existant depuis son commit d'août) et en dérive un
+                      diff de fichiers reel ; `GET /skills/versions`,
+                      onglet Versions. Rollback reste DEFER — la primitive
+                      existe côté agent (`hermes curator rollback <id>`),
+                      aucune RPC ni décision de gouvernance ne la joint
+                      depuis Hermes OS, même motif que G-35/G-26 avant
+                      G-36 pour l'installation. Création/édition/
+                      suppression pilotées depuis Hermes OS : toujours
+                      DEFER (outil que l'agent s'appelle à lui-même). Hot
+                      reload : le cache de `banner.get_available_skills()`
+                      chez l'agent reste non invalidé par `skills.reload`
+                      (mesuré, non corrigé — hors du disque que Hermes OS
+                      possède, et sans effet sur son propre inventaire qui
+                      lit déjà le disque directement, décision de G-26).
+                      Démontré sur un `HERMES_HOME` de substitution : le
+                      module de l'agent réellement importé écrit
+                      created/edited/delete, relu dans un nouveau
+                      processus et par un appel HTTP réel. Chantier #11
+                      (HOS-302) reste le dernier chantier fermé avant
+                      celui-ci — un échec de délégation pouvait être
+                      réécrit en succès a posteriori. Avant lui, l'audit
+                      re-mesuré de §11 sur le chemin réel :
                       `CollaborationEngine` répond sur ses 14 routes
                       montées mais `backend/execution/mission_executor.py`
                       — le chemin que `GraphExecutor`/`node_execution.py`
@@ -57,14 +77,18 @@ CURRENT_STATUS:       🟡 §11 reste PARTIAL — HOS-302 ferme une rupture
                       G-14 fermé (HOS-264) — le catalogue est sondé
                       §16 🟡 (HOS-265→274) — le pont, la matrice,
                       le chat joignable et enfin interruptible
-                      §10 🟡 (HOS-274→286) — les Skills se lisent, le
+                      §10 🟡 (HOS-274→303) — les Skills se lisent, le
                       chiffre de HOS-153 était faux, la provenance est
                       mesurée (60 système / 4 générées / 1 conflit), la
                       corrélation Run ↔ Skill est ADOPT, l'observateur est
                       INSTALLÉ, la relation est MONTRÉE, le cycle de vie
-                      est VÉRIFIÉ à l'octet, et la pose est GOUVERNÉE :
+                      est VÉRIFIÉ à l'octet, la pose est GOUVERNÉE :
                       demande → approbation Aegis → décision → pose
-                      vérifiée. Restent versioning et rollback
+                      vérifiée, et le versioning est LU (G-42, HOS-303) —
+                      le ledger de l'agent existait déjà, rien ne le
+                      lisait. Reste le déclenchement du rollback (DEFER,
+                      raison nommée) et création/édition/suppression
+                      pilotées depuis Hermes OS
                       §9/§15 🟡 (HOS-288→289) — les 22
                       Centers ont enfin été ouverts : 304 requêtes,
                       aucun 404 ; 2 écrans inventaient des mesures,
@@ -73,8 +97,8 @@ CURRENT_STATUS:       🟡 §11 reste PARTIAL — HOS-302 ferme une rupture
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      8770a62 (HOS-301) — dernier commit avant
-                               l'ouverture du chantier #11 (HOS-302)
+BASELINE:                      4fea9f2 (HOS-302) — dernier commit avant
+                               l'ouverture du chantier #12 (HOS-303)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
