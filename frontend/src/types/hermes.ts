@@ -178,11 +178,20 @@ export interface MissionVerification {
   contradicted?: boolean;
   verified?: boolean;
   measured?: boolean;
+  /** Le tri-état nommé de `backend/runs/contrat.py::Verdict` — jamais
+   *  recalculé côté client, seulement lu (HOS-222). */
+  verdict?: "reussi" | "echoue" | "indisponible";
+  /** Un workspace était lié et n'a pas pu être lu — distinct de l'absence
+   *  de workspace, qui n'est pas une anomalie (HOS-222). */
+  mesure_impossible?: boolean;
   workspace?: string;
   files_changed?: number;
   created?: string[];
   modified?: string[];
   deleted?: string[];
+  /** Fichiers illisibles d'un côté ou de l'autre : ni créés, ni modifiés,
+   *  ni supprimés — on ne sait pas (HOS-222). Jamais du "0". */
+  indetermines?: string[];
   summary?: string;
   tests?: {
     ran?: boolean;

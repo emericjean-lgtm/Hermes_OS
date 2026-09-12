@@ -10,13 +10,14 @@
 ```
 CURRENT_SECTION:      §15 — Frontend ↔ Backend Product Parity / Hermes Assistant
 CURRENT_SUBSECTION:   §15.5 — Explainability / Resource visibility / Proofs
-                      premier lot livré (HOS-298) ; §6.1 🟢 — la décision
+                      lot 2 livré (HOS-299) ; §6.1 🟢 — la décision
                       du routeur atteint l'exécution
-CURRENT_STATUS:       🟡 §15.5 premier lot (HOS-298) — routage d'un run
-                      (`Run.decision`, HOS-242) et comptabilité physique
-                      (R-6) branchés dans l'Operations Center ; restent
-                      A-8/`DecisionExplainer`, G-3 hors ce Center, et la
-                      famille Execution proofs. §6.1 fermée · §6.2 livré (HOS-257)
+CURRENT_STATUS:       🟡 §15.5 lot 2 (HOS-299) — Execution proofs
+                      atteignait déjà Mission Center depuis HOS-174/177 ;
+                      le vrai défaut était un tri-état (`measured`)
+                      recompressé en faux succès côté écran, corrigé.
+                      Restent A-8/`DecisionExplainer`, G-3 hors Operations
+                      et Mission Center. §6.1 fermée · §6.2 livré (HOS-257)
                       A-15 (HOS-258) · R-3/R-4 (HOS-259) · R-6 (HOS-260)
                       A-18 (HOS-261) · A-19 (HOS-262) · G-12 (HOS-263)
                       G-14 fermé (HOS-264) — le catalogue est sondé
@@ -38,8 +39,8 @@ CURRENT_STATUS:       🟡 §15.5 premier lot (HOS-298) — routage d'un run
 LAST_VALIDATED_SECTION:        §1, §2, §5  (🟢)
                                §3, §4 rétrogradées 🟡 par l'audit J25
 LAST_CONSOLIDATED_MILESTONE:   J24 — HOS-254
-BASELINE:                      c9ad553 (T-28/HOS-297) — dernier commit
-                               avant l'ouverture de §15.5 (HOS-298)
+BASELINE:                      b830c55 (HOS-298) — dernier commit
+                               avant l'ouverture du lot 2 de §15.5 (HOS-299)
 LAST_AUDIT:                    J25 — audit global final indépendant
                                verdict 🟠 PARTIELLEMENT CONFORME
 LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
@@ -194,6 +195,28 @@ LAST_FIX:                      A-1 fermé (HOS-255) — pare-feu cloud
                                ce dernier diagnostiqué mais non branché —
                                son système de mission reste à confirmer
                                avant d'y toucher
+                               HOS-299 — §15.5 lot 2 : `hos_routes.py`
+                               confirmé non monté (0 route, grep + schéma
+                               OpenAPI du process réel) — un seul système
+                               de mission existe, celui que
+                               `mission/graph_executor.py` alimente, et il
+                               atteignait déjà Mission Center depuis
+                               HOS-174/177. Le défaut réel : `measured:
+                               false` (aucun workspace lié, le cas
+                               courant) se recompressait en « Confirmé sur
+                               le disque : 0 fichier(s) touché(s) », vert,
+                               sur l'écran réel — mesuré en runtime avant
+                               correction. `VerificationReport` distingue
+                               désormais absence de mesure, mesure
+                               impossible (HOS-222) et preuve confirmée ;
+                               les fichiers indéterminés ont leur propre
+                               case. 7 tests neufs, mutation rouge→vert,
+                               174/174 (`vitest`) contre 167 avant. Démontré
+                               de bout en bout sur backend+frontend réels :
+                               une mission avec workspace écrit un fichier
+                               via hermes-agent et l'affiche confirmé ; une
+                               mission sans workspace affiche l'absence de
+                               mesure au lieu du faux succès
 ```
 
 `CURRENT_SECTION: §6` dit où porte le travail, pas qu'il soit fini. §6.1
@@ -429,6 +452,18 @@ délibérément préféré une provenance déjà alimentée par une décision r�
 à une autorité d'explication générique sans appelant démontré derrière
 elle. Détail : `CHANGELOG.md` HOS-298, `HERMES_OS_MASTER_ROADMAP.md`
 §15.5.
+
+**Lot 2 livré le 2026-09-12 (HOS-299).** La famille Execution proofs que
+HOS-298 avait laissée ouverte n'était pas « diagnostiquée mais non
+branchée » — elle atteignait déjà Mission Center depuis HOS-174/177, et
+l'incertitude que HOS-298 avait notée (deux systèmes de mission
+possibles) est tranchée : `hos_routes.py` n'est monté nulle part, mesuré
+sur le process réel. Le vrai défaut vivait dans le chemin déjà câblé :
+`measured: false` (aucun workspace lié, le cas le plus courant) se
+recompressait côté écran en un faux succès « 0 fichier(s) touché(s) » —
+corrigé, avec les fichiers indéterminés (HOS-222) désormais visibles au
+lieu d'être tus. Détail : `CHANGELOG.md` HOS-299,
+`HERMES_OS_MASTER_ROADMAP.md` §15.5.
 
 §15.4 (Cowork) était **bloqué** sur A-3 : `checkpoint.restaurer` n'avait
 aucun appelant, et un bouton « reprendre » sans restauration mentirait

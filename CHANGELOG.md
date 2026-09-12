@@ -1,3 +1,110 @@
+## HOS-299 — §15.5 lot 2 : la preuve d'exécution atteignait déjà l'écran, et s'y faisait effacer par son propre absence de mesure (2026-09-12)
+
+§15.5 (Explainability / Resource visibility / Proofs), lot 2. Continuation
+officielle après HOS-298, sur la famille « Execution proofs » que ce
+premier lot avait laissée ouverte.
+
+### Le double système de mission, vérifié
+
+HOS-298 avait laissé une incertitude : brancher un écran sur
+`mission/verification.py` supposait de confirmer que le système de
+mission servi par `hos_routes.get_mission` est bien celui qu'alimente
+`mission/graph_executor.py`. Vérifié directement sur le process réel :
+`hos_routes.py` n'est monté par aucun routeur — `grep` sur `main.py` et
+`core/bootstrap/*.py` ne trouve aucune référence, et son `operationId`
+n'existe pas dans le schéma OpenAPI du serveur en marche. C'est la façade
+morte que `docs/HERMES_OS_ROADMAP_STATE.md` documente déjà depuis
+HOS-072 sous « dettes acceptées » (0 route sur 423). Un seul système de
+mission existe réellement : `mission/routes.py`, dont l'exécuteur est
+injecté par `_make_graph_executor` (`core/bootstrap/service_registry.py`)
+— le vrai `GraphExecutor` de production, pas une façade.
+
+### Le défaut, mesuré avant correction
+
+Ce système unique atteignait déjà l'écran, et depuis longtemps :
+`mission-center.tsx` consomme `/api/v1/missions/{id}/report`, qui sert
+`mission.metadata["verification"]` — posé par `GraphExecutor._verify_workspace`
+à la complétion d'une mission — via `VerificationReport`
+(`verification-report.tsx`), câblé depuis HOS-174/177 (26/08), avant même
+l'ouverture de §15.5. `mission/verification.py` (HOS-092) n'était donc pas
+« diagnostiqué mais non branché », contrairement à ce que le lot précédent
+affirmait — l'affirmation n'avait pas été vérifiée contre le code
+frontend réel, exactement l'erreur que ce dépôt existe pour ne pas
+commettre une seconde fois.
+
+Le vrai défaut était ailleurs, dans ce chemin déjà câblé. `MissionVerification`
+(le type TS, `types/hermes.ts`) ne portait ni `verdict`, ni
+`mesure_impossible`, ni `indetermines` — trois champs que
+`MissionVerification.as_dict()` sert pourtant sur chaque rapport, confirmé
+en interrogeant `/report` d'une mission réelle. Et `VerificationReport`
+ne testait que `v == null` avant de tomber dans son calcul de
+`contredite`, qui vaut `false` partout quand rien n'a été mesuré.
+
+Mesuré en runtime réel, backend et frontend démarrés en process (pas en
+test) : une mission sans `project_id` — le cas le plus courant, tout
+mission sans workspace lié — revient avec `measured: false, verdict:
+"indisponible", workspace: null`, et l'écran affichait **« Confirmé sur
+le disque : 0 fichier(s) touché(s) »**, bandeau vert de succès — le faux
+positif exact que ce module existe pour empêcher (HOS-092), reformulé par
+la couche UI plutôt que lu depuis le backend, en violation directe de la
+règle §9 de ce chantier.
+
+### Ce qui a été livré
+
+`VerificationReport` teste désormais `v.measured === false` explicitement,
+avant tout calcul de contradiction, et distingue deux bandeaux neutres :
+aucun workspace lié (le cas courant, message inchangé), et workspace lié
+devenu illisible (`mesure_impossible`, HOS-222 — bandeau d'alarme distinct,
+nomme le workspace). Aucun des deux ne parle de fichiers touchés ni de
+succès. Le relevé (`Mesures`) affiche désormais une case « Indéterminés »
+quand `indetermines` n'est pas vide, plutôt que de la taire — un fichier
+illisible n'est ni créé, ni modifié, ni supprimé, et le silence sur ce
+point revenait à le compter comme « rien » (HOS-222). `types/hermes.ts`
+porte les trois champs manquants.
+
+Démontré en runtime réel de bout en bout sur le process tournant, backend
+(`uvicorn`, port 8010) et frontend (`next dev`, port 3010) : une mission
+liée à un workspace scratch (`project_id` réel, validé) a fait écrire
+`hermes-agent` un fichier réel en 60,6 s (`qwen3.5` local, Ollama) ;
+`verify()` a mesuré `created: ["proof.txt"], verdict: "reussi"` ; le
+Mission Center affiche « Confirmé sur le disque : 1 fichier(s)
+touché(s) » avec le chemin réel. Une seconde mission sans `project_id` a
+confirmé la correction : bandeau neutre « Aucune vérification disque »
+au lieu du faux vert d'avant. Projet et workspace scratch supprimés après
+capture des preuves.
+
+### Vérification
+
+Frontend : `verification-report.test.tsx`, 7 tests neufs (absence de
+mesure sans workspace, absence de mesure avec workspace illisible —
+distincte de la précédente —, aucune mention de « 0 fichier » dans les
+deux cas, preuve confirmée quand mesurée, fichiers indéterminés affichés,
+case « Indéterminés » absente quand vide, bandeau d'alarme sur
+contradiction réelle). Mutation vérifiée en repassant le garde à
+`if (v == null)` seul : 2 tests rougissent exactement sur les assertions
+`measured === false` / `mesure_impossible`, les 5 autres restent verts ;
+garde restauré, 7/7 verts. Suite complète : 174/174 (`vitest run`), contre
+167 avant cette passe — delta exact des 7 tests ajoutés. `npx tsc
+--noEmit` : aucune erreur.
+
+Backend : aucune ligne de production modifiée — `mission/verification.py`,
+`graph_executor.py` et `mission_models.py` restent tels que HOS-092/116/222
+les ont laissés, avec leurs propres tests (`test_mission_report_verification.py`,
+`test_verification_tri_etat.py`) déjà verts. Suite complète relancée sans
+argument de chemin (`testpaths`) pour la régression ; résultat consigné
+dans le rapport de fin de chantier.
+
+### Ce qui reste hors périmètre
+
+A-8/`DecisionExplainer`, G-3 (Centers autres qu'Operations et Mission),
+G-16/G-17/G-20/G-21/G-25/G-43/G-44, #24, G-45 (explicitement non traité,
+découvert pendant T-28) — hors trajectoire par construction de ce
+chantier. `verification_chat_tools` côté chat n'a pas de consommateur
+frontend et n'a pas été touché : le contrat Chat/Cowork (T-28) place
+cette famille sur le contrat Mission/Cowork, pas Chat. Cowork n'a
+toujours pas de Center propre — Mission Center reste la seule surface
+démontrée pour cette preuve.
+
 ## HOS-298 — §15.5 : le routage et la comptabilité physique d'un run avaient déjà leur colonne, jamais leur écran (2026-09-12)
 
 §15.5 (Explainability / Resource visibility / Proofs), premier lot.

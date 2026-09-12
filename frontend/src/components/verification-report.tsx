@@ -73,12 +73,29 @@ const DEFAUTS: Defaut[] = [
 ];
 
 export function VerificationReport({ v }: { v: MissionVerification | null | undefined }) {
-  if (v == null) {
+  // `measured === false` couvre le cas courant — aucun workspace lié — et
+  // celui de HOS-222 — un workspace lié devenu illisible. Les deux sont une
+  // absence de mesure, jamais un succès à 0 fichier : sans ce garde, cette
+  // branche retombait dans le calcul de `contredite` ci-dessous, qui lit
+  // `false` partout quand rien n'a été mesuré, et affichait donc « confirmé
+  // sur le disque : 0 fichier touché » pour une mission jamais comparée.
+  if (v == null || v.measured === false) {
+    const impossible = v?.mesure_impossible === true;
     return (
-      <Bandeau ton="neutre" icone={MinusCircle}>
-        Aucune vérification disque — cette mission n&apos;a pas de workspace lié,
-        il n&apos;y a donc rien à comparer. Une absence de mesure n&apos;est pas un
-        succès.
+      <Bandeau ton={impossible ? "alarme" : "neutre"} icone={impossible ? AlertTriangle : MinusCircle}>
+        {impossible ? (
+          <>
+            Mesure impossible{v?.workspace ? ` sur ${v.workspace}` : ""} : le
+            workspace n&apos;a pas pu être lu entièrement. Ni succès ni échec ne
+            peuvent être établis à partir du disque.
+          </>
+        ) : (
+          <>
+            Aucune vérification disque — cette mission n&apos;a pas de workspace lié,
+            il n&apos;y a donc rien à comparer. Une absence de mesure n&apos;est pas un
+            succès.
+          </>
+        )}
       </Bandeau>
     );
   }
@@ -153,6 +170,13 @@ function Mesures({ v, touches }: { v: MissionVerification; touches: number }) {
       <Mesure label="Créés" valeur={String(v.created?.length ?? 0)} />
       <Mesure label="Modifiés" valeur={String(v.modified?.length ?? 0)} />
       <Mesure label="Supprimés" valeur={String(v.deleted?.length ?? 0)} />
+      {/* Un fichier illisible d'un côté ou de l'autre n'est ni créé, ni
+          modifié, ni supprimé : le taire reviendrait à le compter comme
+          "rien", alors que "on ne sait pas" est une troisième réponse
+          (HOS-222). */}
+      {(v.indetermines?.length ?? 0) > 0 && (
+        <Mesure label="Indéterminés" valeur={String(v.indetermines?.length)} ton="alarme" />
+      )}
       <Mesure label="Tests" valeur={tests} />
       {v.manifeste?.declares != null && (
         <Mesure

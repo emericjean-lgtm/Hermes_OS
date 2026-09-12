@@ -26,7 +26,7 @@
 | §12 | Plugins / Extensibility | 🟠 | reporté | Hermes Agent |
 | §13 | Voice / Multimodal | ⚪ | reporté | Hermes Agent |
 | §14 | Specialized Studios | ⚪ | observation | multiples |
-| §15 | Frontend ↔ Backend Product Parity / Hermes Assistant | 🟠 | **§15.1 tranché (T-28, option B)** · §15.5 premier lot livré (HOS-298) | ChatGPT ; LM Studio Bionic |
+| §15 | Frontend ↔ Backend Product Parity / Hermes Assistant | 🟠 | **§15.1 tranché (T-28, option B)** · §15.5 lot 2 livré (HOS-299) | ChatGPT ; LM Studio Bionic |
 
 > **§3 et §4 divergent du statut attendu par le cahier de la passe 25.**
 > Celui-ci les annonçait 🟢. L'audit global J25 a mesuré, sur le code au
@@ -1887,6 +1887,7 @@ des capacités **livrées, testées, et sans consommateur produit** :
 | Explication de décision (`DecisionExplainer`) | 3 routes montées | **0 appel** | `CALLED` = non (A-8) |
 | Routage d'un run (`Run.decision`, HOS-242) | déjà servi par `/operations/.../lignee` | Operations Center, lignée du run | `DEMONSTRATED` (§15.5, HOS-298) |
 | Comptabilité physique par run (R-6) | mesurée, jamais servie par `_run_en_dict` | Operations Center, lignée du run | `DEMONSTRATED` (§15.5, HOS-298) |
+| Preuve d'exécution (`mission/verification.py`) | mesurée, persistée sur `mission.metadata["verification"]`, corrélée `mission_id` | Mission Center, `VerificationReport` — câblé depuis HOS-174/177, tri-état `measured`/`mesure_impossible`/`indetermines` corrigé côté écran | `DEMONSTRATED` (§15.5, HOS-299) |
 | Quarantaine / provenance mémoire | 4 champs exposés | **0 affichage** | `ACTUALLY USED` = non (G-3) |
 | Promotion d'un souvenir | route testée depuis HOS-250 | panneau Quarantaine (Memory Center) | `DEMONSTRATED` (G-10 fermé HOS-296) |
 | Points de reprise | `prendre` appelé | aperçu + restauration branchés (HOS-291) | `DEMONSTRATED` (A-3 fermé) |
@@ -2317,7 +2318,7 @@ Cowork moins outillé.
 (fermé HOS-294 — l'asymétrie qu'il décrivait reste ouverte, voir
 ci-dessus), ~~T-28~~ (tranché HOS-297 — option B).
 
-#### §15.5 — Explainability & resource visibility — 🟡 premier lot livré (HOS-298)
+#### §15.5 — Explainability & resource visibility — 🟡 lot 2 livré (HOS-299)
 
 Le « pourquoi ? » — action, modèle, routage, refus —, le contexte
 réellement utilisé, l'état d'exécution, les ressources, le budget, la
@@ -2338,21 +2339,53 @@ attribuable » ou « attribution inconnue ». Aucune route neuve, aucune
 seconde autorité — `_run_en_dict` et `RunWire` complétés, deux composants
 de rendu ajoutés au Center existant. Détail : `CHANGELOG.md` HOS-298.
 
-**Reste dans ce sous-chantier**, non traité par HOS-298 : `DecisionExplainer`
-(A-8, 3 routes montées, 0 appel — aucune décision réelle ne l'alimente
-encore, contrairement à `Run.decision` qui, lui, en a une) ; G-3 pour les
-Centers autres qu'Operations ; la famille **Execution proofs** —
-`mission/verification.py` compare déjà le workspace avant/après et
-persiste son verdict sur `mission.metadata["verification"]` (corrélé par
-`mission_id`), mais brancher un écran dessus suppose d'abord de confirmer
-que le système de mission que `hos_routes.get_mission` sert (`agent.
-supervisor`) est bien celui que `mission/graph_executor.py` alimente —
-non vérifié, diagnostiqué comme sa propre passe.
+**Lot 2 livré le 2026-09-12 (HOS-299).** HOS-298 avait laissé la famille
+**Execution proofs** ouverte en supposant qu'il fallait d'abord confirmer
+si le système de mission que `hos_routes.get_mission` sert est bien celui
+que `mission/graph_executor.py` alimente. Vérifié directement : `hos_routes.py`
+n'est monté par aucun routeur (0 route, `grep` sur `main.py` et
+`bootstrap/*.py`, confirmé aussi sur le schéma OpenAPI du process réel) —
+c'est la façade morte que `ROADMAP_STATE.md` documentait déjà depuis
+HOS-072 sous « dettes acceptées ». Un seul système de mission existe
+réellement, et `mission/verification.py` l'atteignait déjà : `Mission
+Center` (`mission-center.tsx`) consomme `/api/v1/missions/{id}/report`,
+qui sert `mission.metadata["verification"]` posé par `GraphExecutor`
+(injecté par `_make_graph_executor` dans le conteneur DI, donc le vrai
+graphe de production) via `VerificationReport`
+(`verification-report.tsx`) — câblé depuis HOS-174/177, avant même
+HOS-298. Démontré en runtime réel sur le process tournant : une mission
+liée à un workspace fait réellement écrire `hermes-agent` un fichier
+(60,6 s, `qwen3.5` local), `verify()` mesure `created: [proof.txt]`,
+`verdict: "reussi"`, et l'écran affiche « Confirmé sur le disque : 1
+fichier(s) touché(s) ».
 
-**Critère de passage** (tenu pour le lot livré, pas encore pour le
+Ce que le diagnostic a trouvé à la place : le chemin est câblé mais viole
+son propre invariant. `MissionVerification` (le type TS) n'avait ni
+`verdict`, ni `mesure_impossible`, ni `indetermines` — trois champs que le
+backend sert pourtant (confirmé sur `/report` d'une mission réelle) — et
+`VerificationReport` ne testait que `v == null`, pas `measured === false`.
+Résultat mesuré en runtime sur une mission réelle sans workspace lié
+(`measured: false`, `verdict: "indisponible"`) : l'écran affichait
+**« Confirmé sur le disque : 0 fichier(s) touché(s) »**, en vert — le faux
+positif exact que `verification.py` existe pour empêcher, reformulé par
+la couche UI. Corrigé : un garde explicite sur `measured === false`
+distingue « aucun workspace lié » (neutre) de « workspace lié devenu
+illisible » (`mesure_impossible`, alarme, HOS-222), et les fichiers
+indéterminés ont désormais leur propre case dans le relevé plutôt que de
+disparaître dans le silence.
+
+**Reste dans ce sous-chantier**, non traité par HOS-299 : `DecisionExplainer`
+(A-8, 3 routes montées, 0 appel) ; G-3 pour les Centers autres
+qu'Operations ; le reste de la famille Execution proofs hors Mission
+Center — `verification_chat_tools` côté chat, et toute surface autre que
+`mission-center.tsx` (Cowork n'a pas de Center propre aujourd'hui, T-28).
+
+**Critère de passage** (tenu pour les deux lots livrés, pas encore pour le
 sous-chantier entier). Une explication affichée cite la route qui l'a
 produite ; une jauge de ressource n'affiche jamais un chiffre quand la
-mesure sous-jacente est absente.
+mesure sous-jacente est absente ; un tri-état backend (`measured` /
+`mesure_impossible` / `indetermines`) ne se recompresse jamais en booléen
+côté écran.
 
 #### §15.6 — Skills & Memory UX — 🟡 partiellement bloqué
 
@@ -2409,7 +2442,7 @@ trois ; il n'est pas destiné à grossir sans preuve.
 
 | Idée | Pourquoi elle est possible **ici** | Consomme | Où |
 |---|---|---|---|
-| **Réponse vérifiée** — « j'affirme avoir écrit X ; voici la preuve sur disque » | `mission/verification.py` compare le workspace avant/après et émet `mission.unverified`, et `verification_chat_tools` expose déjà deux exécuteurs au chat. La matière existe ; elle n'est pas à l'écran — ce que `ROADMAP.md` §C notait déjà le 2026-08-13. | §1, §2 | §15.5 |
+| **Réponse vérifiée** — « j'affirme avoir écrit X ; voici la preuve sur disque » | `mission/verification.py` compare le workspace avant/après et émet `mission.unverified` ; **à l'écran côté Mission Center depuis HOS-174/177, tri-état corrigé par HOS-299** — reste `verification_chat_tools` côté chat, non traité. | §1, §2 | §15.5 |
 | **Honnêteté de ressource** — « mesuré » / « non mesuré », jamais une jauge inventée | A-15 a rendu `occupation_mesuree` explicite ; R-6 distingue réservation, occupation machine et attribuabilité | §6 | §15.5 |
 | **Lignée d'exécution lisible** — « pourquoi la tentative 1 a échoué » | le Ledger porte `parent`, `tentative`, `motif_de_reprise` depuis HOS-221 ; rien ne les affiche | §2 | §15.4 |
 | **Mémoire à provenance visible** — pourquoi ce souvenir est digne de confiance | `Origine` et `ORIGINES_DE_CONFIANCE` existent ; la promotion n'est possible que par l'API locale | §8 | §15.6 |
